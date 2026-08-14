@@ -38,7 +38,7 @@ and [Bioconda recipe](https://bioconda.github.io/recipes/sniffles/README.html).
 | `QUAL`, `FILTER` | quality and filter evidence |
 | `VAF`, or FORMAT `DV/(DR+DV)` | variant allele fraction |
 | `COVERAGE` | full numeric coverage context plus its arithmetic mean |
-| `STRAND`, `NM` | orientation and mean alignment edit-distance evidence |
+| `STRAND`, `NM` | observed supporting-read strands (`+`, `-` or `+-`) and mean alignment edit-distance evidence |
 | `PRECISE/IMPRECISE`, `STDEV_POS`, `STDEV_LEN` | breakpoint precision evidence |
 
 The source record ID, REF/ALT sequence, read names, VCF sample label and source path are not copied.

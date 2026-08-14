@@ -319,8 +319,8 @@ def _normalize_record(
     if vaf is not None and not 0 <= vaf <= 1:
         raise _RejectedRecord("invalid_vaf")
     strand = _first_value(info.get("STRAND"))
-    if strand is not None and re.fullmatch(r"[+-]{2}", strand) is None:
-        raise _RejectedRecord("malformed_strand_orientation")
+    if strand is not None and strand not in {"+", "-", "+-"}:
+        raise _RejectedRecord("malformed_supporting_read_strands")
     mean_nm = _optional_nonnegative_float(info.get("NM"), reason="malformed_nm")
     position_stdev = _optional_nonnegative_float(
         info.get("STDEV_POS"), reason="malformed_position_standard_deviation"
@@ -357,7 +357,7 @@ def _normalize_record(
                 variant_allele_fraction=vaf,
                 quality=quality,
                 filters=filters,
-                strand_orientation=strand,
+                supporting_read_strands=strand,
                 coverage_context=coverage,
                 mean_alignment_nm=mean_nm,
                 position_standard_deviation=position_stdev,

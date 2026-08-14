@@ -103,7 +103,7 @@ class SnifflesAdapterTests(unittest.TestCase):
             "60",
             "PASS",
             "PRECISE;SVTYPE=DEL;END=1200;SVLEN=-201;SUPPORT=8;"
-            "COVERAGE=10,12,14;STRAND=+-;NM=0.4;STDEV_POS=1.2;STDEV_LEN=0;"
+            "COVERAGE=10,12,14;STRAND=+;NM=0.4;STDEV_POS=1.2;STDEV_LEN=0;"
             "RNAMES=SECRET_READ",
             "GT:GQ:DR:DV",
             "0/1:60:8:8",
@@ -140,7 +140,7 @@ class SnifflesAdapterTests(unittest.TestCase):
             "N]chr2:5000]",
             "45",
             "PASS",
-            "PRECISE;SVTYPE=BND;SUPPORT=7;VAF=0.35;STRAND=++",
+            "PRECISE;SVTYPE=BND;SUPPORT=7;VAF=0.35;STRAND=-",
             "GT:GQ:DR:DV",
             "0/1:40:13:7",
         )
@@ -181,6 +181,7 @@ class SnifflesAdapterTests(unittest.TestCase):
         self.assertEqual(deletion.length_bp, 201)
         self.assertEqual(deletion.evidence[0].variant_allele_fraction, 0.5)
         self.assertEqual(deletion.evidence[0].coverage_context, [10.0, 12.0, 14.0])
+        self.assertEqual(deletion.evidence[0].supporting_read_strands, "+")
         self.assertEqual(deletion.evidence[0].position_standard_deviation, 1.2)
         self.assertEqual(deletion.evidence[0].length_standard_deviation, 0.0)
         self.assertTrue(deletion.evidence[0].precise)

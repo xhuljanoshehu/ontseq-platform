@@ -21,7 +21,8 @@ No entries.
 
 ### Changed
 
-- Extended evidence provenance with strand orientation, coverage context and mean alignment NM.
+- Extended evidence provenance with supporting-read strands, coverage context and mean alignment
+  NM.
 - Connected the aligned-BAM Snakemake DAG to the candidate-only Sniffles2 adapter.
 - Bumped the research software foundation to version 0.3.0.
 

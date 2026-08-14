@@ -241,7 +241,10 @@ class Evidence(StrictModel):
     variant_allele_fraction: float | None = Field(default=None, ge=0, le=1)
     quality: float | None = Field(default=None, ge=0)
     filters: list[str] = Field(default_factory=list)
-    strand_orientation: str | None = Field(default=None, pattern=r"^[+-]{2}$")
+    supporting_read_strands: str | None = Field(
+        default=None,
+        pattern=r"^(?:\+|-|\+-)$",
+    )
     coverage_context: list[Annotated[float, Field(ge=0)]] = Field(default_factory=list)
     mean_alignment_nm: float | None = Field(default=None, ge=0)
     position_standard_deviation: float | None = Field(default=None, ge=0)

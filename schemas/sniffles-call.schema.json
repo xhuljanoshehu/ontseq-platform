@@ -117,19 +117,6 @@
           "default": null,
           "title": "Quality"
         },
-        "strand_orientation": {
-          "anyOf": [
-            {
-              "pattern": "^[+-]{2}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Strand Orientation"
-        },
         "support_reads": {
           "anyOf": [
             {
@@ -142,6 +129,19 @@
           ],
           "default": null,
           "title": "Support Reads"
+        },
+        "supporting_read_strands": {
+          "anyOf": [
+            {
+              "pattern": "^(?:\\+|-|\\+-)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supporting Read Strands"
         },
         "variant_allele_fraction": {
           "anyOf": [
