@@ -69,3 +69,7 @@ Unit tests cover accepted DEL and BND records, VAF fallback, policy rejection, c
 gating, privacy exclusions, `NO_CALL` wording and command construction. CI additionally generates
 a synthetic positive long-read BAM and executes real samtools, Cramino and Sniffles2 binaries.
 Neither BAM nor VCF is uploaded as a CI artifact.
+
+The synthetic contig is 2 Mb because Sniffles2 v2.8.0 skips contigs shorter than 1 Mb unless they
+are explicitly selected or `--all-contigs` is enabled. The smoke test intentionally exercises the
+standard production selection path instead of weakening it with a test-only caller flag.

@@ -19,6 +19,7 @@ class SyntheticSmokeFixtureTests(unittest.TestCase):
         text = synthetic_sam_text()
         records = [line.split("\t") for line in text.splitlines() if not line.startswith("@")]
 
+        self.assertIn("@SQ\tSN:chr1\tLN:2000000", text)
         self.assertEqual(len(records), 24)
         self.assertEqual(sum(fields[5] == "5000M200D5000M" for fields in records), 12)
         self.assertTrue(all(len(fields[9]) >= 10_000 for fields in records))

@@ -64,8 +64,8 @@ def synthetic_sam_text() -> str:
     """Return an identifier-free long-read fixture with a supported 200 bp deletion."""
     lines = [
         "@HD\tVN:1.6\tSO:unsorted",
-        "@SQ\tSN:chr1\tLN:100000",
-        "@SQ\tSN:chr2\tLN:100000",
+        "@SQ\tSN:chr1\tLN:2000000",
+        "@SQ\tSN:chr2\tLN:2000000",
         "@RG\tID:SYNTHETIC_RG\tSM:SYNTHETIC_SMOKE_001\tPL:ONT",
         "@PG\tID:ontseq-smoke\tPN:ontseq-smoke\tVN:0.1",
     ]
@@ -166,7 +166,7 @@ def run_local_smoke(
     command_runner = runner or SubprocessRunner()
     sam_path.write_text(synthetic_sam_text(), encoding="utf-8")
     fai_path.write_text(
-        "chr1\t100000\t0\t0\t0\nchr2\t100000\t0\t0\t0\n",
+        "chr1\t2000000\t0\t0\t0\nchr2\t2000000\t0\t0\t0\n",
         encoding="utf-8",
     )
     _run_checked(
