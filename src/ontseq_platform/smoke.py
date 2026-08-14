@@ -64,8 +64,8 @@ def synthetic_sam_text() -> str:
     """Return an identifier-free long-read fixture with a supported 200 bp deletion."""
     lines = [
         "@HD\tVN:1.6\tSO:unsorted",
-        "@SQ\tSN:chr1\tLN:50000",
-        "@SQ\tSN:chr2\tLN:50000",
+        "@SQ\tSN:chr1\tLN:100000",
+        "@SQ\tSN:chr2\tLN:100000",
         "@RG\tID:SYNTHETIC_RG\tSM:SYNTHETIC_SMOKE_001\tPL:ONT",
         "@PG\tID:ontseq-smoke\tPN:ontseq-smoke\tVN:0.1",
     ]
@@ -73,9 +73,9 @@ def synthetic_sam_text() -> str:
         lines.append(
             _sam_record(
                 f"SYNTH_DEL_{index + 1:03d}",
-                position=4001 + (index % 3),
-                cigar="1000M200D1000M",
-                query_length=2000,
+                position=5001 + (index % 3),
+                cigar="5000M200D5000M",
+                query_length=10000,
                 edit_distance=200,
             )
         )
@@ -83,9 +83,9 @@ def synthetic_sam_text() -> str:
         lines.append(
             _sam_record(
                 f"SYNTH_REF_{index + 1:03d}",
-                position=4001 + (index % 3),
-                cigar="2200M",
-                query_length=2200,
+                position=5001 + (index % 3),
+                cigar="10200M",
+                query_length=10200,
                 edit_distance=0,
             )
         )
@@ -165,7 +165,10 @@ def run_local_smoke(
 
     command_runner = runner or SubprocessRunner()
     sam_path.write_text(synthetic_sam_text(), encoding="utf-8")
-    fai_path.write_text("chr1\t50000\t0\t0\t0\nchr2\t50000\t0\t0\t0\n", encoding="utf-8")
+    fai_path.write_text(
+        "chr1\t100000\t0\t0\t0\nchr2\t100000\t0\t0\t0\n",
+        encoding="utf-8",
+    )
     _run_checked(
         command_runner,
         [samtools, "view", "-b", "-o", str(unsorted_bam), str(sam_path)],
@@ -249,8 +252,8 @@ def run_local_smoke(
         for event in sniffles_report.events
         if event.event_type.value == "deletion"
         and event.primary.chromosome == "chr1"
-        and event.primary.start < 5200
-        and event.primary.end > 5000
+        and event.primary.start < 10200
+        and event.primary.end > 10000
         and event.length_bp is not None
         and 150 <= event.length_bp <= 250
         and event.evidence
