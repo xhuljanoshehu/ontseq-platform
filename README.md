@@ -26,10 +26,11 @@ milestones.
 
 ## Why this repository exists
 
-The architecture is derived from the requirements and evaluation described in Lea Evers'
-2026 master's thesis on automated ONT karyotyping, then extended with data contracts,
-security controls, CI, auditability, Excel output, and a staged clinical-validation plan.
-No source code from the thesis project is copied into this repository.
+The architecture is an independent, evidence-led implementation based on peer-reviewed
+literature, public benchmarks, official tool documentation and explicit intended-use
+requirements. Lea Evers' 2026 master's thesis is retained only as useful local context. It does
+not select algorithms, parameters or reportability thresholds, and no source code from the
+thesis project is copied into this repository.
 
 ## What works now
 
@@ -77,8 +78,8 @@ snakemake --snakefile workflow/Snakefile --configfile workflow/config/demo.yaml 
 1. Input integrity and reference-build validation
 2. Dorado basecalling and Minimap2 alignment when starting from POD5/uBAM
 3. Cramino QC plus coverage and adaptive-sampling target QC
-4. QDNAseq + ACE and independently benchmarked Spectre CNV paths
-5. Sniffles2 + cuteSV SV evidence with NanoSV retained only for research comparison
+4. Benchmark-gated CNV adapters for ichorCNA, QDNAseq + ACE and Spectre
+5. Sniffles2 evidence plus independently evaluated somatic/consensus SV candidates
 6. SnpEff/SvAnna annotation and fusion evidence normalization
 7. Build-aware cytoband mapping and an authorized ISCN 2024 conformance test suite
 8. Human review, signature, immutable release bundle and audit trail
@@ -96,6 +97,7 @@ system. See [Data security](docs/DATA_SECURITY.md).
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Evidence base and tool-selection record](docs/EVIDENCE_BASE.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md)

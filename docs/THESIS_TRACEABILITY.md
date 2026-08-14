@@ -1,8 +1,9 @@
-# Traceability to Lea Evers' master's thesis
+# Historical traceability to Lea Evers' master's thesis
 
 Source reviewed: Lea Evers, master's thesis on automated ONT karyotyping, dated
 14 January 2026. This document records conceptual traceability only; thesis source code is
-not present in this repository.
+not present in this repository. It is not a requirements document, evidence hierarchy or tool
+selection record. Current decisions are maintained in `docs/EVIDENCE_BASE.md`.
 
 | Thesis requirement or result | Repository response | Status |
 | --- | --- | --- |
@@ -11,9 +12,9 @@ not present in this repository.
 | Fully automated cellularity selection | ACE penalty represented and alternative fits retained | Profile ready; validation pending |
 | Modular method comparison | Adapter boundary and modular Snakemake layout | Foundation implemented |
 | Cramino quality metrics | Versioned QC contract | Model implemented; adapter pending |
-| QDNAseq + ACE CNV | Primary lcWGS CNV profile with 100/500/1000 kb bins | Profile implemented; rules pending |
-| Spectre comparison | Comparator marked benchmark-only | Profile implemented; rules pending |
-| Sniffles2, cuteSV and NanoSV | Primary, secondary and research-comparator roles | Profile implemented; adapters pending |
+| QDNAseq + ACE CNV | Candidate lcWGS adapter with 100/500/1000 kb bins | Benchmark pending |
+| Spectre comparison | Candidate ONT CNV adapter | Benchmark pending |
+| Sniffles2, cuteSV and NanoSV | Historical SV candidate set | Reassessment pending |
 | SnpEff/SvAnna annotation | Planned adapter and normalized fusion evidence | Contract ready |
 | Adaptive-sampling fusion BED | Versioned BED required in manifest | Implemented |
 | Cytoband merging | Build-aware service boundary | Planned |

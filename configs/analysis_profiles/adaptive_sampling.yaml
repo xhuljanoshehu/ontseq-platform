@@ -19,9 +19,8 @@ modules:
     reason: adaptive_sampling_coverage_bias_requires_validation
   sv:
     region_scope: buffered_target_bed
-    primary: sniffles2
-    secondary: cutesv
-    research_comparator: nanosv
+    selection_status: benchmark_required
+    candidates: [sniffles2, cutesv, savana, severus]
     consensus_policy: retain_all_with_evidence_tier
   fusion:
     source: normalized_sv_breakends
@@ -32,5 +31,7 @@ modules:
   report:
     formats: [json, html, xlsx]
 limitations:
-  - The thesis evaluation included only five adaptive-sampling samples without robust SV ground truth.
+  - Candidate callers have different germline, tumor-only and tumor-normal assumptions.
+  - Breakpoints outside the locked target design can be unobservable and require a no-call state.
+  - Tumor or blast fraction and per-partner coverage are mandatory reportability inputs.
   - Caller agreement must not be treated as proof of biological truth.

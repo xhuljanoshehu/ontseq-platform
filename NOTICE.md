@@ -1,7 +1,9 @@
 # Provenance and intellectual-property notice
 
-This repository is an independently created software scaffold based on publicly described
-workflow concepts and the requirements discussed in Lea Evers' 2026 master's thesis.
+This repository is an independently created software scaffold based on public scientific
+literature, official tool documentation, validation guidance and locally defined intended-use
+requirements. Lea Evers' 2026 master's thesis is retained as one contextual source, not as the
+technical specification or preferred implementation.
 
 It does **not** contain or reproduce source code from the thesis repository. Before any
 existing institutional pipeline code is imported, ownership, license, contributor consent,

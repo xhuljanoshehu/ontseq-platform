@@ -17,10 +17,13 @@ Validation must be stratified; an aggregate accuracy number is insufficient.
 | SV | deletion, duplication, inversion, insertion, translocation/BND |
 | Fusion | each clinically intended fusion class and breakpoint coverage pattern |
 | Sample | fresh, archived, purity/cellularity range, coverage range, DNA quality range |
+| Input path | aligned BAM, uBAM and POD5-to-report independently |
+| Reportability | positive, negative, equivocal and no-call outcomes |
 
 ## Required studies
 
-1. **Reference truth set:** orthogonally characterized positives and negatives.
+1. **Reference truth sets:** public HG002/HG008 material for transferable technical behavior,
+   followed by orthogonally characterized AML positives and negatives for intended use.
 2. **Accuracy:** sensitivity, specificity, precision, false-positive burden and no-call rate.
 3. **Limit of detection:** cellularity/VAF, coverage and supporting-read thresholds per event
    class.
@@ -31,6 +34,8 @@ Validation must be stratified; an aggregate accuracy number is insufficient.
 7. **Software regression:** locked fixtures for every validated event and every known failure.
 8. **ISCN verification:** authorized reference examples, parser/renderer round trip, ambiguity
    handling and expert sign-off.
+9. **Coverage and purity:** predefined whole-genome, per-target and breakpoint coverage gates,
+   plus tumor/blast-fraction dilution studies with explicit no-call thresholds.
 
 ## Orthogonal comparators
 
@@ -49,5 +54,9 @@ A release candidate must provide:
 - acceptance criteria for every QC and reportability gate;
 - two-person review for changes that can alter biological output;
 - rollback, incident-response and post-release monitoring procedures.
+
+Acceptance criteria, truth definitions, dataset versions and exclusions must be locked before
+caller comparison. Public cancer benchmarks are useful engineering controls, but do not replace
+validation in the intended AML specimens and workflow.
 
 `PASS` from a caller or QC module is not equivalent to clinical validity.
