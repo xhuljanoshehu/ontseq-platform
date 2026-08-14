@@ -9,9 +9,12 @@ from ontseq_platform.models import (
     BenchmarkCase,
     BenchmarkReport,
     CraminoQCReport,
+    LocalSmokeReport,
     PipelineResult,
     ReferenceLock,
     SampleManifest,
+    SnifflesCallReport,
+    SnifflesPolicy,
 )
 
 
@@ -35,6 +38,18 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/cramino-qc.schema.json"): json.dumps(
             CraminoQCReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/sniffles-policy.schema.json"): json.dumps(
+            SnifflesPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/sniffles-call.schema.json"): json.dumps(
+            SnifflesCallReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/local-smoke.schema.json"): json.dumps(
+            LocalSmokeReport.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
         Path("schemas/benchmark-case.schema.json"): json.dumps(

@@ -1,15 +1,19 @@
 manifest: examples/manifests/aligned_bam.example.yaml
 reference_lock: examples/references/synthetic.reference-lock.yaml
 qc_policy: configs/qc/defaults.yaml
+sniffles_policy: configs/sv/sniffles2.conservative.technical.yaml
 output_dir: results/aligned-bam-mvp
 threads: 4
 git_commit: UNKNOWN
 tools:
   samtools: samtools
   cramino: cramino
+  sniffles: sniffles
 outputs:
   intake: results/aligned-bam-mvp/SYNTHETIC_001.intake.json
   qc: results/aligned-bam-mvp/SYNTHETIC_001.qc.json
+  sniffles_vcf: results/aligned-bam-mvp/SYNTHETIC_001.sniffles.vcf
+  sniffles: results/aligned-bam-mvp/SYNTHETIC_001.sniffles.json
   result: results/aligned-bam-mvp/SYNTHETIC_001.result.json
   html: results/aligned-bam-mvp/SYNTHETIC_001.report.html
   xlsx: results/aligned-bam-mvp/SYNTHETIC_001.results.xlsx

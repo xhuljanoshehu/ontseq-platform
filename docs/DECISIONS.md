@@ -58,3 +58,16 @@ truth label.
 **Initial candidates:** Compare ichorCNA, QDNAseq + ACE and Spectre for copy number; compare
 Sniffles2 with at least one cancer-aware or independent long-read SV method. Evaluate SAVANA and
 Severus only in data regimes matching their assumptions. See `docs/EVIDENCE_BASE.md`.
+
+## ADR-007: Integrate Sniffles2 first as conservative candidate evidence
+
+**Decision:** Pin Sniffles2 v2.8.0 in the executable environment and normalize its PASS records,
+but force every event to `unclassified`, `reportable: false` under the technical policy.
+
+**Reason:** Sniffles2 has strong primary evidence and a stable long-read VCF interface, making it
+useful for exercising the complete adapter and reporting boundary. Published cross-platform
+performance does not constitute AML, tumor-only, low-coverage or adaptive-sampling validation.
+
+**Privacy and interpretation constraints:** Request symbolic alleles, never request read-name
+output, count rejected records, map an empty accepted set to `NO_CALL`, and never infer a fusion or
+ISCN assertion directly from a BND record.

@@ -47,3 +47,32 @@ jobs:
           name: synthetic-report-bundle
           path: results/demo/
           if-no-files-found: error
+
+  local-real-tool-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/aligned_bam.yaml
+          cache-environment: true
+          post-cleanup: all
+      - name: Run synthetic BAM through real local tools
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform local-smoke
+          --output-dir results/local-smoke
+          --git-commit "$GITHUB_SHA"
+      - name: Upload synthetic reviewer artifacts (no BAM or VCF)
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-real-tool-smoke
+          path: |
+            results/local-smoke/local-smoke.report.json
+            results/local-smoke/SYNTHETIC_SMOKE_001.result.json
+            results/local-smoke/SYNTHETIC_SMOKE_001.report.html
+            results/local-smoke/SYNTHETIC_SMOKE_001.results.xlsx
+            results/local-smoke/synthetic.intake.json
+            results/local-smoke/synthetic.qc.json
+            results/local-smoke/synthetic.sniffles.json
+          if-no-files-found: error

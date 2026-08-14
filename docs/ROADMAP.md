@@ -13,10 +13,12 @@
 - [ ] Freeze intended use, assay modes, truth definitions and acceptance criteria
 - [x] Implement a normalized Cramino adapter from its official JSON interface
 - [ ] Implement benchmarked CNV, SV and annotation adapters from official interfaces
+- [x] Implement candidate-only Sniffles2 v2.8.0 adapter from its official CLI/VCF interfaces
 - [x] BAM/BAI integrity, sort order, read-group and genome-build checks
 - [x] Versioned reference lock generated from the exact FASTA index
 - [ ] Versioned cytoband resource manager
 - [ ] Normalize raw caller outputs into the event schema
+- [x] Normalize Sniffles2 DEL/DUP/INV/INS/BND evidence into the event schema
 - [x] Record per-module `COMPLETED`, `NOT_RUN`, `FAILED` and `NO_CALL` outcomes
 - [ ] Interactive evidence-tiering review interface
 - [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
@@ -24,6 +26,7 @@
 - [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results
+- [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
 
 ## Milestone 2 - POD5 end-to-end
 

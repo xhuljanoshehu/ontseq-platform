@@ -1,4 +1,4 @@
-.PHONY: install test lint demo schemas safety clean
+.PHONY: install test lint demo local-smoke schemas safety clean
 
 install:
 	python -m pip install -e ".[dev]"
@@ -13,6 +13,9 @@ lint:
 
 demo:
 	python -m ontseq_platform demo --output-dir results/demo
+
+local-smoke:
+	PYTHONPATH=src python -m ontseq_platform local-smoke --output-dir results/local-smoke
 
 schemas:
 	python scripts/export_schemas.py

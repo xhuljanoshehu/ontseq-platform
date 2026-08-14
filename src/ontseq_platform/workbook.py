@@ -89,7 +89,9 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
 
     cnv_segments = workbook.create_sheet("03_CNV_Segments")
     segment_events = [
-        event for event in result.events if event.event_type.value in {"deletion", "duplication"}
+        event
+        for event in result.events
+        if event.event_type.value in {"deletion", "duplication"} and event.copy_number is not None
     ]
     _write_table(
         cnv_segments,
@@ -114,14 +116,25 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
         event
         for event in result.events
         if event.event_type.value in {"inversion", "translocation", "insertion"}
+        or (event.event_type.value in {"deletion", "duplication"} and event.copy_number is None)
     ]
     _write_table(
         sv,
-        ["event_id", "type", "locus_1", "locus_2", "confidence", "evidence"],
+        [
+            "event_id",
+            "type",
+            "length_bp",
+            "locus_1",
+            "locus_2",
+            "confidence",
+            "reportable",
+            "evidence",
+        ],
         [
             [
                 event.event_id,
                 event.event_type.value,
+                event.length_bp,
                 f"{event.primary.chromosome}:{event.primary.start}-{event.primary.end}",
                 ""
                 if not event.secondary
@@ -129,6 +142,7 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
                     f"{event.secondary.chromosome}:{event.secondary.start}-{event.secondary.end}"
                 ),
                 event.confidence,
+                event.reportable,
                 json.dumps([item.model_dump(mode="json") for item in event.evidence]),
             ]
             for event in sv_events

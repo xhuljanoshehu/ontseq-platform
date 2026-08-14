@@ -42,8 +42,11 @@ databases/
 *.fastq.gz
 *.fq
 *.fq.gz
+*.vcf
 *.vcf.gz
 *.vcf.gz.tbi
+*.tbi
+*.csi
 *.bcf
 *.bedmethyl
 *.bigwig

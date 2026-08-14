@@ -75,6 +75,11 @@ Each bioinformatics tool will have an adapter with four responsibilities:
 Adapters never decide clinical reportability on their own. Reportability policy belongs to
 the versioned assay profile and its validation evidence.
 
+The first scientific adapter implements this boundary for Sniffles2: shell-free argument-vector
+execution, explicit version and thresholds, symbolic VCF output without read names, defensive VCF
+normalization and non-reportable candidates. BND evidence remains an SV breakend; fusion and ISCN
+semantics require separate downstream modules.
+
 ## Evidence lifecycle
 
 Each scientific dependency progresses through `candidate -> benchmarked -> validated ->

@@ -1,46 +1,5 @@
 {
   "$defs": {
-    "BenchmarkKind": {
-      "enum": [
-        "cnv",
-        "sv"
-      ],
-      "title": "BenchmarkKind",
-      "type": "string"
-    },
-    "BenchmarkThresholds": {
-      "additionalProperties": false,
-      "properties": {
-        "copy_number_tolerance": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Copy Number Tolerance"
-        },
-        "maximum_breakpoint_distance_bp": {
-          "default": 500,
-          "minimum": 0,
-          "title": "Maximum Breakpoint Distance Bp",
-          "type": "integer"
-        },
-        "minimum_reciprocal_overlap": {
-          "default": 0.5,
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Minimum Reciprocal Overlap",
-          "type": "number"
-        }
-      },
-      "title": "BenchmarkThresholds",
-      "type": "object"
-    },
     "EventType": {
       "enum": [
         "chromosome_gain",
@@ -204,6 +163,34 @@
         "caller_version"
       ],
       "title": "Evidence",
+      "type": "object"
+    },
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
       "type": "object"
     },
     "GenomeBuild": {
@@ -372,27 +359,207 @@
       ],
       "title": "Locus",
       "type": "object"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "SnifflesMode": {
+      "enum": [
+        "germline",
+        "mosaic"
+      ],
+      "title": "SnifflesMode",
+      "type": "string"
+    },
+    "SnifflesPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_sv_types": {
+          "items": {
+            "$ref": "#/$defs/EventType"
+          },
+          "minItems": 1,
+          "title": "Allowed Sv Types",
+          "type": "array"
+        },
+        "expected_version": {
+          "default": "2.8.0",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Expected Version",
+          "type": "string"
+        },
+        "mapq": {
+          "default": 20,
+          "maximum": 60,
+          "minimum": 0,
+          "title": "Mapq",
+          "type": "integer"
+        },
+        "min_support": {
+          "default": 5,
+          "minimum": 1,
+          "title": "Min Support",
+          "type": "integer"
+        },
+        "min_sv_length": {
+          "default": 50,
+          "minimum": 1,
+          "title": "Min Sv Length",
+          "type": "integer"
+        },
+        "minimum_quality": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Quality"
+        },
+        "mode": {
+          "$ref": "#/$defs/SnifflesMode",
+          "default": "germline"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "pass_only": {
+          "const": true,
+          "default": true,
+          "title": "Pass Only",
+          "type": "boolean"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "require_precise": {
+          "default": false,
+          "title": "Require Precise",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "technical_defaults_only",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_id",
+        "status",
+        "note"
+      ],
+      "title": "SnifflesPolicy",
+      "type": "object"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
-    "case_id": {
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
-      "title": "Case Id",
+    "accepted_record_count": {
+      "minimum": 0,
+      "title": "Accepted Record Count",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
       "type": "string"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/GenomicEvent"
+      },
+      "title": "Events",
+      "type": "array"
     },
     "genome_build": {
       "$ref": "#/$defs/GenomeBuild"
     },
-    "kind": {
-      "$ref": "#/$defs/BenchmarkKind"
-    },
-    "query_events": {
+    "limitations": {
       "items": {
-        "$ref": "#/$defs/GenomicEvent"
+        "type": "string"
       },
-      "title": "Query Events",
+      "title": "Limitations",
       "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/SnifflesPolicy"
+    },
+    "raw_record_count": {
+      "minimum": 0,
+      "title": "Raw Record Count",
+      "type": "integer"
+    },
+    "rejected_record_count": {
+      "minimum": 0,
+      "title": "Rejected Record Count",
+      "type": "integer"
+    },
+    "rejection_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Rejection Counts",
+      "type": "object"
     },
     "research_only": {
       "const": true,
@@ -400,50 +567,45 @@
       "title": "Research Only",
       "type": "boolean"
     },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
     "schema_version": {
       "const": "0.1.0",
       "default": "0.1.0",
       "title": "Schema Version",
       "type": "string"
     },
-    "strata": {
-      "additionalProperties": {
-        "anyOf": [
-          {
-            "type": "number"
-          },
-          {
-            "type": "integer"
-          },
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ]
-      },
-      "title": "Strata",
-      "type": "object"
+    "status": {
+      "$ref": "#/$defs/ModuleRunStatus"
     },
-    "thresholds": {
-      "$ref": "#/$defs/BenchmarkThresholds"
+    "tool": {
+      "$ref": "#/$defs/ToolRecord"
     },
-    "truth_events": {
+    "vcf_fingerprint": {
+      "$ref": "#/$defs/FileFingerprint"
+    },
+    "warnings": {
       "items": {
-        "$ref": "#/$defs/GenomicEvent"
+        "type": "string"
       },
-      "title": "Truth Events",
+      "title": "Warnings",
       "type": "array"
     }
   },
   "required": [
-    "case_id",
-    "kind",
+    "sample_id",
     "genome_build",
-    "truth_events",
-    "query_events"
+    "status",
+    "policy",
+    "events",
+    "raw_record_count",
+    "accepted_record_count",
+    "rejected_record_count",
+    "tool",
+    "vcf_fingerprint"
   ],
-  "title": "BenchmarkCase",
+  "title": "SnifflesCallReport",
   "type": "object"
 }

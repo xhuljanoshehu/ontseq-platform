@@ -1,0 +1,21 @@
+schema_version: 0.1.0
+profile_id: sniffles2-conservative-technical-v1
+status: technical_defaults_only
+expected_version: 2.8.0
+mode: germline
+min_support: 5
+min_sv_length: 50
+mapq: 20
+pass_only: true
+minimum_quality: null
+require_precise: false
+allowed_sv_types:
+  - deletion
+  - duplication
+  - inversion
+  - insertion
+  - translocation
+note: >-
+  These are conservative engineering defaults for reproducible research execution only.
+  They are not assay-specific clinical thresholds and require locked validation before use
+  for reportability or a biological negative conclusion.
