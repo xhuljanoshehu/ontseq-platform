@@ -1,0 +1,48 @@
+schema_version: 0.1.0
+case_id: SYNTHETIC_SV_001
+kind: sv
+genome_build: GRCh38
+research_only: true
+strata:
+  assay_mode: adaptive_sampling
+  target_coverage_x: 25.0
+  tumor_fraction: 0.5
+  source: fully_synthetic
+thresholds:
+  minimum_reciprocal_overlap: 0.5
+  maximum_breakpoint_distance_bp: 500
+  copy_number_tolerance: null
+truth_events:
+  - event_id: truth-t8-21
+    event_type: translocation
+    primary:
+      chromosome: chr8
+      start: 92000000
+      end: 92000001
+    secondary:
+      chromosome: chr21
+      start: 36000000
+      end: 36000001
+  - event_id: truth-inv16
+    event_type: inversion
+    primary:
+      chromosome: chr16
+      start: 15000000
+      end: 67000000
+query_events:
+  - event_id: query-t8-21
+    event_type: translocation
+    primary:
+      chromosome: chr21
+      start: 36000120
+      end: 36000121
+    secondary:
+      chromosome: chr8
+      start: 91999900
+      end: 91999901
+  - event_id: query-false-inv3
+    event_type: inversion
+    primary:
+      chromosome: chr3
+      start: 10000000
+      end: 50000000

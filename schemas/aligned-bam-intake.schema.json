@@ -1,0 +1,295 @@
+{
+  "$defs": {
+    "BamHeaderSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "contig_signature_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Contig Signature Sha256",
+          "type": "string"
+        },
+        "program_count": {
+          "minimum": 0,
+          "title": "Program Count",
+          "type": "integer"
+        },
+        "read_group_count": {
+          "minimum": 0,
+          "title": "Read Group Count",
+          "type": "integer"
+        },
+        "sample_tag_count": {
+          "minimum": 0,
+          "title": "Sample Tag Count",
+          "type": "integer"
+        },
+        "sequence_count": {
+          "minimum": 0,
+          "title": "Sequence Count",
+          "type": "integer"
+        },
+        "sort_order": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sort Order"
+        },
+        "total_reference_bases": {
+          "minimum": 0,
+          "title": "Total Reference Bases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence_count",
+        "total_reference_bases",
+        "contig_signature_sha256",
+        "read_group_count",
+        "sample_tag_count",
+        "program_count"
+      ],
+      "title": "BamHeaderSummary",
+      "type": "object"
+    },
+    "CheckStatus": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "FAIL"
+      ],
+      "title": "CheckStatus",
+      "type": "string"
+    },
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
+    },
+    "ValidationCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckStatus"
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "message"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "FAIL",
+        "NOT_RUN"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/ValidationCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "header": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BamHeaderSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "index_fingerprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "input_fingerprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "reference_id": {
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict"
+    }
+  },
+  "required": [
+    "sample_id",
+    "reference_id",
+    "genome_build",
+    "checks",
+    "verdict"
+  ],
+  "title": "AlignedBamIntakeReport",
+  "type": "object"
+}

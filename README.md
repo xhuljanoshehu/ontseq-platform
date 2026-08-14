@@ -24,6 +24,10 @@ Bioinformatics tools are represented by versioned interfaces and analysis profil
 validated production rules will be integrated from approved pipeline source code in later
 milestones.
 
+The aligned-BAM MVP now adds executable BAM/BAI/reference gates, normalized Cramino QC, explicit
+module outcomes and deterministic synthetic CNV/SV benchmarks. Scientific callers remain
+disabled until their assay-specific benchmark gates pass.
+
 ## Why this repository exists
 
 The architecture is an independent, evidence-led implementation based on peer-reviewed
@@ -55,11 +59,23 @@ ontseq validate-result results/demo/SYNTHETIC_AML_001.result.json
 ontseq render results/demo/SYNTHETIC_AML_001.result.json --output-dir results/rerendered
 ```
 
-Optional Snakemake demo after installing Snakemake:
+Optional Snakemake workflows after installing the workflow extra:
 
 ```bash
+python -m pip install -e ".[dev,workflow]"
 snakemake --snakefile workflow/Snakefile --configfile workflow/config/demo.yaml --cores 1
 ```
+
+Run the safe synthetic benchmark fixtures:
+
+```bash
+ontseq benchmark examples/benchmarks/synthetic_cnv.yaml \
+  --output results/benchmarks/SYNTHETIC_CNV_001.benchmark.json
+ontseq benchmark examples/benchmarks/synthetic_sv.yaml \
+  --output results/benchmarks/SYNTHETIC_SV_001.benchmark.json
+```
+
+For a real on-premises aligned BAM, follow the [aligned-BAM MVP guide](docs/ALIGNED_BAM_MVP.md).
 
 ## Repository map
 
@@ -98,6 +114,8 @@ system. See [Data security](docs/DATA_SECURITY.md).
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Evidence base and tool-selection record](docs/EVIDENCE_BASE.md)
+- [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
+- [Benchmarking](docs/BENCHMARKING.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md)
@@ -106,6 +124,6 @@ system. See [Data security](docs/DATA_SECURITY.md).
 
 ## Project status and license
 
-Version `0.1.0` is a testable repository foundation, not a finished diagnostic pipeline.
+Version `0.2.0` is a testable research foundation, not a finished diagnostic pipeline.
 No open-source license has been assigned. Keep the repository private until intellectual
 property, institutional governance and intended medical-device use have been reviewed.

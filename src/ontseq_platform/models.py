@@ -45,6 +45,24 @@ class Verdict(StrEnum):
     NOT_RUN = "NOT_RUN"
 
 
+class CheckStatus(StrEnum):
+    PASS = "PASS"
+    WARN = "WARN"
+    FAIL = "FAIL"
+
+
+class ModuleRunStatus(StrEnum):
+    COMPLETED = "COMPLETED"
+    NOT_RUN = "NOT_RUN"
+    FAILED = "FAILED"
+    NO_CALL = "NO_CALL"
+
+
+class BenchmarkKind(StrEnum):
+    CNV = "cnv"
+    SV = "sv"
+
+
 class EventType(StrEnum):
     CHROMOSOME_GAIN = "chromosome_gain"
     CHROMOSOME_LOSS = "chromosome_loss"
@@ -119,11 +137,40 @@ class SampleManifest(StrictModel):
     privacy: PrivacySpec = Field(default_factory=PrivacySpec)
 
 
+class ReferenceContig(StrictModel):
+    name: str = Field(min_length=1)
+    length: int = Field(gt=0)
+
+
+class ReferenceLock(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    reference_id: str = Field(min_length=1)
+    genome_build: GenomeBuild
+    contigs: list[ReferenceContig] = Field(min_length=1)
+    allow_extra_contigs: bool = False
+    source_fai_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def contig_names_are_unique(self) -> ReferenceLock:
+        names = [item.name for item in self.contigs]
+        if len(names) != len(set(names)):
+            raise ValueError("reference lock contains duplicate contig names")
+        return self
+
+
 class QCMetrics(StrictModel):
     verdict: Verdict
     metrics: dict[str, float | int | str | None]
     warnings: list[str] = Field(default_factory=list)
     failed_gates: list[str] = Field(default_factory=list)
+
+
+class QCPolicy(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    status: Literal["technical_defaults_only", "validated"]
+    hard_failures: list[str] = Field(default_factory=list)
+    numeric_gates: dict[str, float | int | None] = Field(default_factory=dict)
+    note: str
 
 
 class Locus(StrictModel):
@@ -170,6 +217,57 @@ class GenomicEvent(StrictModel):
         return self
 
 
+class BenchmarkThresholds(StrictModel):
+    minimum_reciprocal_overlap: float = Field(default=0.5, ge=0, le=1)
+    maximum_breakpoint_distance_bp: int = Field(default=500, ge=0)
+    copy_number_tolerance: float | None = Field(default=None, ge=0)
+
+
+class BenchmarkCase(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
+    kind: BenchmarkKind
+    genome_build: GenomeBuild
+    truth_events: list[GenomicEvent]
+    query_events: list[GenomicEvent]
+    thresholds: BenchmarkThresholds = Field(default_factory=BenchmarkThresholds)
+    strata: dict[str, float | int | str | None] = Field(default_factory=dict)
+    research_only: Literal[True] = True
+
+
+class BenchmarkMatch(StrictModel):
+    truth_event_id: str
+    query_event_id: str
+    score: float = Field(ge=0, le=1)
+    reciprocal_overlap: float | None = Field(default=None, ge=0, le=1)
+    maximum_breakpoint_distance_bp: int | None = Field(default=None, ge=0)
+
+
+class BenchmarkMetrics(StrictModel):
+    true_positive: int = Field(ge=0)
+    false_positive: int = Field(ge=0)
+    false_negative: int = Field(ge=0)
+    precision: float | None = Field(default=None, ge=0, le=1)
+    recall: float | None = Field(default=None, ge=0, le=1)
+    f1: float | None = Field(default=None, ge=0, le=1)
+
+
+class BenchmarkReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    case_id: str
+    kind: BenchmarkKind
+    genome_build: GenomeBuild
+    thresholds: BenchmarkThresholds
+    strata: dict[str, float | int | str | None]
+    metrics: BenchmarkMetrics
+    matches: list[BenchmarkMatch]
+    unmatched_truth_event_ids: list[str]
+    unmatched_query_event_ids: list[str]
+    warnings: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class ISCNProposal(StrictModel):
     notation: str
     standard_edition: Literal["ISCN 2024"] = "ISCN 2024"
@@ -184,6 +282,59 @@ class ToolRecord(StrictModel):
     version: str
     parameters: dict[str, Any] = Field(default_factory=dict)
     container_digest: str | None = None
+
+
+class FileFingerprint(StrictModel):
+    size_bytes: int = Field(ge=0)
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class ValidationCheck(StrictModel):
+    name: str = Field(min_length=1)
+    status: CheckStatus
+    message: str = Field(min_length=1)
+    details: dict[str, int | float | str | bool | None] = Field(default_factory=dict)
+
+
+class BamHeaderSummary(StrictModel):
+    sort_order: str | None = None
+    sequence_count: int = Field(ge=0)
+    total_reference_bases: int = Field(ge=0)
+    contig_signature_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    read_group_count: int = Field(ge=0)
+    sample_tag_count: int = Field(ge=0)
+    program_count: int = Field(ge=0)
+
+
+class AlignedBamIntakeReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    reference_id: str
+    genome_build: GenomeBuild
+    input_fingerprint: FileFingerprint | None = None
+    index_fingerprint: FileFingerprint | None = None
+    header: BamHeaderSummary | None = None
+    checks: list[ValidationCheck]
+    verdict: Verdict
+    tool: ToolRecord | None = None
+    limitations: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CraminoQCReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    qc: QCMetrics
+    tool: ToolRecord
+    limitations: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ModuleOutcome(StrictModel):
+    module: AnalysisModule
+    status: ModuleRunStatus
+    reason: str
+    tools: list[ToolRecord] = Field(default_factory=list)
 
 
 class Provenance(StrictModel):
@@ -201,6 +352,7 @@ class PipelineResult(StrictModel):
     events: list[GenomicEvent]
     iscn: ISCNProposal
     provenance: Provenance
+    modules: list[ModuleOutcome] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     release_status: ReviewStatus = ReviewStatus.REVIEW_REQUIRED
 

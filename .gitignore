@@ -26,6 +26,9 @@ resource_readiness/
 # References and databases are provisioned outside Git
 references/
 databases/
+!examples/references/
+!examples/references/synthetic.fai
+!examples/references/synthetic.reference-lock.yaml
 
 # Genomic and potentially identifying data must never be committed
 *.bam

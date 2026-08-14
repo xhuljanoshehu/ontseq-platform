@@ -4,7 +4,15 @@ import argparse
 import json
 from pathlib import Path
 
-from ontseq_platform.models import PipelineResult, SampleManifest
+from ontseq_platform.models import (
+    AlignedBamIntakeReport,
+    BenchmarkCase,
+    BenchmarkReport,
+    CraminoQCReport,
+    PipelineResult,
+    ReferenceLock,
+    SampleManifest,
+)
 
 
 def _render() -> dict[Path, str]:
@@ -15,6 +23,26 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/pipeline-result.schema.json"): json.dumps(
             PipelineResult.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/reference-lock.schema.json"): json.dumps(
+            ReferenceLock.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/aligned-bam-intake.schema.json"): json.dumps(
+            AlignedBamIntakeReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cramino-qc.schema.json"): json.dumps(
+            CraminoQCReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/benchmark-case.schema.json"): json.dumps(
+            BenchmarkCase.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/benchmark-report.schema.json"): json.dumps(
+            BenchmarkReport.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
     }

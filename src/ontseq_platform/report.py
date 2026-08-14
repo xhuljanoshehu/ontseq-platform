@@ -30,13 +30,28 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
             f"<td>{_cell(evidence)}</td>"
             "</tr>"
         )
+    if not event_rows:
+        event_rows.append(
+            "<tr><td colspan='7'>No events were produced. Review module status; this is not "
+            "a biological negative result.</td></tr>"
+        )
 
     metric_cards = "".join(
         f"<div class='card'><span>{_cell(key.replace('_', ' ').title())}</span>"
         f"<strong>{_cell(value)}</strong></div>"
         for key, value in result.qc.metrics.items()
     )
-    warnings = "".join(f"<li>{_cell(item)}</li>" for item in result.warnings + result.iscn.warnings)
+    warnings = "".join(
+        f"<li>{_cell(item)}</li>"
+        for item in result.warnings + result.qc.warnings + result.iscn.warnings
+    )
+    module_rows = "".join(
+        f"<tr><td>{_cell(module.module.value)}</td><td>{_cell(module.status.value)}</td>"
+        f"<td>{_cell(module.reason)}</td></tr>"
+        for module in result.modules
+    )
+    if not module_rows:
+        module_rows = "<tr><td colspan='3'>No module outcomes were recorded.</td></tr>"
     tool_rows = "".join(
         f"<tr><td>{_cell(tool.name)}</td><td>{_cell(tool.version)}</td>"
         f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
@@ -90,6 +105,8 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       <div class="card"><span>Pipeline</span>
         <strong>{_cell(result.provenance.pipeline_version)}</strong></div>
     </div>
+    <section><h2>Module status</h2><table><thead><tr><th>Module</th><th>Status</th>
+      <th>Reason</th></tr></thead><tbody>{module_rows}</tbody></table></section>
     <section><h2>Proposed ISCN notation</h2><div class="iscn">{_cell(result.iscn.notation)}</div>
       <p>{_cell(result.iscn.standard_edition)} | {_cell(result.iscn.conformance_profile)} |
       {_cell(result.iscn.review_status.value)}</p></section>

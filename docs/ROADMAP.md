@@ -1,6 +1,6 @@
 # Roadmap
 
-## Milestone 0 - repository foundation (current)
+## Milestone 0 - repository foundation
 
 - [x] Typed sample manifest and result contracts
 - [x] Synthetic end-to-end JSON/HTML/XLSX demo
@@ -11,11 +11,15 @@
 ## Milestone 1 - aligned BAM MVP
 
 - [ ] Freeze intended use, assay modes, truth definitions and acceptance criteria
-- [ ] Implement Cramino, coverage, CNV, SV and annotation adapters from official interfaces
-- [ ] BAM/BAI integrity, sort order, read-group and genome-build checks
-- [ ] Versioned cytoband and reference resource manager
+- [x] Implement a normalized Cramino adapter from its official JSON interface
+- [ ] Implement benchmarked CNV, SV and annotation adapters from official interfaces
+- [x] BAM/BAI integrity, sort order, read-group and genome-build checks
+- [x] Versioned reference lock generated from the exact FASTA index
+- [ ] Versioned cytoband resource manager
 - [ ] Normalize raw caller outputs into the event schema
-- [ ] Evidence-tiering review interface
+- [x] Record per-module `COMPLETED`, `NOT_RUN`, `FAILED` and `NO_CALL` outcomes
+- [ ] Interactive evidence-tiering review interface
+- [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
 - [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
 - [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
