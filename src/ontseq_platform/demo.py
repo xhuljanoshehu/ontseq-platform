@@ -151,7 +151,7 @@ def build_demo_result() -> PipelineResult:
         events=events,
         iscn=proposal,
         provenance=Provenance(
-            pipeline_version="0.2.0",
+            pipeline_version="0.3.0",
             git_commit="UNCOMMITTED-DEMO",
             tools=[
                 ToolRecord(name="Cramino", version="demo"),

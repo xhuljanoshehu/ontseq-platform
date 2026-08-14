@@ -59,6 +59,17 @@ Evidence level describes applicability to this project, not general publication 
 | Hastings, Moore and Chia, [ISCN 2024](https://karger.com/books/book/6011/ISCN-2024An-International-System-for-Human) and [2026 erratum](https://doi.org/10.1159/000549238) | D | Current controlled nomenclature reference plus published corrections. | Copyrighted standard requires authorized access; coordinate conversion alone cannot establish semantic validity. | Emit only a traceable `ISCN_PROPOSAL`; validate with authorized cases, current errata and cytogenetic expert review. |
 | Snakemake, [deployment documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/deployment.html) | D | Official guidance for standardized workflow layout, environments, containers, testing and archival. | Supports reproducible engineering but does not validate scientific algorithms. | Keep Snakemake initially while making all adapters and result contracts workflow-engine neutral. |
 
+## Locked implementation interfaces
+
+| Dependency | Locked interface | Safety-relevant decision |
+| --- | --- | --- |
+| Sniffles2 | v2.8.0; official [CLI source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/config.py), [VCF source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/vcf.py) and [Bioconda recipe](https://bioconda.github.io/recipes/sniffles/README.html) | Explicit support/size/MAPQ parameters; symbolic candidates with PASS-only normalization; no read-name output; unvalidated candidates only. |
+| samtools | v1.24 in `workflow/envs/aligned_bam.yaml` | Fail-closed quickcheck/header/dictionary/index gate before a scientific caller. |
+| Cramino | v1.3.0 in `workflow/envs/aligned_bam.yaml` | Normalize aggregate QC only; do not copy source path or read-level data. |
+
+An interface lock establishes reproducible execution, not analytical validity. Patch and minor
+upgrades that can alter normalized events require regression results and validation-impact review.
+
 ## Working conclusions
 
 ### Assay lanes

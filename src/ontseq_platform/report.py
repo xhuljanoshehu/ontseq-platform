@@ -19,20 +19,29 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
             f"{item.caller} {item.caller_version} (support={item.support_reads})"
             for item in event.evidence
         )
+        primary_locus = f"{event.primary.chromosome}:{event.primary.start}-{event.primary.end}"
+        secondary_locus = (
+            ""
+            if event.secondary is None
+            else f"{event.secondary.chromosome}:{event.secondary.start}-{event.secondary.end}"
+        )
         event_rows.append(
             "<tr>"
             f"<td>{_cell(event.event_id)}</td>"
             f"<td>{_cell(event.event_type.value)}</td>"
-            f"<td>{_cell(event.primary.chromosome)}</td>"
+            f"<td>{_cell(event.length_bp)}</td>"
+            f"<td>{_cell(primary_locus)}</td>"
+            f"<td>{_cell(secondary_locus)}</td>"
             f"<td>{_cell(event.primary.cytoband_start)}</td>"
             f"<td>{_cell(', '.join(event.genes))}</td>"
             f"<td>{_cell(event.confidence)}</td>"
+            f"<td>{_cell(event.reportable)}</td>"
             f"<td>{_cell(evidence)}</td>"
             "</tr>"
         )
     if not event_rows:
         event_rows.append(
-            "<tr><td colspan='7'>No events were produced. Review module status; this is not "
+            "<tr><td colspan='10'>No events were produced. Review module status; this is not "
             "a biological negative result.</td></tr>"
         )
 
@@ -111,8 +120,9 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       <p>{_cell(result.iscn.standard_edition)} | {_cell(result.iscn.conformance_profile)} |
       {_cell(result.iscn.review_status.value)}</p></section>
     <section><h2>Quality control</h2><div class="grid">{metric_cards}</div></section>
-    <section><h2>Genomic events</h2><table><thead><tr><th>ID</th><th>Type</th><th>Chr</th>
-      <th>Band</th><th>Genes</th><th>Confidence</th><th>Evidence</th></tr></thead>
+    <section><h2>Genomic events</h2><table><thead><tr><th>ID</th><th>Type</th>
+      <th>Length (bp)</th><th>Locus 1</th><th>Locus 2</th><th>Band</th><th>Genes</th>
+      <th>Confidence</th><th>Reportable</th><th>Evidence</th></tr></thead>
       <tbody>{"".join(event_rows)}</tbody></table></section>
     <section><h2>Warnings and limitations</h2><ul class="warn">{warnings}</ul></section>
     <section><h2>Methods and versions</h2><table><thead><tr><th>Tool</th><th>Version</th>

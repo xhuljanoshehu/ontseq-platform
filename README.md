@@ -19,14 +19,10 @@ Dieses Repository ist die belastbare technische Grundlage für die spätere Soft
 - ein nachvollziehbarer **ISCN-Vorschlag**, niemals eine automatische klinische Freigabe;
 - keine Patienten- oder Genomdaten in GitHub.
 
-The current milestone implements the contracts and reporting layer with synthetic data.
-Bioinformatics tools are represented by versioned interfaces and analysis profiles; the
-validated production rules will be integrated from approved pipeline source code in later
-milestones.
-
-The aligned-BAM MVP now adds executable BAM/BAI/reference gates, normalized Cramino QC, explicit
-module outcomes and deterministic synthetic CNV/SV benchmarks. Scientific callers remain
-disabled until their assay-specific benchmark gates pass.
+The current milestone includes executable BAM/BAI/reference gates, normalized Cramino QC and a
+typed Sniffles2 v2.8.0 adapter. Accepted Sniffles2 output is retained only as non-reportable candidate
+evidence until assay-specific benchmarks pass. CNV, fusion interpretation and ISCN generation
+remain disabled in the aligned-BAM path.
 
 ## Why this repository exists
 
@@ -50,6 +46,18 @@ This creates:
 - `SYNTHETIC_AML_001.results.xlsx`
 
 All demo values and coordinates are synthetic and must not be interpreted biologically.
+
+Exercise the complete local tool boundary with generated synthetic alignments:
+
+```bash
+micromamba create -f workflow/envs/aligned_bam.yaml
+micromamba run -n ontseq-aligned-bam env PYTHONPATH=src \
+  python -m ontseq_platform local-smoke --output-dir results/local-smoke
+```
+
+This runs real `samtools`, Cramino and Sniffles2 executables and creates JSON, HTML and Excel
+reviewer artifacts. It deliberately exports neither read names nor inserted sequences. A passing
+smoke test proves wiring and normalization only; it does not validate clinical performance.
 
 Validate inputs or render an existing result contract:
 
@@ -95,7 +103,7 @@ For a real on-premises aligned BAM, follow the [aligned-BAM MVP guide](docs/ALIG
 2. Dorado basecalling and Minimap2 alignment when starting from POD5/uBAM
 3. Cramino QC plus coverage and adaptive-sampling target QC
 4. Benchmark-gated CNV adapters for ichorCNA, QDNAseq + ACE and Spectre
-5. Sniffles2 evidence plus independently evaluated somatic/consensus SV candidates
+5. Sniffles2 candidate evidence plus independently evaluated somatic/consensus SV candidates
 6. SnpEff/SvAnna annotation and fusion evidence normalization
 7. Build-aware cytoband mapping and an authorized ISCN 2024 conformance test suite
 8. Human review, signature, immutable release bundle and audit trail
@@ -115,6 +123,7 @@ system. See [Data security](docs/DATA_SECURITY.md).
 - [Architecture](docs/ARCHITECTURE.md)
 - [Evidence base and tool-selection record](docs/EVIDENCE_BASE.md)
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
+- [Sniffles2 candidate adapter](docs/SNIFFLES2_ADAPTER.md)
 - [Benchmarking](docs/BENCHMARKING.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
@@ -124,6 +133,6 @@ system. See [Data security](docs/DATA_SECURITY.md).
 
 ## Project status and license
 
-Version `0.2.0` is a testable research foundation, not a finished diagnostic pipeline.
+Version `0.3.0` is a testable research foundation, not a finished diagnostic pipeline.
 No open-source license has been assigned. Keep the repository private until intellectual
 property, institutional governance and intended medical-device use have been reviewed.

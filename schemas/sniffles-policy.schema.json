@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "SnifflesMode": {
+      "enum": [
+        "germline",
+        "mosaic"
+      ],
+      "title": "SnifflesMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_sv_types": {
+      "items": {
+        "$ref": "#/$defs/EventType"
+      },
+      "minItems": 1,
+      "title": "Allowed Sv Types",
+      "type": "array"
+    },
+    "expected_version": {
+      "default": "2.8.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Expected Version",
+      "type": "string"
+    },
+    "mapq": {
+      "default": 20,
+      "maximum": 60,
+      "minimum": 0,
+      "title": "Mapq",
+      "type": "integer"
+    },
+    "min_support": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Min Support",
+      "type": "integer"
+    },
+    "min_sv_length": {
+      "default": 50,
+      "minimum": 1,
+      "title": "Min Sv Length",
+      "type": "integer"
+    },
+    "minimum_quality": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Minimum Quality"
+    },
+    "mode": {
+      "$ref": "#/$defs/SnifflesMode",
+      "default": "germline"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "pass_only": {
+      "const": true,
+      "default": true,
+      "title": "Pass Only",
+      "type": "boolean"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "require_precise": {
+      "default": false,
+      "title": "Require Precise",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "SnifflesPolicy",
+  "type": "object"
+}

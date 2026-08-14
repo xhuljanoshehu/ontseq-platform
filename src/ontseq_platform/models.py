@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -61,6 +61,11 @@ class ModuleRunStatus(StrEnum):
 class BenchmarkKind(StrEnum):
     CNV = "cnv"
     SV = "sv"
+
+
+class SnifflesMode(StrEnum):
+    GERMLINE = "germline"
+    MOSAIC = "mosaic"
 
 
 class EventType(StrEnum):
@@ -173,6 +178,46 @@ class QCPolicy(StrictModel):
     note: str
 
 
+class SnifflesPolicy(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    profile_id: str = Field(min_length=1)
+    status: Literal["technical_defaults_only", "validated"]
+    expected_version: str = Field(default="2.8.0", pattern=r"^\d+\.\d+\.\d+$")
+    mode: SnifflesMode = SnifflesMode.GERMLINE
+    min_support: int = Field(default=5, ge=1)
+    min_sv_length: int = Field(default=50, ge=1)
+    mapq: int = Field(default=20, ge=0, le=60)
+    pass_only: Literal[True] = True
+    minimum_quality: float | None = Field(default=None, ge=0)
+    require_precise: bool = False
+    allowed_sv_types: list[EventType] = Field(
+        default_factory=lambda: [
+            EventType.DELETION,
+            EventType.DUPLICATION,
+            EventType.INVERSION,
+            EventType.INSERTION,
+            EventType.TRANSLOCATION,
+        ],
+        min_length=1,
+    )
+    note: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def supported_event_types_are_unique(self) -> SnifflesPolicy:
+        supported = {
+            EventType.DELETION,
+            EventType.DUPLICATION,
+            EventType.INVERSION,
+            EventType.INSERTION,
+            EventType.TRANSLOCATION,
+        }
+        if any(item not in supported for item in self.allowed_sv_types):
+            raise ValueError("Sniffles policy contains an unsupported event type")
+        if len(self.allowed_sv_types) != len(set(self.allowed_sv_types)):
+            raise ValueError("Sniffles policy contains duplicate event types")
+        return self
+
+
 class Locus(StrictModel):
     chromosome: str = Field(pattern=r"^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$")
     start: int = Field(ge=0)
@@ -194,8 +239,17 @@ class Evidence(StrictModel):
     support_reads: int | None = Field(default=None, ge=0)
     local_coverage: float | None = Field(default=None, ge=0)
     variant_allele_fraction: float | None = Field(default=None, ge=0, le=1)
-    quality: float | None = None
+    quality: float | None = Field(default=None, ge=0)
     filters: list[str] = Field(default_factory=list)
+    supporting_read_strands: str | None = Field(
+        default=None,
+        pattern=r"^(?:\+|-|\+-)$",
+    )
+    coverage_context: list[Annotated[float, Field(ge=0)]] = Field(default_factory=list)
+    mean_alignment_nm: float | None = Field(default=None, ge=0)
+    position_standard_deviation: float | None = Field(default=None, ge=0)
+    length_standard_deviation: float | None = Field(default=None, ge=0)
+    precise: bool | None = None
 
 
 class GenomicEvent(StrictModel):
@@ -203,6 +257,7 @@ class GenomicEvent(StrictModel):
     event_type: EventType
     primary: Locus
     secondary: Locus | None = None
+    length_bp: int | None = Field(default=None, ge=1)
     copy_number: float | None = Field(default=None, ge=0)
     genes: list[str] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
@@ -327,6 +382,51 @@ class CraminoQCReport(StrictModel):
     qc: QCMetrics
     tool: ToolRecord
     limitations: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SnifflesCallReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    genome_build: GenomeBuild
+    status: ModuleRunStatus
+    policy: SnifflesPolicy
+    events: list[GenomicEvent]
+    raw_record_count: int = Field(ge=0)
+    accepted_record_count: int = Field(ge=0)
+    rejected_record_count: int = Field(ge=0)
+    rejection_counts: dict[str, int] = Field(default_factory=dict)
+    tool: ToolRecord
+    vcf_fingerprint: FileFingerprint
+    warnings: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def counts_and_status_are_consistent(self) -> SnifflesCallReport:
+        if self.raw_record_count != self.accepted_record_count + self.rejected_record_count:
+            raise ValueError("Sniffles record counts are inconsistent")
+        if self.accepted_record_count != len(self.events):
+            raise ValueError("Sniffles accepted count must equal normalized event count")
+        if sum(self.rejection_counts.values()) != self.rejected_record_count:
+            raise ValueError("Sniffles rejection reason counts are inconsistent")
+        expected_status = ModuleRunStatus.COMPLETED if self.events else ModuleRunStatus.NO_CALL
+        if self.status != expected_status:
+            raise ValueError("Sniffles status is inconsistent with normalized events")
+        return self
+
+
+class LocalSmokeReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    verdict: Verdict
+    intake: AlignedBamIntakeReport
+    qc: CraminoQCReport
+    sniffles: SnifflesCallReport
+    checks: list[ValidationCheck]
+    limitations: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

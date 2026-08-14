@@ -34,12 +34,34 @@ rule cramino_qc:
         "--threads {params.threads} --output {output:q}"
 
 
+rule sniffles2_candidates:
+    """Call and normalize non-reportable Sniffles2 SV candidates."""
+    input:
+        manifest=config["manifest"],
+        intake=config["outputs"]["intake"],
+        policy=config["sniffles_policy"],
+    output:
+        vcf=config["outputs"]["sniffles_vcf"],
+        report=config["outputs"]["sniffles"],
+    params:
+        sniffles=config["tools"]["sniffles"],
+        threads=config["threads"],
+    conda:
+        "../envs/aligned_bam.yaml"
+    shell:
+        "PYTHONPATH=src python -m ontseq_platform call-sniffles {input.manifest:q} "
+        "--intake {input.intake:q} --policy {input.policy:q} "
+        "--sniffles {params.sniffles:q} --threads {params.threads} "
+        "--vcf {output.vcf:q} --output {output.report:q}"
+
+
 rule assemble_aligned_bam_mvp:
-    """Create a result whose unrun scientific modules remain explicit."""
+    """Create a result with candidate-only SV evidence and explicit unrun modules."""
     input:
         manifest=config["manifest"],
         intake=config["outputs"]["intake"],
         qc=config["outputs"]["qc"],
+        sniffles=config["outputs"]["sniffles"],
     output:
         config["outputs"]["result"],
     params:
@@ -48,7 +70,8 @@ rule assemble_aligned_bam_mvp:
         "../envs/aligned_bam.yaml"
     shell:
         "PYTHONPATH=src python -m ontseq_platform assemble-aligned-mvp {input.manifest:q} "
-        "--intake {input.intake:q} --qc {input.qc:q} --git-commit {params.git_commit:q} "
+        "--intake {input.intake:q} --qc {input.qc:q} --sniffles {input.sniffles:q} "
+        "--git-commit {params.git_commit:q} "
         "--output {output:q}"
 
 

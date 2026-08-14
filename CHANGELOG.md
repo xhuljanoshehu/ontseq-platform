@@ -5,6 +5,36 @@ validated release.
 
 ## Unreleased
 
+No entries.
+
+## 0.3.0 - 2026-08-14
+
+### Added
+
+- Typed Sniffles2 policy and call-report contracts with generated JSON Schemas.
+- Conservative Sniffles2 v2.8.0 adapter using shell-free execution, symbolic VCF and PASS-only
+  normalization with filter-reason accounting.
+- Defensive DEL/DUP/INV/INS/BND normalization with counted rejection reasons and `NO_CALL`.
+- Runtime-generated synthetic long-read BAM fixture and real samtools/Cramino/Sniffles2 smoke test.
+- CI job with a pinned Bioconda environment and selected raw-data-free reviewer artifacts.
+- Candidate SV evidence in the common JSON, HTML and Excel result path.
+
+### Changed
+
+- Extended evidence provenance with supporting-read strands, coverage context and mean alignment
+  NM.
+- Connected the aligned-BAM Snakemake DAG to the candidate-only Sniffles2 adapter.
+- Bumped the research software foundation to version 0.3.0.
+
+### Validation impact
+
+The aligned-BAM path can now change biological candidate output by executing Sniffles2. Every
+normalized event is forced to `unclassified` and `reportable: false`; BND is not treated as a
+fusion, and ISCN remains `NOT_RUN`. The included thresholds are engineering defaults only. This
+change requires locked HG002/HG008 and intended-use AML validation before any promotion.
+
+## 0.2.0 - 2026-08-14
+
 ### Changed
 
 - Reframed the architecture as an independent, evidence-led implementation.
