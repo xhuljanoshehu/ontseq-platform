@@ -6,14 +6,17 @@ modules:
   qc:
     provider: cramino
   cnv:
-    primary:
-      provider: qdnaseq_ace
-      bin_sizes_kb: [100, 500, 1000]
-      ace_penalty: 0.6
-      retain_alternative_fits: true
-    comparator:
-      provider: spectre
-      reportability: benchmark_only
+    selection_status: benchmark_required
+    candidates:
+      - provider: ichorcna
+        evidence_scope: transferable_low_coverage
+      - provider: qdnaseq_ace
+        bin_sizes_kb: [100, 500, 1000]
+        ace_penalty_candidates: [0.4, 0.6, 0.8]
+        retain_alternative_fits: true
+      - provider: spectre
+        evidence_scope: ont_workflow_reference
+    reportability: benchmark_only
     chromosome_consensus: nearest
   sv:
     enabled: false
@@ -25,5 +28,6 @@ modules:
   report:
     formats: [json, html, xlsx]
 limitations:
-  - ACE penalty 0.6 is dataset-derived and not a universal clinical threshold.
+  - No CNV provider or ACE penalty is selected until the intended-use benchmark passes.
+  - Published low-coverage CNV evidence is not necessarily ONT- or AML-specific.
   - Subchromosomal CNV reportability requires separate validation by bin size and event class.

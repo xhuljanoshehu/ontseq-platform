@@ -12,6 +12,8 @@
    biological result.
 5. **No automatic clinical release.** Software can assemble a proposal, but an authorized
    reviewer owns interpretation and signature.
+6. **Evidence-gated algorithms.** A tool is a candidate until it passes the locked benchmark
+   for its assay, coverage, tumor/blast fraction and reportable event classes.
 
 ## Logical flow
 
@@ -72,6 +74,13 @@ Each bioinformatics tool will have an adapter with four responsibilities:
 
 Adapters never decide clinical reportability on their own. Reportability policy belongs to
 the versioned assay profile and its validation evidence.
+
+## Evidence lifecycle
+
+Each scientific dependency progresses through `candidate -> benchmarked -> validated ->
+retired`. Promotion requires a versioned evidence record, locked test data, predefined metrics
+and validation-impact review. Literature supports candidate selection; it cannot replace local
+analytical validation. See `docs/EVIDENCE_BASE.md`.
 
 ## ISCN boundary
 

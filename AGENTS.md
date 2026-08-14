@@ -17,4 +17,5 @@ must preserve the following boundaries:
    without explicit owner and institutional approval.
 
 The source of truth for scope and limitations is `docs/ARCHITECTURE.md`,
-`docs/CLINICAL_VALIDATION.md`, and `docs/THESIS_TRACEABILITY.md`.
+`docs/EVIDENCE_BASE.md`, and `docs/CLINICAL_VALIDATION.md`. The thesis traceability file is
+historical context only and must not be treated as a technical specification.

@@ -10,12 +10,16 @@
 
 ## Milestone 1 - aligned BAM MVP
 
-- [ ] Import or reimplement approved Cramino, CNV, SV and annotation rules
+- [ ] Freeze intended use, assay modes, truth definitions and acceptance criteria
+- [ ] Implement Cramino, coverage, CNV, SV and annotation adapters from official interfaces
 - [ ] BAM/BAI integrity, sort order, read-group and genome-build checks
 - [ ] Versioned cytoband and reference resource manager
 - [ ] Normalize raw caller outputs into the event schema
 - [ ] Evidence-tiering review interface
-- [ ] Reproduce thesis benchmark cases on approved data
+- [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
+- [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
+- [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
+- [ ] Record no-call behavior and failure modes separately from negative results
 
 ## Milestone 2 - POD5 end-to-end
 
@@ -32,6 +36,13 @@
 - [ ] Locked positive/negative reference cohort
 - [ ] LoD, precision, reproducibility and interference studies
 - [ ] Signed release and change-control workflow
+
+## Evidence review gates
+
+- [ ] Review the evidence registry quarterly and before changing a scientific dependency
+- [ ] Record inclusion rationale, applicability and limitations for every production adapter
+- [ ] Pre-register benchmark datasets, metrics and acceptance criteria before comparing callers
+- [ ] Require validation-impact review for caller, model, reference or target-BED updates
 
 ## Milestone 4 - application layer
 

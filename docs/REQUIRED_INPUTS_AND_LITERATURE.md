@@ -8,20 +8,27 @@ controlled source material and validation data.
 
 | Input | Why it is needed | Safe form for collaboration |
 | --- | --- | --- |
-| Approved thesis code or rule archive | Reproduce exact commands and parameters without guessing | Private repository; no sample data |
-| Exact tool and reference versions | Lock reproducibility and resolve version-dependent fields | Text manifest with checksums |
+| Intended-use statement and release SOP | Define specimen types, reportable event classes, users and who may sign | Controlled internal document |
+| Exact assay design | Lock library kit, flow cell, basecaller model, reference build and adaptive-sampling targets | Versioned, non-patient manifest with checksums |
 | Institution-approved ISCN 2024 access | Build and test syntax beyond the deliberately limited subset | Authorized local test cases; do not copy the standard publicly |
-| Adaptive-sampling target BEDs | Validate target coverage and fusion search space | Versioned, non-patient assay design |
-| Orthogonally characterized truth cohort | Estimate sensitivity, specificity, LoD and no-call rate | Approved on-premises data access only |
+| Orthogonally characterized AML truth cohort | Estimate accuracy, LoD and no-call rate by event class and tumor/blast fraction | Approved on-premises data access only |
+| Public benchmark plan | Separate technical caller correctness from AML intended-use validation | Versioned HG002/HG008 accessions, truth versions and scoring rules |
 | Expected HTML/Excel/SOP examples | Match reviewer workflow and required audit fields | De-identified or synthetic examples |
-| Intended-use and release SOP | Define what the software may report and who may sign it | Controlled internal document |
+| Institutional compute profile | Size resources and verify runtime, isolation and data residency | Non-sensitive CPU/GPU/RAM/storage description |
+
+## Optional historical material
+
+Approved thesis code, parameter files and benchmark outputs can be used for regression comparison
+after ownership and licensing are clarified. They are not required to select the architecture and
+must not be treated as ground truth or copied into this repository without authorization.
 
 ## Literature workstream
 
-For every production adapter, record the primary tool publication, official manual,
-software version, parameter rationale, benchmark evidence and known limitations. Public
-literature may be linked in Git; copyrighted standards and patient-derived material must
-remain in approved controlled systems.
+For every production adapter, record the primary tool publication, official manual, software
+version, parameter rationale, benchmark evidence, applicability and known limitations. The
+living review and current decisions are in `docs/EVIDENCE_BASE.md`. Public literature may be
+linked in Git; copyrighted standards and patient-derived material must remain in approved
+controlled systems.
 
 The first implementation priority is the **aligned-BAM MVP**. POD5 basecalling, optional
 small-variant calling, methylation and app/LIMS integration are separate validation domains
