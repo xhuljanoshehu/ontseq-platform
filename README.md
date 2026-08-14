@@ -20,7 +20,7 @@ Dieses Repository ist die belastbare technische Grundlage für die spätere Soft
 - keine Patienten- oder Genomdaten in GitHub.
 
 The current milestone includes executable BAM/BAI/reference gates, normalized Cramino QC and a
-typed Sniffles2 v2.8.0 adapter. Sniffles2 output is retained only as non-reportable candidate
+typed Sniffles2 v2.8.0 adapter. Accepted Sniffles2 output is retained only as non-reportable candidate
 evidence until assay-specific benchmarks pass. CNV, fusion interpretation and ISCN generation
 remain disabled in the aligned-BAM path.
 

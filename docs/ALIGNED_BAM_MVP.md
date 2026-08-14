@@ -83,9 +83,10 @@ ontseq call-sniffles sample.manifest.yaml \
 ```
 
 The locked command contract uses Sniffles2 v2.8.0 with explicit `--minsupport`, `--minsvlen`,
-`--mapq`, `--pass-only`, `--symbolic` and `--no-progress` settings. The adapter never enables
-`--output-rnames`. Germline versus mosaic mode is explicit policy; the technical default exists
-for engineering tests and is not an AML reportability threshold.
+`--mapq`, `--symbolic` and `--no-progress` settings. Filtered symbolic candidates are retained in
+the protected raw VCF for rejection accounting, while normalization remains PASS-only. The adapter
+never enables `--output-rnames`. Germline versus mosaic mode is explicit policy; the technical
+default exists for engineering tests and is not an AML reportability threshold.
 
 Accepted DEL, DUP, INV, INS and BND/TRA records are normalized into 0-based, half-open event
 coordinates. Support, QUAL, VAF, strand orientation, coverage context and mean alignment NM are

@@ -38,6 +38,35 @@ _SV_TYPE_MAP = {
     "BND": EventType.TRANSLOCATION,
     "TRA": EventType.TRANSLOCATION,
 }
+_KNOWN_SNIFFLES_FILTERS = {
+    "ALN_NM",
+    "COV_CHANGE_DEL",
+    "COV_CHANGE_DUP",
+    "COV_CHANGE_FRAC_CE",
+    "COV_CHANGE_FRAC_ED",
+    "COV_CHANGE_FRAC_SC",
+    "COV_CHANGE_FRAC_US",
+    "COV_CHANGE_INS",
+    "COV_MIN",
+    "COV_MIN_GT",
+    "COV_VAR",
+    "GT",
+    "GT_FAILED",
+    "INLINE_SA",
+    "MOSAIC_SV_CLOSE_EDGE",
+    "MOSAIC_VAF",
+    "NOT_MOSAIC_VAF",
+    "SINGLE_BREAK",
+    "STDEV_LEN",
+    "STDEV_POS",
+    "STRAND",
+    "STRAND_BND",
+    "STRAND_MOSAIC",
+    "SUPPORT_MIN",
+    "SVLEN_MAX_MOSAIC",
+    "SVLEN_MIN",
+    "SVLEN_MIN_MOSAIC",
+}
 
 
 class _RejectedRecord(ValueError):
@@ -167,6 +196,11 @@ def _quality(raw: str) -> float | None:
     return value
 
 
+def _caller_filter_reason(filters: list[str]) -> str:
+    recognized = sorted(set(filters).intersection(_KNOWN_SNIFFLES_FILTERS))
+    return "filter_not_pass:" + (",".join(recognized) if recognized else "OTHER")
+
+
 def _simple_locus(
     chromosome: str,
     position: int,
@@ -245,7 +279,7 @@ def _normalize_record(
 
     filters = raw_filter.split(";") if raw_filter not in {"", "."} else []
     if policy.pass_only and filters != ["PASS"]:
-        raise _RejectedRecord("filter_not_pass")
+        raise _RejectedRecord(_caller_filter_reason(filters))
 
     info = _parse_info(raw_info)
     raw_sv_type = _first_value(info.get("SVTYPE"))
@@ -473,7 +507,8 @@ def run_sniffles(
         "minsupport": policy.min_support,
         "minsvlen": policy.min_sv_length,
         "mapq": policy.mapq,
-        "pass_only": True,
+        "caller_pass_only": False,
+        "normalizer_pass_only": True,
         "symbolic": True,
         "mosaic": policy.mode == SnifflesMode.MOSAIC,
         "output_read_names": False,
@@ -493,7 +528,6 @@ def run_sniffles(
         str(policy.min_sv_length),
         "--mapq",
         str(policy.mapq),
-        "--pass-only",
         "--symbolic",
         "--no-progress",
     ]

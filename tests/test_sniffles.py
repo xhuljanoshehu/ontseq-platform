@@ -127,7 +127,7 @@ class SnifflesAdapterTests(unittest.TestCase):
             "N",
             "<INV>",
             "50",
-            "LowQual",
+            "GT",
             "SVTYPE=INV;END=3400;SUPPORT=9",
             "GT:GQ:DR:DV",
             "0/1:30:5:9",
@@ -172,7 +172,7 @@ class SnifflesAdapterTests(unittest.TestCase):
         self.assertEqual(report.accepted_record_count, 2)
         self.assertEqual(report.rejected_record_count, 3)
         self.assertEqual(report.rejection_counts["support_below_policy"], 1)
-        self.assertEqual(report.rejection_counts["filter_not_pass"], 1)
+        self.assertEqual(report.rejection_counts["filter_not_pass:GT"], 1)
         self.assertEqual(report.rejection_counts["invalid_primary_locus"], 1)
 
         deletion, breakend = report.events
@@ -221,7 +221,7 @@ class SnifflesAdapterTests(unittest.TestCase):
         self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
         self.assertTrue(any("not a clinical negative" in item for item in report.warnings))
 
-    def test_runner_uses_privacy_preserving_conservative_arguments(self) -> None:
+    def test_runner_preserves_filtered_audit_evidence_but_accepts_pass_only(self) -> None:
         vcf = VCF_HEADER + _record(
             "chr1",
             "1000",
@@ -252,12 +252,14 @@ class SnifflesAdapterTests(unittest.TestCase):
             )
 
         command = runner.commands[1]
-        self.assertIn("--pass-only", command)
+        self.assertNotIn("--pass-only", command)
         self.assertIn("--symbolic", command)
         self.assertIn("--no-progress", command)
         self.assertNotIn("--output-rnames", command)
         self.assertEqual(report.tool.version, "2.8.0")
         self.assertFalse(report.tool.parameters["output_read_names"])
+        self.assertFalse(report.tool.parameters["caller_pass_only"])
+        self.assertTrue(report.tool.parameters["normalizer_pass_only"])
         self.assertNotIn("--allow-overwrite", command)
 
     def test_policy_rejects_unlocked_sniffles_version(self) -> None:

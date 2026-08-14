@@ -282,6 +282,9 @@ def run_local_smoke(
             details={
                 "accepted_sv_candidates": sniffles_report.accepted_record_count,
                 "matching_expected_deletions": len(expected_deletions),
+                "raw_sniffles_records": sniffles_report.raw_record_count,
+                "rejected_sniffles_records": sniffles_report.rejected_record_count,
+                "sniffles_rejection_counts": str(sniffles_report.rejection_counts),
             },
         ),
         ValidationCheck(

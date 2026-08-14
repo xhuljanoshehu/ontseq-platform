@@ -12,7 +12,8 @@ No entries.
 ### Added
 
 - Typed Sniffles2 policy and call-report contracts with generated JSON Schemas.
-- Conservative Sniffles2 v2.8.0 adapter using shell-free execution and symbolic PASS-only VCF.
+- Conservative Sniffles2 v2.8.0 adapter using shell-free execution, symbolic VCF and PASS-only
+  normalization with filter-reason accounting.
 - Defensive DEL/DUP/INV/INS/BND normalization with counted rejection reasons and `NO_CALL`.
 - Runtime-generated synthetic long-read BAM fixture and real samtools/Cramino/Sniffles2 smoke test.
 - CI job with a pinned Bioconda environment and selected raw-data-free reviewer artifacts.

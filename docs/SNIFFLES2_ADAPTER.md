@@ -13,11 +13,13 @@ The executable receives a shell-free argument vector equivalent to:
 ```text
 sniffles --input INPUT.bam --vcf OUTPUT.vcf --threads N \
   --minsupport POLICY --minsvlen POLICY --mapq POLICY \
-  --pass-only --symbolic --no-progress
+  --symbolic --no-progress
 ```
 
 `--mosaic` is added only when the loaded policy explicitly selects mosaic mode. The adapter never
 sets `--output-rnames` or `--allow-overwrite`. Existing VCF output is a hard stop.
+Filtered candidates remain in the protected symbolic VCF so the adapter can count why they were
+rejected; only `FILTER=PASS` records can enter the normalized result.
 
 The official interface locks are the Sniffles2
 [CLI configuration source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/config.py),

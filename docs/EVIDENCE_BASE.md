@@ -63,7 +63,7 @@ Evidence level describes applicability to this project, not general publication 
 
 | Dependency | Locked interface | Safety-relevant decision |
 | --- | --- | --- |
-| Sniffles2 | v2.8.0; official [CLI source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/config.py), [VCF source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/vcf.py) and [Bioconda recipe](https://bioconda.github.io/recipes/sniffles/README.html) | Explicit support/size/MAPQ parameters; symbolic PASS records; no read-name output; unvalidated candidates only. |
+| Sniffles2 | v2.8.0; official [CLI source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/config.py), [VCF source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/vcf.py) and [Bioconda recipe](https://bioconda.github.io/recipes/sniffles/README.html) | Explicit support/size/MAPQ parameters; symbolic candidates with PASS-only normalization; no read-name output; unvalidated candidates only. |
 | samtools | v1.24 in `workflow/envs/aligned_bam.yaml` | Fail-closed quickcheck/header/dictionary/index gate before a scientific caller. |
 | Cramino | v1.3.0 in `workflow/envs/aligned_bam.yaml` | Normalize aggregate QC only; do not copy source path or read-level data. |
 
