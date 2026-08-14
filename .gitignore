@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated outputs and runtime state
+results/
+work/
+logs/
+.snakemake/
+runtime_readiness/
+resource_readiness/
+
+# References and databases are provisioned outside Git
+references/
+databases/
+
+# Genomic and potentially identifying data must never be committed
+*.bam
+*.bai
+*.cram
+*.crai
+*.sam
+*.pod5
+*.fast5
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.vcf.gz
+*.vcf.gz.tbi
+*.bcf
+*.bedmethyl
+*.bigwig
+*.bw
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/

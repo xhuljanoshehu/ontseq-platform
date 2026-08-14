@@ -1,0 +1,697 @@
+{
+  "$defs": {
+    "AnalysisModule": {
+      "enum": [
+        "qc",
+        "cnv",
+        "sv",
+        "fusion",
+        "iscn",
+        "report",
+        "small_variants",
+        "methylation"
+      ],
+      "title": "AnalysisModule",
+      "type": "string"
+    },
+    "AnalysisSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/AnalysisModule"
+          },
+          "title": "Modules",
+          "type": "array"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "profile": {
+          "minLength": 1,
+          "title": "Profile",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile",
+        "modules"
+      ],
+      "title": "AnalysisSpec",
+      "type": "object"
+    },
+    "AssayMode": {
+      "enum": [
+        "lcwgs",
+        "adaptive_sampling"
+      ],
+      "title": "AssayMode",
+      "type": "string"
+    },
+    "AssaySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "mode": {
+          "$ref": "#/$defs/AssayMode"
+        },
+        "reference_id": {
+          "minLength": 1,
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "target_bed": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Bed"
+        },
+        "target_bed_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Bed Version"
+        }
+      },
+      "required": [
+        "mode",
+        "genome_build",
+        "reference_id"
+      ],
+      "title": "AssaySpec",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "caller": {
+          "title": "Caller",
+          "type": "string"
+        },
+        "caller_version": {
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "filters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Filters",
+          "type": "array"
+        },
+        "local_coverage": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Coverage"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality"
+        },
+        "support_reads": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Reads"
+        },
+        "variant_allele_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Allele Fraction"
+        }
+      },
+      "required": [
+        "caller",
+        "caller_version"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "GenomicEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "default": "unclassified",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "unclassified"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "$ref": "#/$defs/EventType"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genes",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "primary": {
+          "$ref": "#/$defs/Locus"
+        },
+        "reportable": {
+          "default": false,
+          "title": "Reportable",
+          "type": "boolean"
+        },
+        "secondary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "primary"
+      ],
+      "title": "GenomicEvent",
+      "type": "object"
+    },
+    "ISCNProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "conformance_profile": {
+          "const": "subset-v0.1-unvalidated",
+          "default": "subset-v0.1-unvalidated",
+          "title": "Conformance Profile",
+          "type": "string"
+        },
+        "notation": {
+          "title": "Notation",
+          "type": "string"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus",
+          "default": "REVIEW_REQUIRED"
+        },
+        "source_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Event Ids",
+          "type": "array"
+        },
+        "standard_edition": {
+          "const": "ISCN 2024",
+          "default": "ISCN 2024",
+          "title": "Standard Edition",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "notation"
+      ],
+      "title": "ISCNProposal",
+      "type": "object"
+    },
+    "InputKind": {
+      "enum": [
+        "pod5",
+        "unaligned_bam",
+        "aligned_bam"
+      ],
+      "title": "InputKind",
+      "type": "string"
+    },
+    "InputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "index_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Path"
+        },
+        "kind": {
+          "$ref": "#/$defs/InputKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "title": "InputSpec",
+      "type": "object"
+    },
+    "Locus": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "cytoband_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband End"
+        },
+        "cytoband_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband Start"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chromosome",
+        "start",
+        "end"
+      ],
+      "title": "Locus",
+      "type": "object"
+    },
+    "PrivacySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "cloud_upload_approved": {
+          "default": false,
+          "title": "Cloud Upload Approved",
+          "type": "boolean"
+        },
+        "contains_direct_identifiers": {
+          "default": false,
+          "title": "Contains Direct Identifiers",
+          "type": "boolean"
+        },
+        "pseudonymized": {
+          "default": true,
+          "title": "Pseudonymized",
+          "type": "boolean"
+        }
+      },
+      "title": "PrivacySpec",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "git_commit": {
+          "title": "Git Commit",
+          "type": "string"
+        },
+        "pipeline_version": {
+          "title": "Pipeline Version",
+          "type": "string"
+        },
+        "reference_checksums": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reference Checksums",
+          "type": "object"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolRecord"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pipeline_version",
+        "git_commit"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QCMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "failed_gates": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failed Gates",
+          "type": "array"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "verdict",
+        "metrics"
+      ],
+      "title": "QCMetrics",
+      "type": "object"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "DRAFT",
+        "REVIEW_REQUIRED",
+        "REVIEWED"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "SampleManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis": {
+          "$ref": "#/$defs/AnalysisSpec"
+        },
+        "assay": {
+          "$ref": "#/$defs/AssaySpec"
+        },
+        "input": {
+          "$ref": "#/$defs/InputSpec"
+        },
+        "privacy": {
+          "$ref": "#/$defs/PrivacySpec"
+        },
+        "run_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sample_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
+          "title": "Sample Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_id",
+        "run_id",
+        "input",
+        "assay",
+        "analysis"
+      ],
+      "title": "SampleManifest",
+      "type": "object"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "FAIL",
+        "NOT_RUN"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "events": {
+      "items": {
+        "$ref": "#/$defs/GenomicEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "iscn": {
+      "$ref": "#/$defs/ISCNProposal"
+    },
+    "manifest": {
+      "$ref": "#/$defs/SampleManifest"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "qc": {
+      "$ref": "#/$defs/QCMetrics"
+    },
+    "release_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "REVIEW_REQUIRED"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest",
+    "qc",
+    "events",
+    "iscn",
+    "provenance"
+  ],
+  "title": "PipelineResult",
+  "type": "object"
+}

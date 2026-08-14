@@ -1,0 +1,85 @@
+# Architecture
+
+## Design principles
+
+1. **One sample, one immutable run envelope.** Every run has a validated manifest,
+   isolated working directory, result contract, logs, tool versions and checksums.
+2. **Evidence before interpretation.** Callers emit normalized evidence. ISCN and clinical
+   interpretation are downstream, reviewable views rather than hidden caller side effects.
+3. **Assay modes stay separate.** Low-coverage WGS and adaptive sampling use different
+   coverage assumptions, QC and reportability policies.
+4. **Fail visibly.** A missing module is `NOT_RUN`; it is never represented as a negative
+   biological result.
+5. **No automatic clinical release.** Software can assemble a proposal, but an authorized
+   reviewer owns interpretation and signature.
+
+## Logical flow
+
+```mermaid
+flowchart TD
+    A["POD5, uBAM or aligned BAM"] --> B["Manifest and integrity gate"]
+    B --> C["Preprocessing and alignment"]
+    C --> D["QC contract"]
+    D --> E1["CNV evidence"]
+    D --> E2["SV and fusion evidence"]
+    D --> E3["Future modules"]
+    E1 --> F["Normalized event model"]
+    E2 --> F
+    E3 --> F
+    F --> G["ISCN proposal engine"]
+    G --> H["JSON, HTML and XLSX"]
+    H --> I["Expert review and immutable release"]
+```
+
+## Planned run envelope
+
+```text
+results/<run_id>/<sample_id>/
+├── manifest/
+│   ├── sample.manifest.json
+│   ├── input.checksums.sha256
+│   └── reference.lock.json
+├── qc/
+│   ├── qc.contract.json
+│   └── metrics/
+├── evidence/
+│   ├── cnv/
+│   ├── sv/
+│   └── fusion/
+├── normalized/
+│   └── result.json
+├── reports/
+│   ├── report.html
+│   └── results.xlsx
+├── provenance/
+│   ├── tools.json
+│   ├── parameters.json
+│   └── workflow.dag.svg
+└── release/
+    ├── review.json
+    ├── checksums.sha256
+    └── signed-release.json
+```
+
+## Adapter boundary
+
+Each bioinformatics tool will have an adapter with four responsibilities:
+
+1. validate required input and reference compatibility;
+2. build an auditable command without shell interpolation of untrusted values;
+3. capture versions, parameters, exit status and raw output paths;
+4. normalize output into the versioned event contract.
+
+Adapters never decide clinical reportability on their own. Reportability policy belongs to
+the versioned assay profile and its validation evidence.
+
+## ISCN boundary
+
+The `subset-v0.1-unvalidated` renderer exists to exercise traceability and reporting. It is
+not a substitute for the authorized ISCN 2024 standard. Full implementation requires:
+
+- build-aware coordinate-to-cytoband reference locks;
+- syntactic parser and renderer round trips;
+- authorized positive, negative and edge-case test cases;
+- clone/mosaicism and uncertainty semantics;
+- expert cytogenetic review and controlled change management.

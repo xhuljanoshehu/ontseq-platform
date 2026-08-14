@@ -1,0 +1,29 @@
+profile_version: 0.1.0
+status: proposed_unvalidated
+assay_mode: lcwgs
+reference_builds: [GRCh37, GRCh38]
+modules:
+  qc:
+    provider: cramino
+  cnv:
+    primary:
+      provider: qdnaseq_ace
+      bin_sizes_kb: [100, 500, 1000]
+      ace_penalty: 0.6
+      retain_alternative_fits: true
+    comparator:
+      provider: spectre
+      reportability: benchmark_only
+    chromosome_consensus: nearest
+  sv:
+    enabled: false
+    reason: requires_assay_specific_coverage_validation
+  fusion:
+    enabled: false
+  iscn:
+    mode: proposal_only
+  report:
+    formats: [json, html, xlsx]
+limitations:
+  - ACE penalty 0.6 is dataset-derived and not a universal clinical threshold.
+  - Subchromosomal CNV reportability requires separate validation by bin size and event class.

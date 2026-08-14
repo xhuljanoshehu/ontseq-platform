@@ -1,0 +1,31 @@
+name: Feature or workflow module
+description: Propose an engineering or analysis-module change
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What biological or operational question should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Inputs and assay
+      description: Input type, assay mode, reference build and target BED requirements.
+    validations:
+      required: true
+  - type: textarea
+    id: outputs
+    attributes:
+      label: Expected outputs and evidence
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation and failure modes
+    validations:
+      required: true

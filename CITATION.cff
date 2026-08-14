@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this research software, cite the repository and the method references documented in it."
+title: "ONTSeq Platform"
+type: software
+version: 0.1.0
+authors:
+  - family-names: Shehu
+    given-names: Xhuljano
+keywords:
+  - Oxford Nanopore
+  - structural variation
+  - copy number variation
+  - ISCN
+  - hematology

@@ -1,0 +1,27 @@
+schema_version: 0.1.0
+sample_id: SYNTHETIC_AML_001
+run_id: DEMO_RUN_001
+input:
+  kind: aligned_bam
+  path: /secure-input/SYNTHETIC_AML_001.bam
+  index_path: /secure-input/SYNTHETIC_AML_001.bam.bai
+assay:
+  mode: adaptive_sampling
+  genome_build: GRCh38
+  reference_id: GRCh38-demo-not-for-analysis
+  target_bed: configs/panels/aml_fusions.synthetic.bed
+  target_bed_version: synthetic-v1
+analysis:
+  profile: adaptive-sampling-demo
+  modules:
+    - qc
+    - cnv
+    - sv
+    - fusion
+    - iscn
+    - report
+  parameters: {}
+privacy:
+  pseudonymized: true
+  contains_direct_identifiers: false
+  cloud_upload_approved: false

@@ -1,0 +1,36 @@
+profile_version: 0.1.0
+status: proposed_unvalidated
+assay_mode: adaptive_sampling
+reference_builds: [GRCh37, GRCh38]
+requires:
+  - target_bed
+  - target_bed_version
+modules:
+  qc:
+    provider: cramino
+    additional_metrics:
+      - on_target_coverage
+      - off_target_coverage
+      - per_target_coverage
+      - both_fusion_partner_coverage
+  cnv:
+    provider: qdnaseq_ace
+    global_reportability: false
+    reason: adaptive_sampling_coverage_bias_requires_validation
+  sv:
+    region_scope: buffered_target_bed
+    primary: sniffles2
+    secondary: cutesv
+    research_comparator: nanosv
+    consensus_policy: retain_all_with_evidence_tier
+  fusion:
+    source: normalized_sv_breakends
+    annotation: snpeff
+    require_bidirectional_evidence: true
+  iscn:
+    mode: proposal_only
+  report:
+    formats: [json, html, xlsx]
+limitations:
+  - The thesis evaluation included only five adaptive-sampling samples without robust SV ground truth.
+  - Caller agreement must not be treated as proof of biological truth.

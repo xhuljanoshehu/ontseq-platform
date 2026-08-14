@@ -1,0 +1,15 @@
+schema_version: 0.1.0
+status: technical_defaults_only
+hard_failures:
+  - unreadable_input
+  - missing_bam_index
+  - reference_build_mismatch
+  - target_bed_build_mismatch
+  - truncated_transfer
+numeric_gates:
+  aligned_percent: null
+  mean_coverage_x: null
+  target_coverage_x: null
+  median_identity_percent: null
+  minimum_sv_support_reads: null
+note: Numeric clinical gates remain null until assay-specific analytical validation is approved.

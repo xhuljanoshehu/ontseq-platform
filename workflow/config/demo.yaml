@@ -1,0 +1,7 @@
+mode: synthetic_demo
+sample_id: SYNTHETIC_AML_001
+output_dir: results/demo
+outputs:
+  json: results/demo/SYNTHETIC_AML_001.result.json
+  html: results/demo/SYNTHETIC_AML_001.report.html
+  xlsx: results/demo/SYNTHETIC_AML_001.results.xlsx

@@ -1,0 +1,32 @@
+name: Validation case
+description: Add or investigate an analytical validation case without patient data
+title: "[Validation]: "
+labels: [validation]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not attach patient or genomic data. Use approved synthetic/reference IDs only."
+  - type: input
+    id: event_class
+    attributes:
+      label: Event class
+    validations:
+      required: true
+  - type: textarea
+    id: truth
+    attributes:
+      label: Approved truth source
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected pipeline behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
