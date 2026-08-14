@@ -310,7 +310,12 @@ def run_local_smoke(
     )
     write_json(report, report_path)
     if report.verdict == Verdict.FAIL:
-        raise ValueError("Local real-tool smoke test failed")
+        failures = [
+            f"{item.name}: {item.message} ({item.details})"
+            for item in report.checks
+            if item.status == CheckStatus.FAIL
+        ]
+        raise ValueError("Local real-tool smoke test failed: " + "; ".join(failures))
     pipeline_result = assemble_aligned_bam_mvp(
         manifest,
         intake,
