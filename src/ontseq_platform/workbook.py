@@ -206,5 +206,20 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
         ],
     )
 
+    modules = workbook.create_sheet("10_Module_Status")
+    _write_table(
+        modules,
+        ["Module", "Status", "Reason", "Tools"],
+        [
+            [
+                outcome.module.value,
+                outcome.status.value,
+                outcome.reason,
+                ", ".join(f"{tool.name} {tool.version}" for tool in outcome.tools),
+            ]
+            for outcome in result.modules
+        ],
+    )
+
     workbook.save(output_path)
     return output_path

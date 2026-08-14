@@ -1,0 +1,363 @@
+{
+  "$defs": {
+    "BenchmarkKind": {
+      "enum": [
+        "cnv",
+        "sv"
+      ],
+      "title": "BenchmarkKind",
+      "type": "string"
+    },
+    "BenchmarkThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_number_tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number Tolerance"
+        },
+        "maximum_breakpoint_distance_bp": {
+          "default": 500,
+          "minimum": 0,
+          "title": "Maximum Breakpoint Distance Bp",
+          "type": "integer"
+        },
+        "minimum_reciprocal_overlap": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        }
+      },
+      "title": "BenchmarkThresholds",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "caller": {
+          "title": "Caller",
+          "type": "string"
+        },
+        "caller_version": {
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "filters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Filters",
+          "type": "array"
+        },
+        "local_coverage": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Coverage"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality"
+        },
+        "support_reads": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Reads"
+        },
+        "variant_allele_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Allele Fraction"
+        }
+      },
+      "required": [
+        "caller",
+        "caller_version"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "GenomicEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "default": "unclassified",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "unclassified"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "$ref": "#/$defs/EventType"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genes",
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "primary": {
+          "$ref": "#/$defs/Locus"
+        },
+        "reportable": {
+          "default": false,
+          "title": "Reportable",
+          "type": "boolean"
+        },
+        "secondary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "primary"
+      ],
+      "title": "GenomicEvent",
+      "type": "object"
+    },
+    "Locus": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "cytoband_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband End"
+        },
+        "cytoband_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband Start"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chromosome",
+        "start",
+        "end"
+      ],
+      "title": "Locus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "kind": {
+      "$ref": "#/$defs/BenchmarkKind"
+    },
+    "query_events": {
+      "items": {
+        "$ref": "#/$defs/GenomicEvent"
+      },
+      "title": "Query Events",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "strata": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Strata",
+      "type": "object"
+    },
+    "thresholds": {
+      "$ref": "#/$defs/BenchmarkThresholds"
+    },
+    "truth_events": {
+      "items": {
+        "$ref": "#/$defs/GenomicEvent"
+      },
+      "title": "Truth Events",
+      "type": "array"
+    }
+  },
+  "required": [
+    "case_id",
+    "kind",
+    "genome_build",
+    "truth_events",
+    "query_events"
+  ],
+  "title": "BenchmarkCase",
+  "type": "object"
+}

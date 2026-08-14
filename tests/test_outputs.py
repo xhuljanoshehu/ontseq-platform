@@ -41,6 +41,7 @@ class OutputTests(unittest.TestCase):
                     "07_Warnings",
                     "08_Methods_Versions",
                     "09_Run_Log",
+                    "10_Module_Status",
                 ],
             )
 

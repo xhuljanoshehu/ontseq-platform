@@ -1,0 +1,58 @@
+schema_version: 0.1.0
+case_id: SYNTHETIC_CNV_001
+kind: cnv
+genome_build: GRCh38
+research_only: true
+strata:
+  assay_mode: lcwgs
+  mean_coverage_x: 3.0
+  tumor_fraction: 0.5
+  source: fully_synthetic
+thresholds:
+  minimum_reciprocal_overlap: 0.5
+  maximum_breakpoint_distance_bp: 500
+  copy_number_tolerance: 0.5
+truth_events:
+  - event_id: truth-del5q
+    event_type: deletion
+    primary:
+      chromosome: chr5
+      start: 70000000
+      end: 160000000
+    copy_number: 1
+  - event_id: truth-gain8
+    event_type: chromosome_gain
+    primary:
+      chromosome: chr8
+      start: 0
+      end: 145138636
+    copy_number: 3
+  - event_id: truth-del7q
+    event_type: deletion
+    primary:
+      chromosome: chr7
+      start: 65000000
+      end: 150000000
+    copy_number: 1
+query_events:
+  - event_id: query-del5q
+    event_type: deletion
+    primary:
+      chromosome: chr5
+      start: 72000000
+      end: 158000000
+    copy_number: 1
+  - event_id: query-gain8
+    event_type: chromosome_gain
+    primary:
+      chromosome: chr8
+      start: 0
+      end: 145138636
+    copy_number: 3
+  - event_id: query-false-gain2
+    event_type: chromosome_gain
+    primary:
+      chromosome: chr2
+      start: 0
+      end: 242193529
+    copy_number: 3

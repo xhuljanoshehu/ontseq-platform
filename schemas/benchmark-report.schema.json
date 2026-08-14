@@ -1,0 +1,272 @@
+{
+  "$defs": {
+    "BenchmarkKind": {
+      "enum": [
+        "cnv",
+        "sv"
+      ],
+      "title": "BenchmarkKind",
+      "type": "string"
+    },
+    "BenchmarkMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_breakpoint_distance_bp": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum Breakpoint Distance Bp"
+        },
+        "query_event_id": {
+          "title": "Query Event Id",
+          "type": "string"
+        },
+        "reciprocal_overlap": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reciprocal Overlap"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "truth_event_id": {
+          "title": "Truth Event Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "truth_event_id",
+        "query_event_id",
+        "score"
+      ],
+      "title": "BenchmarkMatch",
+      "type": "object"
+    },
+    "BenchmarkMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "f1": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "F1"
+        },
+        "false_negative": {
+          "minimum": 0,
+          "title": "False Negative",
+          "type": "integer"
+        },
+        "false_positive": {
+          "minimum": 0,
+          "title": "False Positive",
+          "type": "integer"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
+        "recall": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recall"
+        },
+        "true_positive": {
+          "minimum": 0,
+          "title": "True Positive",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "true_positive",
+        "false_positive",
+        "false_negative"
+      ],
+      "title": "BenchmarkMetrics",
+      "type": "object"
+    },
+    "BenchmarkThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_number_tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number Tolerance"
+        },
+        "maximum_breakpoint_distance_bp": {
+          "default": 500,
+          "minimum": 0,
+          "title": "Maximum Breakpoint Distance Bp",
+          "type": "integer"
+        },
+        "minimum_reciprocal_overlap": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        }
+      },
+      "title": "BenchmarkThresholds",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "title": "Case Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "kind": {
+      "$ref": "#/$defs/BenchmarkKind"
+    },
+    "matches": {
+      "items": {
+        "$ref": "#/$defs/BenchmarkMatch"
+      },
+      "title": "Matches",
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/BenchmarkMetrics"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "strata": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Strata",
+      "type": "object"
+    },
+    "thresholds": {
+      "$ref": "#/$defs/BenchmarkThresholds"
+    },
+    "unmatched_query_event_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unmatched Query Event Ids",
+      "type": "array"
+    },
+    "unmatched_truth_event_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unmatched Truth Event Ids",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "case_id",
+    "kind",
+    "genome_build",
+    "thresholds",
+    "strata",
+    "metrics",
+    "matches",
+    "unmatched_truth_event_ids",
+    "unmatched_query_event_ids"
+  ],
+  "title": "BenchmarkReport",
+  "type": "object"
+}

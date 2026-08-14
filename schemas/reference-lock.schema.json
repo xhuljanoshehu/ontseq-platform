@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "ReferenceContig": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "exclusiveMinimum": 0,
+          "title": "Length",
+          "type": "integer"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "length"
+      ],
+      "title": "ReferenceContig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allow_extra_contigs": {
+      "default": false,
+      "title": "Allow Extra Contigs",
+      "type": "boolean"
+    },
+    "contigs": {
+      "items": {
+        "$ref": "#/$defs/ReferenceContig"
+      },
+      "minItems": 1,
+      "title": "Contigs",
+      "type": "array"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "reference_id": {
+      "minLength": 1,
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_fai_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Fai Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference_id",
+    "genome_build",
+    "contigs",
+    "source_fai_sha256"
+  ],
+  "title": "ReferenceLock",
+  "type": "object"
+}

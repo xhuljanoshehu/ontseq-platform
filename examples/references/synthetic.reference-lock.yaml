@@ -1,0 +1,10 @@
+schema_version: 0.1.0
+reference_id: SYNTHETIC_REF
+genome_build: GRCh38
+allow_extra_contigs: false
+source_fai_sha256: aec9ed3489b6458990cce75cb99f66ac8f6e05594d08ed2cfde8bdfa61196ff5
+contigs:
+  - name: chr1
+    length: 1000
+  - name: chr2
+    length: 2000

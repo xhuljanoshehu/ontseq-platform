@@ -13,6 +13,8 @@ from .models import (
     InputKind,
     InputSpec,
     Locus,
+    ModuleOutcome,
+    ModuleRunStatus,
     PipelineResult,
     Provenance,
     QCMetrics,
@@ -149,7 +151,7 @@ def build_demo_result() -> PipelineResult:
         events=events,
         iscn=proposal,
         provenance=Provenance(
-            pipeline_version="0.1.0",
+            pipeline_version="0.2.0",
             git_commit="UNCOMMITTED-DEMO",
             tools=[
                 ToolRecord(name="Cramino", version="demo"),
@@ -164,6 +166,14 @@ def build_demo_result() -> PipelineResult:
             ],
             reference_checksums={"reference": "synthetic-not-a-real-checksum"},
         ),
+        modules=[
+            ModuleOutcome(
+                module=module,
+                status=ModuleRunStatus.COMPLETED,
+                reason="Synthetic demonstration only; no scientific tool was executed",
+            )
+            for module in manifest.analysis.modules
+        ],
         warnings=[
             "All data in this report are synthetic.",
             "The ISCN renderer implements only an unvalidated subset of ISCN 2024.",

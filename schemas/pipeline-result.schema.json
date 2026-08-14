@@ -440,6 +440,45 @@
       "title": "Locus",
       "type": "object"
     },
+    "ModuleOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/AnalysisModule"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ModuleRunStatus"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolRecord"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module",
+        "status",
+        "reason"
+      ],
+      "title": "ModuleOutcome",
+      "type": "object"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
     "PrivacySpec": {
       "additionalProperties": false,
       "properties": {
@@ -660,6 +699,13 @@
     },
     "manifest": {
       "$ref": "#/$defs/SampleManifest"
+    },
+    "modules": {
+      "items": {
+        "$ref": "#/$defs/ModuleOutcome"
+      },
+      "title": "Modules",
+      "type": "array"
     },
     "provenance": {
       "$ref": "#/$defs/Provenance"

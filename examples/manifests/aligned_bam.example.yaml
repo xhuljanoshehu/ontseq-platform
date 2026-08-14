@@ -1,0 +1,19 @@
+schema_version: 0.1.0
+sample_id: SYNTHETIC_001
+run_id: SYNTHETIC_RUN_001
+input:
+  kind: aligned_bam
+  path: /secure-input/SYNTHETIC_001.bam
+  index_path: /secure-input/SYNTHETIC_001.bam.bai
+assay:
+  mode: lcwgs
+  genome_build: GRCh38
+  reference_id: SYNTHETIC_REF
+analysis:
+  profile: lcwgs
+  modules: [qc, cnv, sv, iscn, report]
+  parameters: {}
+privacy:
+  pseudonymized: true
+  contains_direct_identifiers: false
+  cloud_upload_approved: false
