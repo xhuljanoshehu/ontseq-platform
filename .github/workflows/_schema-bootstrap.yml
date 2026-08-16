@@ -39,8 +39,10 @@ jobs:
           echo "-----SCHEMA-BLOB-BEGIN-----"
           tar -czf - schemas | base64 -w 120
           echo "-----SCHEMA-BLOB-END-----"
-      - name: Emit formatted sources as an encoded blob
+      - name: Emit the formatting diff as an encoded blob
         run: |
+          git diff -- src tests scripts > /tmp/format.diff || true
+          wc -c /tmp/format.diff
           echo "-----FORMAT-BLOB-BEGIN-----"
-          tar -czf - src tests scripts | base64 -w 120
+          gzip -c /tmp/format.diff | base64 -w 120
           echo "-----FORMAT-BLOB-END-----"
