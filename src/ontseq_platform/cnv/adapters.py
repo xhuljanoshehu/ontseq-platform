@@ -129,9 +129,9 @@ def _resolve_header(header: Sequence[str], mapping: ColumnMapping) -> dict[str, 
         )
     for name, column in required.items():
         resolved[name] = lookup[column]
-    for name, column in optional.items():
-        if column is not None and column in lookup:
-            resolved[name] = lookup[column]
+    for name, optional_column in optional.items():
+        if optional_column is not None and optional_column in lookup:
+            resolved[name] = lookup[optional_column]
     if not any(
         key in resolved for key in ("copy_number", "log2_ratio", "copy_ratio", "categorical_call")
     ):

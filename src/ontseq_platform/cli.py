@@ -294,8 +294,8 @@ def main() -> None:
             print(write_json(karyotype_truth, args.output))
             for construct in conversion.unsupported:
                 print(f"UNSUPPORTED {construct.token}: {construct.reason}")
-            for construct in conversion.balanced_constructs:
-                print(f"BALANCED {construct}: asserts no copy-number change")
+            for balanced in conversion.balanced_constructs:
+                print(f"BALANCED {balanced}: asserts no copy-number change")
             if conversion.unsupported:
                 # A partially converted karyotype is not a usable truth set. Exiting
                 # non-zero stops a pipeline from scoring against an incomplete truth.
