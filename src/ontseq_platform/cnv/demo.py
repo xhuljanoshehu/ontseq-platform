@@ -294,10 +294,31 @@ def run_demo_benchmark(
     return truth, reports, aggregates
 
 
-def write_demo_benchmark(output_dir: Path, **kwargs: object) -> DemoOutputs:
-    """Run the demo and write every artifact as JSON."""
-    truth, reports, aggregates = run_demo_benchmark(**kwargs)  # type: ignore[arg-type]
-    variants = list(kwargs.get("variants") or DEMO_VARIANTS)  # type: ignore[arg-type]
+def write_demo_benchmark(
+    output_dir: Path,
+    *,
+    tumor_fractions: Sequence[float] = DEMO_TUMOR_FRACTIONS,
+    coverages: Sequence[float] = DEMO_COVERAGES,
+    replicates: int = DEMO_REPLICATES,
+    bin_size_bp: int = 1_000_000,
+    seed: int = 20260816,
+    variants: Sequence[MethodVariant] = DEMO_VARIANTS,
+) -> DemoOutputs:
+    """Run the demo and write every artifact as JSON.
+
+    Requires at least two variants, because the paired comparison this writes is the
+    point of the demo. A single-variant run should call :func:`run_demo_benchmark`.
+    """
+    if len(variants) < 2:
+        raise ValueError("write_demo_benchmark needs at least two variants to compare")
+    truth, reports, aggregates = run_demo_benchmark(
+        tumor_fractions=tumor_fractions,
+        coverages=coverages,
+        replicates=replicates,
+        bin_size_bp=bin_size_bp,
+        seed=seed,
+        variants=variants,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     truth_path = write_json(truth, output_dir / "cnv-demo.truth.json")
 
