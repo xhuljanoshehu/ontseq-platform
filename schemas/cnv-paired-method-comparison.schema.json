@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "description": "A paired comparison of two methods on the same truth events.\n\nThe contingency counts are reported in full so the reader can judge the comparison\nrather than only its p-value.",
+  "properties": {
+    "both_detected": {
+      "minimum": 0,
+      "title": "Both Detected",
+      "type": "integer"
+    },
+    "favours": {
+      "default": "neither",
+      "enum": [
+        "a",
+        "b",
+        "neither"
+      ],
+      "title": "Favours",
+      "type": "string"
+    },
+    "method_a": {
+      "title": "Method A",
+      "type": "string"
+    },
+    "method_b": {
+      "title": "Method B",
+      "type": "string"
+    },
+    "neither_detected": {
+      "minimum": 0,
+      "title": "Neither Detected",
+      "type": "integer"
+    },
+    "note": {
+      "title": "Note",
+      "type": "string"
+    },
+    "only_a_detected": {
+      "minimum": 0,
+      "title": "Only A Detected",
+      "type": "integer"
+    },
+    "only_b_detected": {
+      "minimum": 0,
+      "title": "Only B Detected",
+      "type": "integer"
+    },
+    "p_value": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "P Value"
+    },
+    "paired_events": {
+      "minimum": 0,
+      "title": "Paired Events",
+      "type": "integer"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "unpaired_events": {
+      "minimum": 0,
+      "title": "Unpaired Events",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "method_a",
+    "method_b",
+    "paired_events",
+    "both_detected",
+    "only_a_detected",
+    "only_b_detected",
+    "neither_detected",
+    "unpaired_events",
+    "note"
+  ],
+  "title": "PairedMethodComparison",
+  "type": "object"
+}

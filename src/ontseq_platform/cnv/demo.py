@@ -314,9 +314,7 @@ def write_demo_benchmark(output_dir: Path, **kwargs: object) -> DemoOutputs:
             write_json(summary, output_dir / f"cnv-demo.aggregate.{variant.key}.json")
         )
 
-    comparison = paired_detection_comparison(
-        reports[variants[0].key], reports[variants[1].key]
-    )
+    comparison = paired_detection_comparison(reports[variants[0].key], reports[variants[1].key])
     comparison_path = write_json(comparison, output_dir / "cnv-demo.comparison.json")
     return DemoOutputs(
         truth_path=truth_path,

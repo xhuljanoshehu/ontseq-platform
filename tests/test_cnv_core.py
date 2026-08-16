@@ -143,9 +143,7 @@ class ObservabilityTests(unittest.TestCase):
             + partition.truth_silent_bases
             + partition.query_no_call_bases,
         )
-        self.assertEqual(
-            partition.reference_bases, partition.mask_bases + partition.excluded_bases
-        )
+        self.assertEqual(partition.reference_bases, partition.mask_bases + partition.excluded_bases)
         # The mask allowed 30 Mb; truth is open-world so it is silent beyond 20 Mb, and
         # the caller explicitly declined between 5 Mb and 12 Mb.
         self.assertEqual(partition.mask_bases, 30_000_000)

@@ -570,7 +570,7 @@
     },
     "GenomePartitionReport": {
       "additionalProperties": false,
-      "description": "How the genome was divided before scoring.",
+      "description": "How the genome was divided before scoring.\n\nThe counts reconcile exactly, and the contract enforces it, so a reader can always\nverify what fraction of the genome a metric actually applied to:\n\n``reference_bases == mask_bases + excluded_bases``\n\n``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``",
       "properties": {
         "evaluable_bases": {
           "minimum": 0,
@@ -603,6 +603,11 @@
           "title": "Excluded Bases By Reason",
           "type": "object"
         },
+        "mask_bases": {
+          "minimum": 0,
+          "title": "Mask Bases",
+          "type": "integer"
+        },
         "query_no_call_bases": {
           "minimum": 0,
           "title": "Query No Call Bases",
@@ -621,6 +626,7 @@
       },
       "required": [
         "reference_bases",
+        "mask_bases",
         "evaluable_bases",
         "excluded_bases",
         "query_no_call_bases",
