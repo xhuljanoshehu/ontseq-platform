@@ -429,10 +429,9 @@ def derive_events(
             continues_run = (
                 bool(run) and run[-1].end == segment.start and run[-1].state == segment.state
             )
-            if not is_altered(segment.state) or not continues_run:
-                if run:
-                    events.append(_build_event(run, contig, prefix, fallback))
-                    run = []
+            if run and (not is_altered(segment.state) or not continues_run):
+                events.append(_build_event(run, contig, prefix, fallback))
+                run = []
             if is_altered(segment.state):
                 run.append(segment)
         if run:

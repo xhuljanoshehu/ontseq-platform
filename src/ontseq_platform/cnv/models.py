@@ -186,15 +186,16 @@ class CnvTruthSet(StrictModel):
 
     @model_validator(mode="after")
     def open_world_truth_needs_scope_or_resolution(self) -> CnvTruthSet:
-        if self.background_state == CopyNumberState.NEUTRAL and not self.informative_regions:
-            if self.source in {
-                CnvTruthSource.FISH,
-                CnvTruthSource.SHORT_READ_PANEL,
-            }:
-                raise ValueError(
-                    f"{self.source.value} truth cannot claim a genome-wide neutral "
-                    "background; declare informative_regions instead"
-                )
+        probe_scoped_sources = {CnvTruthSource.FISH, CnvTruthSource.SHORT_READ_PANEL}
+        if (
+            self.background_state == CopyNumberState.NEUTRAL
+            and not self.informative_regions
+            and self.source in probe_scoped_sources
+        ):
+            raise ValueError(
+                f"{self.source.value} truth cannot claim a genome-wide neutral "
+                "background; declare informative_regions instead"
+            )
         if self.background_state == CopyNumberState.NEUTRAL and self.resolution_bp == 0:
             raise ValueError(
                 "a closed-world truth set must declare resolution_bp so that events "
