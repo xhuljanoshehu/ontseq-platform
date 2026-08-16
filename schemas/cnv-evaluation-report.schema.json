@@ -1,0 +1,882 @@
+{
+  "$defs": {
+    "BaseLevelReport": {
+      "additionalProperties": false,
+      "description": "Base-pair-weighted agreement.\n\n``recall_by_state`` and ``precision_by_state`` are descriptive point estimates\nwithout intervals on purpose. Base pairs within one segment are not independent\nobservations, so a binomial interval computed over base counts would be absurdly\nnarrow. Intervals are reported only at event level, where the unit of observation is\ndefensible.",
+      "properties": {
+        "concordance": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Concordance"
+        },
+        "concordant_bases": {
+          "minimum": 0,
+          "title": "Concordant Bases",
+          "type": "integer"
+        },
+        "confusion": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Confusion",
+          "type": "object"
+        },
+        "evaluable_bases": {
+          "minimum": 0,
+          "title": "Evaluable Bases",
+          "type": "integer"
+        },
+        "precision_by_state": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Precision By State",
+          "type": "object"
+        },
+        "query_bases_by_state": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Query Bases By State",
+          "type": "object"
+        },
+        "recall_by_state": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Recall By State",
+          "type": "object"
+        },
+        "truth_bases_by_state": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Truth Bases By State",
+          "type": "object"
+        }
+      },
+      "required": [
+        "evaluable_bases",
+        "concordant_bases"
+      ],
+      "title": "BaseLevelReport",
+      "type": "object"
+    },
+    "BreakpointAccuracyReport": {
+      "additionalProperties": false,
+      "description": "Breakpoint agreement over truth events whose resolution supports it.",
+      "properties": {
+        "assessed_events": {
+          "minimum": 0,
+          "title": "Assessed Events",
+          "type": "integer"
+        },
+        "maximum_absolute_delta_bp": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum Absolute Delta Bp"
+        },
+        "median_absolute_end_delta_bp": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Median Absolute End Delta Bp"
+        },
+        "median_absolute_start_delta_bp": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Median Absolute Start Delta Bp"
+        },
+        "skip_reasons": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Skip Reasons",
+          "type": "object"
+        },
+        "skipped_events": {
+          "minimum": 0,
+          "title": "Skipped Events",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "assessed_events",
+        "skipped_events"
+      ],
+      "title": "BreakpointAccuracyReport",
+      "type": "object"
+    },
+    "CnvDataBasis": {
+      "description": "Which reads a copy-number estimate was derived from.\n\nAdaptive sampling produces two very different read populations in one run. Rejected\nreads still occupy the flow cell and form a near-uniform low-coverage whole-genome\nbackground, which is the population most depth-based CNV methods actually assume.\nOn-target reads are deeply but non-uniformly enriched and violate that assumption.\nMixing the two in one benchmark stratum compares incomparable things.",
+      "enum": [
+        "adaptive_sampling_off_target",
+        "adaptive_sampling_on_target",
+        "adaptive_sampling_combined",
+        "low_coverage_wgs",
+        "whole_genome",
+        "simulated"
+      ],
+      "title": "CnvDataBasis",
+      "type": "string"
+    },
+    "CnvEvaluationOptions": {
+      "additionalProperties": false,
+      "description": "Serializable mirror of :class:`ontseq_platform.cnv.core.EvaluationOptions`.",
+      "properties": {
+        "analysis_scope_flank_bp": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Analysis Scope Flank Bp",
+          "type": "integer"
+        },
+        "concordance_mode": {
+          "$ref": "#/$defs/ConcordanceMode",
+          "default": "directional"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "copy_number_tolerance": {
+          "default": 0.5,
+          "minimum": 0,
+          "title": "Copy Number Tolerance",
+          "type": "number"
+        },
+        "detection_overlap_fraction": {
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Detection Overlap Fraction",
+          "type": "number"
+        },
+        "maximum_truth_boundary_uncertainty_bp": {
+          "default": 1000000,
+          "minimum": 0,
+          "title": "Maximum Truth Boundary Uncertainty Bp",
+          "type": "integer"
+        },
+        "minimum_assessable_fraction": {
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Minimum Assessable Fraction",
+          "type": "number"
+        },
+        "minimum_depth_floor_x": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Depth Floor X"
+        }
+      },
+      "title": "CnvEvaluationOptions",
+      "type": "object"
+    },
+    "CnvStrata": {
+      "additionalProperties": false,
+      "description": "Typed stratification keys for cross-run aggregation.\n\nTyped rather than a free-form mapping so that aggregation across runs is possible at\nall. A benchmark that cannot be grouped by coverage and tumor fraction cannot answer\nthe questions this project needs answered.",
+      "properties": {
+        "assay_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assay Mode"
+        },
+        "bin_size_bp": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bin Size Bp"
+        },
+        "data_basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CnvDataBasis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mean_coverage_x": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Coverage X"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "replicate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replicate"
+        },
+        "sample_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Class"
+        },
+        "tumor_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction"
+        }
+      },
+      "title": "CnvStrata",
+      "type": "object"
+    },
+    "CnvTruthSource": {
+      "description": "Where a truth set came from.\n\nThe source determines how much the truth can support. Cytogenetic banding resolves\nbreakpoints to a band; arrays resolve them to probe spacing; a simulator knows them\nexactly. Recording the source is what lets the evaluator refuse to report a metric\nthe truth cannot justify.",
+      "enum": [
+        "simulated",
+        "iscn_karyotype",
+        "fish",
+        "snp_array",
+        "cgh_array",
+        "short_read_wgs",
+        "short_read_panel",
+        "orthogonal_long_read",
+        "public_reference_material",
+        "expert_consensus"
+      ],
+      "title": "CnvTruthSource",
+      "type": "string"
+    },
+    "ConcordanceMode": {
+      "description": "How two states are compared.\n\n``DIRECTIONAL`` is the default for detection because clinical karyotyping asks\nwhether a region is lost or gained, not whether two methods agreed on an exact\ninteger copy number at low coverage. ``STRICT`` is retained for method development\nwhere exact state agreement is the question being studied.",
+      "enum": [
+        "strict",
+        "directional"
+      ],
+      "title": "ConcordanceMode",
+      "type": "string"
+    },
+    "CopyNumberAccuracyReport": {
+      "additionalProperties": false,
+      "description": "Quantitative copy-number agreement.",
+      "properties": {
+        "assessed_bases": {
+          "minimum": 0,
+          "title": "Assessed Bases",
+          "type": "integer"
+        },
+        "mean_absolute_error": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Absolute Error"
+        },
+        "root_mean_square_error": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Mean Square Error"
+        },
+        "within_tolerance_bases": {
+          "minimum": 0,
+          "title": "Within Tolerance Bases",
+          "type": "integer"
+        },
+        "within_tolerance_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Within Tolerance Fraction"
+        }
+      },
+      "required": [
+        "assessed_bases",
+        "within_tolerance_bases"
+      ],
+      "title": "CopyNumberAccuracyReport",
+      "type": "object"
+    },
+    "CopyNumberState": {
+      "description": "Per-base copy-number state.\n\n``NO_CALL`` is a first-class state and never a synonym for ``NEUTRAL``. A region a\nmethod could not assess must stay distinguishable from a region it assessed and\nfound unchanged, otherwise sensitivity and specificity are both unmeasurable.",
+      "enum": [
+        "homozygous_loss",
+        "loss",
+        "neutral",
+        "gain",
+        "high_amplification",
+        "copy_neutral_loh",
+        "no_call"
+      ],
+      "title": "CopyNumberState",
+      "type": "string"
+    },
+    "EventOutcomeReport": {
+      "additionalProperties": false,
+      "description": "Per-event scoring outcome, retained in full for auditability.",
+      "properties": {
+        "breakpoint_skip_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breakpoint Skip Reason"
+        },
+        "concordant_bases": {
+          "minimum": 0,
+          "title": "Concordant Bases",
+          "type": "integer"
+        },
+        "concordant_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Concordant Fraction"
+        },
+        "contig": {
+          "title": "Contig",
+          "type": "string"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "end_delta_bp": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Delta Bp"
+        },
+        "evaluable_bases": {
+          "minimum": 0,
+          "title": "Evaluable Bases",
+          "type": "integer"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "length_bp": {
+          "exclusiveMinimum": 0,
+          "title": "Length Bp",
+          "type": "integer"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "size_class": {
+          "title": "Size Class",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "start_delta_bp": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Delta Bp"
+        },
+        "state": {
+          "$ref": "#/$defs/CopyNumberState"
+        },
+        "total_bases": {
+          "minimum": 0,
+          "title": "Total Bases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "contig",
+        "start",
+        "end",
+        "state",
+        "size_class",
+        "length_bp",
+        "outcome",
+        "reason",
+        "total_bases",
+        "evaluable_bases",
+        "concordant_bases"
+      ],
+      "title": "EventOutcomeReport",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "GenomePartitionReport": {
+      "additionalProperties": false,
+      "description": "How the genome was divided before scoring.",
+      "properties": {
+        "evaluable_bases": {
+          "minimum": 0,
+          "title": "Evaluable Bases",
+          "type": "integer"
+        },
+        "evaluable_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluable Fraction"
+        },
+        "excluded_bases": {
+          "minimum": 0,
+          "title": "Excluded Bases",
+          "type": "integer"
+        },
+        "excluded_bases_by_reason": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Excluded Bases By Reason",
+          "type": "object"
+        },
+        "query_no_call_bases": {
+          "minimum": 0,
+          "title": "Query No Call Bases",
+          "type": "integer"
+        },
+        "reference_bases": {
+          "minimum": 0,
+          "title": "Reference Bases",
+          "type": "integer"
+        },
+        "truth_silent_bases": {
+          "minimum": 0,
+          "title": "Truth Silent Bases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reference_bases",
+        "evaluable_bases",
+        "excluded_bases",
+        "query_no_call_bases",
+        "truth_silent_bases"
+      ],
+      "title": "GenomePartitionReport",
+      "type": "object"
+    },
+    "ProportionResult": {
+      "additionalProperties": false,
+      "description": "A proportion reported together with its interval and denominator.",
+      "properties": {
+        "confidence_level": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "lower": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lower"
+        },
+        "point": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Point"
+        },
+        "successes": {
+          "minimum": 0,
+          "title": "Successes",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upper"
+        }
+      },
+      "required": [
+        "successes",
+        "total",
+        "confidence_level"
+      ],
+      "title": "ProportionResult",
+      "type": "object"
+    },
+    "StratumDetectionReport": {
+      "additionalProperties": false,
+      "description": "Detection within one stratum.",
+      "properties": {
+        "detected": {
+          "minimum": 0,
+          "title": "Detected",
+          "type": "integer"
+        },
+        "detection_rate": {
+          "$ref": "#/$defs/ProportionResult"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "missed": {
+          "minimum": 0,
+          "title": "Missed",
+          "type": "integer"
+        },
+        "not_assessable": {
+          "minimum": 0,
+          "title": "Not Assessable",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "label",
+        "detected",
+        "missed",
+        "not_assessable",
+        "detection_rate"
+      ],
+      "title": "StratumDetectionReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The complete, auditable result of comparing one call set to one truth set.",
+  "properties": {
+    "base_level": {
+      "$ref": "#/$defs/BaseLevelReport"
+    },
+    "breakpoint_accuracy": {
+      "$ref": "#/$defs/BreakpointAccuracyReport"
+    },
+    "call_set_id": {
+      "title": "Call Set Id",
+      "type": "string"
+    },
+    "confirmation_rate": {
+      "$ref": "#/$defs/ProportionResult"
+    },
+    "copy_number_accuracy": {
+      "$ref": "#/$defs/CopyNumberAccuracyReport"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "data_basis": {
+      "$ref": "#/$defs/CnvDataBasis"
+    },
+    "detection_by_size_class": {
+      "items": {
+        "$ref": "#/$defs/StratumDetectionReport"
+      },
+      "title": "Detection By Size Class",
+      "type": "array"
+    },
+    "detection_by_state": {
+      "items": {
+        "$ref": "#/$defs/StratumDetectionReport"
+      },
+      "title": "Detection By State",
+      "type": "array"
+    },
+    "detection_rate": {
+      "$ref": "#/$defs/ProportionResult"
+    },
+    "evaluation_id": {
+      "minLength": 1,
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "method": {
+      "title": "Method",
+      "type": "string"
+    },
+    "method_version": {
+      "title": "Method Version",
+      "type": "string"
+    },
+    "options": {
+      "$ref": "#/$defs/CnvEvaluationOptions"
+    },
+    "partition": {
+      "$ref": "#/$defs/GenomePartitionReport"
+    },
+    "query_events": {
+      "items": {
+        "$ref": "#/$defs/EventOutcomeReport"
+      },
+      "title": "Query Events",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "strata": {
+      "$ref": "#/$defs/CnvStrata"
+    },
+    "truth_events": {
+      "items": {
+        "$ref": "#/$defs/EventOutcomeReport"
+      },
+      "title": "Truth Events",
+      "type": "array"
+    },
+    "truth_id": {
+      "title": "Truth Id",
+      "type": "string"
+    },
+    "truth_source": {
+      "$ref": "#/$defs/CnvTruthSource"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "evaluation_id",
+    "sample_id",
+    "truth_id",
+    "call_set_id",
+    "genome_build",
+    "method",
+    "method_version",
+    "truth_source",
+    "data_basis",
+    "options",
+    "partition",
+    "base_level",
+    "detection_rate",
+    "confirmation_rate",
+    "copy_number_accuracy",
+    "breakpoint_accuracy"
+  ],
+  "title": "CnvEvaluationReport",
+  "type": "object"
+}

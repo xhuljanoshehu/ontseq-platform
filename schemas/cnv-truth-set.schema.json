@@ -1,0 +1,379 @@
+{
+  "$defs": {
+    "CnvSegment": {
+      "additionalProperties": false,
+      "description": "One contiguous copy-number call or truth interval.\n\nCoordinates are zero-based half-open, matching BED. Several quantitative fields are\noptional because different methods report on different scales; the evaluator uses\n``state`` for agreement and ``copy_number`` for quantitative error, and simply\nreports fewer metrics when a field is absent rather than imputing one.",
+      "properties": {
+        "b_allele_frequency": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "B Allele Frequency"
+        },
+        "cellular_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cellular Fraction"
+        },
+        "contig": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Contig",
+          "type": "string"
+        },
+        "copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number"
+        },
+        "copy_ratio": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Ratio"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "end_uncertainty_bp": {
+          "default": 0,
+          "minimum": 0,
+          "title": "End Uncertainty Bp",
+          "type": "integer"
+        },
+        "log2_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log2 Ratio"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "start_uncertainty_bp": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Start Uncertainty Bp",
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/CopyNumberState"
+        },
+        "supporting_bins": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supporting Bins"
+        }
+      },
+      "required": [
+        "contig",
+        "start",
+        "end",
+        "state"
+      ],
+      "title": "CnvSegment",
+      "type": "object"
+    },
+    "CnvTruthSource": {
+      "description": "Where a truth set came from.\n\nThe source determines how much the truth can support. Cytogenetic banding resolves\nbreakpoints to a band; arrays resolve them to probe spacing; a simulator knows them\nexactly. Recording the source is what lets the evaluator refuse to report a metric\nthe truth cannot justify.",
+      "enum": [
+        "simulated",
+        "iscn_karyotype",
+        "fish",
+        "snp_array",
+        "cgh_array",
+        "short_read_wgs",
+        "short_read_panel",
+        "orthogonal_long_read",
+        "public_reference_material",
+        "expert_consensus"
+      ],
+      "title": "CnvTruthSource",
+      "type": "string"
+    },
+    "CopyNumberState": {
+      "description": "Per-base copy-number state.\n\n``NO_CALL`` is a first-class state and never a synonym for ``NEUTRAL``. A region a\nmethod could not assess must stay distinguishable from a region it assessed and\nfound unchanged, otherwise sensitivity and specificity are both unmeasurable.",
+      "enum": [
+        "homozygous_loss",
+        "loss",
+        "neutral",
+        "gain",
+        "high_amplification",
+        "copy_neutral_loh",
+        "no_call"
+      ],
+      "title": "CopyNumberState",
+      "type": "string"
+    },
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "GenomicRegion": {
+      "additionalProperties": false,
+      "description": "A plain interval used for scopes, exclusions and informative regions.",
+      "properties": {
+        "contig": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Contig",
+          "type": "string"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "contig",
+        "start",
+        "end"
+      ],
+      "title": "GenomicRegion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A reference answer against which call sets are scored.",
+  "properties": {
+    "background_state": {
+      "enum": [
+        "neutral",
+        "no_call"
+      ],
+      "title": "Background State",
+      "type": "string"
+    },
+    "baseline_ploidy": {
+      "default": 2.0,
+      "exclusiveMinimum": 0,
+      "title": "Baseline Ploidy",
+      "type": "number"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "fingerprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "informative_regions": {
+      "items": {
+        "$ref": "#/$defs/GenomicRegion"
+      },
+      "title": "Informative Regions",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "resolution_bp": {
+      "minimum": 0,
+      "title": "Resolution Bp",
+      "type": "integer"
+    },
+    "sample_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/CnvSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "source": {
+      "$ref": "#/$defs/CnvTruthSource"
+    },
+    "source_version": {
+      "minLength": 1,
+      "title": "Source Version",
+      "type": "string"
+    },
+    "truth_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",
+      "title": "Truth Id",
+      "type": "string"
+    },
+    "tumor_fraction": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tumor Fraction"
+    },
+    "uninformative_regions": {
+      "items": {
+        "$ref": "#/$defs/GenomicRegion"
+      },
+      "title": "Uninformative Regions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "truth_id",
+    "sample_id",
+    "genome_build",
+    "source",
+    "source_version",
+    "background_state",
+    "resolution_bp"
+  ],
+  "title": "CnvTruthSet",
+  "type": "object"
+}

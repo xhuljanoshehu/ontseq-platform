@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "LimitOfDetection": {
+      "additionalProperties": false,
+      "description": "A detection limit with an explicit basis and an explicit failure mode.\n\n``model_based_value`` is ``None`` whenever the logistic fit did not converge, the\ndesign was perfectly separated, or fewer than two dilution levels were supplied.\nReporting a number in those cases would invent a detection limit the data cannot\nsupport, which is precisely the kind of claim this repository is built to avoid.",
+      "properties": {
+        "empirical_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Empirical Value"
+        },
+        "levels_used": {
+          "minimum": 0,
+          "title": "Levels Used",
+          "type": "integer"
+        },
+        "model_based_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Based Value"
+        },
+        "model_converged": {
+          "default": false,
+          "title": "Model Converged",
+          "type": "boolean"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "predictor": {
+          "enum": [
+            "tumor_fraction",
+            "mean_coverage_x"
+          ],
+          "title": "Predictor",
+          "type": "string"
+        },
+        "target_detection_rate": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Target Detection Rate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "target_detection_rate",
+        "predictor",
+        "levels_used",
+        "note"
+      ],
+      "title": "LimitOfDetection",
+      "type": "object"
+    },
+    "ProportionResult": {
+      "additionalProperties": false,
+      "description": "A proportion reported together with its interval and denominator.",
+      "properties": {
+        "confidence_level": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "lower": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lower"
+        },
+        "point": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Point"
+        },
+        "successes": {
+          "minimum": 0,
+          "title": "Successes",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upper"
+        }
+      },
+      "required": [
+        "successes",
+        "total",
+        "confidence_level"
+      ],
+      "title": "ProportionResult",
+      "type": "object"
+    },
+    "StratumSummary": {
+      "additionalProperties": false,
+      "description": "Pooled outcome for one stratum across several evaluations.",
+      "properties": {
+        "detected_events": {
+          "minimum": 0,
+          "title": "Detected Events",
+          "type": "integer"
+        },
+        "detection_rate": {
+          "$ref": "#/$defs/ProportionResult"
+        },
+        "evaluable_bases": {
+          "minimum": 0,
+          "title": "Evaluable Bases",
+          "type": "integer"
+        },
+        "evaluations": {
+          "minimum": 0,
+          "title": "Evaluations",
+          "type": "integer"
+        },
+        "excluded_bases": {
+          "minimum": 0,
+          "title": "Excluded Bases",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "missed_events": {
+          "minimum": 0,
+          "title": "Missed Events",
+          "type": "integer"
+        },
+        "not_assessable_events": {
+          "minimum": 0,
+          "title": "Not Assessable Events",
+          "type": "integer"
+        },
+        "samples": {
+          "minimum": 0,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "unconfirmed_events": {
+          "minimum": 0,
+          "title": "Unconfirmed Events",
+          "type": "integer"
+        },
+        "weighted_base_concordance": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weighted Base Concordance"
+        }
+      },
+      "required": [
+        "label",
+        "evaluations",
+        "samples",
+        "detected_events",
+        "missed_events",
+        "not_assessable_events",
+        "unconfirmed_events",
+        "detection_rate",
+        "evaluable_bases",
+        "excluded_bases"
+      ],
+      "title": "StratumSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Aggregated benchmark evidence across many evaluations.",
+  "properties": {
+    "aggregate_id": {
+      "minLength": 1,
+      "title": "Aggregate Id",
+      "type": "string"
+    },
+    "by_coverage": {
+      "items": {
+        "$ref": "#/$defs/StratumSummary"
+      },
+      "title": "By Coverage",
+      "type": "array"
+    },
+    "by_data_basis": {
+      "items": {
+        "$ref": "#/$defs/StratumSummary"
+      },
+      "title": "By Data Basis",
+      "type": "array"
+    },
+    "by_size_class": {
+      "items": {
+        "$ref": "#/$defs/StratumSummary"
+      },
+      "title": "By Size Class",
+      "type": "array"
+    },
+    "by_tumor_fraction": {
+      "items": {
+        "$ref": "#/$defs/StratumSummary"
+      },
+      "title": "By Tumor Fraction",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "evaluations": {
+      "minimum": 0,
+      "title": "Evaluations",
+      "type": "integer"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "limits_of_detection": {
+      "items": {
+        "$ref": "#/$defs/LimitOfDetection"
+      },
+      "title": "Limits Of Detection",
+      "type": "array"
+    },
+    "method": {
+      "title": "Method",
+      "type": "string"
+    },
+    "method_version": {
+      "title": "Method Version",
+      "type": "string"
+    },
+    "overall_detection_rate": {
+      "$ref": "#/$defs/ProportionResult"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "aggregate_id",
+    "method",
+    "method_version",
+    "evaluations",
+    "overall_detection_rate"
+  ],
+  "title": "CnvAggregateReport",
+  "type": "object"
+}
