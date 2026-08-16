@@ -346,9 +346,9 @@ def normalize_target_coverage(
         )
 
     interval_bases = sum(region.end - region.start for region in regions)
-    weighted_mean = sum(
-        region.mean_depth * (region.end - region.start) for region in regions
-    ) / interval_bases
+    weighted_mean = (
+        sum(region.mean_depth * (region.end - region.start) for region in regions) / interval_bases
+    )
     summary_metrics: dict[str, float | int] = {
         "region_count": len(regions),
         "interval_bases": interval_bases,
@@ -458,8 +458,7 @@ def run_target_coverage(
     version = _mosdepth_version(f"{version_result.stdout}\n{version_result.stderr}")
     if version != policy.expected_version:
         raise ValueError(
-            f"Mosdepth version {version!r} does not match policy lock "
-            f"{policy.expected_version!r}"
+            f"Mosdepth version {version!r} does not match policy lock {policy.expected_version!r}"
         )
 
     parameters: dict[str, object] = {
