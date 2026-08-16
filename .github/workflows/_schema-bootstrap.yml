@@ -29,8 +29,15 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Regenerate schemas
         run: python scripts/export_schemas.py
+      - name: Apply canonical formatting
+        run: ruff format .
       - name: Emit schemas as an encoded blob
         run: |
           echo "-----SCHEMA-BLOB-BEGIN-----"
           tar -czf - schemas | base64 -w 120
           echo "-----SCHEMA-BLOB-END-----"
+      - name: Emit formatted sources as an encoded blob
+        run: |
+          echo "-----FORMAT-BLOB-BEGIN-----"
+          tar -czf - src tests scripts | base64 -w 120
+          echo "-----FORMAT-BLOB-END-----"
