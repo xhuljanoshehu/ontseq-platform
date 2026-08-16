@@ -374,6 +374,27 @@ reach the 0.95 target; the model-based value is withheld because the near-separa
 design gives the logistic fit no finite maximum. A harness that printed a number here
 would be inventing a detection limit the data cannot support.
 
+### The paired comparison shows why "consistent" is not "proven"
+
+The same run compares the default configuration against a conservative one (split
+threshold raised from 4.0 to 8.0) on byte-identical simulated data:
+
+```
+ontseq-baseline-readdepth vs ontseq-baseline-readdepth-conservative:
+252 paired event(s), only-A=4 only-B=0, p=0.1250
+```
+
+The default configuration won **every** discordant pair — a perfectly one-sided result.
+It is still not significant, and it could not have been: with 4 discordant pairs the
+smallest attainable two-sided exact p-value is `2 x (1/2)^4 = 0.125`. At least **6**
+discordant pairs are needed before `p < 0.05` is reachable at all.
+
+This is the trap an unpaired comparison hides. Two aggregate detection rates that differ
+slightly look like a difference; the paired view shows the entire difference rests on
+four events, and that four events cannot settle the question no matter how one-sided they
+are. A real method-selection study has to be powered before it is run, not interpreted
+afterwards.
+
 ## Pre-registration requirement
 
 Thresholds - `detection_overlap_fraction`, `minimum_assessable_fraction`,
