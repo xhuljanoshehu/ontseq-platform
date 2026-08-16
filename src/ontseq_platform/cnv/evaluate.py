@@ -14,9 +14,9 @@ from .core import (
     BoundaryUncertainty,
     EvaluationOptions,
     EvaluationResult,
+    QueryEventResult,
     StratumDetection,
     TruthEventResult,
-    QueryEventResult,
 )
 from .core import evaluate as evaluate_core
 from .intervals import Interval, IntervalSet, canonical_contig, normalize_set, subtract_set
@@ -197,7 +197,9 @@ def build_case_mask(case: CnvBenchmarkCase) -> ObservabilityMask:
     )
 
 
-def evaluate_case(case: CnvBenchmarkCase, *, evaluation_id: str | None = None) -> CnvEvaluationReport:
+def evaluate_case(
+    case: CnvBenchmarkCase, *, evaluation_id: str | None = None
+) -> CnvEvaluationReport:
     """Score a benchmark case and return the full auditable report."""
     mask = build_case_mask(case)
     # Segments that declare no uncertainty of their own inherit the truth set's declared
@@ -323,7 +325,9 @@ def _to_report(
             assessed_events=result.breakpoint_accuracy.assessed_events,
             skipped_events=result.breakpoint_accuracy.skipped_events,
             skip_reasons=dict(sorted(result.breakpoint_accuracy.skip_reasons.items())),
-            median_absolute_start_delta_bp=result.breakpoint_accuracy.median_absolute_start_delta_bp,
+            median_absolute_start_delta_bp=(
+                result.breakpoint_accuracy.median_absolute_start_delta_bp
+            ),
             median_absolute_end_delta_bp=result.breakpoint_accuracy.median_absolute_end_delta_bp,
             maximum_absolute_delta_bp=result.breakpoint_accuracy.maximum_absolute_delta_bp,
         ),

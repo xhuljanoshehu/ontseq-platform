@@ -157,7 +157,7 @@ def convert_karyotype(
         )
 
     seen: set[tuple[str, int, int, CopyNumberState]] = set()
-    for clone_index, (clone, cells) in enumerate(clones):
+    for clone, cells in clones:
         if cells is not None:
             conversion.clone_cell_counts.append(cells)
         tokens = _tokenize_clone(clone)

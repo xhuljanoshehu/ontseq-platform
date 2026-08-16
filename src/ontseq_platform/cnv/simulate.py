@@ -247,7 +247,9 @@ def closed_world_truth(
         for segment in items:
             if segment.start > cursor:
                 complete.append(
-                    StateSegment(key, cursor, segment.start, CopyNumberState.NEUTRAL, baseline_ploidy)
+                    StateSegment(
+                        key, cursor, segment.start, CopyNumberState.NEUTRAL, baseline_ploidy
+                    )
                 )
             complete.append(segment)
             cursor = segment.end

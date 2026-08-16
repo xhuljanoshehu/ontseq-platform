@@ -326,7 +326,9 @@ class EvaluationResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _validate_segments(segments: Sequence[StateSegment], label: str) -> dict[str, list[StateSegment]]:
+def _validate_segments(
+    segments: Sequence[StateSegment], label: str
+) -> dict[str, list[StateSegment]]:
     """Group segments by canonical contig and reject overlaps within a contig."""
     grouped: dict[str, list[StateSegment]] = {}
     for segment in segments:
@@ -342,7 +344,9 @@ def _validate_segments(segments: Sequence[StateSegment], label: str) -> dict[str
     return grouped
 
 
-def _locate(items: Sequence[StateSegment], starts: Sequence[int], position: int) -> StateSegment | None:
+def _locate(
+    items: Sequence[StateSegment], starts: Sequence[int], position: int
+) -> StateSegment | None:
     """Return the segment covering ``position``, or ``None``."""
     index = bisect_right(starts, position) - 1
     if index < 0:
@@ -914,7 +918,9 @@ def _breakpoint_accuracy(results: Sequence[TruthEventResult]) -> BreakpointAccur
     for item in skipped:
         reason = item.breakpoint_skip_reason or "unspecified"
         reasons[reason] = reasons.get(reason, 0) + 1
-    start_deltas = [abs(item.start_delta_bp) for item in assessed if item.start_delta_bp is not None]
+    start_deltas = [
+        abs(item.start_delta_bp) for item in assessed if item.start_delta_bp is not None
+    ]
     end_deltas = [abs(item.end_delta_bp) for item in assessed if item.end_delta_bp is not None]
     combined = start_deltas + end_deltas
     return BreakpointAccuracy(

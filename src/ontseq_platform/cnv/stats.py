@@ -126,7 +126,9 @@ def wilson_interval(
     )
 
 
-def mean_absolute_error(pairs: Sequence[tuple[float, float]], weights: Sequence[int]) -> float | None:
+def mean_absolute_error(
+    pairs: Sequence[tuple[float, float]], weights: Sequence[int]
+) -> float | None:
     """Return the weight-weighted mean absolute error, or ``None`` when unweighted."""
     total_weight = sum(weights)
     if total_weight <= 0:

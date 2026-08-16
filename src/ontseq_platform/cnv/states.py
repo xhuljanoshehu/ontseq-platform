@@ -199,5 +199,7 @@ def tumor_copy_number_from_mixture(
         raise ValueError("tumor fraction must be greater than 0 to invert the mixture")
     if observed_copy_number < 0 or normal_copy_number < 0:
         raise ValueError("copy numbers must not be negative")
-    recovered = (observed_copy_number - (1.0 - tumor_fraction) * normal_copy_number) / tumor_fraction
+    recovered = (
+        observed_copy_number - (1.0 - tumor_fraction) * normal_copy_number
+    ) / tumor_fraction
     return max(0.0, recovered)

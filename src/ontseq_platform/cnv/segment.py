@@ -301,7 +301,9 @@ def neutral_background_segments(
         for segment in items:
             if segment.start > cursor:
                 filled.append(
-                    StateSegment(key, cursor, segment.start, CopyNumberState.NEUTRAL, baseline_ploidy)
+                    StateSegment(
+                        key, cursor, segment.start, CopyNumberState.NEUTRAL, baseline_ploidy
+                    )
                 )
             filled.append(segment)
             cursor = segment.end

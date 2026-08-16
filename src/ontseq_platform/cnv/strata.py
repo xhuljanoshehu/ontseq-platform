@@ -340,7 +340,9 @@ def aggregate(
         ),
         by_coverage=_group(
             reports,
-            lambda r: None if r.strata.mean_coverage_x is None else f"{r.strata.mean_coverage_x:g}x",
+            lambda r: (
+                None if r.strata.mean_coverage_x is None else f"{r.strata.mean_coverage_x:g}x"
+            ),
             confidence_level,
         ),
         by_size_class=_size_class_summaries(reports, confidence_level),
