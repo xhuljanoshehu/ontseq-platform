@@ -50,8 +50,7 @@ STANDING_LIMITATIONS = [
     "the detection thresholds echoed in this report.",
     "Base-level agreement is reported without confidence intervals because base pairs "
     "within a segment are not independent observations.",
-    "Absence of a call inside an excluded or no-call region is not a negative biological "
-    "finding.",
+    "Absence of a call inside an excluded or no-call region is not a negative biological finding.",
 ]
 
 
@@ -233,9 +232,7 @@ def _to_report(
     warnings = list(result.warnings)
     if case.truth.resolution_bp > 0:
         small = [
-            item
-            for item in result.query_events
-            if item.event.length < case.truth.resolution_bp
+            item for item in result.query_events if item.event.length < case.truth.resolution_bp
         ]
         if small:
             warnings.append(

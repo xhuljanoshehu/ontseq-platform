@@ -220,9 +220,7 @@ def call_segments(
     for contig in sorted(by_contig):
         items = sorted(by_contig[contig], key=lambda item: item.start)
         ratios = [math.log2(item.count / median_count) for item in items]
-        ranges = (
-            _segment_indices(ratios, scale, resolved) if scale > 0 else [(0, len(ratios))]
-        )
+        ranges = _segment_indices(ratios, scale, resolved) if scale > 0 else [(0, len(ratios))]
         raw: list[tuple[int, int, float]] = []
         for start_index, end_index in ranges:
             mean_ratio = sum(ratios[start_index:end_index]) / (end_index - start_index)

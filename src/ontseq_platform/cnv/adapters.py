@@ -250,9 +250,7 @@ def parse_segment_table(
     if header is None:
         raise SegmentParseError("segment table contained no header row")
     if skipped_contigs:
-        warnings.append(
-            "Skipped non-canonical contigs: " + ", ".join(sorted(skipped_contigs))
-        )
+        warnings.append("Skipped non-canonical contigs: " + ", ".join(sorted(skipped_contigs)))
     if derived_from_ratio:
         warnings.append(
             f"{derived_from_ratio} segment(s) had no absolute copy number; it was derived "
@@ -299,9 +297,7 @@ def call_set_from_segment_table(
     extra_limitations: Sequence[str] = (),
 ) -> CnvCallSet:
     """Parse a tool's segment table into a normalized, non-reportable call set."""
-    segments, warnings = parse_segment_table(
-        lines, mapping, baseline_ploidy=baseline_ploidy
-    )
+    segments, warnings = parse_segment_table(lines, mapping, baseline_ploidy=baseline_ploidy)
     status = ModuleRunStatus.COMPLETED if segments else ModuleRunStatus.NO_CALL
     return CnvCallSet(
         call_set_id=call_set_id,
@@ -310,9 +306,7 @@ def call_set_from_segment_table(
         method=method,
         method_version=method_version,
         data_basis=data_basis,
-        background_state=(
-            CopyNumberState.NEUTRAL if closed_world else CopyNumberState.NO_CALL
-        ),
+        background_state=(CopyNumberState.NEUTRAL if closed_world else CopyNumberState.NO_CALL),
         status=status,
         segments=segments,
         no_call_regions=list(no_call_regions),

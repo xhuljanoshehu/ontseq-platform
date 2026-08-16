@@ -76,8 +76,10 @@ def inverse_normal_cdf(probability: float) -> float:
         )
     q = probability - 0.5
     r = q * q
-    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (
-        ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0
+    return (
+        (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+        * q
+        / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
     )
 
 
@@ -175,9 +177,7 @@ def fit_logistic(
     """
     if not (len(predictors) == len(successes) == len(totals)):
         raise ValueError("predictors, successes and totals must have equal length")
-    levels = [
-        (x, s, n) for x, s, n in zip(predictors, successes, totals, strict=True) if n > 0
-    ]
+    levels = [(x, s, n) for x, s, n in zip(predictors, successes, totals, strict=True) if n > 0]
     if len({x for x, _, _ in levels}) < 2:
         return None
     observed = [s / n for _, s, n in levels]

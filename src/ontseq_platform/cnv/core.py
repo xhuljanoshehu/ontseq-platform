@@ -381,8 +381,7 @@ def _build_event(
     numbers = [item.copy_number for item in run if item.copy_number is not None]
     weights = [item.length for item in run if item.copy_number is not None]
     copy_number = (
-        sum(number * weight for number, weight in zip(numbers, weights, strict=True))
-        / sum(weights)
+        sum(number * weight for number, weight in zip(numbers, weights, strict=True)) / sum(weights)
         if numbers
         else None
     )
@@ -529,9 +528,7 @@ def evaluate(
             query_state, query_cn = _state_at(
                 query_grouped, query_starts, contig, left, query_background
             )
-            inside = _covered(
-                evaluable_set.get(contig, []), evaluable_starts.get(contig, []), left
-            )
+            inside = _covered(evaluable_set.get(contig, []), evaluable_starts.get(contig, []), left)
             if query_state == CopyNumberState.NO_CALL:
                 query_no_call_bases += width
             if truth_state == CopyNumberState.NO_CALL:
@@ -559,9 +556,7 @@ def evaluate(
 
     recall_by_state = {
         state: (
-            _concordant_bases_for_truth_state(confusion, state, resolved) / total
-            if total
-            else None
+            _concordant_bases_for_truth_state(confusion, state, resolved) / total if total else None
         )
         for state, total in truth_bases_by_state.items()
     }
@@ -883,9 +878,7 @@ def _stratify(
         items = buckets[label]
         detected = sum(1 for item in items if item.outcome == TruthOutcome.DETECTED)
         missed = sum(1 for item in items if item.outcome == TruthOutcome.MISSED)
-        not_assessable = sum(
-            1 for item in items if item.outcome == TruthOutcome.NOT_ASSESSABLE
-        )
+        not_assessable = sum(1 for item in items if item.outcome == TruthOutcome.NOT_ASSESSABLE)
         strata.append(
             StratumDetection(
                 label=label,

@@ -95,9 +95,7 @@ def build_demo_truth_set(sample_id: str = "SYNTHETIC_CNV_DEMO") -> CnvTruthSet:
             contig=contig,
             start=start,
             end=end,
-            state=(
-                CopyNumberState.LOSS if copy_number < 2.0 else CopyNumberState.GAIN
-            ),
+            state=(CopyNumberState.LOSS if copy_number < 2.0 else CopyNumberState.GAIN),
             copy_number=copy_number,
             # Simulated truth knows its breakpoints exactly.
             start_uncertainty_bp=0,
@@ -203,14 +201,9 @@ def run_demo_benchmark(
         for fraction_index, fraction in enumerate(tumor_fractions):
             for replicate in range(replicates):
                 derived_seed = (
-                    seed
-                    + 100_000 * (coverage_index + 1)
-                    + 1_000 * (fraction_index + 1)
-                    + replicate
+                    seed + 100_000 * (coverage_index + 1) + 1_000 * (fraction_index + 1) + replicate
                 )
-                sample_id = (
-                    f"SIM-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_")
-                )
+                sample_id = f"SIM-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_")
                 call_set, _ = _call_set_for(
                     call_set_id=f"CS-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_"),
                     sample_id=sample_id,
@@ -248,8 +241,7 @@ def write_demo_benchmark(output_dir: Path, **kwargs: object) -> DemoOutputs:
     evaluations_dir.mkdir(parents=True, exist_ok=True)
     truth_path = write_json(truth, output_dir / "cnv-demo.truth.json")
     evaluation_paths = [
-        write_json(report, evaluations_dir / f"{report.evaluation_id}.json")
-        for report in reports
+        write_json(report, evaluations_dir / f"{report.evaluation_id}.json") for report in reports
     ]
     aggregate_path = write_json(summary, output_dir / "cnv-demo.aggregate.json")
     return DemoOutputs(

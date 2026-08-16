@@ -111,14 +111,10 @@ def _summarize(
     not_assessable = sum(
         sum(1 for e in r.truth_events if e.outcome == "NOT_ASSESSABLE") for r in reports
     )
-    unconfirmed = sum(
-        sum(1 for e in r.query_events if e.outcome == "UNCONFIRMED") for r in reports
-    )
+    unconfirmed = sum(sum(1 for e in r.query_events if e.outcome == "UNCONFIRMED") for r in reports)
     evaluable = sum(r.base_level.evaluable_bases for r in reports)
     weighted = (
-        sum(
-            (r.base_level.concordance or 0.0) * r.base_level.evaluable_bases for r in reports
-        )
+        sum((r.base_level.concordance or 0.0) * r.base_level.evaluable_bases for r in reports)
         / evaluable
         if evaluable
         else None
@@ -346,9 +342,7 @@ def aggregate(
             confidence_level,
         ),
         by_size_class=_size_class_summaries(reports, confidence_level),
-        by_data_basis=_group(
-            reports, lambda r: r.data_basis.value, confidence_level
-        ),
+        by_data_basis=_group(reports, lambda r: r.data_basis.value, confidence_level),
         limits_of_detection=limits,
         warnings=warnings,
         limitations=[

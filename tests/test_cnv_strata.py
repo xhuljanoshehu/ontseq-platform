@@ -33,11 +33,15 @@ def _report(*, tumor_fraction: float, detected: bool, method: str = "baseline", 
         resolution_bp=100_000,
         segments=[LOSS],
     )
-    segments = [LOSS] if detected else [
-        CnvSegment(
-            contig="chr5", start=0, end=1_000_000, state=CopyNumberState.GAIN, copy_number=3.0
-        )
-    ]
+    segments = (
+        [LOSS]
+        if detected
+        else [
+            CnvSegment(
+                contig="chr5", start=0, end=1_000_000, state=CopyNumberState.GAIN, copy_number=3.0
+            )
+        ]
+    )
     call_set = CnvCallSet(
         call_set_id="C1",
         sample_id=sample,
@@ -128,17 +132,13 @@ class LimitOfDetectionTests(unittest.TestCase):
         self.assertIn("separated", limit.note)
 
     def test_no_assessable_events_yields_no_limit(self) -> None:
-        limit = estimate_limit_of_detection(
-            [(0.1, 0, 0)], predictor="tumor_fraction"
-        )
+        limit = estimate_limit_of_detection([(0.1, 0, 0)], predictor="tumor_fraction")
         self.assertEqual(limit.levels_used, 0)
         self.assertIsNone(limit.empirical_value)
         self.assertIsNone(limit.model_based_value)
 
     def test_aggregate_emits_a_limit_when_levels_permit(self) -> None:
-        reports = [
-            _report(tumor_fraction=1.0, detected=True, sample=f"S{i}") for i in range(3)
-        ] + [
+        reports = [_report(tumor_fraction=1.0, detected=True, sample=f"S{i}") for i in range(3)] + [
             _report(tumor_fraction=0.05, detected=False, sample=f"T{i}") for i in range(3)
         ]
         result = aggregate(reports, aggregate_id="AGG")

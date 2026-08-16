@@ -127,9 +127,7 @@ class MaskIntegrationTests(unittest.TestCase):
         )
         mask = build_case_mask(case)
         self.assertEqual(mask.evaluable_bases, 181_538_259)
-        self.assertEqual(
-            mask.excluded_bases_by_reason["outside_analysis_scope"], 145_138_636
-        )
+        self.assertEqual(mask.excluded_bases_by_reason["outside_analysis_scope"], 145_138_636)
 
     def test_caller_no_call_regions_become_unassessable(self) -> None:
         case = _case(
@@ -151,9 +149,7 @@ class MaskIntegrationTests(unittest.TestCase):
         case = _case(
             _truth(
                 [LOSS],
-                uninformative_regions=[
-                    GenomicRegion(contig="chr5", start=0, end=181_538_259)
-                ],
+                uninformative_regions=[GenomicRegion(contig="chr5", start=0, end=181_538_259)],
             ),
             _call_set([LOSS]),
         )
@@ -200,9 +196,7 @@ class MethodComparisonTests(unittest.TestCase):
 
         self.assertEqual(len(reports), 2)
         # Both methods are scored on the same evaluable genome.
-        self.assertEqual(
-            reports[0].partition.evaluable_bases, reports[1].partition.evaluable_bases
-        )
+        self.assertEqual(reports[0].partition.evaluable_bases, reports[1].partition.evaluable_bases)
         # chr8 is unassessable for both, so neither is credited nor blamed there.
         for report in reports:
             self.assertEqual(report.detection_rate.total, 1)
@@ -210,17 +204,13 @@ class MethodComparisonTests(unittest.TestCase):
 
 class ProjectionTests(unittest.TestCase):
     def test_whole_chromosome_segment_becomes_a_chromosome_event(self) -> None:
-        event = segment_to_genomic_event(
-            GAIN, event_id="cnv-1", contig_length=145_138_636
-        )
+        event = segment_to_genomic_event(GAIN, event_id="cnv-1", contig_length=145_138_636)
         self.assertIsNotNone(event)
         self.assertEqual(event.event_type, EventType.CHROMOSOME_GAIN)
         self.assertIs(event.reportable, False)
 
     def test_subchromosomal_segment_becomes_a_deletion(self) -> None:
-        event = segment_to_genomic_event(
-            LOSS, event_id="cnv-2", contig_length=181_538_259
-        )
+        event = segment_to_genomic_event(LOSS, event_id="cnv-2", contig_length=181_538_259)
         self.assertEqual(event.event_type, EventType.DELETION)
 
     def test_copy_neutral_loh_is_not_projected_onto_a_dosage_event(self) -> None:
@@ -236,13 +226,14 @@ class ProjectionTests(unittest.TestCase):
 
 class OptionEchoTests(unittest.TestCase):
     def test_options_are_echoed_into_the_report(self) -> None:
-        options = CnvEvaluationOptions(
-            detection_overlap_fraction=0.9, copy_number_tolerance=0.1
-        )
+        options = CnvEvaluationOptions(detection_overlap_fraction=0.9, copy_number_tolerance=0.1)
         report = evaluate_case(
-            _case(_truth([LOSS]), _call_set([LOSS]), options=options, strata=CnvStrata(
-                tumor_fraction=0.25, mean_coverage_x=3.0
-            ))
+            _case(
+                _truth([LOSS]),
+                _call_set([LOSS]),
+                options=options,
+                strata=CnvStrata(tumor_fraction=0.25, mean_coverage_x=3.0),
+            )
         )
         self.assertEqual(report.options.detection_overlap_fraction, 0.9)
         self.assertEqual(report.options.copy_number_tolerance, 0.1)

@@ -102,9 +102,7 @@ class DeterminismTests(unittest.TestCase):
             replicates=2,
             base_parameters=SimulationParameters(seed=5),
         )
-        self.assertNotEqual(
-            [b.count for b in levels[0].bins], [b.count for b in levels[1].bins]
-        )
+        self.assertNotEqual([b.count for b in levels[0].bins], [b.count for b in levels[1].bins])
 
 
 class ClosedWorldTruthTests(unittest.TestCase):
@@ -131,14 +129,10 @@ class EndToEndTests(unittest.TestCase):
             tumor_fraction=tumor_fraction,
             seed=seed,
         )
-        bins = simulate_bins(
-            contig_lengths=CONTIGS, truth_segments=_truth(), parameters=parameters
-        )
+        bins = simulate_bins(contig_lengths=CONTIGS, truth_segments=_truth(), parameters=parameters)
         called = call_segments(
             [DepthBin(b.contig, b.start, b.end, b.count) for b in bins],
-            SegmentationParameters(
-                tumor_fraction=tumor_fraction if tumor_fraction < 1.0 else None
-            ),
+            SegmentationParameters(tumor_fraction=tumor_fraction if tumor_fraction < 1.0 else None),
         )
         query = neutral_background_segments(called.segments, CONTIGS)
         return evaluate(

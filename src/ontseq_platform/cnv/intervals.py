@@ -145,9 +145,7 @@ def union_set(*sources: Mapping[str, Sequence[Interval]]) -> IntervalSet:
     return normalize_set(combined)
 
 
-def overlap_length(
-    span: Interval, contig: str, other: Mapping[str, Sequence[Interval]]
-) -> int:
+def overlap_length(span: Interval, contig: str, other: Mapping[str, Sequence[Interval]]) -> int:
     """Return how many bases of a single span are covered by an interval set."""
     spans = other.get(canonical_contig(contig))
     if not spans:
@@ -158,7 +156,5 @@ def overlap_length(
 def contig_lengths_to_set(lengths: Mapping[str, int]) -> IntervalSet:
     """Build a whole-genome interval set from a contig-length mapping."""
     return {
-        canonical_contig(contig): [(0, length)]
-        for contig, length in lengths.items()
-        if length > 0
+        canonical_contig(contig): [(0, length)] for contig, length in lengths.items() if length > 0
     }

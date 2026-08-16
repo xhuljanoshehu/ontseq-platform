@@ -75,9 +75,7 @@ class AlgebraTests(unittest.TestCase):
         self.assertEqual(overlap_length((0, 100), "chr9", {"1": [(50, 200)]}), 0)
 
     def test_contig_lengths_to_set(self) -> None:
-        self.assertEqual(
-            contig_lengths_to_set({"chr1": 100, "chr2": 0}), {"1": [(0, 100)]}
-        )
+        self.assertEqual(contig_lengths_to_set({"chr1": 100, "chr2": 0}), {"1": [(0, 100)]})
 
 
 if __name__ == "__main__":

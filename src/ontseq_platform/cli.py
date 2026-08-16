@@ -265,9 +265,7 @@ def main() -> None:
         elif args.command == "cnv-evaluate":
             cnv_case = load_model(args.case, CnvBenchmarkCase)
             print(
-                write_json(
-                    evaluate_case(cnv_case, evaluation_id=args.evaluation_id), args.output
-                )
+                write_json(evaluate_case(cnv_case, evaluation_id=args.evaluation_id), args.output)
             )
         elif args.command == "cnv-aggregate":
             evaluations = [load_model(path, CnvEvaluationReport) for path in args.reports]

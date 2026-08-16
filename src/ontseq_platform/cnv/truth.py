@@ -200,9 +200,7 @@ def convert_karyotype(
     return conversion
 
 
-def _record_unsupported(
-    conversion: KaryotypeConversion, token: str, reason: str
-) -> None:
+def _record_unsupported(conversion: KaryotypeConversion, token: str, reason: str) -> None:
     """Record a refused construct once per distinct token and reason."""
     if any(item.token == token and item.reason == reason for item in conversion.unsupported):
         return
@@ -282,9 +280,7 @@ def _convert_token(
         if not bands:
             _record_unsupported(conversion, token, "no interpretable band designation")
             return []
-        state = (
-            CopyNumberState.LOSS if structural.group("kind") == "del" else CopyNumberState.GAIN
-        )
+        state = CopyNumberState.LOSS if structural.group("kind") == "del" else CopyNumberState.GAIN
         try:
             if len(bands) == 1:
                 # One breakpoint denotes a terminal event running to the arm end.
@@ -302,9 +298,7 @@ def _convert_token(
             _record_unsupported(conversion, token, str(error))
             return []
         if end <= start:
-            _record_unsupported(
-                conversion, token, "band designations produced an empty interval"
-            )
+            _record_unsupported(conversion, token, "band designations produced an empty interval")
             return []
         return [
             CnvSegment(
@@ -429,9 +423,7 @@ def truth_from_segments(
         genome_build=genome_build,
         source=source,
         source_version=source_version,
-        background_state=(
-            CopyNumberState.NEUTRAL if closed_world else CopyNumberState.NO_CALL
-        ),
+        background_state=(CopyNumberState.NEUTRAL if closed_world else CopyNumberState.NO_CALL),
         resolution_bp=resolution_bp,
         segments=list(segments),
         informative_regions=list(informative_regions),

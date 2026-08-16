@@ -306,9 +306,7 @@ class ValidationTests(unittest.TestCase):
             prefix="truth",
         )
         spans = [(item.start, item.end, item.state.value) for item in events]
-        self.assertEqual(
-            spans, [(0, 200, "loss"), (300, 400, "loss"), (400, 500, "gain")]
-        )
+        self.assertEqual(spans, [(0, 200, "loss"), (300, 400, "loss"), (400, 500, "gain")])
 
     def test_event_copy_number_is_length_weighted(self) -> None:
         events = derive_events(

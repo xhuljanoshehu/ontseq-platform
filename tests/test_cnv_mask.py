@@ -24,9 +24,7 @@ class MaskConstructionTests(unittest.TestCase):
         self.assertEqual(mask.evaluable_fraction, 1.0)
 
     def test_analysis_scope_attributes_the_remainder_explicitly(self) -> None:
-        mask = build_mask(
-            contig_lengths=CONTIGS, analysis_scope={"chr1": [(0, 400_000)]}
-        )
+        mask = build_mask(contig_lengths=CONTIGS, analysis_scope={"chr1": [(0, 400_000)]})
         self.assertEqual(mask.evaluable_bases, 400_000)
         self.assertEqual(
             mask.excluded_bases_by_reason[ExclusionReason.OUTSIDE_ANALYSIS_SCOPE.value],
@@ -86,9 +84,7 @@ class TrackConstructionTests(unittest.TestCase):
 
     def test_coverage_floor_rejects_inverted_intervals(self) -> None:
         with self.assertRaises(ValueError):
-            coverage_floor_track(
-                [("chr1", 100, 100, 1.0)], minimum_depth=5.0, source="test"
-            )
+            coverage_floor_track([("chr1", 100, 100, 1.0)], minimum_depth=5.0, source="test")
 
     def test_no_call_track_defaults_to_caller_no_call(self) -> None:
         track = no_call_track({"chr1": [(0, 100)]}, source="test")
@@ -101,9 +97,7 @@ class TrackConstructionTests(unittest.TestCase):
 
     def test_merging_masks_takes_the_intersection(self) -> None:
         first = build_mask(contig_lengths=CONTIGS, analysis_scope={"chr1": [(0, 500_000)]})
-        second = build_mask(
-            contig_lengths=CONTIGS, analysis_scope={"chr1": [(250_000, 1_000_000)]}
-        )
+        second = build_mask(contig_lengths=CONTIGS, analysis_scope={"chr1": [(250_000, 1_000_000)]})
         self.assertEqual(merge_masks(first, second), {"1": [(250_000, 500_000)]})
 
 

@@ -68,8 +68,7 @@ class CytobandTable(StrictModel):
             for previous, current in zip(items, items[1:], strict=False):
                 if current.start < previous.end:
                     raise ValueError(
-                        f"cytobands overlap on contig {contig}: "
-                        f"{previous.name} and {current.name}"
+                        f"cytobands overlap on contig {contig}: {previous.name} and {current.name}"
                     )
         return self
 

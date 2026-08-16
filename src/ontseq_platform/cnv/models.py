@@ -441,8 +441,7 @@ def segment_to_genomic_event(
         )
     notes = list(segment.notes)
     notes.append(
-        "Derived from a benchmark-stage CNV segment. Not reportable without assay "
-        "validation."
+        "Derived from a benchmark-stage CNV segment. Not reportable without assay validation."
     )
     return GenomicEvent(
         event_id=event_id,
