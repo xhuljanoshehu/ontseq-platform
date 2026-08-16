@@ -5,7 +5,21 @@ validated release.
 
 ## Unreleased
 
-No entries.
+### Added
+
+- Version-locked Mosdepth target-coverage adapter for Adaptive Sampling aligned-BAM runs.
+- Strict target-BED and Mosdepth output normalization with exact interval reconciliation,
+  per-region mean depth and configurable threshold fractions.
+- Dedicated technical policy for target coverage and a synthetic real-tool CI path.
+- Documentation that separates the unbuffered analysis ROI BED from operational Adaptive
+  Sampling selection regions.
+
+### Validation impact
+
+The Adaptive Sampling path gains new descriptive coverage output. The default `1x`, `10x`, `20x`
+and `30x` thresholds are engineering bins only and do not define assay adequacy, CNV/fusion
+reportability, biological negativity or a clinical no-call. The target design and thresholds require
+pre-specified validation on the locked local panel before any promotion.
 
 ## 0.3.0 - 2026-08-14
 
