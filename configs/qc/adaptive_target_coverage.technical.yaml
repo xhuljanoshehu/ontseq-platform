@@ -1,0 +1,10 @@
+schema_version: 0.1.0
+profile_id: adaptive_target_coverage_technical_v1
+status: technical_defaults_only
+expected_version: 0.3.14
+thresholds: [1, 10, 20, 30]
+mapq: 0
+exclude_flags: 1796
+note: >-
+  Technical descriptive defaults only. Coverage thresholds are not validated assay adequacy,
+  fusion reportability, CNV reportability, or clinical no-call thresholds.
