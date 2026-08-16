@@ -63,6 +63,38 @@ jobs:
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
+      - name: Prepare synthetic Adaptive Sampling manifest and ROI BED
+        shell: micromamba-shell {0}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("results/local-smoke")
+          manifest = json.loads((root / "synthetic.manifest.json").read_text(encoding="utf-8"))
+          target_bed = root / "synthetic.analysis-roi.bed"
+          target_bed.write_text(
+              "chr1\t4800\t16000\tSYNTHETIC_TARGET_A\n"
+              "chr2\t1000\t2000\tSYNTHETIC_TARGET_B\n",
+              encoding="utf-8",
+          )
+          manifest["assay"]["mode"] = "adaptive_sampling"
+          manifest["assay"]["target_bed"] = str(target_bed.resolve())
+          manifest["assay"]["target_bed_version"] = "SYNTHETIC_ROI_V1"
+          (root / "synthetic.adaptive.manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Run real Mosdepth target coverage QC
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform qc-target-coverage
+          results/local-smoke/synthetic.adaptive.manifest.json
+          --intake results/local-smoke/synthetic.intake.json
+          --policy configs/qc/adaptive_target_coverage.technical.yaml
+          --output-dir results/local-smoke/target-coverage-runtime
+          --output results/local-smoke/synthetic.target-coverage.json
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,4 +108,5 @@ jobs:
             results/local-smoke/synthetic.intake.json
             results/local-smoke/synthetic.qc.json
             results/local-smoke/synthetic.sniffles.json
+            results/local-smoke/synthetic.target-coverage.json
           if-no-files-found: error
