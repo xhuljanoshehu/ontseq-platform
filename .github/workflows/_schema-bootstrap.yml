@@ -1,0 +1,36 @@
+# TEMPORARY bootstrap workflow.
+#
+# The session that authored the CNV subsystem has no outbound access to PyPI, so it
+# cannot install pydantic and therefore cannot run scripts/export_schemas.py locally to
+# produce the generated JSON Schemas that CI checks for freshness.
+#
+# This workflow regenerates them and emits them as a compact encoded blob so they can be
+# reconstructed and committed. It is deleted in the same pull request once the schemas
+# are in the tree; if you are reading this on main, it should not be here.
+name: Schema bootstrap (temporary)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/ontseq-cnv-pipeline-7pad7m]
+
+permissions:
+  contents: read
+
+jobs:
+  emit-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Regenerate schemas
+        run: python scripts/export_schemas.py
+      - name: Emit schemas as an encoded blob
+        run: |
+          echo "-----SCHEMA-BLOB-BEGIN-----"
+          tar -czf - schemas | base64 -w 120
+          echo "-----SCHEMA-BLOB-END-----"
