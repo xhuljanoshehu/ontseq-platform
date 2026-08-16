@@ -12,6 +12,8 @@
 
 - [ ] Freeze intended use, assay modes, truth definitions and acceptance criteria
 - [x] Implement a normalized Cramino adapter from its official JSON interface
+- [x] Implement descriptive Adaptive Sampling target-region coverage with a version-locked Mosdepth adapter
+- [ ] Validate target-coverage adequacy and observability criteria on the locked local target design
 - [ ] Implement benchmarked CNV, SV and annotation adapters from official interfaces
 - [x] Implement candidate-only Sniffles2 v2.8.0 adapter from its official CLI/VCF interfaces
 - [x] BAM/BAI integrity, sort order, read-group and genome-build checks
@@ -27,6 +29,7 @@
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results
 - [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
+- [x] Exercise Mosdepth target coverage in CI with generated synthetic Adaptive Sampling metadata
 
 ## Milestone 2 - POD5 end-to-end
 
