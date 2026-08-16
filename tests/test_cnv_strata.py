@@ -138,9 +138,13 @@ class LimitOfDetectionTests(unittest.TestCase):
         self.assertIsNone(limit.model_based_value)
 
     def test_aggregate_emits_a_limit_when_levels_permit(self) -> None:
-        reports = [_report(tumor_fraction=1.0, detected=True, sample=f"SAMPLE_{i}") for i in range(3)] + [
+        detected = [
+            _report(tumor_fraction=1.0, detected=True, sample=f"SAMPLE_{i}") for i in range(3)
+        ]
+        missed = [
             _report(tumor_fraction=0.05, detected=False, sample=f"DILUTED_{i}") for i in range(3)
         ]
+        reports = detected + missed
         result = aggregate(reports, aggregate_id="AGGREGATE_001")
         predictors = {item.predictor for item in result.limits_of_detection}
         self.assertIn("tumor_fraction", predictors)
