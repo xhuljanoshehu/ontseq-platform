@@ -283,6 +283,57 @@ ontseq cnv-karyotype-truth \
   --output results/cnv/karyotype-truth.json
 ```
 
+## Observed behaviour of the baseline in CI
+
+`ontseq cnv-demo-benchmark` runs 63 evaluations (7 blast fractions x 3 coverages x 3
+replicates) against a synthetic del(5q) / -7q / +8 / del(20q) profile. The result from
+the CI run of this change:
+
+```
+method: ontseq-baseline-readdepth 0.1.0
+evaluations: 63
+overall detection: 70/252 = 0.278 [0.226, 0.336]
+  tumor_fraction= 0.05: detection=0.000 (0/36) base_concordance=0.595
+  tumor_fraction=  0.1: detection=0.000 (0/36) base_concordance=0.594
+  tumor_fraction= 0.15: detection=0.000 (0/36) base_concordance=0.595
+  tumor_fraction= 0.25: detection=0.000 (0/36) base_concordance=0.595
+  tumor_fraction=  0.4: detection=0.000 (0/36) base_concordance=0.594
+  tumor_fraction=  0.6: detection=0.944 (34/36) base_concordance=0.990
+  tumor_fraction=    1: detection=1.000 (36/36) base_concordance=0.999
+  LoD95 by tumor_fraction: empirical=none model=withheld
+```
+
+Three things in this output are worth reading carefully, because they are the harness
+behaving correctly rather than a caller performing well or badly.
+
+**The cliff between 0.4 and 0.6 is a threshold artifact, not a detection limit.** It is
+fully explained without reference to noise. The baseline assigns states with a fixed
+neutral band of ploidy +/- 0.5, so a heterozygous loss is called only once the mixture
+copy number drops below 1.5:
+
+| Blast fraction | Mixture CN of a het loss | Below 1.5? |
+| --- | --- | --- |
+| 0.40 | 1.60 | no |
+| 0.60 | 1.40 | yes |
+
+The baseline is limited by its own rounding rule, not by counting statistics. A method
+that estimates purity and ploidy instead of assuming them would not have this cliff. This
+is precisely the kind of failure a null model is supposed to expose, and it is the reason
+the demo deliberately does **not** tell the caller the tumor fraction: doing so would
+invert the mixture by 1/f and make the result depend on one supplied number rather than
+on the data.
+
+**Base-level concordance of ~0.595 at low blast fraction is not 60% correctness.** The
+truth profile alters roughly 36% of the simulated genome, so a caller that reports
+"neutral everywhere" scores about 0.64 by default. Reading base concordance without the
+partition accounting would badly overstate performance.
+
+**Both limits of detection are withheld, and that is the correct answer.** The empirical
+value is withheld because even 36/36 has a Wilson lower bound near 0.90, which does not
+reach the 0.95 target; the model-based value is withheld because the near-separated
+design gives the logistic fit no finite maximum. A harness that printed a number here
+would be inventing a detection limit the data cannot support.
+
 ## Pre-registration requirement
 
 Thresholds - `detection_overlap_fraction`, `minimum_assessable_fraction`,
