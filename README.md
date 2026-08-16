@@ -83,6 +83,15 @@ ontseq benchmark examples/benchmarks/synthetic_sv.yaml \
   --output results/benchmarks/SYNTHETIC_SV_001.benchmark.json
 ```
 
+Run the fully synthetic CNV benchmark across blast-fraction and coverage strata. It
+simulates read depth, calls it with a transparent baseline caller, scores it against a
+declared truth set over an explicit observability mask, and estimates a limit of
+detection. It needs no external tool, reference genome or genomic data:
+
+```bash
+ontseq cnv-demo-benchmark --output-dir results/cnv-demo
+```
+
 For a real on-premises aligned BAM, follow the [aligned-BAM MVP guide](docs/ALIGNED_BAM_MVP.md).
 
 ## Repository map
@@ -125,6 +134,7 @@ system. See [Data security](docs/DATA_SECURITY.md).
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
 - [Sniffles2 candidate adapter](docs/SNIFFLES2_ADAPTER.md)
 - [Benchmarking](docs/BENCHMARKING.md)
+- [CNV truth, comparison and benchmarking](docs/CNV_BENCHMARKING.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md)

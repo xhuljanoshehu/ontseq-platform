@@ -71,3 +71,72 @@ performance does not constitute AML, tumor-only, low-coverage or adaptive-sampli
 **Privacy and interpretation constraints:** Request symbolic alleles, never request read-name
 output, count rejected records, map an empty accepted set to `NO_CALL`, and never infer a fusion or
 ISCN assertion directly from a BND record.
+
+## ADR-008: Score copy number per base, not per matched event
+
+**Decision:** CNV comparison uses an exact breakpoint partition of the genome and a
+base-pair-weighted per-state confusion matrix. Event-level detection is derived from
+base-level concordance with a many-to-many rule. The one-to-one event matcher in
+`benchmark.py` remains the SV contract and is unchanged.
+
+**Reason:** Segment boundaries are an artifact of bin size and segmentation algorithm, not a
+biological claim. One-to-one matching scores a correctly detected deletion emitted as three
+adjacent segments as one true positive and two false positives. Event counting also discards
+event size, so a whole-chromosome gain and a 200 kb duplication weigh equally. Base-level
+scoring is invariant to both.
+
+**Revisit when:** A representation-aware CNV comparator handling segmentation equivalence
+directly becomes available, or allele-specific copy number requires a richer state space.
+
+## ADR-009: Make the evaluable genome explicit and account for every excluded base
+
+**Decision:** No CNV metric is computed without an explicitly constructed observability mask.
+Excluded bases are attributed to a closed vocabulary of reasons whose counts sum exactly to
+the total removed. Truth events in unobservable regions are `NOT_ASSESSABLE`, never false
+negatives. When several methods are compared, the union of all their no-call regions is
+removed from the shared mask before any of them is scored.
+
+**Reason:** A sensitivity figure is meaningless without stating what fraction of the genome it
+applied to. Counting unmatched calls as false positives assumes universal observability, which
+converts known blind spots into fabricated error rates. Scoring each method on its own mask
+rewards a cautious method for declining to call in hard regions.
+
+## ADR-010: Truth sets declare their own background semantics and resolution
+
+**Decision:** Every truth set and call set declares `background_state` (`neutral` = closed
+world, `no_call` = open world) with no default, and closed-world truth additionally declares
+`resolution_bp`. Breakpoint accuracy is withheld when a truth event's boundary uncertainty
+exceeds the configured limit. A call set's own declared uncertainty is ignored.
+
+**Reason:** FISH interrogates probes and says nothing elsewhere; an array asserts neutral
+within its probe map; a karyotype asserts neutral only at band resolution. Encoding these
+identically is silent and severe: an open-world truth treated as closed-world manufactures a
+false positive for every genuine finding outside its scope. Reporting a breakpoint error
+against `5q13` measures the width of a Giemsa band, not the caller. Letting a caller's own
+uncertainty suppress the metric would let it excuse its own error.
+
+## ADR-011: Ship a transparent baseline CNV caller as an experimental control
+
+**Decision:** Implement `ontseq-baseline-readdepth`, a dependency-free binned read-depth
+segmenter, explicitly marked non-reportable. It is not a candidate for production use.
+
+**Reason:** A benchmark harness that has never scored a real call set is untested
+infrastructure. The baseline closes the loop in CI without any external binary, reference
+genome or genomic data, and supplies the null model a candidate method must beat before its
+additional complexity is justified.
+
+**Revisit when:** A version-pinned external caller runs in the executable environment. The
+baseline then stays as a control rather than being removed.
+
+## ADR-012: Treat the CNV data basis as a mandatory stratification key
+
+**Decision:** Every call set declares `data_basis`. Adaptive-sampling off-target reads,
+adaptive-sampling on-target reads, combined output and separate low-coverage WGS are never
+pooled into one benchmark stratum.
+
+**Reason:** Rejected reads in an adaptive-sampling run form a near-uniform low-coverage
+whole-genome background, which is the population depth-based CNV methods assume. On-target
+depth is dominated by enrichment efficiency rather than copy number and violates that
+assumption. Which basis the local assay should use is an open empirical question, so the
+architecture stays agnostic and makes the comparison possible instead of choosing
+prematurely.

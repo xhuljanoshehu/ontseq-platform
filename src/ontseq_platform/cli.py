@@ -8,6 +8,12 @@ from pydantic import ValidationError
 from . import __version__
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
+from .cnv.cytobands import load_cytoband_file
+from .cnv.demo import summarize_demo, write_demo_benchmark
+from .cnv.evaluate import evaluate_case
+from .cnv.models import CnvBenchmarkCase, CnvEvaluationReport
+from .cnv.strata import aggregate
+from .cnv.truth import truth_from_karyotype
 from .demo import build_demo_result
 from .execution import ToolExecutionError
 from .io import load_model, write_json
@@ -124,6 +130,48 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("case", type=Path)
     benchmark.add_argument("--output", type=Path, required=True)
 
+    cnv_evaluate = subparsers.add_parser(
+        "cnv-evaluate",
+        help="Score a CNV call set against a truth set over an explicit evaluable genome",
+    )
+    cnv_evaluate.add_argument("case", type=Path)
+    cnv_evaluate.add_argument("--evaluation-id")
+    cnv_evaluate.add_argument("--output", type=Path, required=True)
+
+    cnv_aggregate = subparsers.add_parser(
+        "cnv-aggregate",
+        help="Pool CNV evaluations of one method into a stratified benchmark summary",
+    )
+    cnv_aggregate.add_argument("reports", type=Path, nargs="+")
+    cnv_aggregate.add_argument("--aggregate-id", required=True)
+    cnv_aggregate.add_argument("--target-detection-rate", type=float, default=0.95)
+    cnv_aggregate.add_argument("--output", type=Path, required=True)
+
+    cnv_karyotype = subparsers.add_parser(
+        "cnv-karyotype-truth",
+        help="Convert an ISCN karyotype into a band-resolved CNV truth set",
+    )
+    cnv_karyotype.add_argument("--karyotype", required=True)
+    cnv_karyotype.add_argument("--cytobands", type=Path, required=True)
+    cnv_karyotype.add_argument("--cytoband-resource-id", required=True)
+    cnv_karyotype.add_argument(
+        "--genome-build", choices=[item.value for item in GenomeBuild], required=True
+    )
+    cnv_karyotype.add_argument("--truth-id", required=True)
+    cnv_karyotype.add_argument("--sample-id", required=True)
+    cnv_karyotype.add_argument("--source-version", required=True)
+    cnv_karyotype.add_argument("--resolution-bp", type=int, default=10_000_000)
+    cnv_karyotype.add_argument("--output", type=Path, required=True)
+
+    cnv_demo = subparsers.add_parser(
+        "cnv-demo-benchmark",
+        help="Run the fully synthetic CNV dilution and coverage benchmark end to end",
+    )
+    cnv_demo.add_argument("--output-dir", type=Path, default=Path("results/cnv-demo"))
+    cnv_demo.add_argument("--replicates", type=int, default=3)
+    cnv_demo.add_argument("--bin-size-bp", type=int, default=1_000_000)
+    cnv_demo.add_argument("--seed", type=int, default=20260816)
+
     assemble = subparsers.add_parser(
         "assemble-aligned-mvp",
         help="Assemble intake, QC and optional candidate SV evidence into one result",
@@ -214,6 +262,57 @@ def main() -> None:
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
+        elif args.command == "cnv-evaluate":
+            cnv_case = load_model(args.case, CnvBenchmarkCase)
+            print(
+                write_json(
+                    evaluate_case(cnv_case, evaluation_id=args.evaluation_id), args.output
+                )
+            )
+        elif args.command == "cnv-aggregate":
+            evaluations = [load_model(path, CnvEvaluationReport) for path in args.reports]
+            summary = aggregate(
+                evaluations,
+                aggregate_id=args.aggregate_id,
+                target_detection_rate=args.target_detection_rate,
+            )
+            print(write_json(summary, args.output))
+            for line in summarize_demo(summary):
+                print(line)
+        elif args.command == "cnv-karyotype-truth":
+            table = load_cytoband_file(
+                args.cytobands,
+                genome_build=GenomeBuild(args.genome_build),
+                resource_id=args.cytoband_resource_id,
+            )
+            karyotype_truth, conversion = truth_from_karyotype(
+                truth_id=args.truth_id,
+                sample_id=args.sample_id,
+                karyotype=args.karyotype,
+                cytobands=table,
+                source_version=args.source_version,
+                resolution_bp=args.resolution_bp,
+            )
+            print(write_json(karyotype_truth, args.output))
+            for construct in conversion.unsupported:
+                print(f"UNSUPPORTED {construct.token}: {construct.reason}")
+            for construct in conversion.balanced_constructs:
+                print(f"BALANCED {construct}: asserts no copy-number change")
+            if conversion.unsupported:
+                # A partially converted karyotype is not a usable truth set. Exiting
+                # non-zero stops a pipeline from scoring against an incomplete truth.
+                raise SystemExit(3)
+        elif args.command == "cnv-demo-benchmark":
+            outputs = write_demo_benchmark(
+                args.output_dir,
+                replicates=args.replicates,
+                bin_size_bp=args.bin_size_bp,
+                seed=args.seed,
+            )
+            print(outputs.truth_path)
+            print(outputs.aggregate_path)
+            for line in summarize_demo(outputs.aggregate):
+                print(line)
         elif args.command == "assemble-aligned-mvp":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)

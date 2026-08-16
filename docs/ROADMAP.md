@@ -23,6 +23,15 @@
 - [ ] Interactive evidence-tiering review interface
 - [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
 - [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
+- [x] Represent CNV truth per source, with background semantics, resolution and breakpoint uncertainty
+- [x] Score CNV per base over an explicit observability mask, independent of segmentation
+- [x] Separate biological negativity, `NO_CALL` and technical failure in CNV accounting
+- [x] Deterministic CNV dilution/coverage simulation and limit-of-detection estimation
+- [x] Non-reportable baseline read-depth caller as an experimental control
+- [x] ISCN karyotype to CNV truth conversion against a versioned cytoband resource
+- [ ] Lock a real cytoband resource per genome build with checksum and provenance
+- [ ] Add version-pinned Spectre, ichorCNA and QDNAseq/ACE execution adapters
+- [ ] Establish whether adaptive-sampling off-target reads support depth-based CNV locally
 - [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results

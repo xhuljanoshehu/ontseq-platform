@@ -1,6 +1,10 @@
 cases:
   cnv: examples/benchmarks/synthetic_cnv.yaml
   sv: examples/benchmarks/synthetic_sv.yaml
+  cnv_state: examples/benchmarks/cnv_case_synthetic.yaml
 outputs:
   cnv: results/benchmarks/SYNTHETIC_CNV_001.benchmark.json
   sv: results/benchmarks/SYNTHETIC_SV_001.benchmark.json
+  cnv_state: results/benchmarks/SYNTHETIC_CNV_CASE_001.evaluation.json
+  cnv_demo_dir: results/benchmarks/cnv-demo
+  cnv_demo_aggregate: results/benchmarks/cnv-demo/cnv-demo.aggregate.json

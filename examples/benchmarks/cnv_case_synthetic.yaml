@@ -1,0 +1,121 @@
+# SYNTHETIC EXAMPLE ONLY - NOT A VALIDATION CASE
+#
+# A minimal, hand-written CNV benchmark case. It exercises the three behaviours that
+# distinguish this comparator from event matching:
+#
+#   1. the truth deletion on chr5 is emitted by the caller as three adjacent segments,
+#      which must score exactly as one segment would;
+#   2. chr7 is masked out, so the truth loss there is NOT_ASSESSABLE rather than a miss;
+#   3. the truth declares band-scale breakpoint uncertainty, so breakpoint accuracy is
+#      withheld instead of reporting the width of a Giemsa band as a caller error.
+#
+# All coordinates are synthetic and must not be interpreted biologically.
+schema_version: 0.1.0
+case_id: SYNTHETIC_CNV_CASE_001
+genome_build: GRCh38
+research_only: true
+
+contig_lengths:
+  chr5: 181538259
+  chr7: 159345973
+  chr8: 145138636
+
+options:
+  concordance_mode: directional
+  detection_overlap_fraction: 0.5
+  minimum_assessable_fraction: 0.5
+  copy_number_tolerance: 0.5
+  maximum_truth_boundary_uncertainty_bp: 1000000
+  confidence_level: 0.95
+
+strata:
+  assay_mode: lcwgs
+  data_basis: low_coverage_wgs
+  mean_coverage_x: 3.0
+  tumor_fraction: 0.5
+  bin_size_bp: 1000000
+  sample_class: synthetic_positive
+
+# chr7 is treated as structurally unobservable for this case.
+excluded_regions:
+  - contig: chr7
+    start: 0
+    end: 159345973
+    label: synthetic_blacklist
+
+truth:
+  schema_version: 0.1.0
+  truth_id: SYNTHETIC_CNV_TRUTH_001
+  sample_id: SYNTHETIC_CNV_001
+  genome_build: GRCh38
+  source: iscn_karyotype
+  source_version: synthetic-cytobands-v1
+  background_state: neutral
+  resolution_bp: 10000000
+  baseline_ploidy: 2.0
+  tumor_fraction: 0.5
+  research_only: true
+  segments:
+    - contig: chr5
+      start: 60000000
+      end: 155000000
+      state: loss
+      copy_number: 1.0
+      start_uncertainty_bp: 20000000
+      end_uncertainty_bp: 15000000
+      notes:
+        - Band-resolved breakpoints. Not base-pair resolved.
+    - contig: chr7
+      start: 98000000
+      end: 159345973
+      state: loss
+      copy_number: 1.0
+      start_uncertainty_bp: 10000000
+      end_uncertainty_bp: 0
+    - contig: chr8
+      start: 0
+      end: 145138636
+      state: gain
+      copy_number: 3.0
+      start_uncertainty_bp: 0
+      end_uncertainty_bp: 0
+  limitations:
+    - Breakpoints are resolved to cytogenetic bands, not base pairs.
+    - Copy-neutral loss of heterozygosity is undetectable by banding.
+
+call_set:
+  schema_version: 0.1.0
+  call_set_id: SYNTHETIC_CNV_CALLS_001
+  sample_id: SYNTHETIC_CNV_001
+  genome_build: GRCh38
+  method: ontseq-baseline-readdepth
+  method_version: 0.1.0
+  data_basis: low_coverage_wgs
+  background_state: neutral
+  status: COMPLETED
+  bin_size_bp: 1000000
+  mean_coverage_x: 3.0
+  reportable: false
+  research_only: true
+  segments:
+    # The chr5 deletion, deliberately fragmented into three adjacent calls.
+    - contig: chr5
+      start: 61000000
+      end: 90000000
+      state: loss
+      copy_number: 1.1
+    - contig: chr5
+      start: 90000000
+      end: 120000000
+      state: loss
+      copy_number: 0.9
+    - contig: chr5
+      start: 120000000
+      end: 154000000
+      state: loss
+      copy_number: 1.0
+    - contig: chr8
+      start: 0
+      end: 145138636
+      state: gain
+      copy_number: 2.9

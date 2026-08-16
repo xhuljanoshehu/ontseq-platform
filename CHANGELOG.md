@@ -5,7 +5,43 @@ validated release.
 
 ## Unreleased
 
-No entries.
+### Added
+
+- `ontseq_platform.cnv` subsystem: a segmentation-independent CNV comparison core, an
+  explicit observability mask, multi-source truth representation, deterministic
+  simulation, a baseline read-depth caller and stratified aggregation.
+- Base-level per-state confusion scoring over an exact genome breakpoint partition, so
+  copy-number agreement no longer depends on how either side segmented.
+- Closed vocabulary of exclusion reasons with per-reason base accounting, keeping
+  biological negativity, no-call and technical failure distinguishable.
+- `background_state` and `resolution_bp` on truth and call sets, encoding open-world
+  versus closed-world semantics and each source's detection limit.
+- Per-segment breakpoint uncertainty, with breakpoint metrics withheld when the truth
+  source cannot support them.
+- ISCN karyotype to copy-number conversion against a versioned cytoband resource, with
+  unsupported constructs recorded and surfaced rather than dropped.
+- Deterministic gamma-Poisson dilution and coverage simulation, plus empirical and
+  model-based limit-of-detection estimation with explicit withholding.
+- `ontseq-baseline-readdepth`, a non-reportable control caller.
+- Header-driven segment-table adapters with declarative column mappings for the generic
+  IGV `SEG` format and ichorCNA.
+- CLI: `cnv-evaluate`, `cnv-aggregate`, `cnv-karyotype-truth`, `cnv-demo-benchmark`.
+- JSON Schemas for the CNV truth set, call set, benchmark case, evaluation report,
+  aggregate report and cytoband table.
+- `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012.
+
+### Changed
+
+- `scripts/export_schemas.py` also exports the CNV contracts.
+
+### Validation impact
+
+No CNV method is selected, promoted or validated by this change. Every figure the new
+subsystem produces is an engineering measurement against a declared truth set on
+synthetic data. Comparison thresholds, the coverage floor and the exclusion tracks are
+engineering parameters that must be locked before comparative results are inspected;
+none of them is a validated adequacy or reportability threshold. The existing SV
+benchmark contract in `benchmark.py` is unchanged.
 
 ## 0.3.0 - 2026-08-14
 

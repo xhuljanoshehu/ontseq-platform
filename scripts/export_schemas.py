@@ -4,6 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
+from ontseq_platform.cnv.cytobands import CytobandTable
+from ontseq_platform.cnv.models import (
+    CnvBenchmarkCase,
+    CnvCallSet,
+    CnvEvaluationReport,
+    CnvTruthSet,
+)
+from ontseq_platform.cnv.strata import CnvAggregateReport
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -58,6 +66,30 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/benchmark-report.schema.json"): json.dumps(
             BenchmarkReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-truth-set.schema.json"): json.dumps(
+            CnvTruthSet.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-call-set.schema.json"): json.dumps(
+            CnvCallSet.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-benchmark-case.schema.json"): json.dumps(
+            CnvBenchmarkCase.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-evaluation-report.schema.json"): json.dumps(
+            CnvEvaluationReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-aggregate-report.schema.json"): json.dumps(
+            CnvAggregateReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cytoband-table.schema.json"): json.dumps(
+            CytobandTable.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
     }

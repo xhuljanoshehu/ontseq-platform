@@ -40,12 +40,37 @@ jobs:
           snakemake --snakefile workflow/aligned_bam.smk --dry-run --cores 4
       - name: Generate synthetic report bundle
         run: python -m ontseq_platform demo --output-dir results/demo
+      - name: Run the synthetic CNV benchmark end to end
+        run: >-
+          python -m ontseq_platform cnv-demo-benchmark
+          --output-dir results/cnv-demo
+      - name: Convert a synthetic karyotype into CNV truth
+        run: >-
+          python -m ontseq_platform cnv-karyotype-truth
+          --karyotype "46,XY,del(5)(q13q33),-7,+8,t(9;22)(q34;q11)"
+          --cytobands examples/references/synthetic.cytobands.txt
+          --cytoband-resource-id SYNTHETIC_CYTOBANDS_V1
+          --genome-build GRCh38
+          --truth-id SYNTHETIC_KARYO_001
+          --sample-id SYNTHETIC_AML_001
+          --source-version synthetic-cytobands-v1
+          --output results/cnv-demo/karyotype-truth.json
       - name: Upload synthetic bundle
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-report-bundle
           path: results/demo/
+          if-no-files-found: error
+      - name: Upload synthetic CNV benchmark summary
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-cnv-benchmark
+          path: |
+            results/cnv-demo/cnv-demo.truth.json
+            results/cnv-demo/cnv-demo.aggregate.json
+            results/cnv-demo/karyotype-truth.json
           if-no-files-found: error
 
   local-real-tool-smoke:
