@@ -123,6 +123,49 @@ class ObservabilityTests(unittest.TestCase):
         self.assertEqual(outcomes["8"], QueryOutcome.UNCONFIRMED)
         self.assertEqual(report.confirmation_rate.point, 0.5)
 
+    def test_partition_reconciles_exactly(self) -> None:
+        """The audit trail is only an audit trail if the numbers add up."""
+        report = evaluate(
+            truth_segments=[StateSegment("5", 0, 20_000_000, CopyNumberState.LOSS, 1.0)],
+            query_segments=[
+                StateSegment("5", 0, 5_000_000, CopyNumberState.LOSS, 1.0),
+                StateSegment("5", 5_000_000, 12_000_000, CopyNumberState.NO_CALL),
+            ],
+            evaluable={"5": [(0, 30_000_000)]},
+            reference_bases=CHR5,
+            truth_background=CopyNumberState.NO_CALL,
+            query_background=CopyNumberState.NEUTRAL,
+        )
+        partition = report.partition
+        self.assertEqual(
+            partition.mask_bases,
+            partition.evaluable_bases
+            + partition.truth_silent_bases
+            + partition.query_no_call_bases,
+        )
+        self.assertEqual(
+            partition.reference_bases, partition.mask_bases + partition.excluded_bases
+        )
+        # The mask allowed 30 Mb; truth is open-world so it is silent beyond 20 Mb, and
+        # the caller explicitly declined between 5 Mb and 12 Mb.
+        self.assertEqual(partition.mask_bases, 30_000_000)
+        self.assertEqual(partition.truth_silent_bases, 10_000_000)
+        self.assertEqual(partition.query_no_call_bases, 7_000_000)
+        self.assertEqual(partition.evaluable_bases, 13_000_000)
+
+    def test_no_call_bases_are_counted_only_inside_the_mask(self) -> None:
+        """A caller declining outside the mask is already excluded, not double counted."""
+        report = evaluate(
+            truth_segments=[StateSegment("5", 0, 10_000_000, CopyNumberState.LOSS, 1.0)],
+            query_segments=[StateSegment("5", 20_000_000, 30_000_000, CopyNumberState.NO_CALL)],
+            evaluable={"5": [(0, 10_000_000)]},
+            reference_bases=CHR5,
+            truth_background=CopyNumberState.NEUTRAL,
+            query_background=CopyNumberState.NEUTRAL,
+        )
+        self.assertEqual(report.partition.query_no_call_bases, 0)
+        self.assertEqual(report.partition.mask_bases, 10_000_000)
+
     def test_empty_evaluable_genome_yields_undefined_not_zero(self) -> None:
         report = _evaluate(
             [StateSegment("5", 0, 10_000_000, CopyNumberState.LOSS, 1.0)],

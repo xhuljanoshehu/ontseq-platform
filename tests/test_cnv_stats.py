@@ -6,6 +6,7 @@ from ontseq_platform.cnv.stats import (
     fit_logistic,
     inverse_normal_cdf,
     logistic_threshold,
+    mcnemar_exact,
     mean_absolute_error,
     root_mean_square_error,
     wilson_interval,
@@ -69,6 +70,40 @@ class ErrorMetricTests(unittest.TestCase):
     def test_zero_weight_is_undefined(self) -> None:
         self.assertIsNone(mean_absolute_error([], []))
         self.assertIsNone(root_mean_square_error([], []))
+
+
+class McNemarTests(unittest.TestCase):
+    def test_no_discordant_pairs_is_undefined_not_one(self) -> None:
+        # Agreement on everything is not evidence of equivalence.
+        self.assertIsNone(mcnemar_exact(0, 0))
+
+    def test_symmetry(self) -> None:
+        self.assertEqual(mcnemar_exact(3, 8), mcnemar_exact(8, 3))
+
+    def test_known_exact_values(self) -> None:
+        # n=1: two-sided p = 2 * 0.5 = 1.0
+        self.assertAlmostEqual(mcnemar_exact(1, 0), 1.0)
+        # n=2, smaller=0: 2 * (1 * 0.25) = 0.5
+        self.assertAlmostEqual(mcnemar_exact(2, 0), 0.5)
+        # n=6, smaller=0: 2 * (1/64) = 0.03125
+        self.assertAlmostEqual(mcnemar_exact(6, 0), 0.03125)
+        # n=10, smaller=1: 2 * (1 + 10) / 1024 = 0.021484375
+        self.assertAlmostEqual(mcnemar_exact(9, 1), 0.021484375)
+
+    def test_balanced_discordance_is_never_significant(self) -> None:
+        self.assertAlmostEqual(mcnemar_exact(5, 5), 1.0)
+
+    def test_p_value_never_exceeds_one(self) -> None:
+        for first in range(6):
+            for second in range(6):
+                value = mcnemar_exact(first, second)
+                if value is not None:
+                    self.assertLessEqual(value, 1.0)
+                    self.assertGreaterEqual(value, 0.0)
+
+    def test_negative_counts_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            mcnemar_exact(-1, 2)
 
 
 class LogisticFitTests(unittest.TestCase):

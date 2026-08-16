@@ -9,10 +9,10 @@ from . import __version__
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
 from .cnv.cytobands import load_cytoband_file
-from .cnv.demo import summarize_demo, write_demo_benchmark
+from .cnv.demo import summarize_comparison, summarize_demo, write_demo_benchmark
 from .cnv.evaluate import evaluate_case
 from .cnv.models import CnvBenchmarkCase, CnvEvaluationReport
-from .cnv.strata import aggregate
+from .cnv.strata import aggregate, paired_detection_comparison
 from .cnv.truth import truth_from_karyotype
 from .demo import build_demo_result
 from .execution import ToolExecutionError
@@ -147,6 +147,14 @@ def _parser() -> argparse.ArgumentParser:
     cnv_aggregate.add_argument("--target-detection-rate", type=float, default=0.95)
     cnv_aggregate.add_argument("--output", type=Path, required=True)
 
+    cnv_compare = subparsers.add_parser(
+        "cnv-compare-methods",
+        help="Compare two CNV methods pairwise on the truth events both could assess",
+    )
+    cnv_compare.add_argument("--method-a", type=Path, nargs="+", required=True)
+    cnv_compare.add_argument("--method-b", type=Path, nargs="+", required=True)
+    cnv_compare.add_argument("--output", type=Path, required=True)
+
     cnv_karyotype = subparsers.add_parser(
         "cnv-karyotype-truth",
         help="Convert an ISCN karyotype into a band-resolved CNV truth set",
@@ -277,6 +285,19 @@ def main() -> None:
             print(write_json(summary, args.output))
             for line in summarize_demo(summary):
                 print(line)
+        elif args.command == "cnv-compare-methods":
+            comparison = paired_detection_comparison(
+                [load_model(path, CnvEvaluationReport) for path in args.method_a],
+                [load_model(path, CnvEvaluationReport) for path in args.method_b],
+            )
+            print(write_json(comparison, args.output))
+            print(
+                f"{comparison.method_a} vs {comparison.method_b}: "
+                f"{comparison.paired_events} paired event(s), "
+                f"only-A={comparison.only_a_detected} only-B={comparison.only_b_detected}, "
+                f"p={'undefined' if comparison.p_value is None else f'{comparison.p_value:.4f}'}"
+            )
+            print(comparison.note)
         elif args.command == "cnv-karyotype-truth":
             table = load_cytoband_file(
                 args.cytobands,
@@ -308,8 +329,13 @@ def main() -> None:
                 seed=args.seed,
             )
             print(outputs.truth_path)
-            print(outputs.aggregate_path)
-            for line in summarize_demo(outputs.aggregate):
+            for path in outputs.aggregate_paths:
+                print(path)
+            print(outputs.comparison_path)
+            for summary in outputs.aggregates:
+                for line in summarize_demo(summary):
+                    print(line)
+            for line in summarize_comparison(outputs.comparison):
                 print(line)
         elif args.command == "assemble-aligned-mvp":
             manifest = load_model(args.manifest, SampleManifest)

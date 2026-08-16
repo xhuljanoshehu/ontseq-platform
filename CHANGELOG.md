@@ -25,7 +25,12 @@ validated release.
 - `ontseq-baseline-readdepth`, a non-reportable control caller.
 - Header-driven segment-table adapters with declarative column mappings for the generic
   IGV `SEG` format and ichorCNA.
-- CLI: `cnv-evaluate`, `cnv-aggregate`, `cnv-karyotype-truth`, `cnv-demo-benchmark`.
+- Paired method comparison via McNemar's exact test on truth events assessable under
+  both methods, with the p-value withheld when no discordant pair exists.
+- A genome partition that reconciles exactly, enforced in the core and re-validated by
+  the contract, so every metric carries an auditable denominator.
+- CLI: `cnv-evaluate`, `cnv-aggregate`, `cnv-compare-methods`, `cnv-karyotype-truth`,
+  `cnv-demo-benchmark`.
 - JSON Schemas for the CNV truth set, call set, benchmark case, evaluation report,
   aggregate report and cytoband table.
 - `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012.

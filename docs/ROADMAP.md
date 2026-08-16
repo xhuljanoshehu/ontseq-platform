@@ -27,6 +27,7 @@
 - [x] Score CNV per base over an explicit observability mask, independent of segmentation
 - [x] Separate biological negativity, `NO_CALL` and technical failure in CNV accounting
 - [x] Deterministic CNV dilution/coverage simulation and limit-of-detection estimation
+- [x] Paired method comparison so CNV method selection rests on a paired statistic
 - [x] Non-reportable baseline read-depth caller as an experimental control
 - [x] ISCN karyotype to CNV truth conversion against a versioned cytoband resource
 - [ ] Lock a real cytoband resource per genome build with checksum and provenance

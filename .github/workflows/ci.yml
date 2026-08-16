@@ -44,6 +44,12 @@ jobs:
         run: >-
           python -m ontseq_platform cnv-demo-benchmark
           --output-dir results/cnv-demo
+      - name: Compare the two baseline configurations pairwise via the CLI
+        run: >-
+          python -m ontseq_platform cnv-compare-methods
+          --method-a results/cnv-demo/evaluations/default/*.json
+          --method-b results/cnv-demo/evaluations/conservative/*.json
+          --output results/cnv-demo/cli-comparison.json
       - name: Convert a synthetic karyotype into CNV truth
         run: >-
           python -m ontseq_platform cnv-karyotype-truth
@@ -69,7 +75,9 @@ jobs:
           name: synthetic-cnv-benchmark
           path: |
             results/cnv-demo/cnv-demo.truth.json
-            results/cnv-demo/cnv-demo.aggregate.json
+            results/cnv-demo/cnv-demo.aggregate.default.json
+            results/cnv-demo/cnv-demo.aggregate.conservative.json
+            results/cnv-demo/cnv-demo.comparison.json
             results/cnv-demo/karyotype-truth.json
           if-no-files-found: error
 

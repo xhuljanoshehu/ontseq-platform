@@ -13,7 +13,12 @@ from ontseq_platform.cnv.models import (
     CnvTruthSource,
 )
 from ontseq_platform.cnv.states import CopyNumberState
-from ontseq_platform.cnv.strata import aggregate, compare_aggregates, estimate_limit_of_detection
+from ontseq_platform.cnv.strata import (
+    aggregate,
+    compare_aggregates,
+    estimate_limit_of_detection,
+    paired_detection_comparison,
+)
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 
 CONTIGS = {"chr5": 181_538_259}
@@ -148,6 +153,66 @@ class LimitOfDetectionTests(unittest.TestCase):
         result = aggregate(reports, aggregate_id="AGGREGATE_001")
         predictors = {item.predictor for item in result.limits_of_detection}
         self.assertIn("tumor_fraction", predictors)
+
+
+class PairedComparisonTests(unittest.TestCase):
+    """Method selection needs a paired test, not two independent rates."""
+
+    def _pair(self, a_detected: bool, b_detected: bool, sample: str):
+        return (
+            _report(tumor_fraction=1.0, detected=a_detected, method="method-a", sample=sample),
+            _report(tumor_fraction=1.0, detected=b_detected, method="method-b", sample=sample),
+        )
+
+    def test_full_agreement_yields_no_p_value(self) -> None:
+        pairs = [self._pair(True, True, f"SAMPLE_{i}") for i in range(4)]
+        result = paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs])
+        self.assertEqual(result.paired_events, 4)
+        self.assertEqual(result.both_detected, 4)
+        self.assertIsNone(result.p_value)
+        self.assertEqual(result.favours, "neither")
+        self.assertIn("not evidence of equivalence", result.note)
+
+    def test_consistent_advantage_is_detected(self) -> None:
+        pairs = [self._pair(True, False, f"SAMPLE_{i}") for i in range(6)]
+        result = paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs])
+        self.assertEqual(result.only_a_detected, 6)
+        self.assertEqual(result.only_b_detected, 0)
+        self.assertEqual(result.favours, "a")
+        self.assertAlmostEqual(result.p_value, 0.03125)
+
+    def test_balanced_discordance_favours_neither(self) -> None:
+        pairs = [self._pair(True, False, f"SAMPLE_{i}") for i in range(3)]
+        pairs += [self._pair(False, True, f"OTHER_{i}") for i in range(3)]
+        result = paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs])
+        self.assertEqual(result.favours, "neither")
+        self.assertAlmostEqual(result.p_value, 1.0)
+
+    def test_events_not_assessable_under_both_are_excluded(self) -> None:
+        shared = self._pair(True, False, "SAMPLE_001")
+        lone = _report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_999")
+        result = paired_detection_comparison([shared[0], lone], [shared[1]])
+        self.assertEqual(result.paired_events, 1)
+        self.assertGreater(result.unpaired_events, 0)
+
+    def test_disjoint_samples_are_reported_as_no_comparison(self) -> None:
+        a = _report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_001")
+        b = _report(tumor_fraction=1.0, detected=True, method="method-b", sample="SAMPLE_777")
+        result = paired_detection_comparison([a], [b])
+        self.assertEqual(result.paired_events, 0)
+        self.assertIsNone(result.p_value)
+        self.assertIn("not a tie", result.note)
+
+    def test_mixing_methods_on_one_side_is_rejected(self) -> None:
+        a = _report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_001")
+        b = _report(tumor_fraction=1.0, detected=True, method="method-b", sample="SAMPLE_001")
+        with self.assertRaises(ValueError):
+            paired_detection_comparison([a, b], [b])
+
+    def test_empty_side_is_rejected(self) -> None:
+        a = _report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_001")
+        with self.assertRaises(ValueError):
+            paired_detection_comparison([a], [])
 
 
 class ComparisonTests(unittest.TestCase):

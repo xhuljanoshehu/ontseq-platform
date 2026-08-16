@@ -150,6 +150,32 @@ def root_mean_square_error(
     )
 
 
+def mcnemar_exact(only_first: int, only_second: int) -> float | None:
+    """Return the two-sided exact p-value of McNemar's test on discordant pairs.
+
+    Two CNV methods scored on the same truth events produce paired binary outcomes, and
+    a paired test is the only honest way to compare them: an unpaired comparison of two
+    detection rates ignores that the same events drive both numbers and therefore
+    overstates the uncertainty of the *difference*.
+
+    Only discordant pairs carry information. Under the null hypothesis that the methods
+    are equivalent, each discordant pair is a fair coin, so the exact test is a two-sided
+    binomial test with ``p = 0.5`` on ``n = only_first + only_second`` trials.
+
+    Returns ``None`` when there are no discordant pairs at all, because a test with no
+    informative observations has no p-value. Reporting 1.0 there would suggest the
+    methods were shown to be equivalent, when in fact nothing was measured.
+    """
+    if only_first < 0 or only_second < 0:
+        raise ValueError("discordant counts must not be negative")
+    total = only_first + only_second
+    if total == 0:
+        return None
+    smaller = min(only_first, only_second)
+    tail = sum(math.comb(total, k) for k in range(smaller + 1)) * (0.5**total)
+    return min(1.0, 2.0 * tail)
+
+
 @dataclass(frozen=True)
 class LogisticFit:
     """A one-predictor logistic fit with an explicit convergence flag."""

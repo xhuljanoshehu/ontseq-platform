@@ -11,7 +11,7 @@ from ontseq_platform.cnv.models import (
     CnvEvaluationReport,
     CnvTruthSet,
 )
-from ontseq_platform.cnv.strata import CnvAggregateReport
+from ontseq_platform.cnv.strata import CnvAggregateReport, PairedMethodComparison
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -90,6 +90,10 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/cytoband-table.schema.json"): json.dumps(
             CytobandTable.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cnv-paired-method-comparison.schema.json"): json.dumps(
+            PairedMethodComparison.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
     }

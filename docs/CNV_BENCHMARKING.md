@@ -80,11 +80,45 @@ This is what makes the three states the project cares about distinguishable:
 Bases excluded by several tracks are attributed to the first track that removed them, so
 per-reason counts sum exactly to the total removed.
 
+### The partition reconciles, and that is enforced
+
+An accounting that does not add up cannot be audited, so both identities below are
+asserted in the core, re-validated by the contract, and covered by a test:
+
+```
+reference_bases == mask_bases + excluded_bases
+mask_bases      == evaluable_bases + truth_silent_bases + query_no_call_bases
+```
+
+`mask_bases` is what the observability mask allowed through; `evaluable_bases` is what
+was actually scored, after removing bases where either side was silent. The two silence
+counters are attributed exclusively (truth first) and are counted **only inside the
+mask** — a caller declining outside the mask is already accounted for as an exclusion,
+and counting it twice would make the table unreadable.
+
+This is the table that turns "recall 0.8" into a statement with a denominator.
+
 ### Comparing several methods fairly
 
 `compare_methods()` removes the **union** of every method's no-call regions from the
 shared mask before scoring any of them. Without this, a cautious method is rewarded for
 its own blind spots, because declining to call shrinks only its own denominator.
+
+For choosing between two methods, `paired_detection_comparison()` goes further and pairs
+outcomes **per truth event**, keeping only events assessable under both. Comparing two
+independent detection rates ignores that the same events drive both numbers and therefore
+overstates the uncertainty of the *difference*; McNemar's exact test on the discordant
+pairs is the appropriate paired test. It returns `null` when there are no discordant
+pairs, because perfect agreement is an absence of evidence, not evidence of equivalence —
+and with the cohort sizes realistic here, a non-significant result is almost always a
+power problem rather than a demonstrated tie.
+
+```bash
+ontseq cnv-compare-methods \
+  --method-a results/spectre/*.json \
+  --method-b results/ichorcna/*.json \
+  --output results/cnv/spectre-vs-ichorcna.json
+```
 
 ## Open world versus closed world
 
@@ -155,7 +189,8 @@ that belongs with the reference bundle on approved storage; see `docs/DATA_SECUR
 | Detection by state | events | yes | Losses and gains do not behave alike |
 | Copy-number MAE / RMSE | copies | no | Quantitative accuracy, bp-weighted |
 | Breakpoint deltas | bp | no | Only where truth resolution supports it |
-| Partition accounting | bp | no | How much genome each number applied to |
+| Partition accounting | bp | no | How much genome each number applied to (reconciles exactly) |
+| Paired method comparison | events | McNemar exact p | The only honest basis for choosing between two methods |
 
 ### Confidence intervals are event-level only
 
@@ -261,7 +296,10 @@ Mosdepth.
 ## Running it
 
 ```bash
-# Fully synthetic end-to-end benchmark: simulate, call, evaluate, aggregate.
+# Fully synthetic end-to-end benchmark. Simulates depth, runs two configurations of the
+# baseline caller on byte-identical data, evaluates and aggregates each, then compares
+# them pairwise. Writes cnv-demo.aggregate.{default,conservative}.json and
+# cnv-demo.comparison.json.
 ontseq cnv-demo-benchmark --output-dir results/cnv-demo
 
 # Score one locked case.
@@ -285,9 +323,11 @@ ontseq cnv-karyotype-truth \
 
 ## Observed behaviour of the baseline in CI
 
-`ontseq cnv-demo-benchmark` runs 63 evaluations (7 blast fractions x 3 coverages x 3
-replicates) against a synthetic del(5q) / -7q / +8 / del(20q) profile. The result from
-the CI run of this change:
+`ontseq cnv-demo-benchmark` runs 63 evaluations per caller configuration (7 blast
+fractions x 3 coverages x 3 replicates) against a synthetic del(5q) / -7q / +8 / del(20q)
+profile, for two configurations of the baseline on byte-identical simulated data. The
+figures below are the **default** configuration, from the CI run that introduced this
+subsystem:
 
 ```
 method: ontseq-baseline-readdepth 0.1.0
@@ -352,6 +392,10 @@ reported performance, which is why the full option set is echoed into each repor
 - breakpoint metrics are withheld under band-resolution truth and reported under exact
   truth, including when a caller overshoots;
 - CN-LOH is not satisfied by a neutral call;
+- the genome partition reconciles exactly, and no-call bases outside the mask are not
+  double counted;
+- the paired method comparison recovers exact McNemar p-values, excludes events not
+  assessable under both methods, and refuses to call full agreement a tie;
 - undefined proportions stay `null`;
 - the simulator is deterministic and its dilution series reproducible;
 - the whole loop runs end to end with no external tool.

@@ -33,9 +33,9 @@ rule evaluate_synthetic_cnv_case:
 
 
 rule cnv_demo_benchmark:
-    """Simulate, call, evaluate and aggregate across blast-fraction and coverage strata."""
+    """Simulate, call, evaluate and compare two caller configurations across strata."""
     output:
-        config["outputs"]["cnv_demo_aggregate"],
+        config["outputs"]["cnv_demo_comparison"],
     params:
         output_dir=config["outputs"]["cnv_demo_dir"],
     conda:

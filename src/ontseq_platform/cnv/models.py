@@ -291,15 +291,40 @@ class ProportionResult(StrictModel):
 
 
 class GenomePartitionReport(StrictModel):
-    """How the genome was divided before scoring."""
+    """How the genome was divided before scoring.
+
+    The counts reconcile exactly, and the contract enforces it, so a reader can always
+    verify what fraction of the genome a metric actually applied to:
+
+    ``reference_bases == mask_bases + excluded_bases``
+
+    ``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``
+    """
 
     reference_bases: int = Field(ge=0)
+    mask_bases: int = Field(ge=0)
     evaluable_bases: int = Field(ge=0)
     excluded_bases: int = Field(ge=0)
     query_no_call_bases: int = Field(ge=0)
     truth_silent_bases: int = Field(ge=0)
     evaluable_fraction: float | None = Field(default=None, ge=0, le=1)
     excluded_bases_by_reason: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def partition_reconciles(self) -> GenomePartitionReport:
+        if self.mask_bases != (
+            self.evaluable_bases + self.truth_silent_bases + self.query_no_call_bases
+        ):
+            raise ValueError(
+                "genome partition does not reconcile: mask bases must equal evaluable "
+                "plus truth-silent plus query-no-call bases"
+            )
+        if self.reference_bases != self.mask_bases + self.excluded_bases:
+            raise ValueError(
+                "genome partition does not reconcile: reference bases must equal mask "
+                "plus excluded bases"
+            )
+        return self
 
 
 class BaseLevelReport(StrictModel):

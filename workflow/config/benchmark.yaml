@@ -7,4 +7,4 @@ outputs:
   sv: results/benchmarks/SYNTHETIC_SV_001.benchmark.json
   cnv_state: results/benchmarks/SYNTHETIC_CNV_CASE_001.evaluation.json
   cnv_demo_dir: results/benchmarks/cnv-demo
-  cnv_demo_aggregate: results/benchmarks/cnv-demo/cnv-demo.aggregate.json
+  cnv_demo_comparison: results/benchmarks/cnv-demo/cnv-demo.comparison.json

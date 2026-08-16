@@ -261,17 +261,47 @@ class BaseLevelResult:
 class GenomePartition:
     """How the reference genome was divided before scoring.
 
-    These four numbers are the audit trail behind every metric. They make the difference
+    These numbers are the audit trail behind every metric. They make the difference
     between "the assay found nothing" and "the assay could not look" an explicit,
-    inspectable quantity.
+    inspectable quantity, and they reconcile exactly:
+
+    ``reference_bases == mask_bases + excluded_bases``
+
+    ``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``
+
+    An accounting that does not add up cannot be audited, so both identities are
+    asserted by :meth:`validate` and covered by a test.
     """
 
     reference_bases: int
+    #: Bases the observability mask allowed through.
+    mask_bases: int
+    #: Bases actually scored, after removing those where either side was silent.
     evaluable_bases: int
+    #: Bases the mask rejected, attributed in ``excluded_bases_by_reason``.
     excluded_bases: int
+    #: Mask bases dropped because the call set declined to call.
     query_no_call_bases: int
+    #: Mask bases dropped because the truth source asserted nothing.
     truth_silent_bases: int
     excluded_bases_by_reason: dict[str, int]
+
+    def validate(self) -> None:
+        """Raise when the partition does not reconcile."""
+        if self.mask_bases != (
+            self.evaluable_bases + self.truth_silent_bases + self.query_no_call_bases
+        ):
+            raise ValueError(
+                "genome partition does not reconcile: mask bases "
+                f"{self.mask_bases} != evaluable {self.evaluable_bases} + truth silent "
+                f"{self.truth_silent_bases} + query no-call {self.query_no_call_bases}"
+            )
+        if self.reference_bases != self.mask_bases + self.excluded_bases:
+            raise ValueError(
+                "genome partition does not reconcile: reference bases "
+                f"{self.reference_bases} != mask {self.mask_bases} + excluded "
+                f"{self.excluded_bases}"
+            )
 
 
 @dataclass(frozen=True)
@@ -490,6 +520,7 @@ def evaluate(
     copy_number_pairs: list[tuple[float, float]] = []
     copy_number_weights: list[int] = []
     within_tolerance_bases = 0
+    mask_bases = 0
     evaluable_bases = 0
     concordant_bases = 0
     query_no_call_bases = 0
@@ -529,15 +560,19 @@ def evaluate(
                 query_grouped, query_starts, contig, left, query_background
             )
             inside = _covered(evaluable_set.get(contig, []), evaluable_starts.get(contig, []), left)
-            if query_state == CopyNumberState.NO_CALL:
-                query_no_call_bases += width
-            if truth_state == CopyNumberState.NO_CALL:
-                truth_silent_bases += width
             if not inside:
                 continue
-            # Bases where either side is silent are excluded from scoring by construction
-            # of the evaluable set; this guard keeps the invariant explicit and local.
-            if truth_state == CopyNumberState.NO_CALL or query_state == CopyNumberState.NO_CALL:
+            mask_bases += width
+            # Silence on either side removes a base from scoring even though the mask
+            # allowed it. The two counters below are attributed exclusively, and truth
+            # silence is attributed first, so that
+            #     mask_bases == evaluable + truth_silent + query_no_call
+            # holds exactly and the partition can be reconciled by a reader.
+            if truth_state == CopyNumberState.NO_CALL:
+                truth_silent_bases += width
+                continue
+            if query_state == CopyNumberState.NO_CALL:
+                query_no_call_bases += width
                 continue
             evaluable_bases += width
             scored_spans.setdefault(contig, []).append((left, right))
@@ -619,16 +654,20 @@ def evaluate(
             "metric is undefined rather than zero."
         )
 
+    partition = GenomePartition(
+        reference_bases=max(reference_bases, mask_bases),
+        mask_bases=mask_bases,
+        evaluable_bases=evaluable_bases,
+        excluded_bases=max(0, reference_bases - mask_bases),
+        query_no_call_bases=query_no_call_bases,
+        truth_silent_bases=truth_silent_bases,
+        excluded_bases_by_reason=dict(excluded_bases_by_reason or {}),
+    )
+    partition.validate()
+
     return EvaluationResult(
         options=resolved,
-        partition=GenomePartition(
-            reference_bases=reference_bases,
-            evaluable_bases=evaluable_bases,
-            excluded_bases=max(0, reference_bases - evaluable_bases),
-            query_no_call_bases=query_no_call_bases,
-            truth_silent_bases=truth_silent_bases,
-            excluded_bases_by_reason=dict(excluded_bases_by_reason or {}),
-        ),
+        partition=partition,
         base_level=base_level,
         truth_events=truth_results,
         query_events=query_results,

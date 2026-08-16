@@ -260,6 +260,7 @@ def _to_report(
         options=case.options,
         partition=GenomePartitionReport(
             reference_bases=result.partition.reference_bases,
+            mask_bases=result.partition.mask_bases,
             evaluable_bases=result.partition.evaluable_bases,
             excluded_bases=result.partition.excluded_bases,
             query_no_call_bases=result.partition.query_no_call_bases,

@@ -7,4 +7,4 @@ rule all:
         config["outputs"]["cnv"],
         config["outputs"]["sv"],
         config["outputs"]["cnv_state"],
-        config["outputs"]["cnv_demo_aggregate"],
+        config["outputs"]["cnv_demo_comparison"],

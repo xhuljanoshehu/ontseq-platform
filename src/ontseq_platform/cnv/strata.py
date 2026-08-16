@@ -26,6 +26,7 @@ from .stats import (
     ProportionEstimate,
     fit_logistic,
     logistic_threshold,
+    mcnemar_exact,
     wilson_interval,
 )
 
@@ -353,6 +354,109 @@ def aggregate(
             "A limit of detection derived from one truth profile does not generalise to "
             "other event classes or sizes.",
         ],
+    )
+
+
+class PairedMethodComparison(StrictModel):
+    """A paired comparison of two methods on the same truth events.
+
+    The contingency counts are reported in full so the reader can judge the comparison
+    rather than only its p-value.
+    """
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    method_a: str
+    method_b: str
+    paired_events: int = Field(ge=0)
+    both_detected: int = Field(ge=0)
+    only_a_detected: int = Field(ge=0)
+    only_b_detected: int = Field(ge=0)
+    neither_detected: int = Field(ge=0)
+    #: Events dropped because they were not assessable under both methods.
+    unpaired_events: int = Field(ge=0)
+    p_value: float | None = Field(default=None, ge=0, le=1)
+    favours: Literal["a", "b", "neither"] = "neither"
+    note: str
+    research_only: Literal[True] = True
+
+    @property
+    def discordant(self) -> int:
+        return self.only_a_detected + self.only_b_detected
+
+
+def paired_detection_comparison(
+    reports_a: Sequence[CnvEvaluationReport],
+    reports_b: Sequence[CnvEvaluationReport],
+) -> PairedMethodComparison:
+    """Compare two methods on the truth events both of them could assess.
+
+    Events are paired by ``(sample_id, event_id)``. An event counts only when it is
+    assessable under **both** methods: if one method could not look there, the pair
+    carries no information about which method is better, and including it would let a
+    method's blind spots influence the comparison.
+
+    The p-value comes from McNemar's exact test on the discordant pairs. It is ``None``
+    when no discordant pair exists, which means the comparison found no evidence either
+    way rather than evidence of equivalence.
+    """
+    methods_a = {report.method for report in reports_a}
+    methods_b = {report.method for report in reports_b}
+    if len(methods_a) > 1 or len(methods_b) > 1:
+        raise ValueError("each side of a paired comparison must contain exactly one method")
+    if not methods_a or not methods_b:
+        raise ValueError("both sides of a paired comparison must contain at least one report")
+
+    def outcomes(reports: Sequence[CnvEvaluationReport]) -> dict[tuple[str, str], bool]:
+        table: dict[tuple[str, str], bool] = {}
+        for report in reports:
+            for event in report.truth_events:
+                if event.outcome in {"DETECTED", "MISSED"}:
+                    table[(report.sample_id, event.event_id)] = event.outcome == "DETECTED"
+        return table
+
+    left = outcomes(reports_a)
+    right = outcomes(reports_b)
+    shared = sorted(set(left) & set(right))
+    unpaired = len(set(left) ^ set(right))
+
+    both = sum(1 for key in shared if left[key] and right[key])
+    only_a = sum(1 for key in shared if left[key] and not right[key])
+    only_b = sum(1 for key in shared if right[key] and not left[key])
+    neither = sum(1 for key in shared if not left[key] and not right[key])
+    p_value = mcnemar_exact(only_a, only_b)
+
+    if not shared:
+        note = (
+            "No truth event was assessable under both methods, so the methods were not "
+            "compared. This is not a tie."
+        )
+        favours: Literal["a", "b", "neither"] = "neither"
+    elif p_value is None:
+        note = (
+            "The methods agreed on every paired event. With no discordant pair there is "
+            "no evidence either way; this is not evidence of equivalence."
+        )
+        favours = "neither"
+    else:
+        favours = "a" if only_a > only_b else "b" if only_b > only_a else "neither"
+        note = (
+            f"McNemar exact test on {only_a + only_b} discordant pair(s). Small "
+            "discordant counts have very little power, so a non-significant result must "
+            "not be read as equivalence."
+        )
+
+    return PairedMethodComparison(
+        method_a=methods_a.pop(),
+        method_b=methods_b.pop(),
+        paired_events=len(shared),
+        both_detected=both,
+        only_a_detected=only_a,
+        only_b_detected=only_b,
+        neither_detected=neither,
+        unpaired_events=unpaired,
+        p_value=p_value,
+        favours=favours,
+        note=note,
     )
 
 

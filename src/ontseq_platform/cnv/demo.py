@@ -45,7 +45,12 @@ from .segment import (
 )
 from .simulate import SimulationParameters, closed_world_truth, simulate_bins
 from .states import CopyNumberState
-from .strata import CnvAggregateReport, aggregate
+from .strata import (
+    CnvAggregateReport,
+    PairedMethodComparison,
+    aggregate,
+    paired_detection_comparison,
+)
 
 #: Synthetic genome. Contig lengths are GRCh38 values so that coordinates line up with
 #: the other synthetic fixtures; a subset is used to keep the demo fast.
@@ -73,14 +78,56 @@ DEMO_REPLICATES = 3
 
 
 @dataclass(frozen=True)
+class MethodVariant:
+    """One caller configuration to benchmark.
+
+    The demo runs two, on byte-identical simulated data, so that the paired method
+    comparison is exercised on a real difference rather than only in unit tests. They
+    differ solely in the segmentation split threshold, which makes the conservative
+    variant less willing to declare a boundary.
+    """
+
+    key: str
+    method: str
+    parameters: SegmentationParameters
+    rationale: str
+
+
+DEMO_VARIANTS: tuple[MethodVariant, ...] = (
+    MethodVariant(
+        key="default",
+        method=METHOD_NAME,
+        parameters=SegmentationParameters(),
+        rationale="Default split threshold of 4.0.",
+    ),
+    MethodVariant(
+        key="conservative",
+        method=f"{METHOD_NAME}-conservative",
+        parameters=SegmentationParameters(split_threshold=8.0),
+        rationale=(
+            "Split threshold raised to 8.0, so a boundary must be twice as convincing. "
+            "Expected to trade sensitivity for fewer spurious segments."
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True)
 class DemoOutputs:
-    """Paths written by a demo run, plus the in-memory aggregate."""
+    """Paths written by a demo run, plus the in-memory results."""
 
     truth_path: Path
     evaluation_paths: list[Path]
-    aggregate_path: Path
-    aggregate: CnvAggregateReport
-    reports: list[CnvEvaluationReport]
+    aggregate_paths: list[Path]
+    comparison_path: Path
+    aggregates: list[CnvAggregateReport]
+    comparison: PairedMethodComparison
+    reports_by_variant: dict[str, list[CnvEvaluationReport]]
+
+    @property
+    def aggregate(self) -> CnvAggregateReport:
+        """The default variant's aggregate, which the summary line describes."""
+        return self.aggregates[0]
 
 
 def demo_truth_segments() -> list[StateSegment]:
@@ -133,6 +180,7 @@ def _call_set_for(
     mean_coverage_x: float,
     bin_size_bp: int,
     seed: int,
+    variant: MethodVariant,
 ) -> tuple[CnvCallSet, list[GenomicRegion]]:
     parameters = SimulationParameters(
         bin_size_bp=bin_size_bp,
@@ -145,13 +193,13 @@ def _call_set_for(
         truth_segments=demo_truth_segments(),
         parameters=parameters,
     )
+    # The tumor fraction is deliberately NOT supplied to the caller. A benchmark that
+    # hands the method the answer measures nothing, and inverting the mixture with a
+    # known fraction amplifies noise by 1/f, which flatters or destroys the result
+    # depending only on that one number.
     result = call_segments(
         [DepthBin(item.contig, item.start, item.end, item.count) for item in bins],
-        # The tumor fraction is deliberately NOT supplied to the caller. A benchmark that
-        # hands the method the answer measures nothing, and inverting the mixture with a
-        # known fraction amplifies noise by 1/f, which flatters or destroys the result
-        # depending only on that one number.
-        SegmentationParameters(),
+        variant.parameters,
     )
     filled = neutral_background_segments(result.segments, DEMO_CONTIGS)
     segments = [
@@ -172,7 +220,7 @@ def _call_set_for(
         call_set_id=call_set_id,
         sample_id=sample_id,
         genome_build=GenomeBuild.GRCH38,
-        method=METHOD_NAME,
+        method=variant.method,
         method_version=METHOD_VERSION,
         data_basis=CnvDataBasis.SIMULATED,
         background_state=CopyNumberState.NEUTRAL,
@@ -193,64 +241,105 @@ def run_demo_benchmark(
     replicates: int = DEMO_REPLICATES,
     bin_size_bp: int = 1_000_000,
     seed: int = 20260816,
-) -> tuple[CnvTruthSet, list[CnvEvaluationReport], CnvAggregateReport]:
-    """Run the full simulate-call-evaluate-aggregate loop over a factorial design."""
+    variants: Sequence[MethodVariant] = DEMO_VARIANTS,
+) -> tuple[CnvTruthSet, dict[str, list[CnvEvaluationReport]], list[CnvAggregateReport]]:
+    """Run the full simulate-call-evaluate-aggregate loop for every variant.
+
+    Each variant sees byte-identical simulated data for a given
+    ``(coverage, fraction, replicate)`` cell, because the simulation seed depends only on
+    that cell. That is what makes the downstream comparison genuinely paired.
+    """
     truth = build_demo_truth_set()
-    reports: list[CnvEvaluationReport] = []
+    reports: dict[str, list[CnvEvaluationReport]] = {variant.key: [] for variant in variants}
     for coverage_index, coverage in enumerate(coverages):
         for fraction_index, fraction in enumerate(tumor_fractions):
             for replicate in range(replicates):
                 derived_seed = (
                     seed + 100_000 * (coverage_index + 1) + 1_000 * (fraction_index + 1) + replicate
                 )
-                sample_id = f"SIM-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_")
-                call_set, _ = _call_set_for(
-                    call_set_id=f"CS-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_"),
-                    sample_id=sample_id,
-                    tumor_fraction=fraction,
-                    mean_coverage_x=coverage,
-                    bin_size_bp=bin_size_bp,
-                    seed=derived_seed,
-                )
-                case = CnvBenchmarkCase(
-                    case_id=f"CASE-{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_"),
-                    genome_build=GenomeBuild.GRCH38,
-                    contig_lengths=DEMO_CONTIGS,
-                    truth=truth.model_copy(update={"sample_id": sample_id}),
-                    call_set=call_set,
-                    options=CnvEvaluationOptions(),
-                    strata=CnvStrata(
-                        assay_mode="simulated",
-                        data_basis=CnvDataBasis.SIMULATED,
-                        mean_coverage_x=coverage,
+                cell = f"{coverage:g}x-{fraction:g}-{replicate}".replace(".", "_")
+                sample_id = f"SIM-{cell}"
+                for variant in variants:
+                    call_set, _ = _call_set_for(
+                        call_set_id=f"CS-{variant.key}-{cell}",
+                        sample_id=sample_id,
                         tumor_fraction=fraction,
+                        mean_coverage_x=coverage,
                         bin_size_bp=bin_size_bp,
-                        replicate=replicate,
-                        sample_class="synthetic_positive",
-                    ),
-                )
-                reports.append(evaluate_case(case))
-    return truth, reports, aggregate(reports, aggregate_id="SYNTHETIC_CNV_DEMO")
+                        seed=derived_seed,
+                        variant=variant,
+                    )
+                    case = CnvBenchmarkCase(
+                        case_id=f"CASE-{variant.key}-{cell}",
+                        genome_build=GenomeBuild.GRCH38,
+                        contig_lengths=DEMO_CONTIGS,
+                        truth=truth.model_copy(update={"sample_id": sample_id}),
+                        call_set=call_set,
+                        options=CnvEvaluationOptions(),
+                        strata=CnvStrata(
+                            assay_mode="simulated",
+                            data_basis=CnvDataBasis.SIMULATED,
+                            mean_coverage_x=coverage,
+                            tumor_fraction=fraction,
+                            bin_size_bp=bin_size_bp,
+                            replicate=replicate,
+                            sample_class="synthetic_positive",
+                        ),
+                    )
+                    reports[variant.key].append(evaluate_case(case))
+    aggregates = [
+        aggregate(reports[variant.key], aggregate_id=f"SYNTHETIC_CNV_DEMO_{variant.key.upper()}")
+        for variant in variants
+    ]
+    return truth, reports, aggregates
 
 
 def write_demo_benchmark(output_dir: Path, **kwargs: object) -> DemoOutputs:
     """Run the demo and write every artifact as JSON."""
-    truth, reports, summary = run_demo_benchmark(**kwargs)  # type: ignore[arg-type]
+    truth, reports, aggregates = run_demo_benchmark(**kwargs)  # type: ignore[arg-type]
+    variants = list(kwargs.get("variants") or DEMO_VARIANTS)  # type: ignore[arg-type]
     output_dir.mkdir(parents=True, exist_ok=True)
-    evaluations_dir = output_dir / "evaluations"
-    evaluations_dir.mkdir(parents=True, exist_ok=True)
     truth_path = write_json(truth, output_dir / "cnv-demo.truth.json")
-    evaluation_paths = [
-        write_json(report, evaluations_dir / f"{report.evaluation_id}.json") for report in reports
-    ]
-    aggregate_path = write_json(summary, output_dir / "cnv-demo.aggregate.json")
+
+    evaluation_paths: list[Path] = []
+    aggregate_paths: list[Path] = []
+    for variant, summary in zip(variants, aggregates, strict=True):
+        variant_dir = output_dir / "evaluations" / variant.key
+        variant_dir.mkdir(parents=True, exist_ok=True)
+        evaluation_paths.extend(
+            write_json(report, variant_dir / f"{report.evaluation_id}.json")
+            for report in reports[variant.key]
+        )
+        aggregate_paths.append(
+            write_json(summary, output_dir / f"cnv-demo.aggregate.{variant.key}.json")
+        )
+
+    comparison = paired_detection_comparison(
+        reports[variants[0].key], reports[variants[1].key]
+    )
+    comparison_path = write_json(comparison, output_dir / "cnv-demo.comparison.json")
     return DemoOutputs(
         truth_path=truth_path,
         evaluation_paths=evaluation_paths,
-        aggregate_path=aggregate_path,
-        aggregate=summary,
-        reports=reports,
+        aggregate_paths=aggregate_paths,
+        comparison_path=comparison_path,
+        aggregates=aggregates,
+        comparison=comparison,
+        reports_by_variant=reports,
     )
+
+
+def summarize_comparison(comparison: PairedMethodComparison) -> list[str]:
+    """Render a short human-readable summary of a paired method comparison."""
+    p_value = "undefined" if comparison.p_value is None else f"{comparison.p_value:.4g}"
+    return [
+        f"paired comparison: {comparison.method_a} vs {comparison.method_b}",
+        f"  paired events: {comparison.paired_events} (unpaired {comparison.unpaired_events})",
+        f"  both={comparison.both_detected} onlyA={comparison.only_a_detected} "
+        f"onlyB={comparison.only_b_detected} neither={comparison.neither_detected}",
+        f"  McNemar exact p={p_value}, favours={comparison.favours}",
+        f"  {comparison.note}",
+    ]
 
 
 def summarize_demo(summary: CnvAggregateReport) -> list[str]:
