@@ -24,7 +24,7 @@ LOSS = CnvSegment(
 
 def _report(*, tumor_fraction: float, detected: bool, method: str = "baseline", sample: str):
     truth = CnvTruthSet(
-        truth_id="T1",
+        truth_id="TRUTH_001",
         sample_id=sample,
         genome_build=GenomeBuild.GRCH38,
         source=CnvTruthSource.SIMULATED,
@@ -43,7 +43,7 @@ def _report(*, tumor_fraction: float, detected: bool, method: str = "baseline", 
         ]
     )
     call_set = CnvCallSet(
-        call_set_id="C1",
+        call_set_id="CALLSET_001",
         sample_id=sample,
         genome_build=GenomeBuild.GRCH38,
         method=method,
@@ -54,7 +54,7 @@ def _report(*, tumor_fraction: float, detected: bool, method: str = "baseline", 
         segments=segments,
     )
     case = CnvBenchmarkCase(
-        case_id="CASE",
+        case_id="CASE_001",
         genome_build=GenomeBuild.GRCH38,
         contig_lengths=CONTIGS,
         truth=truth,
@@ -67,23 +67,23 @@ def _report(*, tumor_fraction: float, detected: bool, method: str = "baseline", 
 class AggregationTests(unittest.TestCase):
     def test_pooling_two_methods_is_refused(self) -> None:
         reports = [
-            _report(tumor_fraction=1.0, detected=True, method="a", sample="S1"),
-            _report(tumor_fraction=1.0, detected=True, method="b", sample="S2"),
+            _report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_001"),
+            _report(tumor_fraction=1.0, detected=True, method="method-b", sample="SAMPLE_002"),
         ]
         with self.assertRaises(ValueError):
-            aggregate(reports, aggregate_id="AGG")
+            aggregate(reports, aggregate_id="AGGREGATE_001")
 
     def test_empty_input_is_refused(self) -> None:
         with self.assertRaises(ValueError):
-            aggregate([], aggregate_id="AGG")
+            aggregate([], aggregate_id="AGGREGATE_001")
 
     def test_strata_are_grouped_by_tumor_fraction(self) -> None:
         reports = [
-            _report(tumor_fraction=1.0, detected=True, sample="S1"),
-            _report(tumor_fraction=1.0, detected=True, sample="S2"),
-            _report(tumor_fraction=0.1, detected=False, sample="S3"),
+            _report(tumor_fraction=1.0, detected=True, sample="SAMPLE_001"),
+            _report(tumor_fraction=1.0, detected=True, sample="SAMPLE_002"),
+            _report(tumor_fraction=0.1, detected=False, sample="SAMPLE_003"),
         ]
-        result = aggregate(reports, aggregate_id="AGG")
+        result = aggregate(reports, aggregate_id="AGGREGATE_001")
         by_label = {item.label: item for item in result.by_tumor_fraction}
         self.assertEqual(by_label["1"].detected_events, 2)
         self.assertEqual(by_label["0.1"].detected_events, 0)
@@ -92,8 +92,8 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(result.overall_detection_rate.total, 3)
 
     def test_size_class_strata_are_pooled(self) -> None:
-        reports = [_report(tumor_fraction=1.0, detected=True, sample="S1")]
-        result = aggregate(reports, aggregate_id="AGG")
+        reports = [_report(tumor_fraction=1.0, detected=True, sample="SAMPLE_001")]
+        result = aggregate(reports, aggregate_id="AGGREGATE_001")
         labels = {item.label for item in result.by_size_class}
         self.assertIn("ge_20mb", labels)
 
@@ -138,10 +138,10 @@ class LimitOfDetectionTests(unittest.TestCase):
         self.assertIsNone(limit.model_based_value)
 
     def test_aggregate_emits_a_limit_when_levels_permit(self) -> None:
-        reports = [_report(tumor_fraction=1.0, detected=True, sample=f"S{i}") for i in range(3)] + [
-            _report(tumor_fraction=0.05, detected=False, sample=f"T{i}") for i in range(3)
+        reports = [_report(tumor_fraction=1.0, detected=True, sample=f"SAMPLE_{i}") for i in range(3)] + [
+            _report(tumor_fraction=0.05, detected=False, sample=f"DILUTED_{i}") for i in range(3)
         ]
-        result = aggregate(reports, aggregate_id="AGG")
+        result = aggregate(reports, aggregate_id="AGGREGATE_001")
         predictors = {item.predictor for item in result.limits_of_detection}
         self.assertIn("tumor_fraction", predictors)
 
@@ -149,16 +149,16 @@ class LimitOfDetectionTests(unittest.TestCase):
 class ComparisonTests(unittest.TestCase):
     def test_comparison_returns_intervals_not_a_verdict(self) -> None:
         first = aggregate(
-            [_report(tumor_fraction=1.0, detected=True, method="a", sample="S1")],
-            aggregate_id="A",
+            [_report(tumor_fraction=1.0, detected=True, method="method-a", sample="SAMPLE_001")],
+            aggregate_id="AGGREGATE_A",
         )
         second = aggregate(
-            [_report(tumor_fraction=1.0, detected=False, method="b", sample="S2")],
-            aggregate_id="B",
+            [_report(tumor_fraction=1.0, detected=False, method="method-b", sample="SAMPLE_002")],
+            aggregate_id="AGGREGATE_B",
         )
         rows = compare_aggregates([first, second])
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0][0], "a")
+        self.assertEqual(rows[0][0], "method-a")
         # Lower bounds are surfaced so an overlapping comparison stays visible.
         self.assertIsNotNone(rows[0][3])
 
