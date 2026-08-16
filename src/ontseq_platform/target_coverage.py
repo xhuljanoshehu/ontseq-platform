@@ -214,7 +214,9 @@ def parse_mosdepth_regions(path: Path, bed_regions: list[_BedRegion]) -> list[_R
         key = (chromosome, start, end)
         region = expected.get(key)
         if region is None:
-            raise ValueError("Mosdepth regions output contains an interval absent from the target BED")
+            raise ValueError(
+                "Mosdepth regions output contains an interval absent from the target BED"
+            )
         if key in parsed:
             raise ValueError("Mosdepth regions output contains a duplicate interval")
         if len(fields) == 5:
