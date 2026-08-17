@@ -128,6 +128,22 @@ same JSON/HTML/XLSX path used by the application. Intermediate SAM and unsorted 
 all remaining genomic artifacts stay under ignored `results/`. CI uploads only selected synthetic
 reviewer artifacts, never BAM or VCF.
 
+## The normal way to run all of this at once
+
+The per-stage commands above exist for debugging a single adapter, and they write flat files.
+For an actual run, use `ontseq run`, which executes the same adapters through the stage graph
+and writes a resumable, checksummed run envelope instead:
+
+```bash
+ontseq run sample.manifest.yaml \
+  --reference-lock /approved/references/GRCh38-analysis-set-v1.lock.json \
+  --output-dir results/runs --run-id RUN_2026_001
+```
+
+Re-running the same command resumes rather than repeats: a stage is skipped only when its
+inputs, parameters and tool versions hash to the recorded value *and* its artifacts still
+verify byte for byte. See [Pipeline execution](PIPELINE_EXECUTION.md).
+
 ## Snakemake entry point
 
 After replacing the synthetic paths in `workflow/config/aligned_bam.example.yaml`:
@@ -136,6 +152,12 @@ After replacing the synthetic paths in `workflow/config/aligned_bam.example.yaml
 snakemake --snakefile workflow/aligned_bam.smk --cores 4 --use-conda
 ```
 
-The DAG stops scientific analysis when intake fails. Sniffles2 candidates can flow into the
-report, but no event becomes reportable until its assay-specific benchmark gate passes. Without
-`--use-conda`, the same rules use executables from the active environment.
+The workflow is a **single rule that calls `ontseq run`**, not a re-implementation of the
+stage graph. It used to be five rules invoking the per-stage commands, which made Snakemake
+a second execution path with no run envelope, no per-artifact tool versions, no release
+bundle, and mtime-based resume — and only the runner's path was ever proven in CI. ADR-013
+settles that a scheduler is a caller of the pipeline, not an alternative to it.
+
+What Snakemake still contributes is what it is actually good at: cluster submission,
+resource declarations and fanning many samples out through an executor plugin. Resume stays
+with the runner, because Snakemake compares timestamps and the runner compares content.

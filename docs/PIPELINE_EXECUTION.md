@@ -217,7 +217,25 @@ checksum manifest, not a chain of custody.
 
 ---
 
-## 6. Extending the pipeline
+## 6. Schedulers call the pipeline; they do not reimplement it
+
+`workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
+five rules calling the per-stage commands, which made Snakemake a second execution path —
+flat files instead of an envelope, no per-artifact tool versions, no release bundle, and
+mtime-based resume. Only the runner's path was ever proven in CI, so the second one was an
+unproven way to produce results that looked the same.
+
+Snakemake keeps what it is good at: cluster submission, resource declarations, fanning many
+samples out through an executor plugin. Resume stays with the runner, because Snakemake
+compares timestamps and the runner compares content, parameters and tool versions.
+
+The same rule applies to anything added later. A watch folder, a LIMS trigger and a REST
+endpoint are all callers of `ontseq run`. The moment one of them re-derives the stage order
+itself, there are two behaviours again and only one of them is tested.
+
+---
+
+## 7. Extending the pipeline
 
 To add a stage:
 

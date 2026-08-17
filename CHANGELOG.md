@@ -69,6 +69,9 @@ validated release.
 - The alignment adapter's limitations claimed read groups were inherited from the
   unaligned BAM, but `samtools fastq` drops them and minimap2 writes a fresh header. Read
   groups are now genuinely preserved, and CI asserts it.
+- The alignment adapter required its caller to have created the output directory.
+  `samtools sort` does not create it, so a run whose input declared no read groups would
+  have failed on a fresh envelope. The adapter now creates it itself.
 - A `NO_CALL` stage re-executed on every resume. It ran to a conclusion and recorded its
   artifacts like any completed stage, so it now resumes as one; re-running a caller to
   reach the same `NO_CALL` was pure cost.

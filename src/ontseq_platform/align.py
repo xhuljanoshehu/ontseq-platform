@@ -229,6 +229,9 @@ def run_alignment(
     for path in (output_bam, index_path):
         if path.exists():
             raise ValueError(f"refusing to overwrite an existing alignment artifact: {path.name}")
+    # samtools sort will not create the destination directory, and the caller should not
+    # have to know which of the two code paths below writes the final BAM.
+    output_bam.parent.mkdir(parents=True, exist_ok=True)
 
     command_runner = runner or SubprocessRunner()
     versions = probe_versions(command_runner, minimap2=minimap2, samtools=samtools)

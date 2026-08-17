@@ -148,6 +148,12 @@ directory keyed by run and sample, and records every artifact by its envelope-re
 with a SHA-256. Writes are atomic. A watch-folder or queue, if it is ever needed, becomes a
 caller of this command rather than a different execution path.
 
+**Consequence:** The Snakemake workflow was reduced from five per-stage rules to one rule that
+calls `ontseq run`. It had become a second execution path: flat files instead of a run
+envelope, no per-artifact tool versions, no release bundle, and mtime-based resume — none of
+it exercised by CI. Snakemake keeps cluster submission and multi-sample fan-out; it no longer
+re-derives the stage graph.
+
 **Reason:** The alternative — a long-lived service that discovers work — couples scheduling to
 execution and makes a run irreproducible by hand. One command per run keeps the unit of work
 identical whether a person, a cron job or a future watcher triggers it. Absolute paths are
