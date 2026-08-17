@@ -259,7 +259,64 @@ Three rules govern reclaiming:
 
 ---
 
-## 7. Schedulers call the pipeline; they do not reimplement it
+## 7. The watch folder
+
+```
+ontseq watch /drop --manifest-template assay.manifest.yaml \
+  --reference-lock GRCh38.lock.json --input-kind aligned_bam \
+  --output-dir results/runs
+```
+
+Each sub-directory of the drop folder is one sample. The watcher decides two things per
+directory, and both are stated rather than assumed.
+
+**Is it finished being written?** A sequencer writes for hours, and analysing a run
+mid-write yields a truncated result that looks complete. `--ready-marker` names a file the
+producer writes when it is done; when set it is the *only* thing consulted, because an
+explicit signal beats inferring completion from timestamps. Without one, `--quiet-seconds`
+requires the directory to have been unmodified for that long — and the reason recorded says
+in those words that quiescence is a heuristic. A file dated in the future keeps a directory
+not-ready, so clock skew cannot make an in-progress run look long finished.
+
+**Has it already been handled?** A ledger beside the *output* — never inside the drop
+folder, which may be owned by the instrument or mounted read-only — records every attempt.
+Completed samples are not repeated. A sample blocked by the run lock always retries, because
+that says something about another process rather than about this sample. A **failed sample
+is not retried automatically**: a deterministic failure does not become a success by being
+repeated every minute, and the noise would bury the one sample somebody needs to look at.
+`--retry-failed` re-attempts once the cause is understood.
+
+### What the watcher will not infer
+
+Sample identity, reference, genome build and assay mode are facts about a patient sample,
+and a filename is not evidence of any of them. They come from `--manifest-template`, written
+once per assay. Only two things are derived per sample:
+
+- the **sample identifier**, from the directory name, and only when that name already
+  satisfies the manifest contract. No cleaning, no truncation, no substitution — a repaired
+  identifier ends up on a reviewer artifact under a name nobody chose, so an unusable name
+  is rejected with an explanation instead.
+- the **input path**, by looking for the declared `--input-kind` inside the directory.
+
+Input kind is declared rather than sniffed, because sniffing means rules like "a BAM without
+an index must be unaligned" — wrong the first time an index has not finished copying, and
+wrong silently: the run would strip and re-align an already-aligned BAM and produce a
+plausible result nobody asked for. Two BAMs where one is expected is likewise a refusal, not
+a choice between them.
+
+### Failure separation
+
+A broken manifest template is one configuration mistake, not a failure per sample. Policies
+and the template are resolved **once, before any directory is touched**; a problem there
+exits 5 and attempts nothing. Exit codes: **2** a sample run failed, **4** the run envelope
+was locked, **5** the configuration is unusable.
+
+`SIGINT` and `SIGTERM` stop the watcher *after the current sample* rather than mid-run,
+which costs one sample's runtime and avoids leaving a lock and a half-built envelope behind.
+
+---
+
+## 8. Schedulers call the pipeline; they do not reimplement it
 
 `workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
 five rules calling the per-stage commands, which made Snakemake a second execution path —
@@ -277,7 +334,7 @@ itself, there are two behaviours again and only one of them is tested.
 
 ---
 
-## 8. Extending the pipeline
+## 9. Extending the pipeline
 
 To add a stage:
 

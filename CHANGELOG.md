@@ -54,6 +54,14 @@ validated release.
   same run. A stale lock left by a crashed local run is reclaimed and the reclaim is
   recorded in the run report; a lock held from another host is never reclaimed. `ontseq
   run` exits 4 when the envelope is in use, distinct from its failure exit code.
+- `ontseq watch`: processes every ready sample directory in a drop folder, once or
+  continuously. Readiness is decided by an authoritative marker file or, failing that, a
+  quiescence window that is documented as a heuristic. A ledger beside the output records
+  every attempt, so completed samples are not repeated and failed ones are not retried
+  until `--retry-failed` says the cause is understood. Sample identity and assay metadata
+  come from a manifest template; only the identifier and the input path are derived, and an
+  unusable directory name is rejected rather than repaired. Input kind is declared, not
+  sniffed. SIGINT/SIGTERM stop after the current sample.
 - `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-016.
 
 ### Changed

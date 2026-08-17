@@ -26,6 +26,7 @@ from .models import (
     BenchmarkCase,
     CraminoQCReport,
     GenomeBuild,
+    InputKind,
     PipelineResult,
     QCPolicy,
     ReferenceLock,
@@ -42,6 +43,12 @@ from .reference import reference_lock_from_fai
 from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
+from .watchfolder import (
+    PassResult,
+    WatchConfigurationError,
+    WatchSettings,
+    watch,
+)
 from .workbook import render_workbook
 
 
@@ -54,6 +61,16 @@ def _render(result: PipelineResult, output_dir: Path) -> list[Path]:
         render_workbook(result, output_dir / f"{stem}.results.xlsx"),
     ]
     return outputs
+
+
+def _print_pass(result: PassResult) -> None:
+    """Report one sweep: what ran, and why everything else did not."""
+    for attempt in result.attempted:
+        print(f"  {attempt.name:<28} {attempt.outcome.value.upper():<10} {attempt.detail}")
+    for name, reason in result.skipped:
+        print(f"  {name:<28} {'skipped':<10} {reason}")
+    if not result.attempted and not result.skipped:
+        print("  nothing to do")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -174,6 +191,60 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-run every stage instead of resuming unchanged ones",
     )
+
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help="Process every ready sample directory in a drop folder, once or continuously",
+    )
+    watch_parser.add_argument("watch_dir", type=Path)
+    watch_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    watch_parser.add_argument(
+        "--manifest-template",
+        type=Path,
+        required=True,
+        help="Manifest with the assay-level constants; sample_id and input are filled in",
+    )
+    watch_parser.add_argument("--reference-lock", type=Path, required=True)
+    watch_parser.add_argument(
+        "--input-kind",
+        required=True,
+        choices=[item.value for item in InputKind],
+        help="Declared, not sniffed: a drop folder does not alternate kind per sample",
+    )
+    watch_parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    watch_parser.add_argument(
+        "--sniffles-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+    )
+    watch_parser.add_argument(
+        "--alignment-policy",
+        type=Path,
+        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+    )
+    watch_parser.add_argument("--reference-fasta", type=Path, help="Required when aligning")
+    watch_parser.add_argument(
+        "--ready-marker",
+        help="File the producer writes when a directory is complete. Authoritative when set",
+    )
+    watch_parser.add_argument(
+        "--quiet-seconds",
+        type=float,
+        default=300.0,
+        help="Without a marker, how long a directory must be unmodified. A heuristic",
+    )
+    watch_parser.add_argument("--run-id-prefix", default="")
+    watch_parser.add_argument("--threads", type=int, default=4)
+    watch_parser.add_argument("--git-commit", default="UNKNOWN")
+    watch_parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Re-attempt samples that failed before. Use once the cause is understood",
+    )
+    watch_parser.add_argument(
+        "--once", action="store_true", help="Make a single pass and exit, for cron"
+    )
+    watch_parser.add_argument("--poll-seconds", type=float, default=60.0)
 
     align_fixture = subparsers.add_parser(
         "align-fixture",
@@ -378,6 +449,34 @@ def main() -> None:
                 )
             if not run_report.passed:
                 raise SystemExit(2)
+        elif args.command == "watch":
+            settings = WatchSettings(
+                watch_dir=args.watch_dir,
+                output_dir=args.output_dir,
+                manifest_template=args.manifest_template,
+                reference_lock=args.reference_lock,
+                qc_policy=args.qc_policy,
+                input_kind=InputKind(args.input_kind),
+                sniffles_policy=args.sniffles_policy,
+                alignment_policy=args.alignment_policy,
+                reference_fasta=args.reference_fasta,
+                run_id_prefix=args.run_id_prefix,
+                ready_marker=args.ready_marker,
+                quiet_seconds=args.quiet_seconds,
+                threads=args.threads,
+                git_commit=args.git_commit,
+                retry_failed=args.retry_failed,
+            )
+            passes = watch(
+                settings,
+                once=args.once,
+                poll_seconds=args.poll_seconds,
+                report=_print_pass,
+            )
+            # A failed sample makes the whole sweep non-zero so a cron job is noticed; a
+            # sample that is merely not ready yet, or already done, does not.
+            if any(item.failures for item in passes):
+                raise SystemExit(2)
         elif args.command == "align-fixture":
             fixture = build_alignment_fixture(args.output_dir, samtools=args.samtools)
             for path in (
@@ -471,6 +570,12 @@ def main() -> None:
                 sniffles_report=optional_sniffles_report,
             )
             print(write_json(result, args.output))
+    except WatchConfigurationError as exc:
+        # 5, not 3: exit 3 already means a partially converted karyotype elsewhere. Run
+        # outcomes keep their own codes — 2 a failed run, 4 a locked envelope, 5 a
+        # configuration nothing can run under.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(5) from exc
     except RunAlreadyRunning as exc:
         # Its own exit code, so a watcher or scheduler can tell "someone else is already
         # on this sample" apart from "this run failed" and simply move on.

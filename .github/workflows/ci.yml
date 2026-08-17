@@ -208,6 +208,47 @@ jobs:
         run: |
           cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
           sha256sum -c release/checksums.sha256
+      - name: Drive a watch folder end to end with real tools
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          # One drop directory per sample, built from the smoke fixture's real BAM.
+          mkdir -p results/drop/WATCHED_SAMPLE_001
+          cp results/local-smoke/synthetic.sorted.bam \
+             results/drop/WATCHED_SAMPLE_001/reads.bam
+          cp results/local-smoke/synthetic.sorted.bam.bai \
+             results/drop/WATCHED_SAMPLE_001/reads.bam.bai
+          # A directory nobody can name a sample after: it must be rejected, not repaired.
+          mkdir -p "results/drop/not a sample id"
+          cp results/local-smoke/synthetic.sorted.bam "results/drop/not a sample id/reads.bam"
+          # An assay-level template: identity and input path are the watcher's job, and
+          # everything here is a constant of the assay rather than of the sample.
+          python -c "import json,pathlib; pathlib.Path('results/watch.manifest.json').write_text(json.dumps({'schema_version':'0.1.0','run_id':'CI_WATCH_RUN','assay':{'mode':'lcwgs','genome_build':'GRCh38','reference_id':'SYNTHETIC_NOT_REAL_GRCH38_V1'},'analysis':{'profile':'lcwgs','modules':['qc','sv','report']}}))"
+          PYTHONPATH=src python -m ontseq_platform watch results/drop \
+            --manifest-template results/watch.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --input-kind aligned_bam \
+            --output-dir results/watched \
+            --quiet-seconds 0 --threads 2 --once \
+            --git-commit "$GITHUB_SHA" | tee /tmp/watch.log
+          grep -q 'WATCHED_SAMPLE_001 *COMPLETED' /tmp/watch.log
+          grep -q 'REJECTED' /tmp/watch.log
+          test -f results/watched/WATCHED_SAMPLE_001/WATCHED_SAMPLE_001/provenance/run.json
+          test -f results/watched/.ontseq-watch.json
+          # The drop folder is an input area: nothing of ours may be written into it.
+          test -z "$(find results/drop -name '.ontseq*')"
+      - name: Re-run the watch folder to prove finished samples are not repeated
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform watch results/drop \
+            --manifest-template results/watch.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --input-kind aligned_bam \
+            --output-dir results/watched \
+            --quiet-seconds 0 --threads 2 --once \
+            --git-commit "$GITHUB_SHA" | tee /tmp/watch2.log
+          grep -q 'WATCHED_SAMPLE_001 *skipped *already completed' /tmp/watch2.log
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)
         if: always()
         uses: actions/upload-artifact@v4
