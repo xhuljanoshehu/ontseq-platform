@@ -42,8 +42,8 @@ from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
 from .smoke import run_local_smoke
-from .status import exit_code, render_json, render_ledger, render_text, scan
 from .sniffles import run_sniffles
+from .status import exit_code, render_json, render_ledger, render_text, scan
 from .watchfolder import (
     PassResult,
     WatchConfigurationError,
