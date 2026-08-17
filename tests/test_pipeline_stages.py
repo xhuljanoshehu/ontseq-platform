@@ -205,9 +205,7 @@ class VerificationTests(unittest.TestCase):
     def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
         """Below POD5 every wired adapter is exercised by CI; only stubs remain."""
         specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
-        self.assertEqual(
-            {spec.stage for spec in specs}, {StageId.TARGET_COVERAGE, StageId.CNV}
-        )
+        self.assertEqual({spec.stage for spec in specs}, {StageId.TARGET_COVERAGE, StageId.CNV})
 
 
 if __name__ == "__main__":

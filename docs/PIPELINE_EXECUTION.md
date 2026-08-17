@@ -152,11 +152,16 @@ and an unaligned BAM whose reads are carved out of that reference, then the run 
 stage earlier at `align`. Because the reads are genuine substrings of the reference,
 alignment has a correct answer to find, and CI asserts on the result:
 
-- all 24 primary reads map (a mapping rate assertion, not just an exit code);
+- all 24 primary reads map (a mapping-rate assertion, not just an exit code);
 - at least the four reverse-complemented reads land on the reverse strand;
 - the `@RG` header line and the per-read `RG:Z` tag both survive the FASTQ round trip;
 - `MM`/`ML` modified-base tags and the `MD` tag are present after alignment;
 - `MM` is still present on reverse-strand records specifically.
+
+Structural-variant detection is deliberately *not* asserted in this lane. Some fixture
+reads carry a 200 bp deletion so the aligner has a real gap to place, but whether Sniffles2
+calls it is the aligned-BAM lane's assertion. On the current fixture the SV stage records
+`NO_CALL`, which is a legitimate outcome and not a biological negative.
 
 That job is what earns `align` its `verified_with_real_tool` status. Before it existed the
 stage was marked `unverified_adapter`, and it would have gone back to that if the job were

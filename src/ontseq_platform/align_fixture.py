@@ -14,8 +14,9 @@ whose reads are carved out of that reference, so alignment has a correct answer 
 * **The reads are real substrings of the reference.** Random sequence would map nowhere
   and a passing alignment step would prove only that minimap2 exits zero. Carved reads
   mean the test can assert on mapped-read counts.
-* **Some reads carry a 200 bp deletion.** The same event the aligned-BAM smoke test looks
-  for, so the whole chain — align, intake, QC, SV — has something to find end to end.
+* **Some reads carry a 200 bp deletion.** Not so the SV caller is asserted on — that is
+  the aligned-BAM smoke test's job — but so the reads are not all perfect matches and the
+  aligner has to place a real gap.
 * **Some reads are reverse-complemented.** Reverse-strand alignment is where modified-base
   tag handling is easiest to get wrong, so the fixture forces that path to be taken.
 * **Every read carries MM/ML and RG tags.** These are exactly the tags that alignment
@@ -169,9 +170,7 @@ def unaligned_sam_text(reference: dict[str, str] | None = None) -> str:
     for index in range(REFERENCE_READS):
         start = READ_START + (index % 3)
         lines.append(
-            _unaligned_record(
-                f"SYNTH_ALIGN_REF_{index + 1:03d}", chromosome[start : start + span]
-            )
+            _unaligned_record(f"SYNTH_ALIGN_REF_{index + 1:03d}", chromosome[start : start + span])
         )
 
     # Reverse-complemented reads map to the reverse strand, which is the path on which

@@ -33,9 +33,9 @@ class SequenceTests(unittest.TestCase):
 
     def test_a_prefix_is_stable_as_the_length_grows(self) -> None:
         """The keystream must extend, not reshuffle, or fixtures change size to size."""
-        self.assertTrue(deterministic_sequence(900, seed="x").startswith(
-            deterministic_sequence(300, seed="x")
-        ))
+        self.assertTrue(
+            deterministic_sequence(900, seed="x").startswith(deterministic_sequence(300, seed="x"))
+        )
 
     def test_only_dna_bases_are_emitted(self) -> None:
         self.assertEqual(set(deterministic_sequence(2000, seed="x")) - set("ACGT"), set())

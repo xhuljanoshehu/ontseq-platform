@@ -153,16 +153,22 @@ jobs:
           # not exercising the path it claims to exercise.
           test "$mapped" -eq 24
           test "$reverse" -ge 4
+          # Dumped to files rather than piped into grep: `grep -q` exits on its first
+          # match, and under `pipefail` the resulting SIGPIPE in samtools fails the step
+          # precisely when the assertion succeeded.
+          samtools view -H "$bam" > /tmp/align.header.sam
+          samtools view "$bam" > /tmp/align.records.sam
+          samtools view -f 16 "$bam" > /tmp/align.reverse.sam
           # Read groups survive only if the header was re-attached after the FASTQ round
           # trip and the per-read RG tag was carried through.
-          samtools view -H "$bam" | grep -q '^@RG.*SM:SYNTHETIC_ALIGN_001'
-          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG'
-          samtools view "$bam" | grep -q 'MM:Z:C+m?'
-          samtools view "$bam" | grep -q 'ML:B:C,'
-          samtools view "$bam" | grep -q 'MD:Z:'
+          grep -q '^@RG.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG' /tmp/align.records.sam
+          grep -q 'MM:Z:C+m?' /tmp/align.records.sam
+          grep -q 'ML:B:C,' /tmp/align.records.sam
+          grep -q 'MD:Z:' /tmp/align.records.sam
           # Modified-base tags must survive on reverse-strand records too, which is where
           # a FASTQ round trip is most likely to lose them.
-          samtools view -f 16 "$bam" | grep -q 'MM:Z:C+m?'
+          grep -q 'MM:Z:C+m?' /tmp/align.reverse.sam
       - name: Re-run the alignment lane to prove it resumes unchanged
         shell: micromamba-shell {0}
         run: |

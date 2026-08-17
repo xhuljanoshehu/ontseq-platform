@@ -370,9 +370,7 @@ class AlignSettleTests(unittest.TestCase):
             envelope=envelope,
             runner=_NullRunner(),
             manifest=_manifest().model_copy(
-                update={
-                    "input": InputSpec(kind=InputKind.UNALIGNED_BAM, path="/nowhere/reads.bam")
-                }
+                update={"input": InputSpec(kind=InputKind.UNALIGNED_BAM, path="/nowhere/reads.bam")}
             ),
         )
         self.outputs = [
@@ -385,9 +383,7 @@ class AlignSettleTests(unittest.TestCase):
     def test_the_manifest_is_repointed_at_the_aligned_bam(self) -> None:
         self.settle(self.context, self.outputs)
         self.assertEqual(self.context.manifest.input.kind, InputKind.ALIGNED_BAM)
-        self.assertTrue(
-            self.context.manifest.input.path.endswith("alignment/FAKE_RUNNER_001.bam")
-        )
+        self.assertTrue(self.context.manifest.input.path.endswith("alignment/FAKE_RUNNER_001.bam"))
         self.assertEqual(
             self.context.manifest.input.index_path, f"{self.context.manifest.input.path}.bai"
         )
