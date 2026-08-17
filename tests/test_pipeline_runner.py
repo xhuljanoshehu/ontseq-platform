@@ -237,14 +237,19 @@ class FailurePropagationTests(RunnerCase):
     def test_downstream_stages_are_not_run_rather_than_failed(self) -> None:
         """A stage that never started has not failed; conflating the two invents evidence."""
         report, _ = self._failed_run()
-        for stage in (StageId.SV, StageId.ASSEMBLE, StageId.REPORT, StageId.RELEASE):
+        for stage in (StageId.ASSEMBLE, StageId.REPORT, StageId.RELEASE):
             self.assertEqual(
                 report.record_for(stage).status, ModuleRunStatus.NOT_RUN, f"{stage} status"
             )
 
+    def test_a_stage_that_does_not_depend_on_the_failure_still_runs(self) -> None:
+        """SV depends on the intake gate, not on QC, so a QC failure must not silence it."""
+        report, _ = self._failed_run()
+        self.assertEqual(report.record_for(StageId.SV).status, ModuleRunStatus.COMPLETED)
+
     def test_the_blocked_stage_names_its_cause(self) -> None:
         report, _ = self._failed_run()
-        self.assertIn("qc", report.record_for(StageId.SV).reason)
+        self.assertIn("qc", report.record_for(StageId.ASSEMBLE).reason)
 
     def test_a_failed_run_produces_no_release_bundle(self) -> None:
         report, bundle = self._failed_run()
@@ -253,7 +258,8 @@ class FailurePropagationTests(RunnerCase):
 
     def test_downstream_stages_never_executed(self) -> None:
         self._failed_run()
-        self.assertEqual(self.stages[StageId.SV].executions, 0)
+        self.assertEqual(self.stages[StageId.ASSEMBLE].executions, 0)
+        self.assertEqual(self.stages[StageId.REPORT].executions, 0)
 
     def test_a_truthful_partial_report_is_still_written(self) -> None:
         self._failed_run()
