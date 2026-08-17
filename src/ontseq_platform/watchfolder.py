@@ -209,8 +209,7 @@ def find_input(directory: Path, kind: InputKind) -> tuple[Path, Path | None]:
     if not matches:
         wanted = "/".join(INPUT_SUFFIXES[kind])
         raise DropRejected(
-            f"declared input kind {kind.value} but no {wanted} file was found in "
-            f"{directory.name}"
+            f"declared input kind {kind.value} but no {wanted} file was found in {directory.name}"
         )
 
     if kind is InputKind.POD5:

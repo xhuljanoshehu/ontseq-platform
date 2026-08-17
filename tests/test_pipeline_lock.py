@@ -219,10 +219,7 @@ except RunAlreadyRunning:
 """
 
     def _spawn(self, hold_seconds: float) -> subprocess.Popen[str]:
-        module = (
-            Path(__file__).resolve().parent.parent
-            / "src/ontseq_platform/pipeline/lock.py"
-        )
+        module = Path(__file__).resolve().parent.parent / "src/ontseq_platform/pipeline/lock.py"
         return subprocess.Popen(
             [sys.executable, "-c", self.SCRIPT, str(module), str(self.root), str(hold_seconds)],
             stdout=subprocess.PIPE,

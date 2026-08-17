@@ -123,9 +123,7 @@ class FindInputTests(WatchfolderCase):
         self.assertIsNone(index)
 
     def test_pod5_resolves_to_the_containing_directory(self) -> None:
-        directory = self._drop(
-            "SAMPLE_A", {"pod5/a.pod5": b"signal", "pod5/b.pod5": b"signal"}
-        )
+        directory = self._drop("SAMPLE_A", {"pod5/a.pod5": b"signal", "pod5/b.pod5": b"signal"})
         found, index = find_input(directory, InputKind.POD5)
         self.assertEqual(found, directory / "pod5")
         self.assertIsNone(index)
