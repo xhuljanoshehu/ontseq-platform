@@ -12,6 +12,9 @@ from ontseq_platform.cnv.models import (
     CnvTruthSet,
 )
 from ontseq_platform.cnv.strata import CnvAggregateReport, PairedMethodComparison
+from ontseq_platform.align import AlignmentPolicy
+from ontseq_platform.basecall import BasecallPolicy
+from ontseq_platform.pipeline.state import ReleaseBundle, RunReport
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -94,6 +97,22 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/cnv-paired-method-comparison.schema.json"): json.dumps(
             PairedMethodComparison.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/run-report.schema.json"): json.dumps(
+            RunReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/release-bundle.schema.json"): json.dumps(
+            ReleaseBundle.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/alignment-policy.schema.json"): json.dumps(
+            AlignmentPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/basecall-policy.schema.json"): json.dumps(
+            BasecallPolicy.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
     }

@@ -96,6 +96,34 @@ jobs:
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
+      - name: Run the whole pipeline end to end with real tools
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform run
+          results/local-smoke/synthetic.manifest.json
+          --reference-lock results/local-smoke/synthetic.reference-lock.json
+          --output-dir results/runs
+          --run-id CI_RUN_001
+          --threads 2
+          --git-commit "$GITHUB_SHA"
+      - name: Re-run to prove every stage resumes unchanged
+        shell: micromamba-shell {0}
+        run: |
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/local-smoke/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --output-dir results/runs \
+            --run-id CI_RUN_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/resume.log
+          if grep -qE '^\s+\w+\s+(COMPLETED|NO_CALL)\s' /tmp/resume.log; then
+            echo "A stage re-executed instead of resuming:"; cat /tmp/resume.log; exit 1
+          fi
+      - name: Verify the release bundle checksums independently
+        shell: micromamba-shell {0}
+        run: |
+          cd results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
+          sha256sum -c release/checksums.sha256
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,4 +137,7 @@ jobs:
             results/local-smoke/synthetic.intake.json
             results/local-smoke/synthetic.qc.json
             results/local-smoke/synthetic.sniffles.json
+            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/provenance/run.json
+            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/release.json
+            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/checksums.sha256
           if-no-files-found: error

@@ -6,7 +6,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import __version__
+from .align import AlignmentPolicy
 from .bam_intake import AlignedBamInspector
+from .basecall import BasecallPolicy
 from .benchmark import benchmark_case
 from .cnv.cytobands import load_cytoband_file
 from .cnv.demo import summarize_comparison, summarize_demo, write_demo_benchmark
@@ -31,6 +33,7 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .pipeline.runner import RunConfiguration, run_pipeline
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
@@ -129,6 +132,45 @@ def _parser() -> argparse.ArgumentParser:
     )
     benchmark.add_argument("case", type=Path)
     benchmark.add_argument("--output", type=Path, required=True)
+
+    run = subparsers.add_parser(
+        "run",
+        help="Execute the whole pipeline for one sample into a resumable run envelope",
+    )
+    run.add_argument("manifest", type=Path)
+    run.add_argument("--reference-lock", type=Path, required=True)
+    run.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    run.add_argument(
+        "--sniffles-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+    )
+    run.add_argument(
+        "--alignment-policy",
+        type=Path,
+        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+    )
+    run.add_argument(
+        "--basecall-policy",
+        type=Path,
+        default=Path("configs/basecalling/dorado.technical.yaml"),
+    )
+    run.add_argument("--reference-fasta", type=Path, help="Required when aligning")
+    run.add_argument("--pod5-dir", type=Path, help="Required when starting from POD5")
+    run.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    run.add_argument("--run-id", required=True)
+    run.add_argument("--threads", type=int, default=4)
+    run.add_argument("--git-commit", default="UNKNOWN")
+    run.add_argument("--samtools", default="samtools")
+    run.add_argument("--cramino", default="cramino")
+    run.add_argument("--sniffles", default="sniffles")
+    run.add_argument("--minimap2", default="minimap2")
+    run.add_argument("--dorado", default="dorado")
+    run.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run every stage instead of resuming unchanged ones",
+    )
 
     cnv_evaluate = subparsers.add_parser(
         "cnv-evaluate",
@@ -270,6 +312,59 @@ def main() -> None:
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
+        elif args.command == "run":
+            run_manifest = load_model(args.manifest, SampleManifest)
+            configuration = RunConfiguration(
+                manifest=run_manifest,
+                reference_lock=load_model(args.reference_lock, ReferenceLock),
+                output_base=args.output_dir,
+                run_id=args.run_id,
+                pipeline_version=__version__,
+                git_commit=args.git_commit,
+                qc_policy=load_model(args.qc_policy, QCPolicy),
+                sniffles_policy=(
+                    load_model(args.sniffles_policy, SnifflesPolicy)
+                    if args.sniffles_policy.is_file()
+                    else None
+                ),
+                alignment_policy=(
+                    load_model(args.alignment_policy, AlignmentPolicy)
+                    if args.alignment_policy.is_file()
+                    else None
+                ),
+                basecall_policy=(
+                    load_model(args.basecall_policy, BasecallPolicy)
+                    if args.basecall_policy.is_file()
+                    else None
+                ),
+                reference_fasta=args.reference_fasta,
+                pod5_directory=args.pod5_dir,
+                threads=args.threads,
+                executables={
+                    "samtools": args.samtools,
+                    "cramino": args.cramino,
+                    "sniffles": args.sniffles,
+                    "minimap2": args.minimap2,
+                    "dorado": args.dorado,
+                },
+                force=args.force,
+            )
+            run_report, release_bundle = run_pipeline(configuration)
+            for stage_record in run_report.stages:
+                marker = "resumed" if stage_record.resumed else stage_record.status.value
+                print(f"  {stage_record.stage.value:<16} {marker:<10} {stage_record.reason}")
+            outcome = "PASS" if run_report.passed else "FAIL"
+            print(f"verdict: {outcome} - {run_report.verdict_reason}")
+            if run_report.unverified_stages:
+                names = ", ".join(item.value for item in run_report.unverified_stages)
+                print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
+            if release_bundle is not None:
+                print(
+                    f"release bundle: {len(release_bundle.artifacts)} artifact(s), "
+                    f"{len(release_bundle.withheld_artifact_paths)} withheld, unsigned"
+                )
+            if not run_report.passed:
+                raise SystemExit(2)
         elif args.command == "cnv-evaluate":
             cnv_case = load_model(args.case, CnvBenchmarkCase)
             print(
