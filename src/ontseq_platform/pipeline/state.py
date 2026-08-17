@@ -12,7 +12,7 @@ a truthful record of how far it got and can be resumed from it.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import Field, model_validator
 
@@ -85,14 +85,23 @@ class StageRecord(StrictModel):
     warnings: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 
+    #: Outcomes a stage can reach by actually running to a conclusion. Both record a
+    #: signature and may carry artifacts, and both are therefore resumable: a caller that
+    #: looked and declined has done its job as surely as one that called something.
+    CONCLUDED: ClassVar[frozenset[ModuleRunStatus]] = frozenset(
+        {ModuleRunStatus.COMPLETED, ModuleRunStatus.NO_CALL}
+    )
+
     @model_validator(mode="after")
     def outcome_is_self_consistent(self) -> StageRecord:
-        if self.status == ModuleRunStatus.COMPLETED and not self.signature:
-            raise ValueError("a completed stage must record the signature it completed under")
+        if self.status in StageRecord.CONCLUDED and not self.signature:
+            raise ValueError(
+                f"a {self.status.value} stage ran, so it must record the signature it ran under"
+            )
         if self.status in {ModuleRunStatus.NOT_RUN, ModuleRunStatus.FAILED} and self.outputs:
             raise ValueError(f"a {self.status.value} stage must not claim outputs")
-        if self.resumed and self.status != ModuleRunStatus.COMPLETED:
-            raise ValueError("only a completed stage can be resumed")
+        if self.resumed and self.status not in StageRecord.CONCLUDED:
+            raise ValueError("only a stage that ran to a conclusion can be resumed")
         return self
 
 

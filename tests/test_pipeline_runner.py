@@ -68,11 +68,13 @@ class _FakeStage:
         relative_path: str | None = None,
         fail: bool = False,
         parameter: str = "v1",
+        status: ModuleRunStatus = ModuleRunStatus.COMPLETED,
     ) -> None:
         self.stage = stage
         self.relative_path = relative_path
         self.fail = fail
         self.parameter = parameter
+        self.status = status
         self.executions = 0
 
     def plan(self, ctx: RunContext) -> StagePlan:
@@ -90,8 +92,8 @@ class _FakeStage:
                 )
             )
         return StageResult(
-            status=ModuleRunStatus.COMPLETED,
-            reason=f"{self.stage.value} completed.",
+            status=self.status,
+            reason=f"{self.stage.value} finished as {self.status.value}.",
             outputs=outputs,
         )
 
@@ -134,6 +136,7 @@ def _reference_lock() -> ReferenceLock:
         reference_id="FAKE_REFERENCE_V1",
         genome_build=GenomeBuild.GRCH38,
         contigs=[ReferenceContig(name="chr1", length=1000)],
+        source_fai_sha256="a" * 64,
     )
 
 
@@ -306,6 +309,31 @@ class ResumeTests(RunnerCase):
         report, _ = self._run(force=True)
         for record in report.stages:
             self.assertFalse(record.resumed, f"{record.stage} resumed under --force")
+
+    def test_a_no_call_stage_resumes_like_a_completed_one(self) -> None:
+        """A caller that looked and declined has concluded; re-running it changes nothing."""
+        self.stages[StageId.SV].status = ModuleRunStatus.NO_CALL
+        self._run()
+        report, _ = self._run()
+        record = report.record_for(StageId.SV)
+        self.assertEqual(record.status, ModuleRunStatus.NO_CALL)
+        self.assertTrue(record.resumed)
+        self.assertEqual(self.stages[StageId.SV].executions, 1)
+
+    def test_a_run_with_a_resumed_no_call_still_passes_and_releases(self) -> None:
+        self.stages[StageId.SV].status = ModuleRunStatus.NO_CALL
+        self._run()
+        report, bundle = self._run()
+        self.assertTrue(report.passed)
+        self.assertIsNotNone(bundle)
+
+    def test_a_no_call_stage_keeps_its_artifacts_through_a_resume(self) -> None:
+        """Sniffles2 writes a VCF even when nothing passes its policy; it must survive."""
+        self.stages[StageId.SV].status = ModuleRunStatus.NO_CALL
+        self._run()
+        report, _ = self._run()
+        outputs = [item.relative_path for item in report.record_for(StageId.SV).outputs]
+        self.assertEqual(outputs, ["evidence/sv/FAKE_RUNNER_001.sniffles.vcf"])
 
     def test_resuming_after_a_failure_re_attempts_the_failed_stage(self) -> None:
         self.stages[StageId.QC].fail = True

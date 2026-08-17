@@ -777,7 +777,7 @@ def _execute_stage(
     prior = previous.record_for(stage) if previous else None
     if (
         prior is not None
-        and prior.status == ModuleRunStatus.COMPLETED
+        and prior.status in StageRecord.CONCLUDED
         and prior.signature == signature
         and not context.envelope.verify([item.to_artifact() for item in prior.outputs])
     ):

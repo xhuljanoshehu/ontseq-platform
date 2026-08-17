@@ -107,12 +107,17 @@ rule that keeps it out of a release bundle.
 
 ## 3. Resume
 
-A stage is skipped on a repeat run only when **both** conditions hold:
+A stage is skipped on a repeat run only when **all three** conditions hold:
 
-1. Its **signature** is unchanged. The signature hashes the stage name, the checksums of
+1. It **ran to a conclusion** last time — `COMPLETED` or `NO_CALL`. Both recorded a
+   signature and both may carry artifacts, so both stand. A caller that looked and declined
+   has concluded as surely as one that called something, and re-running Sniffles2 over a
+   multi-hour BAM to reach the same `NO_CALL` buys nothing. `FAILED` and `NOT_RUN` always
+   re-run.
+2. Its **signature** is unchanged. The signature hashes the stage name, the checksums of
    every upstream artifact, the stage's own parameters, the resolved tool versions, and the
    fingerprints of any input from outside the envelope.
-2. **Every artifact it claimed still verifies** — present, same size, same SHA-256.
+3. **Every artifact it claimed still verifies** — present, same size, same SHA-256.
 
 Anything else re-runs. A timestamp comparison would silently accept an artifact produced
 under different parameters or a different tool version; content addressing cannot. Resume
