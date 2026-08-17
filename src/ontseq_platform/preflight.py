@@ -39,7 +39,7 @@ from .align import AlignmentPolicy, parse_version
 from .basecall import BasecallPolicy, dorado_version, model_signature
 from .execution import CommandRunner, SubprocessRunner
 from .models import InputKind, ReferenceLock, SampleManifest, SnifflesPolicy
-from .pipeline.checks import Check, CheckList, CheckStatus, required_tools
+from .pipeline.checks import Check, CheckList, required_tools
 from .pipeline.lock import LOCK_FILENAME, holder_is_running, read_holder
 from .pipeline.stages import InputKindName, StageId, planned_stages, unverified_specs
 from .qc import cramino_version
