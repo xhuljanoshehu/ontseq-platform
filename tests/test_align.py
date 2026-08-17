@@ -190,9 +190,7 @@ class _FakeSamtools:
 
 
 ONE_READ_GROUP = (
-    "@HD\tVN:1.6\tSO:unknown\n"
-    "@RG\tID:RG1\tSM:SAMPLE_A\tPL:ONT\n"
-    "@PG\tID:dorado\tPN:dorado\n"
+    "@HD\tVN:1.6\tSO:unknown\n@RG\tID:RG1\tSM:SAMPLE_A\tPL:ONT\n@PG\tID:dorado\tPN:dorado\n"
 )
 NO_READ_GROUP = "@HD\tVN:1.6\tSO:unknown\n@PG\tID:dorado\tPN:dorado\n"
 
