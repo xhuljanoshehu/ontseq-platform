@@ -236,9 +236,7 @@ def render_ledger(output_dir: Path) -> str:
         return f"watch ledger at {path.name}: no attempts recorded"
     lines = [f"watch ledger ({len(attempts)} attempt(s)):"]
     for attempt in attempts:
-        lines.append(
-            f"    {attempt.name:<28} {attempt.outcome.value.upper():<10} {attempt.detail}"
-        )
+        lines.append(f"    {attempt.name:<28} {attempt.outcome.value.upper():<10} {attempt.detail}")
     return "\n".join(lines)
 
 
