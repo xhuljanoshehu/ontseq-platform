@@ -59,6 +59,35 @@ This runs real `samtools`, Cramino and Sniffles2 executables and creates JSON, H
 reviewer artifacts. It deliberately exports neither read names nor inserted sequences. A passing
 smoke test proves wiring and normalization only; it does not validate clinical performance.
 
+Run one sample end to end into a resumable, checksummed run envelope. Every stage is
+recorded with its tool versions and artifact checksums; re-running the same command
+resumes rather than repeating work whose inputs are unchanged:
+
+```bash
+micromamba run -n ontseq-aligned-bam env PYTHONPATH=src \
+  python -m ontseq_platform run results/local-smoke/synthetic.manifest.json \
+  --reference-lock results/local-smoke/synthetic.reference-lock.json \
+  --output-dir results/runs --run-id LOCAL_RUN_001
+```
+
+Starting one stage earlier, from an unaligned BAM, adds real minimap2 alignment. The
+fixture command writes a synthetic reference and an unaligned BAM carved out of it:
+
+```bash
+micromamba run -n ontseq-aligned-bam env PYTHONPATH=src \
+  python -m ontseq_platform align-fixture --output-dir results/align-fixture
+micromamba run -n ontseq-aligned-bam env PYTHONPATH=src \
+  python -m ontseq_platform run results/align-fixture/synthetic.manifest.json \
+  --reference-lock results/align-fixture/synthetic.reference-lock.json \
+  --reference-fasta results/align-fixture/synthetic.reference.fasta \
+  --output-dir results/runs --run-id LOCAL_ALIGN_001
+```
+
+POD5 input is wired into the same command, but the Dorado adapter has never been executed
+against a real binary. It is marked `unverified_adapter`, and any run that completes it
+says so in its run report and release bundle. See
+[Pipeline execution](docs/PIPELINE_EXECUTION.md).
+
 Validate inputs or render an existing result contract:
 
 ```bash
@@ -133,6 +162,7 @@ system. See [Data security](docs/DATA_SECURITY.md).
 - [Evidence base and tool-selection record](docs/EVIDENCE_BASE.md)
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
 - [Sniffles2 candidate adapter](docs/SNIFFLES2_ADAPTER.md)
+- [Pipeline execution, resume and what is not verified](docs/PIPELINE_EXECUTION.md)
 - [Benchmarking](docs/BENCHMARKING.md)
 - [CNV truth, comparison and benchmarking](docs/CNV_BENCHMARKING.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)

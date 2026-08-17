@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from . import __version__
 from .align import AlignmentPolicy
+from .align_fixture import build_alignment_fixture
 from .bam_intake import AlignedBamInspector
 from .basecall import BasecallPolicy
 from .benchmark import benchmark_case
@@ -171,6 +172,16 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-run every stage instead of resuming unchanged ones",
     )
+
+    align_fixture = subparsers.add_parser(
+        "align-fixture",
+        help=(
+            "Write a synthetic unaligned BAM and reference so the alignment lane can be "
+            "exercised with real tools"
+        ),
+    )
+    align_fixture.add_argument("--output-dir", type=Path, default=Path("results/align-fixture"))
+    align_fixture.add_argument("--samtools", default="samtools")
 
     cnv_evaluate = subparsers.add_parser(
         "cnv-evaluate",
@@ -365,6 +376,16 @@ def main() -> None:
                 )
             if not run_report.passed:
                 raise SystemExit(2)
+        elif args.command == "align-fixture":
+            fixture = build_alignment_fixture(args.output_dir, samtools=args.samtools)
+            for path in (
+                fixture.reference_fasta,
+                fixture.reference_fai,
+                fixture.unaligned_bam,
+                fixture.manifest,
+                fixture.reference_lock,
+            ):
+                print(path)
         elif args.command == "cnv-evaluate":
             cnv_case = load_model(args.case, CnvBenchmarkCase)
             print(

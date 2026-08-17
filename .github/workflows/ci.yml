@@ -124,6 +124,64 @@ jobs:
         run: |
           cd results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
           sha256sum -c release/checksums.sha256
+      - name: Build the synthetic alignment-lane fixture
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform align-fixture
+          --output-dir results/align-fixture
+      - name: Run the unaligned-BAM lane through real minimap2
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform run
+          results/align-fixture/synthetic.manifest.json
+          --reference-lock results/align-fixture/synthetic.reference-lock.json
+          --reference-fasta results/align-fixture/synthetic.reference.fasta
+          --output-dir results/runs
+          --run-id CI_ALIGN_001
+          --threads 2
+          --git-commit "$GITHUB_SHA"
+      - name: Prove the alignment kept mapping, read groups and base modifications
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          bam=results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/alignment/SYNTHETIC_ALIGN_001.bam
+          mapped=$(samtools view -c -F 0x904 "$bam")
+          reverse=$(samtools view -c -f 16 -F 0x900 "$bam")
+          echo "primary mapped=$mapped reverse-strand=$reverse"
+          # 24 reads go in and all are carved from the reference, so all must map. The
+          # reverse-complemented ones must land on the reverse strand, or the fixture is
+          # not exercising the path it claims to exercise.
+          test "$mapped" -eq 24
+          test "$reverse" -ge 4
+          # Read groups survive only if the header was re-attached after the FASTQ round
+          # trip and the per-read RG tag was carried through.
+          samtools view -H "$bam" | grep -q '^@RG.*SM:SYNTHETIC_ALIGN_001'
+          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG'
+          samtools view "$bam" | grep -q 'MM:Z:C+m?'
+          samtools view "$bam" | grep -q 'ML:B:C,'
+          samtools view "$bam" | grep -q 'MD:Z:'
+          # Modified-base tags must survive on reverse-strand records too, which is where
+          # a FASTQ round trip is most likely to lose them.
+          samtools view -f 16 "$bam" | grep -q 'MM:Z:C+m?'
+      - name: Re-run the alignment lane to prove it resumes unchanged
+        shell: micromamba-shell {0}
+        run: |
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/align-fixture/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/resume-align.log
+          if grep -qE '^\s+\w+\s+(COMPLETED|NO_CALL)\s' /tmp/resume-align.log; then
+            echo "A stage re-executed instead of resuming:"; cat /tmp/resume-align.log; exit 1
+          fi
+      - name: Verify the alignment-lane release bundle checksums independently
+        shell: micromamba-shell {0}
+        run: |
+          cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
+          sha256sum -c release/checksums.sha256
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)
         if: always()
         uses: actions/upload-artifact@v4
@@ -140,4 +198,7 @@ jobs:
             results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/provenance/run.json
             results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/release.json
             results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/checksums.sha256
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/run.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/alignment.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
           if-no-files-found: error

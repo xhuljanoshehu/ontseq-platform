@@ -34,10 +34,41 @@ validated release.
 - JSON Schemas for the CNV truth set, call set, benchmark case, evaluation report,
   aggregate report and cytoband table.
 - `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012.
+- `ontseq_platform.pipeline` subsystem: a dependency-free stage graph, a self-describing
+  run envelope with atomic writes and content-addressed resume, and a runner that records
+  what ran, under which tool versions, producing which checksummed artifacts.
+- `ontseq run`: one command takes a single sample from its declared input kind through to
+  a checksummed release bundle, and resumes an interrupted run without re-executing work
+  whose inputs are unchanged.
+- Minimap2 alignment adapter, including read-group preservation across the FASTQ round
+  trip (`samtools fastq -T RG` plus `samtools reheader`) and modified-base tag carry-over.
+- Dorado basecalling adapter, shipped explicitly and machine-readably as an **unverified
+  adapter**: it has never been executed against a real Dorado binary.
+- `VerificationStatus` per stage, surfaced in the run report and the release bundle, so a
+  stage that completed on an adapter nobody has executed says so in its own output.
+- `ontseq align-fixture`: a deterministic synthetic reference plus an unaligned BAM whose
+  reads are carved out of it, so the alignment lane can be exercised with real tools.
+- `SubprocessRunner.run_to_file` for tools that emit binary output on stdout.
+- JSON Schemas for the run report, release bundle, alignment policy and basecall policy.
+- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-015.
 
 ### Changed
 
-- `scripts/export_schemas.py` also exports the CNV contracts.
+- `scripts/export_schemas.py` also exports the CNV and pipeline contracts.
+- CI executes the whole pipeline end to end against real binaries in two lanes: from an
+  aligned BAM, and from an unaligned BAM through real minimap2. It re-runs each pipeline
+  to prove every stage resumes unchanged, and verifies the release bundle checksums with
+  `sha256sum -c` rather than with the code that wrote them.
+- `StageId.ALIGN` moved from `unverified_adapter` to `verified_with_real_tool`, in the
+  same change that added the CI job executing minimap2.
+- `workflow/envs/aligned_bam.yaml` pins `minimap2=2.28`, matching the version lock the
+  alignment adapter enforces.
+
+### Fixed
+
+- The alignment adapter's limitations claimed read groups were inherited from the
+  unaligned BAM, but `samtools fastq` drops them and minimap2 writes a fresh header. Read
+  groups are now genuinely preserved, and CI asserts it.
 
 ### Validation impact
 
@@ -47,6 +78,14 @@ synthetic data. Comparison thresholds, the coverage floor and the exclusion trac
 engineering parameters that must be locked before comparative results are inspected;
 none of them is a validated adequacy or reportability threshold. The existing SV
 benchmark contract in `benchmark.py` is unchanged.
+
+The pipeline subsystem changes how a run is executed and recorded, not what any result
+means. A `PASS` verdict states that every required stage executed as designed on the
+declared input; it is not evidence about a sample. Basecalling remains unexecuted and is
+labelled as such in every artifact a POD5 run produces. CNV and target coverage are
+declared in the stage graph but wired to nothing, and record `NOT_RUN` rather than a
+negative finding. The release bundle is a checksum manifest, not a signed chain of
+custody: `signature_status` is the literal `"unsigned"`.
 
 ## 0.3.0 - 2026-08-14
 

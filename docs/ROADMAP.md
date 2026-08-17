@@ -38,14 +38,24 @@
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results
 - [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
+- [x] Single-command run orchestration with a self-describing, checksummed run envelope
+- [x] Content-addressed resume, proven in CI by re-running the whole pipeline
+- [x] Fail-closed stage graph in which a blocked stage is `NOT_RUN`, never `FAILED`
+- [x] Per-adapter verification status surfaced in the run report and release bundle
 
 ## Milestone 2 - POD5 end-to-end
 
-- [ ] Dorado model manifest, basecalling and resume support
-- [ ] Demultiplexing and Minimap2 alignment
+- [x] Minimap2 alignment adapter, exercised in CI against a synthetic reference
+- [x] Read groups and modified-base tags preserved across alignment, asserted in CI
+- [x] Resume support at stage granularity, keyed on content rather than timestamps
+- [ ] Dorado basecalling adapter **executed** against a real binary and model
+      (the adapter exists and is marked `unverified_adapter` until then)
+- [ ] Dorado model manifest with checksummed, version-pinned model provenance
+- [ ] Demultiplexing
 - [ ] GPU/CPU/HPC execution profiles
-- [ ] Watchfolder or LIMS trigger with atomic handoff
+- [ ] Watchfolder or LIMS trigger with atomic handoff, calling `ontseq run` per sample
 - [ ] Failure recovery and operational dashboard
+- [ ] Signed release bundle (`signature_status` is currently the literal `unsigned`)
 
 ## Milestone 3 - ISCN and analytical validation
 

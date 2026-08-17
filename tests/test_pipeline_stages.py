@@ -188,24 +188,26 @@ class VerificationTests(unittest.TestCase):
         )
 
     def test_real_tool_stages_are_declared_as_such(self) -> None:
-        for stage in (StageId.INTAKE, StageId.QC, StageId.SV):
+        """Verification is claimed only where CI actually runs the binary."""
+        for stage in (StageId.ALIGN, StageId.INTAKE, StageId.QC, StageId.SV):
             self.assertEqual(
                 SPEC_BY_STAGE[stage].verification,
                 VerificationStatus.VERIFIED_WITH_REAL_TOOL,
             )
-
-    def test_alignment_is_not_yet_claimed_as_verified(self) -> None:
-        """Verification is claimed only where CI actually runs the binary."""
-        self.assertEqual(
-            SPEC_BY_STAGE[StageId.ALIGN].verification,
-            VerificationStatus.UNVERIFIED_ADAPTER,
-        )
 
     def test_unverified_specs_filters_correctly(self) -> None:
         specs = unverified_specs(planned_stages(InputKindName.POD5))
         stages = {spec.stage for spec in specs}
         self.assertIn(StageId.BASECALL, stages)
         self.assertNotIn(StageId.INTAKE, stages)
+        self.assertNotIn(StageId.ALIGN, stages)
+
+    def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
+        """Below POD5 every wired adapter is exercised by CI; only stubs remain."""
+        specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
+        self.assertEqual(
+            {spec.stage for spec in specs}, {StageId.TARGET_COVERAGE, StageId.CNV}
+        )
 
 
 if __name__ == "__main__":

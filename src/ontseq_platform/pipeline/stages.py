@@ -125,11 +125,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         title="Minimap2 alignment",
         depends_on=(StageId.BASECALL,),
         applicable_for=_FROM_UNALIGNED,
-        # Flipped to VERIFIED_WITH_REAL_TOOL once continuous integration executes real
-        # minimap2 against a synthetic reference. Until that job exists, claiming
-        # verification here would be exactly the kind of unearned confidence this field
-        # was added to prevent.
-        verification=VerificationStatus.UNVERIFIED_ADAPTER,
+        # CI executes this stage against real minimap2 and samtools on a synthetic
+        # reference (see ``align_fixture`` and the alignment-lane steps in ci.yml),
+        # asserting that reads map, that read groups survive the FASTQ round trip and
+        # that modified-base tags are still present afterwards. That job is what earns
+        # the claim below; without it this field would have stayed UNVERIFIED_ADAPTER.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=True,
         purpose="Align reads to the locked reference and produce a sorted, indexed BAM.",
         not_applicable_reason="The run already starts from an aligned BAM.",

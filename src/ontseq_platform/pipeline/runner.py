@@ -32,7 +32,7 @@ from pathlib import Path
 from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
 from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
-from ..execution import CommandRunner, SubprocessRunner, ToolExecutionError
+from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
     AlignedBamIntakeReport,
     CraminoQCReport,
@@ -132,7 +132,7 @@ class RunContext:
 
     config: RunConfiguration
     envelope: RunEnvelope
-    runner: CommandRunner
+    runner: StreamingCommandRunner
     #: The manifest as it currently stands. Alignment rewrites its input to the BAM the
     #: pipeline just produced, so downstream adapters need no special casing.
     manifest: SampleManifest
@@ -177,9 +177,19 @@ class StageResult:
 class StageImplementation:
     plan: Callable[[RunContext], StagePlan]
     execute: Callable[[RunContext, StagePlan], StageResult]
+    #: Re-point the context at what the stage produced. Runs after a stage completes *and*
+    #: after it resumes, because a resumed stage produced its artifacts just as surely as
+    #: one that just ran. Putting this inside ``execute`` would mean a resumed alignment
+    #: left the manifest pointing at the unaligned input, and every downstream stage would
+    #: then either re-run against the wrong file or fail outright. It receives the recorded
+    #: artifacts rather than re-reading the envelope, so adopting a multi-gigabyte BAM does
+    #: not cost a second checksum pass over it.
+    settle: Callable[[RunContext, Sequence[Artifact]], None] | None = None
 
 
-def _probe(runner: CommandRunner, executable: str, argv: Sequence[str], *, tool: str) -> str:
+def _probe(
+    runner: StreamingCommandRunner, executable: str, argv: Sequence[str], *, tool: str
+) -> str:
     import re
 
     result = runner.run(list(argv), timeout_seconds=60)
@@ -227,6 +237,28 @@ def _basecall_plan(ctx: RunContext) -> StagePlan:
     )
 
 
+def _recorded(outputs: Sequence[Artifact], relative_path: str, *, stage: str) -> Artifact:
+    for artifact in outputs:
+        if artifact.relative_path == relative_path:
+            return artifact
+    raise StageFailure(f"the {stage} stage recorded no artifact at {relative_path}")
+
+
+def _basecall_settle(ctx: RunContext, outputs: Sequence[Artifact]) -> None:
+    """Point the manifest at the unaligned BAM basecalling produced."""
+    relative = ctx.path(BASECALL_BAM)
+    bam = _recorded(outputs, relative, stage="basecall")
+    ctx.manifest = ctx.manifest.model_copy(
+        update={
+            "input": InputSpec(
+                kind=InputKind.UNALIGNED_BAM,
+                path=str(ctx.envelope.path(relative)),
+                sha256=bam.sha256,
+            )
+        }
+    )
+
+
 def _basecall_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     policy = ctx.config.basecall_policy
     assert policy is not None and ctx.config.pod5_directory is not None
@@ -237,21 +269,12 @@ def _basecall_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         policy,
         sample_id=ctx.sample_id,
         output_bam=target,
-        runner=ctx.runner,  # type: ignore[arg-type]
+        runner=ctx.runner,
         dorado=ctx.config.executable("dorado"),
     )
     bam = ctx.envelope.fingerprint(ctx.path(BASECALL_BAM))
     record = ctx.envelope.atomic_write_text(
         BASECALL_REPORT, report.model_dump_json(indent=2) + "\n"
-    )
-    ctx.manifest = ctx.manifest.model_copy(
-        update={
-            "input": InputSpec(
-                kind=InputKind.UNALIGNED_BAM,
-                path=str(target),
-                sha256=bam.sha256,
-            )
-        }
     )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
@@ -288,6 +311,23 @@ def _align_plan(ctx: RunContext) -> StagePlan:
     )
 
 
+def _align_settle(ctx: RunContext, outputs: Sequence[Artifact]) -> None:
+    """Point the manifest at the aligned BAM, so downstream adapters need no special case."""
+    bam = _recorded(outputs, ctx.path(ALIGNED_BAM), stage="align")
+    _recorded(outputs, ctx.path(ALIGNED_BAI), stage="align")
+    bam_path = ctx.envelope.path(bam.relative_path)
+    ctx.manifest = ctx.manifest.model_copy(
+        update={
+            "input": InputSpec(
+                kind=InputKind.ALIGNED_BAM,
+                path=str(bam_path),
+                index_path=f"{bam_path}.bai",
+                sha256=bam.sha256,
+            )
+        }
+    )
+
+
 def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     policy = ctx.config.alignment_policy
     assert policy is not None and ctx.config.reference_fasta is not None
@@ -313,16 +353,6 @@ def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     bam = ctx.envelope.fingerprint(ctx.path(ALIGNED_BAM))
     bai = ctx.envelope.fingerprint(ctx.path(ALIGNED_BAI))
     record = ctx.envelope.atomic_write_text(ALIGN_REPORT, report.model_dump_json(indent=2) + "\n")
-    ctx.manifest = ctx.manifest.model_copy(
-        update={
-            "input": InputSpec(
-                kind=InputKind.ALIGNED_BAM,
-                path=str(bam_path),
-                index_path=f"{bam_path}.bai",
-                sha256=bam.sha256,
-            )
-        }
-    )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason="Reads aligned to the locked reference and coordinate sorted.",
@@ -538,8 +568,8 @@ def _release_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
-    StageId.BASECALL: StageImplementation(_basecall_plan, _basecall_execute),
-    StageId.ALIGN: StageImplementation(_align_plan, _align_execute),
+    StageId.BASECALL: StageImplementation(_basecall_plan, _basecall_execute, _basecall_settle),
+    StageId.ALIGN: StageImplementation(_align_plan, _align_execute, _align_settle),
     StageId.INTAKE: StageImplementation(_intake_plan, _intake_execute),
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
@@ -651,7 +681,7 @@ def build_release_bundle(
 
 
 def run_pipeline(
-    config: RunConfiguration, *, runner: CommandRunner | None = None
+    config: RunConfiguration, *, runner: StreamingCommandRunner | None = None
 ) -> tuple[RunReport, ReleaseBundle | None]:
     """Execute every applicable stage and return the run report and release bundle."""
     started_at = datetime.now(UTC)
@@ -751,6 +781,20 @@ def _execute_stage(
         and prior.signature == signature
         and not context.envelope.verify([item.to_artifact() for item in prior.outputs])
     ):
+        if implementation.settle is not None:
+            try:
+                implementation.settle(context, [item.to_artifact() for item in prior.outputs])
+            except (StageFailure, ValueError, OSError) as error:
+                # The artifacts verified, so this is a bug rather than stale state; fail
+                # the stage instead of letting a half-settled context reach the next one.
+                return StageRecord(
+                    **base,
+                    status=ModuleRunStatus.FAILED,
+                    reason=f"Stage resumed but its outputs could not be adopted: {error}",
+                    signature=signature,
+                    started_at=started,
+                    finished_at=datetime.now(UTC),
+                )
         return prior.model_copy(
             update={
                 "resumed": True,
@@ -770,6 +814,22 @@ def _execute_stage(
             finished_at=datetime.now(UTC),
             limitations=[f"Diagnostic: {traceback.format_exc(limit=1).strip().splitlines()[-1]}"],
         )
+
+    if implementation.settle is not None and result.status in {
+        ModuleRunStatus.COMPLETED,
+        ModuleRunStatus.NO_CALL,
+    }:
+        try:
+            implementation.settle(context, result.outputs)
+        except (StageFailure, ValueError, OSError) as error:
+            return StageRecord(
+                **base,
+                status=ModuleRunStatus.FAILED,
+                reason=f"Stage ran but its outputs could not be adopted: {error}",
+                signature=signature,
+                started_at=started,
+                finished_at=datetime.now(UTC),
+            )
 
     finished = datetime.now(UTC)
     return StageRecord(

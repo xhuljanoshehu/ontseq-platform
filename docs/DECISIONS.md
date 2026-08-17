@@ -140,3 +140,51 @@ depth is dominated by enrichment efficiency rather than copy number and violates
 assumption. Which basis the local assay should use is an open empirical question, so the
 architecture stays agnostic and makes the comparison possible instead of choosing
 prematurely.
+
+## ADR-013: One command per run, into a self-describing run envelope
+
+**Decision:** A run is invoked once per sample (`ontseq run`), writes everything into a single
+directory keyed by run and sample, and records every artifact by its envelope-relative path
+with a SHA-256. Writes are atomic. A watch-folder or queue, if it is ever needed, becomes a
+caller of this command rather than a different execution path.
+
+**Reason:** The alternative — a long-lived service that discovers work — couples scheduling to
+execution and makes a run irreproducible by hand. One command per run keeps the unit of work
+identical whether a person, a cron job or a future watcher triggers it. Absolute paths are
+excluded by construction rather than by review, because a reviewer artifact leaking the source
+BAM location violates the data boundary in `docs/DATA_SECURITY.md`. Atomic writes exist so
+that an interrupted run leaves either the previous artifact or none: a truncated artifact is
+worse than a missing one, because resume would accept it.
+
+## ADR-014: Resume on content, never on timestamps
+
+**Decision:** A completed stage is reused only when its signature — upstream artifact
+checksums, its own parameters, resolved tool versions and the fingerprints of external inputs
+— is unchanged, *and* every artifact it claimed still verifies byte for byte. Anything else
+re-runs. CI proves the property by running the same pipeline twice and failing if any stage
+re-executes.
+
+**Reason:** Timestamp-based resume silently accepts an artifact produced under different
+parameters or a different tool version, which is how two incompatible results end up inside
+one envelope with nothing recording that it happened. Resume is an optimisation, and an
+optimisation that can corrupt a result is not one. Verifying the artifacts as well as the
+signature closes the remaining gap where the inputs are unchanged but the output was edited,
+truncated or deleted.
+
+## ADR-015: Verification status is per adapter and is only claimed once CI runs the binary
+
+**Decision:** Every stage declares a machine-readable `VerificationStatus`
+(`verified_with_real_tool`, `verified_pure_python`, `unverified_adapter`, `not_implemented`).
+A stage that completes on an unverified adapter is named in the run report and the release
+bundle. The status is flipped in the same commit that adds the CI job executing the real tool
+— never before.
+
+**Reason:** "Implemented" and "known to work" are different claims, and the difference matters
+most exactly where it is easiest to elide: an adapter that has never met its binary looks the
+same in a diff as one that has. Dorado cannot be executed in this repository's environment, so
+basecalling stays `unverified_adapter` and says so in its own output rather than in a comment
+someone has to find. Alignment was `unverified_adapter` until the synthetic alignment-lane job
+existed; the flip and the job landed together.
+
+**Revisit when:** A GPU environment with a real Dorado model becomes available to CI, at which
+point basecalling can be verified the same way alignment was.
