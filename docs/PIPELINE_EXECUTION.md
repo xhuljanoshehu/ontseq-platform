@@ -70,8 +70,8 @@ with the reminder that a stage which did not run is not a negative finding.
 
 ## 2. The run envelope
 
-Every run gets a directory under `<output-dir>/<run-id>/<sample-id>/`, laid out per
-`docs/ARCHITECTURE.md`:
+Every run gets a directory under `<output-dir>/<run-id>/<sample-id>/`. The file-level
+layout is in [`ARCHITECTURE.md`](ARCHITECTURE.md); the directories are:
 
 ```
 manifest/     sample manifest, reference lock, intake report

@@ -33,35 +33,54 @@ flowchart TD
     H --> I["Expert review and immutable release"]
 ```
 
-## Planned run envelope
+## Run envelope
+
+Created by `ontseq run`; see [Pipeline execution](PIPELINE_EXECUTION.md) for the rules that
+govern it. Entries marked *planned* do not exist yet — everything else is written by a real
+run today.
 
 ```text
-results/<run_id>/<sample_id>/
+<output-dir>/<run_id>/<sample_id>/
 ├── manifest/
 │   ├── sample.manifest.json
-│   ├── input.checksums.sha256
-│   └── reference.lock.json
+│   ├── reference.lock.json
+│   └── intake.json
 ├── qc/
-│   ├── qc.contract.json
-│   └── metrics/
+│   └── cramino.json
 ├── evidence/
-│   ├── cnv/
+│   ├── cnv/                              (planned; no caller is wired in)
 │   ├── sv/
-│   └── fusion/
+│   │   ├── <sample>.sniffles.vcf         (never exportable)
+│   │   └── <sample>.sniffles.json
+│   └── fusion/                           (planned)
+├── alignment/                            (never exportable)
+│   ├── <sample>.unaligned.bam            (POD5 runs only)
+│   ├── <sample>.bam
+│   └── <sample>.bam.bai
 ├── normalized/
-│   └── result.json
+│   └── <sample>.result.json
 ├── reports/
-│   ├── report.html
-│   └── results.xlsx
+│   ├── <sample>.report.html
+│   └── <sample>.results.xlsx
 ├── provenance/
-│   ├── tools.json
-│   ├── parameters.json
-│   └── workflow.dag.svg
-└── release/
-    ├── review.json
-    ├── checksums.sha256
-    └── signed-release.json
+│   ├── run.json                          (stages, tool versions, artifact checksums)
+│   ├── alignment.json                    (unaligned/POD5 runs only)
+│   └── basecall.json                     (POD5 runs only)
+├── release/
+│   ├── release.json
+│   ├── checksums.sha256
+│   └── signed-release.json               (planned; bundles are currently unsigned)
+└── work/                                 (scratch; never exportable)
 ```
+
+Two directories carry a hard rule rather than a convention. `alignment/` and `work/` are
+**never exportable**, and neither is any file with a raw genomic suffix wherever it sits;
+`is_exportable()` enforces both, and the suffix list mirrors the one that keeps raw data out
+of Git. A release bundle lists withheld artifacts by path but never contains them.
+
+Tool versions and parameters live inside `provenance/run.json` per stage rather than in
+separate `tools.json` and `parameters.json` files, so that a reader cannot end up holding a
+parameter set without knowing which stage outcome it produced.
 
 ## Adapter boundary
 
