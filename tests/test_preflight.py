@@ -56,8 +56,8 @@ class FakeRunner:
         self.calls.append(list(argv))
         name = Path(argv[0]).name
         if name not in self.versions:
-            return CommandResult(returncode=127, stdout="", stderr="not found")
-        return CommandResult(returncode=0, stdout=self.versions[name], stderr="")
+            return CommandResult(argv=tuple(argv), returncode=127, stdout="", stderr="not found")
+        return CommandResult(argv=tuple(argv), returncode=0, stdout=self.versions[name], stderr="")
 
 
 class PreflightCase(unittest.TestCase):

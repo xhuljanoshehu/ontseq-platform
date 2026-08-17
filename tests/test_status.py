@@ -21,7 +21,36 @@ from ontseq_platform.status import (
 
 
 def _run_report(*, run_id: str, sample_id: str, passed: bool, unverified: list[str]) -> dict:
-    """A minimal but valid RunReport payload."""
+    """A minimal but valid RunReport payload.
+
+    ``RunReport`` validates that ``unverified_stages`` names exactly the concluded stages
+    whose adapter is unexecuted, so the basecall record is present only when the caller
+    asks for it. Listing an unverified stage that is not in ``stages`` — or omitting one
+    that is — makes the payload unloadable, and every test then sees UNREADABLE.
+    """
+    stages: list[dict] = [
+        {
+            "stage": "intake",
+            "title": "Aligned-BAM integrity gate",
+            "status": "COMPLETED",
+            "verification": "verified_with_real_tool",
+            "required": True,
+            "reason": "gate returned PASS",
+            "signature": "b" * 64,
+        }
+    ]
+    if "basecall" in unverified:
+        stages.append(
+            {
+                "stage": "basecall",
+                "title": "Dorado basecalling",
+                "status": "COMPLETED",
+                "verification": "unverified_adapter",
+                "required": True,
+                "reason": "basecalled",
+                "signature": "c" * 64,
+            }
+        )
     return {
         "schema_version": "0.1.0",
         "run_id": run_id,
@@ -42,26 +71,7 @@ def _run_report(*, run_id: str, sample_id: str, passed: bool, unverified: list[s
         },
         "passed": passed,
         "verdict_reason": "PASS - everything ran" if passed else "FAIL - qc broke",
-        "stages": [
-            {
-                "stage": "intake",
-                "title": "Aligned-BAM integrity gate",
-                "status": "COMPLETED",
-                "verification": "verified_with_real_tool",
-                "required": True,
-                "reason": "gate returned PASS",
-                "signature": "b" * 64,
-            },
-            {
-                "stage": "basecall",
-                "title": "Dorado basecalling",
-                "status": "COMPLETED",
-                "verification": "unverified_adapter",
-                "required": True,
-                "reason": "basecalled",
-                "signature": "c" * 64,
-            },
-        ],
+        "stages": stages,
         "pipeline_version": "0.0.0-test",
         "git_commit": "0" * 40,
         "started_at": "2026-08-17T09:00:00Z",
@@ -239,7 +249,7 @@ class RenderTests(StatusCase):
         self.assertIn("intake", render_text(scan(self.output), verbose=True))
 
     def test_json_output_is_parseable_and_carries_the_state(self) -> None:
-        self._with_report(passed=False)
+        self._with_report(passed=False, unverified=["basecall"])
         payload = json.loads(render_json(scan(self.output)))
         self.assertEqual(payload[0]["state"], "failed")
         self.assertEqual(payload[0]["run_id"], "RUN_001")
