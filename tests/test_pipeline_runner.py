@@ -31,6 +31,7 @@ from ontseq_platform.models import (
     SampleManifest,
 )
 from ontseq_platform.pipeline.envelope import RunEnvelope
+from ontseq_platform.pipeline.lock import LOCK_FILENAME, RunAlreadyRunning, run_lock
 from ontseq_platform.pipeline.runner import (
     ALIGNED_BAI,
     ALIGNED_BAM,
@@ -350,6 +351,41 @@ class ResumeTests(RunnerCase):
         self.assertIsNotNone(bundle)
         self.assertTrue(report.record_for(StageId.INTAKE).resumed)
         self.assertFalse(report.record_for(StageId.QC).resumed)
+
+
+class LockingTests(RunnerCase):
+    """The run holds an exclusive lock; a watcher that double-fires must not get through."""
+
+    def _hold(self):
+        return run_lock(
+            self._envelope_root(),
+            run_id="OTHER_RUN",
+            sample_id="FAKE_RUNNER_001",
+            pipeline_version="0.0.0-test",
+        )
+
+    def test_a_run_refuses_while_the_envelope_is_locked(self) -> None:
+        with self._hold():
+            with self.assertRaises(RunAlreadyRunning):
+                self._run()
+
+    def test_a_blocked_run_executes_no_stage(self) -> None:
+        """Refusing has to happen before any write, not halfway through the graph."""
+        with self._hold():
+            with self.assertRaises(RunAlreadyRunning):
+                self._run()
+        self.assertEqual(sum(fake.executions for fake in self.stages.values()), 0)
+
+    def test_the_lock_is_released_when_the_run_finishes(self) -> None:
+        self._run()
+        self.assertFalse((self._envelope_root() / LOCK_FILENAME).exists())
+
+    def test_a_reclaimed_stale_lock_is_recorded_in_the_run_report(self) -> None:
+        """Stepping over another run's lock is not something to leave in a terminal."""
+        self._envelope_root().mkdir(parents=True, exist_ok=True)
+        (self._envelope_root() / LOCK_FILENAME).write_text("", encoding="utf-8")
+        report, _ = self._run()
+        self.assertTrue(any("stale run lock" in warning for warning in report.warnings))
 
 
 class SettleTests(RunnerCase):

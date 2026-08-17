@@ -50,7 +50,11 @@ validated release.
   reads are carved out of it, so the alignment lane can be exercised with real tools.
 - `SubprocessRunner.run_to_file` for tools that emit binary output on stdout.
 - JSON Schemas for the run report, release bundle, alignment policy and basecall policy.
-- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-015.
+- An exclusive per-envelope run lock, so two `ontseq run` invocations cannot work on the
+  same run. A stale lock left by a crashed local run is reclaimed and the reclaim is
+  recorded in the run report; a lock held from another host is never reclaimed. `ontseq
+  run` exits 4 when the envelope is in use, distinct from its failure exit code.
+- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-016.
 
 ### Changed
 

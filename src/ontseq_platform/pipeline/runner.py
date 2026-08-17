@@ -53,6 +53,7 @@ from ..report import render_html
 from ..sniffles import run_sniffles
 from ..workbook import render_workbook
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
+from .lock import run_lock
 from .stages import (
     SPEC_BY_STAGE,
     InputKindName,
@@ -600,6 +601,7 @@ def _build_report(
     config: RunConfiguration,
     records: Sequence[StageRecord],
     started_at: datetime,
+    run_warnings: Sequence[str] = (),
 ) -> RunReport:
     outcomes = {item.stage: StageOutcome(item.status.value) for item in records}
     kind = InputKindName(config.manifest.input.kind.value)
@@ -610,7 +612,7 @@ def _build_report(
         if item.status in {ModuleRunStatus.COMPLETED, ModuleRunStatus.NO_CALL}
         and item.verification.value in {"unverified_adapter", "not_implemented"}
     ]
-    warnings: list[str] = []
+    warnings: list[str] = list(run_warnings)
     if unverified:
         names = ", ".join(item.value for item in unverified)
         warnings.append(
@@ -688,6 +690,23 @@ def run_pipeline(
     envelope = RunEnvelope.create(
         config.output_base, run_id=config.run_id, sample_id=config.manifest.sample_id
     )
+    with run_lock(
+        envelope.root,
+        run_id=config.run_id,
+        sample_id=config.manifest.sample_id,
+        pipeline_version=config.pipeline_version,
+    ) as lock_warnings:
+        return _run_locked(config, envelope, started_at, runner, lock_warnings)
+
+
+def _run_locked(
+    config: RunConfiguration,
+    envelope: RunEnvelope,
+    started_at: datetime,
+    runner: StreamingCommandRunner | None,
+    run_warnings: list[str],
+) -> tuple[RunReport, ReleaseBundle | None]:
+    """Execute the run. Split out so the lock covers every write, including the first."""
     envelope.atomic_write_text(
         "manifest/sample.manifest.json", config.manifest.model_dump_json(indent=2) + "\n"
     )
@@ -716,9 +735,9 @@ def run_pipeline(
             # Continue the loop so every remaining stage is recorded as NOT_RUN with a
             # reason, rather than vanishing from the report.
             pass
-        _persist(envelope, _build_report(config, records, started_at))
+        _persist(envelope, _build_report(config, records, started_at, run_warnings))
 
-    report = _build_report(config, records, started_at)
+    report = _build_report(config, records, started_at, run_warnings)
     bundle: ReleaseBundle | None = None
     if outcomes.get(StageId.RELEASE) == StageOutcome.COMPLETED:
         bundle = build_release_bundle(envelope, report, config)

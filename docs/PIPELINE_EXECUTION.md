@@ -217,7 +217,49 @@ checksum manifest, not a chain of custody.
 
 ---
 
-## 6. Schedulers call the pipeline; they do not reimplement it
+## 6. One run at a time per envelope
+
+A run holds an exclusive lock on its envelope for its whole duration: `.ontseq-run.lock` at
+the envelope root, taken with `O_CREAT | O_EXCL` so two processes cannot both believe they
+have it.
+
+This is not defensive decoration. Atomic writes stop an artifact from being *truncated*, and
+content-addressed resume stops a stale artifact from being *accepted* — neither notices a
+second process rewriting the same run report from a different set of stage records. The
+loser of that race simply vanishes from the history with nothing recording that it existed.
+Under a person typing commands the race is theoretical; under a watch folder that
+double-fires, it is not.
+
+The lock records the host, PID, run and sample that took it, so a blocked run can say *who*
+holds it rather than only *that* it is held:
+
+```
+ERROR: this run envelope is already in use: pid 8123 on seq-node-2,
+run RUN_2026_014/AML_0031, acquired 2026-08-17T09:04:11+00:00.
+If that process has stopped, remove …/.ontseq-run.lock
+```
+
+`ontseq run` exits **4** in that case, distinct from the failure exit code, so a scheduler
+can tell "someone else already has this sample" apart from "this run failed" and move on
+rather than retry.
+
+Three rules govern reclaiming:
+
+- **A crashed local run does not block forever.** If the holder is on this machine and that
+  PID is gone, the lock is reclaimed — a power cut must not require manual cleanup before a
+  run can be resumed. The reclaim is recorded as a warning **in the run report**, because
+  stepping over another run's lock is not something that should only scroll past in a
+  terminal.
+- **A lock from another host is never reclaimed.** On shared storage, a crashed remote run
+  and a running one are indistinguishable from here, and guessing wrong puts two live runs
+  in one envelope. It fails closed and names the file to remove.
+- **PID reuse fails closed.** A recycled PID makes the lock look held and the run refuses.
+  Refusing a run that could have proceeded costs a delay; proceeding on one that should have
+  refused costs the envelope.
+
+---
+
+## 7. Schedulers call the pipeline; they do not reimplement it
 
 `workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
 five rules calling the per-stage commands, which made Snakemake a second execution path —
@@ -235,7 +277,7 @@ itself, there are two behaviours again and only one of them is tested.
 
 ---
 
-## 7. Extending the pipeline
+## 8. Extending the pipeline
 
 To add a stage:
 

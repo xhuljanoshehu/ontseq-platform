@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -34,6 +35,7 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .pipeline.lock import RunAlreadyRunning
 from .pipeline.runner import RunConfiguration, run_pipeline
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
@@ -469,5 +471,10 @@ def main() -> None:
                 sniffles_report=optional_sniffles_report,
             )
             print(write_json(result, args.output))
+    except RunAlreadyRunning as exc:
+        # Its own exit code, so a watcher or scheduler can tell "someone else is already
+        # on this sample" apart from "this run failed" and simply move on.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(4) from exc
     except (OSError, ValueError, ValidationError, ToolExecutionError) as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

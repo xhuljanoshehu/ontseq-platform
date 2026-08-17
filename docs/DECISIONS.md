@@ -194,3 +194,29 @@ existed; the flip and the job landed together.
 
 **Revisit when:** A GPU environment with a real Dorado model becomes available to CI, at which
 point basecalling can be verified the same way alignment was.
+
+
+## ADR-016: One run at a time per envelope, enforced by an exclusive lock
+
+**Decision:** A run holds `.ontseq-run.lock` at its envelope root for its whole duration,
+acquired with `O_CREAT | O_EXCL`. A lock whose holder is a dead process *on this host* is
+reclaimed and the reclaim is recorded in the run report; a lock held from another host is
+never reclaimed automatically. `ontseq run` exits 4 when the envelope is in use, distinct
+from its failure exit code.
+
+**Reason:** Nothing else in the design catches this. Atomic writes prevent a truncated
+artifact; content-addressed resume prevents a stale artifact being accepted. Neither notices
+a second process rewriting the same run report from a different set of stage records — the
+loser vanishes from the history with nothing recording that it existed. That is invisible
+rather than loud, which is what makes it worth preventing in code rather than in a warning.
+The distinction only starts to matter once something other than a person triggers runs, so
+it is a prerequisite for the watch folder rather than a nicety alongside it.
+
+Cross-host reclaiming is refused because on shared storage a crashed remote run and a live
+one look identical from here; guessing wrong produces exactly the concurrent-run state the
+lock exists to prevent. PID reuse is likewise resolved towards refusing: a delayed run costs
+time, a wrongly admitted one costs the envelope.
+
+**Revisit when:** Runs need to be distributed across hosts sharing one envelope root, at
+which point PID-and-host liveness is no longer sufficient and a lease with an explicit
+heartbeat becomes necessary.

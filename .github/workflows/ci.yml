@@ -124,6 +124,26 @@ jobs:
         run: |
           cd results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
           sha256sum -c release/checksums.sha256
+      - name: Refuse a second run on a locked envelope
+        shell: micromamba-shell {0}
+        run: |
+          set -uo pipefail
+          envelope=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
+          # The lock names this shell's PID, which stays alive for the whole step, so the
+          # run meets a holder it cannot judge dead. Stale-reclaiming must not rescue it.
+          python -c "import json,os,pathlib,socket,sys; pathlib.Path(sys.argv[1],'.ontseq-run.lock').write_text(json.dumps({'pid':int(sys.argv[2]),'hostname':socket.gethostname(),'acquired_at':'2026-01-01T00:00:00+00:00','run_id':'CI_RUN_001','sample_id':'SYNTHETIC_SMOKE_001','pipeline_version':'ci'}))" "$envelope" "$$"
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/local-smoke/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --output-dir results/runs --run-id CI_RUN_001 --threads 2 \
+            --git-commit "$GITHUB_SHA" > /tmp/locked.log 2>&1
+          status=$?
+          cat /tmp/locked.log
+          set -e
+          # Exit 4 specifically: a scheduler has to tell "already running" from "failed".
+          test "$status" -eq 4
+          grep -q 'already in use' /tmp/locked.log
+          rm "$envelope/.ontseq-run.lock"
       - name: Build the synthetic alignment-lane fixture
         shell: micromamba-shell {0}
         run: >-
