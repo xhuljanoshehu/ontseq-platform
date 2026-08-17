@@ -96,6 +96,43 @@ jobs:
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
+      - name: Preflight the run before starting it
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/local-smoke/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --output-dir results/runs \
+            --run-id CI_RUN_001 | tee /tmp/preflight.log
+          # The tools this lane needs were identified against the real binaries, and the
+          # envelope this run is about to create is free.
+          grep -qE '^\[ok  \] tool\.samtools' /tmp/preflight.log
+          grep -qE '^\[ok  \] tool\.cramino' /tmp/preflight.log
+          grep -qE '^\[ok  \] envelope\.lock' /tmp/preflight.log
+          # An aligned-BAM run must not be asked to install a basecaller.
+          if grep -q 'tool\.dorado' /tmp/preflight.log; then
+            echo "preflight asked an aligned-BAM run for a basecaller"; exit 1
+          fi
+          # Preflight promises to leave nothing behind.
+          if [ -e results/runs/CI_RUN_001 ]; then
+            echo "preflight created a run envelope"; exit 1
+          fi
+      - name: Preflight refuses a run whose stated space requirement cannot be met
+        shell: micromamba-shell {0}
+        run: |
+          set -uo pipefail
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/local-smoke/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --output-dir results/runs \
+            --run-id CI_RUN_001 \
+            --require-free-gb 1000000000 > /tmp/preflight-space.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/preflight-space.log
+          test "$code" -eq 2
+          grep -qE '^\[FAIL\] disk\.free' /tmp/preflight-space.log
       - name: Run the whole pipeline end to end with real tools
         shell: micromamba-shell {0}
         run: >-
@@ -149,6 +186,39 @@ jobs:
         run: >-
           PYTHONPATH=src python -m ontseq_platform align-fixture
           --output-dir results/align-fixture
+      - name: Preflight the alignment lane against its real reference
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/align-fixture/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_001 | tee /tmp/preflight-align.log
+          # The lock records the checksum of the .fai it was built from, so this asserts
+          # that preflight recomputes it the same way `ontseq reference-lock` wrote it.
+          grep -qE '^\[ok  \] reference\.fai .*matches the lock checksum' \
+            /tmp/preflight-align.log
+          grep -qE '^\[ok  \] tool\.minimap2' /tmp/preflight-align.log
+      - name: Preflight refuses the alignment lane against the wrong reference
+        shell: micromamba-shell {0}
+        run: |
+          set -uo pipefail
+          # The smoke lane's reference is a different synthetic genome. Pointing this run
+          # at it is the mistake that silently produces confidently wrong coordinates, so
+          # preflight must refuse before minimap2 is ever invoked.
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_001 > /tmp/preflight-wrong-ref.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/preflight-wrong-ref.log
+          test "$code" -eq 2
+          grep -qE '^\[FAIL\] reference\.fai' /tmp/preflight-wrong-ref.log
       - name: Run the unaligned-BAM lane through real minimap2
         shell: micromamba-shell {0}
         run: >-

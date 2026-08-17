@@ -68,11 +68,25 @@ validated release.
   attempt will resume it — and reports liveness as unknown, not false, for a lock taken on
   another host. Exit codes suit a monitoring check: 0 nothing wrong, 2 a failed or
   unreadable run, 6 an interrupted or unfinished one; a run in progress is not an alert.
-- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-016.
+- `ontseq preflight`: checks a run's preconditions before it starts, with no side effects —
+  no envelope, no lock, no artifact, not even the output directory. It verifies the declared
+  input, that the reference FASTA's index still hashes to what the lock recorded, that every
+  binary the *planned* stages will invoke is present and at its locked version, that the
+  Dorado model matches its lock, and that the envelope is free. A tool serving only optional
+  stages warns rather than blocks, derived from `StageSpec.required`. Version strings are
+  parsed by the adapters' own parsers, and a version lock is applied only where a planned
+  stage would apply it, so preflight cannot refuse a run that `ontseq run` would complete.
+  Free disk space is reported rather than judged unless `--require-free-gb` states a
+  requirement: no measured relationship between input size and space consumed exists here,
+  and an invented multiplier would look like a validated figure.
+- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017.
 
 ### Changed
 
 - `scripts/export_schemas.py` also exports the CNV and pipeline contracts.
+- The per-adapter version parsers are public (`align.parse_version`, `qc.cramino_version`,
+  `sniffles.sniffles_version`, `basecall.dorado_version`) so preflight reaches the same
+  answer the run will, rather than re-implementing the parsing beside it.
 - CI executes the whole pipeline end to end against real binaries in two lanes: from an
   aligned BAM, and from an unaligned BAM through real minimap2. It re-runs each pipeline
   to prove every stage resumes unchanged, and verifies the release bundle checksums with

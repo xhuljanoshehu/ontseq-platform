@@ -220,3 +220,45 @@ time, a wrongly admitted one costs the envelope.
 **Revisit when:** Runs need to be distributed across hosts sharing one envelope root, at
 which point PID-and-host liveness is no longer sufficient and a lease with an explicit
 heartbeat becomes necessary.
+
+---
+
+## ADR-017: Preflight is advisory, side-effect free, and never stricter than the run
+
+**Decision:** `ontseq preflight` answers a run's preconditions before it starts. It creates
+nothing — no envelope, no lock, no artifact, and not even the output directory; writability
+is probed on the nearest existing ancestor. Five statuses are reported (`ok`, `FAILED`,
+`WARNING`, `UNKNOWN`, `SKIPPED`) and only `FAILED` produces a non-zero exit. Version strings
+are parsed by the adapters' own parsers, and a version lock is enforced only where a
+*planned* stage would enforce it. Free disk space is reported as `UNKNOWN` unless the caller
+supplies `--require-free-gb`.
+
+**Reason:** Every gate preflight applies already exists inside the pipeline and already
+fails closed. What was wrong was the timing: a POD5 run learns its Dorado model is missing
+after the envelope exists and the lock is taken, an aligning run learns its reference index
+is missing after intake. Moving those questions to the front converts hours of wasted
+scheduling into two seconds.
+
+That only helps if two things hold. **Preflight must never be stricter than the run**, or it
+refuses work that would have succeeded — which is why the version parsing is shared rather
+than duplicated, and why the alignment policy's samtools lock is not applied to an
+aligned-BAM run that never aligns. And **preflight must leave nothing behind**, or a run
+that was never started has an output tree afterwards suggesting it was.
+
+Severity is derived, not curated: a missing tool is fatal exactly when a *required* stage
+needs it, read from `StageSpec.required`. Sniffles serves only the optional SV stage, so its
+absence warns that SV will record `NOT_RUN` rather than blocking a run that completes fine
+without it. Curating a second list of "which tools really matter" would drift from the stage
+graph the first time a stage changed.
+
+Free space is the one check deliberately left unanswered. There is no measured relationship
+in this repository between an input's size and the space a run consumes; it depends on the
+lab's chemistry, depth and retention policy. A multiplier invented in the code would be
+indistinguishable, in the output, from a validated figure. `UNKNOWN` with the raw number
+attached is the honest form, and the check becomes real the moment somebody who has measured
+it passes `--require-free-gb`.
+
+**Revisit when:** Real run-size data exists for the intended assays, at which point the
+space requirement can be derived from the declared input kind and depth rather than supplied
+by the caller — and when a GPU-bearing host can be checked for basecalling capacity, which
+is currently outside what this process can determine.

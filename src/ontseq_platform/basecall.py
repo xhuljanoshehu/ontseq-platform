@@ -106,7 +106,13 @@ class BasecallInputs:
     pod5_directory: Path
 
 
-def _version(text: str) -> str:
+def dorado_version(text: str) -> str:
+    """Parse a Dorado version from its probe output.
+
+    Public because preflight has to reach the same answer this module will. A preflight
+    that parsed versions differently from the run it precedes could clear a run that then
+    fails on the version lock, which is worse than not checking at all.
+    """
     match = _VERSION.search(text)
     if match:
         return match.group(1)
@@ -188,7 +194,7 @@ def run_basecalling(
     probe = command_runner.run([dorado, "--version"], timeout_seconds=120)
     if probe.returncode != 0:
         raise ValueError(f"dorado version probe returned exit code {probe.returncode}")
-    version = _version(f"{probe.stdout}\n{probe.stderr}")
+    version = dorado_version(f"{probe.stdout}\n{probe.stderr}")
     if version != policy.expected_version:
         raise ValueError(
             f"dorado version {version!r} does not match the policy lock {policy.expected_version!r}"

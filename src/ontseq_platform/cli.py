@@ -36,8 +36,12 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .pipeline.checks import exit_code as check_exit_code
+from .pipeline.checks import render_json as render_checks_json
+from .pipeline.checks import render_text as render_checks_text
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.runner import RunConfiguration, run_pipeline
+from .preflight import PreflightRequest, preflight
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
@@ -191,6 +195,51 @@ def _parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Re-run every stage instead of resuming unchanged ones",
+    )
+
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Check a run's preconditions without starting it, creating nothing",
+    )
+    preflight_parser.add_argument("manifest", type=Path)
+    preflight_parser.add_argument("--reference-lock", type=Path, required=True)
+    preflight_parser.add_argument("--run-id", required=True)
+    preflight_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    preflight_parser.add_argument(
+        "--sniffles-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+    )
+    preflight_parser.add_argument(
+        "--alignment-policy",
+        type=Path,
+        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+    )
+    preflight_parser.add_argument(
+        "--basecall-policy",
+        type=Path,
+        default=Path("configs/basecalling/dorado.technical.yaml"),
+    )
+    preflight_parser.add_argument("--reference-fasta", type=Path, help="Required when aligning")
+    preflight_parser.add_argument("--pod5-dir", type=Path, help="Required when starting from POD5")
+    preflight_parser.add_argument("--samtools", default="samtools")
+    preflight_parser.add_argument("--cramino", default="cramino")
+    preflight_parser.add_argument("--sniffles", default="sniffles")
+    preflight_parser.add_argument("--minimap2", default="minimap2")
+    preflight_parser.add_argument("--dorado", default="dorado")
+    preflight_parser.add_argument(
+        "--require-free-gb",
+        type=float,
+        help=(
+            "Free space this run needs. Without it free space is reported, not judged: no "
+            "measured size model for this lab's data exists in this repository"
+        ),
+    )
+    preflight_parser.add_argument(
+        "--verbose", action="store_true", help="Also list checks that do not apply"
+    )
+    preflight_parser.add_argument(
+        "--json", action="store_true", dest="as_json", help="Emit JSON for a scheduler"
     )
 
     status_parser = subparsers.add_parser(
@@ -463,6 +512,49 @@ def main() -> None:
                 )
             if not run_report.passed:
                 raise SystemExit(2)
+        elif args.command == "preflight":
+            request = PreflightRequest(
+                manifest=load_model(args.manifest, SampleManifest),
+                reference_lock=load_model(args.reference_lock, ReferenceLock),
+                output_base=args.output_dir,
+                run_id=args.run_id,
+                executables={
+                    "samtools": args.samtools,
+                    "cramino": args.cramino,
+                    "sniffles": args.sniffles,
+                    "minimap2": args.minimap2,
+                    "dorado": args.dorado,
+                },
+                reference_fasta=args.reference_fasta,
+                pod5_directory=args.pod5_dir,
+                alignment_policy=(
+                    load_model(args.alignment_policy, AlignmentPolicy)
+                    if args.alignment_policy.is_file()
+                    else None
+                ),
+                basecall_policy=(
+                    load_model(args.basecall_policy, BasecallPolicy)
+                    if args.basecall_policy.is_file()
+                    else None
+                ),
+                sniffles_policy=(
+                    load_model(args.sniffles_policy, SnifflesPolicy)
+                    if args.sniffles_policy.is_file()
+                    else None
+                ),
+                require_free_gb=args.require_free_gb,
+            )
+            checks = preflight(request)
+            if args.as_json:
+                print(render_checks_json(checks), end="")
+            else:
+                print(render_checks_text(checks, verbose=args.verbose))
+            # 2 when at least one precondition makes the run impossible; a warning or an
+            # unanswerable question does not block, or the command would be unusable on
+            # exactly the machines it exists to help.
+            code = check_exit_code(checks)
+            if code:
+                raise SystemExit(code)
         elif args.command == "status":
             statuses = scan(args.output_dir, run_id=args.run_id)
             if args.as_json:

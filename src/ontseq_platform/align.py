@@ -122,7 +122,13 @@ class AlignmentInputs:
     reference_fasta: Path
 
 
-def _version(text: str, *, tool: str) -> str:
+def parse_version(text: str, *, tool: str) -> str:
+    """Parse a minimap2 or samtools version from its probe output.
+
+    Public because preflight has to reach the same answer this module will, one tool at a
+    time. A preflight that parsed versions differently from the run it precedes could
+    clear a run that then fails on the version lock, which is worse than not checking.
+    """
     match = _VERSION.search(text)
     if match:
         return match.group(1)
@@ -141,7 +147,7 @@ def probe_versions(
         result = runner.run(argv, timeout_seconds=60)
         if result.returncode != 0:
             raise ValueError(f"{name} version probe returned exit code {result.returncode}")
-        versions[name] = _version(f"{result.stdout}\n{result.stderr}", tool=name)
+        versions[name] = parse_version(f"{result.stdout}\n{result.stderr}", tool=name)
     return versions
 
 

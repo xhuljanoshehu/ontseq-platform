@@ -459,7 +459,13 @@ def normalize_sniffles_vcf(
     )
 
 
-def _sniffles_version(text: str) -> str:
+def sniffles_version(text: str) -> str:
+    """Parse a Sniffles2 version from its probe output.
+
+    Public because preflight has to reach the same answer this module will. A preflight
+    that parsed versions differently from the run it precedes could clear a run that then
+    fails on the version lock, which is worse than not checking at all.
+    """
     match = _VERSION.search(text)
     if match:
         return match.group(1)
@@ -497,7 +503,7 @@ def run_sniffles(
     version_result = command_runner.run([sniffles, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
         raise ValueError("Sniffles2 version probe returned a non-zero exit code")
-    version = _sniffles_version(f"{version_result.stdout}\n{version_result.stderr}")
+    version = sniffles_version(f"{version_result.stdout}\n{version_result.stderr}")
     if version != policy.expected_version:
         raise ValueError(
             f"Sniffles2 version {version!r} does not match policy lock {policy.expected_version!r}"

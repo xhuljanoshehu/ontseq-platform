@@ -354,7 +354,68 @@ folded into `passed`, so basecalling's status stays visible without opening the 
 
 ---
 
-## 9. Schedulers call the pipeline; they do not reimplement it
+## 9. Asking whether a run can succeed, before starting it
+
+```
+ontseq preflight <manifest> --reference-lock <lock> --run-id RUN_001
+ontseq preflight ... --require-free-gb 400     # judge free space against a real figure
+ontseq preflight ... --json                    # for a scheduler deciding whether to submit
+```
+
+Every gate this applies already exists inside the pipeline, and each one fails closed
+correctly. The problem is *when* they fire. A POD5 run discovers a missing Dorado model
+after the envelope exists and the lock is taken; an aligning run discovers a missing
+reference index after intake; a run into a busy envelope discovers that only when it tries
+to lock. Individually correct, collectively expensive — the feedback arrives after the run
+has been queued, scheduled and partly executed.
+
+Preflight asks the same questions up front, in a couple of seconds, **with no side effects
+at all**: it creates no envelope, takes no lock, writes no artifact, and does not even
+create the output directory — writability is probed on the nearest existing ancestor.
+
+| Status | Meaning |
+| --- | --- |
+| `ok` | checked, and the precondition holds |
+| `FAIL` | checked, and the run cannot succeed. The only status that blocks |
+| `warn` | the run can proceed, and somebody should know anyway |
+| `????` | genuinely not determinable from here |
+| `--` | does not apply to this input kind |
+
+What it checks: the declared input exists and has the shape its kind promises; the manifest
+and the reference lock agree; the reference FASTA's `.fai` still hashes to the
+`source_fai_sha256` the lock recorded; every binary the *planned* stages will invoke is
+present, runnable and at its locked version; the Dorado model matches its lock and a
+modified-base model was requested; the envelope is free; the output location is writable.
+
+Three properties matter more than the list itself.
+
+**Preflight must agree with the run.** A preflight that clears a run which then fails on the
+very thing it checked converts a fast, honest failure into a slow, surprising one. So
+version strings are parsed by the adapters' own parsers rather than re-implemented, and a
+version lock is enforced only when a *planned* stage would enforce it — the alignment policy
+locks a samtools version, but an aligned-BAM run never aligns and never applies that lock.
+
+**A tool's absence is as fatal as its stage is required.** `sniffles` serves only the
+optional SV stage, so a machine without it gets a warning saying SV will record `NOT_RUN`,
+not a refusal. That is derived from `StageSpec.required`, not maintained by hand.
+
+**Not knowing is a distinct answer.** Free disk space is *reported*, not judged, unless the
+caller states a requirement with `--require-free-gb`. There is no measured relationship in
+this repository between an input's size and the space a run consumes — that depends on the
+lab's chemistry, depth and retention policy, and nobody has measured it here. A multiplier
+invented in the code would look like a validated figure and would not be one.
+
+Exit codes: **0** nothing blocks, **2** at least one precondition makes the run impossible. A
+warning or an unanswerable question never blocks, or the command would be unusable on
+exactly the machines it exists to help.
+
+CI runs preflight on both lanes before the runs it precedes, and asserts two negatives: a
+stated space requirement that cannot be met, and the alignment lane pointed at the *other*
+lane's reference lock — the mistake that otherwise produces confidently wrong coordinates.
+
+---
+
+## 10. Schedulers call the pipeline; they do not reimplement it
 
 `workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
 five rules calling the per-stage commands, which made Snakemake a second execution path —
@@ -372,7 +433,7 @@ itself, there are two behaviours again and only one of them is tested.
 
 ---
 
-## 10. Extending the pipeline
+## 11. Extending the pipeline
 
 To add a stage:
 
