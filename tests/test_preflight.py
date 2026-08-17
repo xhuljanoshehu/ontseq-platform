@@ -452,9 +452,7 @@ class ReportingTests(PreflightCase):
 
     def test_a_clean_aligned_bam_run_blocks_on_nothing(self) -> None:
         blocking = [
-            name
-            for name, check in self.results().items()
-            if check.status is CheckStatus.FAILED
+            name for name, check in self.results().items() if check.status is CheckStatus.FAILED
         ]
         self.assertEqual(blocking, [])
 

@@ -407,8 +407,7 @@ def _check_envelope(request: PreflightRequest, checks: CheckList) -> None:
         if alive is False:
             checks.warning(
                 "envelope.lock",
-                f"a previous run died here ({described}); this run reclaims the lock and "
-                "resumes",
+                f"a previous run died here ({described}); this run reclaims the lock and resumes",
             )
         else:
             checks.failed(
@@ -460,8 +459,7 @@ def _check_disk(request: PreflightRequest, checks: CheckList) -> None:
     if request.require_free_gb is None:
         checks.unknown(
             "disk.free",
-            f"{free_gb:.1f} GiB free; no requirement was stated, so this is reported, "
-            "not judged",
+            f"{free_gb:.1f} GiB free; no requirement was stated, so this is reported, not judged",
             remedy=(
                 "pass --require-free-gb once the space a run of this kind consumes has "
                 "been measured on real data"
