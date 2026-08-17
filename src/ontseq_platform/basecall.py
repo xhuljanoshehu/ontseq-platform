@@ -191,8 +191,7 @@ def run_basecalling(
     version = _version(f"{probe.stdout}\n{probe.stderr}")
     if version != policy.expected_version:
         raise ValueError(
-            f"dorado version {version!r} does not match the policy lock "
-            f"{policy.expected_version!r}"
+            f"dorado version {version!r} does not match the policy lock {policy.expected_version!r}"
         )
 
     observed_model = model_signature(policy.model)

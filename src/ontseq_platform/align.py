@@ -113,9 +113,9 @@ def probe_versions(
 ) -> dict[str, str]:
     """Probe both executables, failing closed when either cannot be identified."""
     versions: dict[str, str] = {}
-    for name, executable, argv in (
-        ("minimap2", minimap2, [minimap2, "--version"]),
-        ("samtools", samtools, [samtools, "--version"]),
+    for name, argv in (
+        ("minimap2", [minimap2, "--version"]),
+        ("samtools", [samtools, "--version"]),
     ):
         result = runner.run(argv, timeout_seconds=60)
         if result.returncode != 0:
@@ -132,9 +132,7 @@ def _check_locked(observed: dict[str, str], policy: AlignmentPolicy) -> None:
     for name, wanted in expected.items():
         found = observed.get(name)
         if found != wanted:
-            raise ValueError(
-                f"{name} version {found!r} does not match the policy lock {wanted!r}"
-            )
+            raise ValueError(f"{name} version {found!r} does not match the policy lock {wanted!r}")
 
 
 def build_minimap2_argv(

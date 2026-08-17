@@ -210,7 +210,9 @@ def _basecall_plan(ctx: RunContext) -> StagePlan:
     if ctx.config.pod5_directory is None:
         raise StageFailure("a POD5 run requires --pod5-dir")
     version = _probe(
-        ctx.runner, ctx.config.executable("dorado"), [ctx.config.executable("dorado"), "--version"],
+        ctx.runner,
+        ctx.config.executable("dorado"),
+        [ctx.config.executable("dorado"), "--version"],
         tool="dorado",
     )
     return StagePlan(
@@ -712,9 +714,7 @@ def _execute_stage(
 
     blocked = blocking_dependency(stage, kind, outcomes)
     if blocked is not None:
-        return StageRecord(
-            **base, status=ModuleRunStatus.NOT_RUN, reason=blocked.describe()
-        )
+        return StageRecord(**base, status=ModuleRunStatus.NOT_RUN, reason=blocked.describe())
 
     implementation = IMPLEMENTATIONS.get(stage)
     if implementation is None:

@@ -59,12 +59,12 @@ class SubprocessRunner:
         """
         normalized = _normalize(argv)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = tempfile.NamedTemporaryFile(
-            dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".tmp", delete=False
+        descriptor, staged_name = tempfile.mkstemp(
+            dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".tmp"
         )
-        staged = Path(handle.name)
+        staged = Path(staged_name)
         try:
-            with handle:
+            with os.fdopen(descriptor, "wb") as handle:
                 completed = subprocess.run(
                     normalized,
                     check=False,

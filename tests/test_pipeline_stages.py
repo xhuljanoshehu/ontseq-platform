@@ -104,9 +104,7 @@ class FailurePropagationTests(unittest.TestCase):
 
     def test_stage_with_satisfied_dependencies_may_run(self) -> None:
         outcomes = {StageId.INTAKE: StageOutcome.COMPLETED}
-        self.assertIsNone(
-            blocking_dependency(StageId.QC, InputKindName.ALIGNED_BAM, outcomes)
-        )
+        self.assertIsNone(blocking_dependency(StageId.QC, InputKindName.ALIGNED_BAM, outcomes))
 
     def test_failed_dependency_blocks_and_names_the_cause(self) -> None:
         outcomes = {StageId.INTAKE: StageOutcome.FAILED}
@@ -123,9 +121,7 @@ class FailurePropagationTests(unittest.TestCase):
     def test_no_call_dependency_blocks_downstream(self) -> None:
         """NO_CALL means the stage produced no artifact, so a dependent cannot proceed."""
         outcomes = {StageId.INTAKE: StageOutcome.NO_CALL}
-        self.assertIsNotNone(
-            blocking_dependency(StageId.QC, InputKindName.ALIGNED_BAM, outcomes)
-        )
+        self.assertIsNotNone(blocking_dependency(StageId.QC, InputKindName.ALIGNED_BAM, outcomes))
 
 
 class VerdictTests(unittest.TestCase):

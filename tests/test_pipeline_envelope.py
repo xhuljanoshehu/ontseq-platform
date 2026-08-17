@@ -88,9 +88,7 @@ class AtomicWriteTests(_EnvelopeCase):
         artifact = self.envelope.adopt(source, "evidence/sv/candidates.vcf")
         self.assertFalse(source.exists())
         self.assertEqual(artifact.relative_path, "evidence/sv/candidates.vcf")
-        self.assertEqual(
-            self.envelope.path("evidence/sv/candidates.vcf").read_text(), "payload"
-        )
+        self.assertEqual(self.envelope.path("evidence/sv/candidates.vcf").read_text(), "payload")
 
     def test_intermediate_directories_are_not_exportable(self) -> None:
         exported = self.envelope.atomic_write_text("reports/report.html", "<html></html>")
@@ -165,9 +163,7 @@ class SignatureTests(unittest.TestCase):
         self.assertNotEqual(self._signature(), self._signature(parameters={"threads": 8}))
 
     def test_tool_version_change_moves_the_signature(self) -> None:
-        self.assertNotEqual(
-            self._signature(), self._signature(tool_versions={"cramino": "1.4.0"})
-        )
+        self.assertNotEqual(self._signature(), self._signature(tool_versions={"cramino": "1.4.0"}))
 
     def test_upstream_content_change_moves_the_signature(self) -> None:
         self.assertNotEqual(self._signature(), self._signature(upstream=[self._artifact("c" * 64)]))

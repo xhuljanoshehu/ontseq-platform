@@ -176,17 +176,17 @@ class RunEnvelope:
         """Write a file atomically and return its fingerprint."""
         target = self.path(relative_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        handle = tempfile.NamedTemporaryFile(
-            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
+        descriptor, staged_name = tempfile.mkstemp(
+            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
         )
         try:
-            with handle:
+            with os.fdopen(descriptor, "wb") as handle:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(handle.name, target)
+            os.replace(staged_name, target)
         except BaseException:
-            Path(handle.name).unlink(missing_ok=True)
+            Path(staged_name).unlink(missing_ok=True)
             raise
         return self.fingerprint(relative_path)
 

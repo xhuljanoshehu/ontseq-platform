@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from ontseq_platform.align import AlignmentPolicy
+from ontseq_platform.basecall import BasecallPolicy
 from ontseq_platform.cnv.cytobands import CytobandTable
 from ontseq_platform.cnv.models import (
     CnvBenchmarkCase,
@@ -12,9 +14,6 @@ from ontseq_platform.cnv.models import (
     CnvTruthSet,
 )
 from ontseq_platform.cnv.strata import CnvAggregateReport, PairedMethodComparison
-from ontseq_platform.align import AlignmentPolicy
-from ontseq_platform.basecall import BasecallPolicy
-from ontseq_platform.pipeline.state import ReleaseBundle, RunReport
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -27,6 +26,7 @@ from ontseq_platform.models import (
     SnifflesCallReport,
     SnifflesPolicy,
 )
+from ontseq_platform.pipeline.state import ReleaseBundle, RunReport
 
 
 def _render() -> dict[Path, str]:
