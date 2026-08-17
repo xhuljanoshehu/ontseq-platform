@@ -365,15 +365,13 @@ class LockingTests(RunnerCase):
         )
 
     def test_a_run_refuses_while_the_envelope_is_locked(self) -> None:
-        with self._hold():
-            with self.assertRaises(RunAlreadyRunning):
-                self._run()
+        with self._hold(), self.assertRaises(RunAlreadyRunning):
+            self._run()
 
     def test_a_blocked_run_executes_no_stage(self) -> None:
         """Refusing has to happen before any write, not halfway through the graph."""
-        with self._hold():
-            with self.assertRaises(RunAlreadyRunning):
-                self._run()
+        with self._hold(), self.assertRaises(RunAlreadyRunning):
+            self._run()
         self.assertEqual(sum(fake.executions for fake in self.stages.values()), 0)
 
     def test_the_lock_is_released_when_the_run_finishes(self) -> None:

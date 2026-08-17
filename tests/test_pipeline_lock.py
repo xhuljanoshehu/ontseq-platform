@@ -79,9 +79,8 @@ class AcquisitionTests(LockCase):
 
     def test_the_lock_is_released_when_the_block_raises(self) -> None:
         """A failed run must not leave the envelope locked against the retry."""
-        with self.assertRaises(RuntimeError):
-            with self._lock():
-                raise RuntimeError("stage exploded")
+        with self.assertRaises(RuntimeError), self._lock():
+            raise RuntimeError("stage exploded")
         self.assertFalse(self.lock_path.exists())
 
     def test_the_lock_can_be_taken_again_after_release(self) -> None:
@@ -94,41 +93,37 @@ class AcquisitionTests(LockCase):
 class ContentionTests(LockCase):
     def test_a_live_local_holder_blocks(self) -> None:
         self._write_lock(_holder(pid=os.getpid()))
-        with self.assertRaises(RunAlreadyRunning) as raised:
-            with self._lock():
-                pass
+        with self.assertRaises(RunAlreadyRunning) as raised, self._lock():
+            pass
         self.assertIn("already in use", str(raised.exception))
 
     def test_the_error_names_the_holder_and_the_file_to_remove(self) -> None:
         self._write_lock(_holder(pid=os.getpid(), run_id="OTHER_RUN"))
-        with self.assertRaises(RunAlreadyRunning) as raised:
-            with self._lock():
-                pass
+        with self.assertRaises(RunAlreadyRunning) as raised, self._lock():
+            pass
         self.assertEqual(raised.exception.holder.run_id, "OTHER_RUN")
         self.assertIn(LOCK_FILENAME, str(raised.exception))
 
     def test_a_blocked_acquisition_leaves_the_existing_lock_intact(self) -> None:
         self._write_lock(_holder(pid=os.getpid()))
         before = self.lock_path.read_text(encoding="utf-8")
-        with self.assertRaises(RunAlreadyRunning):
-            with self._lock():
-                pass
+        with self.assertRaises(RunAlreadyRunning), self._lock():
+            pass
         self.assertEqual(self.lock_path.read_text(encoding="utf-8"), before)
 
     def test_nesting_the_same_envelope_is_refused(self) -> None:
         """Two runs in one process are still two runs."""
-        with self._lock():
-            with self.assertRaises(RunAlreadyRunning):
-                with self._lock():
-                    pass
+        self.enterContext(self._lock())
+        with self.assertRaises(RunAlreadyRunning), self._lock():
+            pass
 
     def test_a_different_envelope_is_unaffected(self) -> None:
         other = Path(self._temporary.name) / "other-envelope"
-        with self._lock():
-            with run_lock(
-                other, run_id="RUN_002", sample_id="SAMPLE_002", pipeline_version="0.0.0-test"
-            ) as warnings:
-                self.assertEqual(warnings, [])
+        self.enterContext(self._lock())
+        with run_lock(
+            other, run_id="RUN_002", sample_id="SAMPLE_002", pipeline_version="0.0.0-test"
+        ) as warnings:
+            self.assertEqual(warnings, [])
 
 
 class StaleTests(LockCase):
@@ -166,16 +161,14 @@ class StaleTests(LockCase):
     def test_a_lock_from_another_host_is_never_reclaimed(self) -> None:
         """On shared storage a crashed remote run and a live one look identical."""
         self._write_lock(_holder(pid=self._dead_pid(), hostname="some-other-machine"))
-        with self.assertRaises(RunAlreadyRunning) as raised:
-            with self._lock():
-                pass
+        with self.assertRaises(RunAlreadyRunning) as raised, self._lock():
+            pass
         self.assertIn("another host", str(raised.exception))
 
     def test_reclaiming_can_be_switched_off(self) -> None:
         self._write_lock(_holder(pid=self._dead_pid()))
-        with self.assertRaises(RunAlreadyRunning):
-            with self._lock(reclaim_stale=False):
-                pass
+        with self.assertRaises(RunAlreadyRunning), self._lock(reclaim_stale=False):
+            pass
 
     def test_a_reclaimed_lock_belongs_to_the_new_holder(self) -> None:
         self._write_lock(_holder(pid=self._dead_pid()))
