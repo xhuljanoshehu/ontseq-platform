@@ -133,6 +133,18 @@ def read_holder(lock_path: Path) -> LockHolder | None:
         return None
 
 
+def holder_is_running(holder: LockHolder) -> bool | None:
+    """Return whether the lock holder still exists, or ``None`` when that is unknowable.
+
+    ``None`` is not a shrug — it is the honest answer for a lock taken on another host,
+    where this process has no way to look. A caller reporting run state must show that
+    difference rather than collapse it into "probably fine".
+    """
+    if holder.hostname != socket.gethostname():
+        return None
+    return _process_is_alive(holder.pid)
+
+
 def _stale_reason(holder: LockHolder | None, lock_path: Path) -> str | None:
     """Return why an existing lock may be reclaimed, or ``None`` when it may not."""
     if holder is None:

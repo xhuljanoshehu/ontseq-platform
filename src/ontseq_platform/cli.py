@@ -42,6 +42,7 @@ from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
 from .smoke import run_local_smoke
+from .status import exit_code, render_json, render_ledger, render_text, scan
 from .sniffles import run_sniffles
 from .watchfolder import (
     PassResult,
@@ -190,6 +191,19 @@ def _parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Re-run every stage instead of resuming unchanged ones",
+    )
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Report the state of every run envelope beneath an output directory",
+    )
+    status_parser.add_argument("output_dir", type=Path)
+    status_parser.add_argument("--run-id", help="Restrict the report to one run")
+    status_parser.add_argument(
+        "--verbose", action="store_true", help="List every stage of every run"
+    )
+    status_parser.add_argument(
+        "--json", action="store_true", dest="as_json", help="Emit JSON for a monitoring check"
     )
 
     watch_parser = subparsers.add_parser(
@@ -449,6 +463,21 @@ def main() -> None:
                 )
             if not run_report.passed:
                 raise SystemExit(2)
+        elif args.command == "status":
+            statuses = scan(args.output_dir, run_id=args.run_id)
+            if args.as_json:
+                print(render_json(statuses), end="")
+            else:
+                print(render_text(statuses, verbose=args.verbose))
+                ledger = render_ledger(args.output_dir)
+                if ledger:
+                    print(ledger)
+            # 0 nothing wrong, 2 a run failed or its report is unreadable, 6 a run was
+            # interrupted or never reached a verdict. A run merely in progress is not a
+            # problem, and a check that fires during normal work teaches people to ignore it.
+            code = exit_code(statuses)
+            if code:
+                raise SystemExit(code)
         elif args.command == "watch":
             settings = WatchSettings(
                 watch_dir=args.watch_dir,

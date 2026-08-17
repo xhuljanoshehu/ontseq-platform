@@ -62,6 +62,12 @@ validated release.
   come from a manifest template; only the identifier and the input path are derived, and an
   unusable directory name is rejected rather than repaired. Input kind is declared, not
   sniffed. SIGINT/SIGTERM stop after the current sample.
+- `ontseq status`: reports the state of every run envelope beneath an output directory,
+  as text or JSON, plus the watch ledger. Distinguishes a run that is *running* from one
+  that was *interrupted* — a lock whose holder is gone means a run died there and the next
+  attempt will resume it — and reports liveness as unknown, not false, for a lock taken on
+  another host. Exit codes suit a monitoring check: 0 nothing wrong, 2 a failed or
+  unreadable run, 6 an interrupted or unfinished one; a run in progress is not an alert.
 - `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-016.
 
 ### Changed

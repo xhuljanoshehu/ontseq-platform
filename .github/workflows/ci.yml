@@ -249,6 +249,19 @@ jobs:
             --quiet-seconds 0 --threads 2 --once \
             --git-commit "$GITHUB_SHA" | tee /tmp/watch2.log
           grep -q 'WATCHED_SAMPLE_001 *skipped *already completed' /tmp/watch2.log
+      - name: Report the state of every envelope the job produced
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform status results/runs --verbose \
+            | tee /tmp/status.log
+          grep -q 'CI_RUN_001/SYNTHETIC_SMOKE_001 *PASSED' /tmp/status.log
+          grep -q 'CI_ALIGN_001/SYNTHETIC_ALIGN_001 *PASSED' /tmp/status.log
+          # The watch folder's own output directory carries its ledger alongside the runs.
+          PYTHONPATH=src python -m ontseq_platform status results/watched | tee /tmp/watched.log
+          grep -q 'watch ledger' /tmp/watched.log
+          PYTHONPATH=src python -m ontseq_platform status results/runs --json > /tmp/status.json
+          python -c "import json,sys; d=json.load(open('/tmp/status.json')); assert all(i['state']=='passed' for i in d), d; print(f'{len(d)} envelope(s) reported')"
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)
         if: always()
         uses: actions/upload-artifact@v4

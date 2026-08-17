@@ -316,7 +316,45 @@ which costs one sample's runtime and avoids leaving a lock and a half-built enve
 
 ---
 
-## 8. Schedulers call the pipeline; they do not reimplement it
+## 8. Asking what happened
+
+```
+ontseq status results/runs            # one line per envelope, plus the watch ledger
+ontseq status results/runs --verbose  # every stage of every run
+ontseq status results/runs --json     # for a monitoring check
+```
+
+A run leaves a complete record in `provenance/run.json` and a watcher leaves one in its
+ledger. Both are machine-readable and neither is readable at a glance — which becomes a
+problem the moment the pipeline runs unattended, because the person who needs to know
+whether last night went well should not have to write a script to find out.
+
+Two of the reported states cannot be seen from a directory listing at all:
+
+| State | Meaning |
+| --- | --- |
+| `passed` / `failed` | a run finished and recorded its verdict |
+| `running` | a lock is held by a process that still exists — or by an unreachable host |
+| `interrupted` | a lock is held by a process that is **gone**: a run died here |
+| `unfinished` | neither lock nor report; a run started and never reached a verdict |
+| `unreadable` | a report exists but cannot be parsed |
+
+`interrupted` is worth knowing before somebody deletes the directory to "start clean": the
+next attempt reclaims the lock and resumes from where it stopped. For a lock taken on
+another host, liveness is genuinely unknowable from here, and that is reported as unknown
+(`null` in JSON) rather than collapsed into "probably fine".
+
+Exit codes suit a monitoring check: **0** nothing wrong, **2** a run failed or its report is
+unreadable, **6** a run was interrupted or never reached a verdict. A run merely *in
+progress* is deliberately not a problem — a check that fires while the pipeline is doing its
+job teaches people to ignore it.
+
+A completed run that rests on an unverified adapter is called out in the summary rather than
+folded into `passed`, so basecalling's status stays visible without opening the report.
+
+---
+
+## 9. Schedulers call the pipeline; they do not reimplement it
 
 `workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
 five rules calling the per-stage commands, which made Snakemake a second execution path —
@@ -334,7 +372,7 @@ itself, there are two behaviours again and only one of them is tested.
 
 ---
 
-## 9. Extending the pipeline
+## 10. Extending the pipeline
 
 To add a stage:
 
