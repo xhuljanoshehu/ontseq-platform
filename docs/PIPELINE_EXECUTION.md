@@ -387,6 +387,14 @@ and the reference lock agree; the reference FASTA's `.fai` still hashes to the
 present, runnable and at its locked version; the Dorado model matches its lock and a
 modified-base model was requested; the envelope is free; the output location is writable.
 
+It also reports two things about the run's *scope*, kept deliberately apart. A stage on an
+`unverified_adapter` **will run**, on code nobody has executed against the real tool, and its
+output is an assumption — that is `adapters.verification`. A `not_implemented` stage has no
+adapter at all and will record `NOT_RUN` — that is `stages.not_implemented`, and it is not a
+negative biological finding. Reporting the second as "an adapter that has never been
+executed" would tell an operator that CNV rests on unexecuted code, when in fact no CNV
+caller is wired in.
+
 Three properties matter more than the list itself.
 
 **Preflight must agree with the run.** A preflight that clears a run which then fails on the

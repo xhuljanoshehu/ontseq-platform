@@ -427,13 +427,30 @@ class DiskTests(PreflightCase):
 
 
 class AdapterTests(PreflightCase):
-    def test_an_aligned_bam_run_rests_on_exercised_adapters(self) -> None:
+    def test_an_aligned_bam_run_runs_only_exercised_adapters(self) -> None:
         self.assertIs(self.results()["adapters.verification"].status, CheckStatus.OK)
 
     def test_a_pod5_run_is_told_basecalling_has_never_been_executed(self) -> None:
         check = self.results(self.pod5_request())["adapters.verification"]
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("basecall", check.detail)
+
+    def test_stages_with_no_adapter_are_reported_separately(self) -> None:
+        """A stage with no adapter records NOT_RUN; that is not a claim about code quality.
+
+        Collapsing the two would tell an operator that CNV rests on unexecuted code, when
+        in fact no CNV caller is wired in at all — a materially different claim.
+        """
+        check = self.results()["stages.not_implemented"]
+        self.assertIs(check.status, CheckStatus.WARNING)
+        self.assertIn("cnv", check.detail)
+        self.assertIn("target_coverage", check.detail)
+        self.assertIn("not a negative biological finding", check.detail)
+
+    def test_the_two_adapter_claims_never_name_the_same_stage(self) -> None:
+        found = self.results(self.pod5_request())
+        self.assertIn("basecall", found["adapters.verification"].detail)
+        self.assertNotIn("basecall", found["stages.not_implemented"].detail)
 
 
 class ReportingTests(PreflightCase):

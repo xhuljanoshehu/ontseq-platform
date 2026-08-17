@@ -41,7 +41,13 @@ from .execution import CommandRunner, SubprocessRunner
 from .models import InputKind, ReferenceLock, SampleManifest, SnifflesPolicy
 from .pipeline.checks import Check, CheckList, required_tools
 from .pipeline.lock import LOCK_FILENAME, holder_is_running, read_holder
-from .pipeline.stages import InputKindName, StageId, planned_stages, unverified_specs
+from .pipeline.stages import (
+    InputKindName,
+    StageId,
+    VerificationStatus,
+    planned_stages,
+    unverified_specs,
+)
 from .qc import cramino_version
 from .reference import sha256_file
 from .sniffles import sniffles_version
@@ -480,18 +486,46 @@ def _check_disk(request: PreflightRequest, checks: CheckList) -> None:
 
 
 def _check_adapters(request: PreflightRequest, checks: CheckList) -> None:
-    """Say before the run which of its stages rest on code nobody has executed for real."""
+    """Say before the run what its stages will and will not actually produce.
+
+    Two claims that ``unverified_specs`` groups together but a reader must not: a stage on
+    an ``unverified_adapter`` *will run*, on code nobody has executed against the real tool,
+    and its output is an assumption. A ``not_implemented`` stage has no adapter at all — it
+    will record ``NOT_RUN``, which is not a statement about code quality and, crucially, not
+    a negative biological finding either. Reporting the second as "an adapter that has never
+    been executed" would be false.
+    """
     stages = planned_stages(request.input_kind)
-    unverified = unverified_specs(stages)
-    if not unverified:
-        checks.ok("adapters.verification", "every planned stage has an exercised adapter")
-        return
-    names = ", ".join(spec.stage.value for spec in unverified)
-    checks.warning(
-        "adapters.verification",
-        f"planned stage(s) {names} use adapters that have never been executed against the "
-        "real tool; treat this run as a test of them",
-    )
+    unverified = [
+        spec
+        for spec in unverified_specs(stages)
+        if spec.verification is VerificationStatus.UNVERIFIED_ADAPTER
+    ]
+    missing = [
+        spec
+        for spec in unverified_specs(stages)
+        if spec.verification is VerificationStatus.NOT_IMPLEMENTED
+    ]
+
+    if unverified:
+        names = ", ".join(spec.stage.value for spec in unverified)
+        checks.warning(
+            "adapters.verification",
+            f"planned stage(s) {names} use adapters that have never been executed against "
+            "the real tool; treat this run as a test of them",
+        )
+    else:
+        checks.ok("adapters.verification", "every stage that will run has an exercised adapter")
+
+    if missing:
+        names = ", ".join(spec.stage.value for spec in missing)
+        checks.warning(
+            "stages.not_implemented",
+            f"planned stage(s) {names} have no adapter wired in and will record NOT_RUN, "
+            "which is not a negative biological finding",
+        )
+    else:
+        checks.ok("stages.not_implemented", "every planned stage has an adapter wired in")
 
 
 def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None) -> list[Check]:

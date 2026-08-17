@@ -78,7 +78,9 @@ validated release.
   stage would apply it, so preflight cannot refuse a run that `ontseq run` would complete.
   Free disk space is reported rather than judged unless `--require-free-gb` states a
   requirement: no measured relationship between input size and space consumed exists here,
-  and an invented multiplier would look like a validated figure.
+  and an invented multiplier would look like a validated figure. It separates a stage that
+  will run on an unexecuted adapter from a stage with no adapter at all, because "code
+  nobody has run" and "nothing is wired in, so this records NOT_RUN" are different claims.
 - `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017.
 
 ### Changed
