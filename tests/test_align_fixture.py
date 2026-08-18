@@ -151,11 +151,8 @@ class UnalignedSamTests(unittest.TestCase):
     def test_the_reverse_reads_are_the_ones_on_the_second_group(self) -> None:
         """Which reads sit on which group has to be stated, or the counts prove nothing."""
         for record in self.records:
-            expected = (
-                SECOND_READ_GROUP_ID
-                if record.startswith("SYNTH_ALIGN_REV_")
-                else READ_GROUP_ID
-            )
+            reverse = record.startswith("SYNTH_ALIGN_REV_")
+            expected = SECOND_READ_GROUP_ID if reverse else READ_GROUP_ID
             self.assertEqual(_read_group_of(record), expected, record[:40])
 
     def test_sequence_and_quality_lengths_agree(self) -> None:

@@ -454,6 +454,17 @@ promoted a ClinVar *Pathogenic* into a reportable finding would be inventing a c
 nobody agreed to, in the least recoverable place: inside a report a physician is about to
 sign.
 
+**Where a reviewer meets this.** Annotations appear in the HTML report under a paragraph
+stating how to read them, and in the Excel workbook on sheet `11_Annotations`. The workbook
+needed more than the same sentence moved across: a spreadsheet has no prose, and a reviewer
+who sorts by the assertion column sees *Pathogenic* one cell away from an event identifier.
+So the reading rule occupies row 1 of the sheet itself — it survives the sheet being
+exported, copied into another workbook or printed alone — and rows whose origin does not
+match the assay's question are filled in the warning colour, because colour is read before
+column ten is. The event sheets carry `db_records_matched`, a count and nothing more: a
+reviewer who never opens sheet eleven would otherwise not know there was anything to open,
+and a count cannot be misread as a classification of the finding.
+
 **Revisit when:** A somatic knowledge source is added (OncoKB, CIViC, COSMIC) or ELN/ICC
 criteria are encoded. `assertion_vocabulary` then carries more than one value and the
 alignment check becomes genuinely useful in both directions, rather than mostly reporting

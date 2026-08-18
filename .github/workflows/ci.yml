@@ -363,6 +363,57 @@ jobs:
           # Every annotation must carry its caveats; the contract refuses an empty list.
           python -c "import json;d=json.load(open('/tmp/annotated.json'));anns=[x for e in d['events'] for x in e['annotations']];print(len(anns),'annotation(s)');assert anns,'nothing was annotated, so this step proved nothing';assert all(x['caveats'] for x in anns),'an annotation carried no caveats';assert all(x['assertion_vocabulary']=='acmg_germline' for x in anns),'vocabulary was not carried';assert any(x['scope_alignment']=='mismatched' for x in anns),'the germline-under-somatic case was not exercised';assert all(x['source_release']=='CI-SYNTHETIC-2026-08-01' for x in anns),'the release was not recorded'"
           PYTHONPATH=src python -m ontseq_platform validate-result /tmp/annotated.json
+      - name: Prove the workbook carries the reading rule, not only the HTML
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform render /tmp/annotated.json \
+            --output-dir /tmp/annotated-report
+          python - <<'CHECK'
+          import json
+          from pathlib import Path
+
+          from openpyxl import load_workbook
+
+          book = load_workbook(next(Path("/tmp/annotated-report").glob("*.results.xlsx")))
+          sheet = book["11_Annotations"]
+          banner = str(sheet["A1"].value or "")
+          assert "not findings about this sample" in banner, "the sheet carries no reading rule"
+          headers = [cell.value for cell in sheet[2]]
+          for column in ("event_id", "assertion", "scope_alignment", "caveats"):
+              assert column in headers, f"column missing: {column}"
+          rows = list(sheet.iter_rows(min_row=3, values_only=True))
+          assert rows, "nothing was written, so this step proved nothing"
+          caveats = headers.index("caveats")
+          scope = headers.index("scope_alignment")
+          assert all(str(row[caveats] or "").strip() for row in rows), "a row lost its caveats"
+          # The synthetic release deliberately contains a germline record matched against a
+          # somatic question. If that row is not marked, colour is not carrying the warning.
+          marked = [
+              index
+              for index, row in enumerate(rows, start=3)
+              if sheet.cell(row=index, column=1).fill.fgColor.rgb == "00FEE2E2"
+          ]
+          mismatched = [index for index, row in enumerate(rows, start=3)
+                        if row[scope] == "mismatched"]
+          assert mismatched, "the germline-under-somatic case was not exercised"
+          assert marked == mismatched, f"marked rows {marked} != mismatched rows {mismatched}"
+
+          # The count on the event sheets must agree with the result contract, or a
+          # reviewer is told to look at records that are not there.
+          expected = {e["event_id"]: len(e["annotations"])
+                      for e in json.load(open("/tmp/annotated.json"))["events"]}
+          seen = 0
+          for name in ("02_CNV_Chromosomes", "03_CNV_Segments", "04_SV", "05_Fusions"):
+              event_headers = [cell.value for cell in book[name][1]]
+              assert "db_records_matched" in event_headers, f"{name} has no pointer column"
+              column = event_headers.index("db_records_matched")
+              for row in book[name].iter_rows(min_row=2, values_only=True):
+                  assert row[column] == expected[row[0]], f"{name}: wrong count for {row[0]}"
+                  seen += row[column]
+          assert seen, "no event sheet showed a matched record"
+          print(f"{len(rows)} annotation row(s), {len(mismatched)} marked, {seen} counted")
+          CHECK
       - name: Sign off a run and prove the trail binds to what was signed
         shell: micromamba-shell {0}
         run: |

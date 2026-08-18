@@ -34,6 +34,16 @@ validated release.
 - JSON Schemas for the CNV truth set, call set, benchmark case, evaluation report,
   aggregate report and cytoband table.
 - `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012, plus ADR-018 through ADR-020.
+- Knowledge-base annotations now reach the Excel workbook, not only the HTML report: sheet
+  `11_Annotations` carries every matched record under a banner in row 1 stating that these
+  are classifications of database records rather than findings about the sample. The banner
+  is *in* the sheet because a spreadsheet has no prose — a reviewer sorts by the assertion
+  column and reads "Pathogenic" beside an event identifier, and nothing else on the grid
+  would say what that means. Rows whose record origin does not match the assay's question
+  are filled in the warning colour, because colour is read before column ten is.
+- `db_records_matched` on the four event sheets. A reviewer who never opens the annotation
+  sheet would otherwise not know there was anything there to open. It is a count, named for
+  what it counts, so that it cannot be read as a classification of the finding itself.
 - `truth_resolution_silent_bases`: a fourth term in the genome partition holding calls
   finer than the truth source can resolve, so they are neither confirmed nor counted as
   false positives. The count and the number of affected calls are stated in a warning,
