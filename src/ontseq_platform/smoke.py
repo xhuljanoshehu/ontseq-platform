@@ -352,9 +352,7 @@ def run_local_smoke(
         ),
         ValidationCheck(
             name="expected_synthetic_deletion_sniffles",
-            status=(
-                CheckStatus.PASS if expected_sniffles_deletions else CheckStatus.FAIL
-            ),
+            status=(CheckStatus.PASS if expected_sniffles_deletions else CheckStatus.FAIL),
             message=(
                 "Sniffles2 recovered the expected synthetic deletion candidate."
                 if expected_sniffles_deletions
