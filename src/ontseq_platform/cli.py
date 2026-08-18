@@ -655,15 +655,15 @@ def main() -> None:
                 genome_build=annotate_result_input.manifest.assay.genome_build,
                 release=args.release,
             )
-            outcome = annotate_result(
+            annotation_outcome = annotate_result(
                 annotate_result_input,
                 clinvar_records,
                 lock=clinvar_lock,
                 minimum_reciprocal_overlap=args.minimum_overlap,
                 exact_tolerance_bp=args.exact_tolerance_bp,
             )
-            print(write_json(outcome.result, args.output))
-            for line in describe_annotation(outcome):
+            print(write_json(annotation_outcome.result, args.output))
+            for line in describe_annotation(annotation_outcome):
                 print(line)
         elif args.command == "review":
             if args.review_command == "record":
