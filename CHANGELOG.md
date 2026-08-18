@@ -19,17 +19,25 @@ validated release.
   distinct and exposes review-required, research-only, non-reportable candidate summaries.
 - Reviewer privacy tests that prohibit raw VCF ALT, inserted sequence, read names and source file
   paths from the serialized reviewer contract.
+- Typed multi-caller SV concordance contract for independent caller comparison, with explicit
+  exact-match, tolerance-based near-match, topology-conflict and unmatched evidence states.
+- Synthetic Sniffles2/cuteSV concordance tests covering exact and near matches, out-of-tolerance
+  calls, reciprocal breakpoint ordering, event-type conflicts and privacy-safe serialization.
 
 ### Validation impact
 
-The fusion branch now produces a new reviewer-facing structured projection of research-only DNA
-rearrangement evidence. The projection can change how candidate evidence, observability,
-redundancy and module status are presented to a reviewer, but it does not establish an expressed
-or functional fusion and does not authorize clinical reportability. `NO_CALL` explicitly remains
+The fusion branch now produces reviewer-facing structured projections of research-only DNA
+rearrangement evidence and can compare normalized observations from independent SV callers. These
+projections can change how candidate evidence, observability, redundancy, module status and
+caller concordance are presented to a reviewer, but they do not establish biological truth, an
+expressed or functional fusion, or clinical reportability. `NO_CALL` explicitly remains
 non-negative, known gene pairs remain annotation evidence only, genomic BND orientation does not
 establish transcript direction, and duplicate/reciprocal records are preserved rather than
-collapsed. Assay-specific analytical validation and authorized human review remain mandatory
-before any clinical use or connection to final HTML/XLSX/ISCN release logic.
+collapsed. Multi-caller exact or near agreement is labelled software evidence only; the
+breakpoint tolerance is explicit configuration with `clinically_validated=false`, and conflicting
+caller topology is preserved for review rather than coerced into agreement. Assay-specific
+analytical validation and authorized human review remain mandatory before any clinical use or
+connection to final HTML/XLSX/ISCN release logic.
 
 ## 0.3.0 - 2026-08-14
 
