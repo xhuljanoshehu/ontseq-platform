@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .breakends import BreakendDescriptor
 from .models import (
     Evidence,
     GenomeBuild,
@@ -102,12 +103,34 @@ class FusionCandidate(StrictModel):
     primary: FusionBreakpoint
     secondary: FusionBreakpoint
     classification: FusionClassification
+    breakend_descriptor: BreakendDescriptor | None = None
     gene_pairs: list[FusionGenePair] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     confidence: Literal["unclassified"] = "unclassified"
     reportable: Literal[False] = False
     research_only: Literal[True] = True
     limitations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def breakend_descriptor_matches_candidate(self) -> FusionCandidate:
+        descriptor = self.breakend_descriptor
+        if descriptor is None:
+            return self
+        if descriptor.source_event_id != self.source_event_id:
+            raise ValueError("breakend descriptor source event does not match fusion candidate")
+        if (
+            _canonical_chromosome(descriptor.primary_chromosome)
+            != _canonical_chromosome(self.primary.chromosome)
+            or descriptor.primary_position_0based != self.primary.position_0based
+        ):
+            raise ValueError("breakend descriptor primary locus does not match fusion candidate")
+        if (
+            _canonical_chromosome(descriptor.mate_chromosome)
+            != _canonical_chromosome(self.secondary.chromosome)
+            or descriptor.mate_position_0based != self.secondary.position_0based
+        ):
+            raise ValueError("breakend descriptor mate locus does not match fusion candidate")
+        return self
 
 
 class FusionInterpretationReport(StrictModel):
@@ -120,7 +143,9 @@ class FusionInterpretationReport(StrictModel):
     annotation_source_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     candidates: list[FusionCandidate]
     source_translocation_count: int = Field(ge=0)
+    breakend_descriptor_count: int = Field(default=0, ge=0)
     unresolved_source_event_ids: list[str] = Field(default_factory=list)
+    missing_breakend_descriptor_event_ids: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     research_only: Literal[True] = True
 
@@ -130,6 +155,16 @@ class FusionInterpretationReport(StrictModel):
             self.unresolved_source_event_ids
         ):
             raise ValueError("fusion source-event accounting is inconsistent")
+        observed_descriptor_count = sum(
+            candidate.breakend_descriptor is not None for candidate in self.candidates
+        )
+        if self.breakend_descriptor_count != observed_descriptor_count:
+            raise ValueError("fusion breakend-descriptor accounting is inconsistent")
+        candidate_ids = {candidate.source_event_id for candidate in self.candidates}
+        if any(
+            event_id not in candidate_ids for event_id in self.missing_breakend_descriptor_event_ids
+        ):
+            raise ValueError("missing breakend descriptor ids must refer to emitted candidates")
         return self
 
 
@@ -349,6 +384,7 @@ def candidate_from_event(
     *,
     observability: list[ObservabilityRegion] | None = None,
     known_pairs: set[tuple[str, str]] | None = None,
+    breakend_descriptor: BreakendDescriptor | None = None,
     flank_bp: int = 0,
 ) -> FusionCandidate:
     if event.event_type.value != "translocation" or event.secondary is None:
@@ -373,13 +409,21 @@ def candidate_from_event(
     )
     limitations = [
         "DNA breakend evidence is not equivalent to an expressed or functional fusion transcript.",
-        "Breakend orientation is unresolved because the current normalized Sniffles2 event "
-        "contract does not retain VCF ALT breakend orientation.",
         "Gene overlap alone does not establish transcript compatibility, reading frame or "
         "oncogenic relevance.",
         "Candidate remains research-only and non-reportable until assay-specific analytical "
         "validation and expert review.",
     ]
+    if breakend_descriptor is None:
+        limitations.append(
+            "Genomic BND junction orientation is unavailable for this candidate; transcript "
+            "5-prime/3-prime direction must not be inferred."
+        )
+    else:
+        limitations.append(
+            "Sniffles2 junction orientation is preserved as genomic adjacency evidence only; "
+            "it does not establish transcript 5-prime/3-prime direction."
+        )
     if (
         primary.observability != ObservabilityStatus.OBSERVABLE
         or secondary.observability != ObservabilityStatus.OBSERVABLE
@@ -394,6 +438,7 @@ def candidate_from_event(
         primary=primary,
         secondary=secondary,
         classification=_classification(primary, secondary),
+        breakend_descriptor=breakend_descriptor,
         gene_pairs=_gene_pairs(primary, secondary, normalized_known_pairs),
         evidence=event.evidence,
         limitations=limitations,
@@ -406,6 +451,7 @@ def interpret_sniffles_fusions(
     *,
     observability: list[ObservabilityRegion] | None = None,
     known_pairs: set[tuple[str, str]] | None = None,
+    breakend_descriptors: dict[str, BreakendDescriptor] | None = None,
     flank_bp: int = 0,
 ) -> FusionInterpretationReport:
     if report.genome_build != annotation.genome_build:
@@ -413,7 +459,13 @@ def interpret_sniffles_fusions(
     source_events = [event for event in report.events if event.event_type.value == "translocation"]
     candidates: list[FusionCandidate] = []
     unresolved: list[str] = []
+    missing_descriptors: list[str] = []
     for event in source_events:
+        descriptor = None
+        if breakend_descriptors is not None:
+            descriptor = breakend_descriptors.get(event.event_id)
+            if descriptor is None:
+                missing_descriptors.append(event.event_id)
         try:
             candidates.append(
                 candidate_from_event(
@@ -421,16 +473,24 @@ def interpret_sniffles_fusions(
                     annotation,
                     observability=observability,
                     known_pairs=known_pairs,
+                    breakend_descriptor=descriptor,
                     flank_bp=flank_bp,
                 )
             )
         except ValueError:
             unresolved.append(event.event_id)
+            if event.event_id in missing_descriptors:
+                missing_descriptors.remove(event.event_id)
     warnings = [
         "Fusion candidates are derived from DNA structural-variant evidence and require "
         "independent biological interpretation.",
         "No candidate is clinically reportable under this research-only profile.",
     ]
+    if breakend_descriptors is not None and missing_descriptors:
+        warnings.append(
+            "One or more accepted translocation events lack a matching privacy-safe BND "
+            "descriptor; their genomic junction orientation remains unavailable."
+        )
     if not source_events:
         warnings.append(
             "NO_CALL means no normalized translocation/BND source event was available; it is "
@@ -445,6 +505,10 @@ def interpret_sniffles_fusions(
         annotation_source_sha256=annotation.source_sha256,
         candidates=candidates,
         source_translocation_count=len(source_events),
+        breakend_descriptor_count=sum(
+            candidate.breakend_descriptor is not None for candidate in candidates
+        ),
         unresolved_source_event_ids=unresolved,
+        missing_breakend_descriptor_event_ids=missing_descriptors,
         warnings=warnings,
     )
