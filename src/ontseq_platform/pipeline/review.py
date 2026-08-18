@@ -34,11 +34,12 @@ import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 #: Where the review trail lives inside a run envelope.
 REVIEW_DIRECTORY = "review"
@@ -109,20 +110,26 @@ class ReviewEntry:
         )
 
 
-def _canonical(payload: dict[str, object]) -> str:
+def _canonical(payload: Mapping[str, Any]) -> str:
     """Serialise an entry deterministically, so its digest is reproducible."""
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def entry_digest(payload: dict[str, object]) -> str:
+def entry_digest(payload: Mapping[str, Any]) -> str:
     """Digest of an entry's content, excluding the digest field itself."""
     body = {key: value for key, value in payload.items() if key != "entry_sha256"}
     return hashlib.sha256(_canonical(body).encode("utf-8")).hexdigest()
 
 
-def _to_entry(payload: dict[str, object]) -> ReviewEntry:
+def _to_entry(payload: Mapping[str, Any]) -> ReviewEntry:
+    """Build an entry from parsed JSON.
+
+    Typed as ``Any`` rather than ``object`` because that is what it is: untrusted input
+    whose shape is checked here by conversion, and whose failures the caller turns into a
+    ``ReviewError`` naming the line.
+    """
     return ReviewEntry(
-        sequence=int(payload["sequence"]),  # type: ignore[arg-type]
+        sequence=int(payload["sequence"]),
         decision=Decision(payload["decision"]),
         reviewer=str(payload["reviewer"]),
         identity_source=str(payload["identity_source"]),
@@ -140,7 +147,7 @@ def _to_entry(payload: dict[str, object]) -> ReviewEntry:
     )
 
 
-def _to_payload(entry: ReviewEntry) -> dict[str, object]:
+def _to_payload(entry: ReviewEntry) -> dict[str, Any]:
     return {
         "sequence": entry.sequence,
         "decision": entry.decision.value,
@@ -224,7 +231,7 @@ def append_entry(
             raise ReviewError(f"refusing to append to a log that does not verify: {detail}")
 
     previous = existing[-1].entry_sha256 if existing else None
-    payload: dict[str, object] = {
+    payload: dict[str, Any] = {
         "sequence": len(existing) + 1,
         "decision": Decision(decision).value,
         "reviewer": reviewer,
