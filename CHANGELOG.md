@@ -33,7 +33,19 @@ validated release.
   `cnv-demo-benchmark`.
 - JSON Schemas for the CNV truth set, call set, benchmark case, evaluation report,
   aggregate report and cytoband table.
-- `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012.
+- `docs/CNV_BENCHMARKING.md` and ADR-008 through ADR-012, plus ADR-018 through ADR-020.
+- `truth_resolution_silent_bases`: a fourth term in the genome partition holding calls
+  finer than the truth source can resolve, so they are neither confirmed nor counted as
+  false positives. The count and the number of affected calls are stated in a warning,
+  because this is the only exclusion in the design that flatters the caller.
+- `observed_direction`, `underpowered`, `minimum_attainable_p_value` and `alpha` on the
+  paired method comparison, separating the direction the counts lean from the direction a
+  test supports.
+- `SpecimenClustering` and a specimen-weighted detection rate on the aggregate report, plus
+  `discordant_specimens` on the paired comparison, so event-level intervals are never shown
+  without the clustering that qualifies them.
+- `reports_biological_negative` on a call set, so a method that looked everywhere and found
+  nothing is distinguishable from one that could not look.
 - `ontseq_platform.pipeline` subsystem: a dependency-free stage graph, a self-describing
   run envelope with atomic writes and content-addressed resume, and a runner that records
   what ran, under which tool versions, producing which checksummed artifacts.
@@ -99,6 +111,21 @@ validated release.
   alignment adapter enforces.
 
 ### Fixed
+
+- A truth source's declared resolution affected only a warning, not the score. Calls below
+  it were counted as false positives while the warning beside them said they must not be —
+  and the number, not the warning, is what aggregates. Resolution now removes those bases
+  from the evaluable genome, and only where the truth asserts its background: resolution
+  limits what a source can deny, never what it can affirm.
+- `favours` named a winning method from the raw discordant counts, so a 4-0 split reported
+  a winner at p=0.125 — a count at which no possible outcome could have been significant.
+  A method is named only when the test is significant at a pre-specified alpha.
+- A `COMPLETED` call set was required to contain segments, which forced a method that
+  looked everywhere and found nothing to report `NO_CALL` — exactly the conflation between
+  a biological negative and an inability to look that the vocabulary exists to prevent.
+- The adaptive-sampling off-target read population was described as forming a near-uniform
+  low-coverage background. That is a hypothesis about the local assay, not a measured
+  property, and it is now written as one in the code and both documents.
 
 - The alignment adapter's limitations claimed read groups were inherited from the
   unaligned BAM, but `samtools fastq` drops them and minimap2 writes a fresh header. Read

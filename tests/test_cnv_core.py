@@ -363,3 +363,76 @@ class ValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TruthResolutionTests(unittest.TestCase):
+    """Below its declared resolution a truth source is silent, not negative.
+
+    The distinction is the difference between measuring a caller and inventing errors for
+    it. A karyotype read at 10 Mb bands has no opinion about a 200 kb duplication; scoring
+    that call as a false positive attributes to the truth a claim it never made.
+    """
+
+    SMALL = [StateSegment("chr5", 1_000_000, 1_200_000, CopyNumberState.GAIN, 3.0)]
+
+    def test_a_call_below_truth_resolution_is_not_a_false_positive(self) -> None:
+        result = _evaluate([], self.SMALL, truth_resolution_bp=10_000_000)
+        self.assertEqual(len(result.query_events), 1)
+        self.assertIs(result.query_events[0].outcome, QueryOutcome.NOT_ASSESSABLE)
+
+    def test_the_same_call_is_a_false_positive_when_the_truth_can_resolve_it(self) -> None:
+        """The rule must bite only where the truth genuinely cannot see."""
+        result = _evaluate([], self.SMALL, truth_resolution_bp=10_000)
+        self.assertIs(result.query_events[0].outcome, QueryOutcome.UNCONFIRMED)
+
+    def test_declaring_no_resolution_changes_nothing(self) -> None:
+        result = _evaluate([], self.SMALL)
+        self.assertIs(result.query_events[0].outcome, QueryOutcome.UNCONFIRMED)
+        self.assertEqual(result.partition.truth_resolution_silent_bases, 0)
+
+    def test_the_excluded_bases_are_accounted_not_discarded(self) -> None:
+        result = _evaluate([], self.SMALL, truth_resolution_bp=10_000_000)
+        self.assertEqual(result.partition.truth_resolution_silent_bases, 200_000)
+        result.partition.validate()
+
+    def test_the_partition_still_reconciles(self) -> None:
+        result = _evaluate([], self.SMALL, truth_resolution_bp=10_000_000)
+        self.assertEqual(
+            result.partition.mask_bases,
+            result.partition.evaluable_bases
+            + result.partition.truth_silent_bases
+            + result.partition.truth_resolution_silent_bases
+            + result.partition.query_no_call_bases,
+        )
+
+    def test_the_exclusion_is_stated_rather_than_left_to_be_noticed(self) -> None:
+        """This is the one exclusion that flatters the caller, so it must be loud."""
+        result = _evaluate([], self.SMALL, truth_resolution_bp=10_000_000)
+        self.assertTrue(
+            any("below the truth source's declared resolution" in w for w in result.warnings),
+            result.warnings,
+        )
+
+    def test_an_explicit_truth_assertion_still_confirms_a_small_call(self) -> None:
+        """Resolution limits what a source can deny, not what it can affirm."""
+        truth = [StateSegment("chr5", 500_000, 50_000_000, CopyNumberState.GAIN, 3.0)]
+        result = _evaluate(truth, self.SMALL, truth_resolution_bp=10_000_000)
+        self.assertIs(result.query_events[0].outcome, QueryOutcome.CONFIRMED)
+        self.assertEqual(result.partition.truth_resolution_silent_bases, 0)
+
+    def test_a_call_the_truth_can_resolve_is_unaffected_by_a_small_neighbour(self) -> None:
+        query = [
+            *self.SMALL,
+            StateSegment("chr5", 60_000_000, 140_000_000, CopyNumberState.LOSS, 1.0),
+        ]
+        result = _evaluate([], query, truth_resolution_bp=10_000_000)
+        outcomes = {item.event.length: item.outcome for item in result.query_events}
+        self.assertIs(outcomes[200_000], QueryOutcome.NOT_ASSESSABLE)
+        self.assertIs(outcomes[80_000_000], QueryOutcome.UNCONFIRMED)
+
+    def test_truth_events_are_still_scored_normally(self) -> None:
+        """The rule concerns what the truth can deny; it must not weaken sensitivity."""
+        truth = [StateSegment("chr5", 70_000_000, 160_000_000, CopyNumberState.LOSS, 1.0)]
+        result = _evaluate(truth, [], truth_resolution_bp=10_000_000)
+        self.assertEqual(len(result.truth_events), 1)
+        self.assertIs(result.truth_events[0].outcome, TruthOutcome.MISSED)

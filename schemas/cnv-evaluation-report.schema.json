@@ -154,7 +154,7 @@
       "type": "object"
     },
     "CnvDataBasis": {
-      "description": "Which reads a copy-number estimate was derived from.\n\nAdaptive sampling produces two very different read populations in one run. Rejected\nreads still occupy the flow cell and form a near-uniform low-coverage whole-genome\nbackground, which is the population most depth-based CNV methods actually assume.\nOn-target reads are deeply but non-uniformly enriched and violate that assumption.\nMixing the two in one benchmark stratum compares incomparable things.",
+      "description": "Which reads a copy-number estimate was derived from.\n\nAdaptive sampling produces two very different read populations in one run. Rejected\nreads still occupy the flow cell and **may** form a near-uniform low-coverage\nwhole-genome background \u2014 the population most depth-based CNV methods assume \u2014 but\nwhether they do so on any particular assay is an open empirical question, not a\nproperty this code has measured. On-target reads are deeply but non-uniformly enriched\nand violate that assumption. Mixing the two in one benchmark stratum compares\nincomparable things, which is why the distinction is recorded whichever way the\nmeasurement eventually comes out.",
       "enum": [
         "adaptive_sampling_off_target",
         "adaptive_sampling_on_target",
@@ -570,7 +570,7 @@
     },
     "GenomePartitionReport": {
       "additionalProperties": false,
-      "description": "How the genome was divided before scoring.\n\nThe counts reconcile exactly, and the contract enforces it, so a reader can always\nverify what fraction of the genome a metric actually applied to:\n\n``reference_bases == mask_bases + excluded_bases``\n\n``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``",
+      "description": "How the genome was divided before scoring.\n\nThe counts reconcile exactly, and the contract enforces it, so a reader can always\nverify what fraction of the genome a metric actually applied to:\n\n``reference_bases == mask_bases + excluded_bases``\n\n``mask_bases == evaluable_bases + truth_silent_bases + truth_resolution_silent_bases\n+ query_no_call_bases``",
       "properties": {
         "evaluable_bases": {
           "minimum": 0,
@@ -616,6 +616,12 @@
         "reference_bases": {
           "minimum": 0,
           "title": "Reference Bases",
+          "type": "integer"
+        },
+        "truth_resolution_silent_bases": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Truth Resolution Silent Bases",
           "type": "integer"
         },
         "truth_silent_bases": {

@@ -134,9 +134,37 @@ Getting this wrong is silent and severe. Treating an open-world truth as closed-
 manufactures a false positive for every genuine finding outside its scope; the reverse
 hides real false positives. There is deliberately no default.
 
+### Resolution: what a source cannot deny
+
 Closed-world truth sets must also declare `resolution_bp`: the smallest event the source
-could detect. Below it the truth is *silent*, not negative, and calls smaller than the
-truth's resolution are flagged in the report rather than counted as errors.
+could detect. Below it the truth is *silent*, not negative — and that is enforced in the
+scoring, not merely mentioned in a warning. Bases under a call finer than the truth can
+resolve leave the evaluable genome and are accounted as `truth_resolution_silent_bases`,
+the fourth term of the partition identity:
+
+```
+mask_bases == evaluable_bases
+            + truth_silent_bases
+            + truth_resolution_silent_bases
+            + query_no_call_bases
+```
+
+The affected calls are `NOT_ASSESSABLE`: neither confirmed nor false positives.
+
+**The rule is asymmetric, and that is the substance of it.** Resolution limits what a
+source can **deny**, never what it can **affirm**. A karyotype read at 10 Mb bands cannot
+rule out a 200 kb duplication, so it cannot make that call wrong. Where the same karyotype
+explicitly reports a deletion it has made a positive claim, and a small call agreeing with
+it is confirmed on its merits. Applying the rule to affirmations as well would quietly
+suppress true positives and depress sensitivity.
+
+**This is the only exclusion in the design that flatters the caller.** Everything removed
+here is something nobody can hold against it, so it is a named term rather than a silent
+filter, and the report states the base count and the number of affected calls in words.
+Specificity read from such an evaluation has to be read together with it: it describes what
+the truth was able to see, not what is there. Leaving the false positives in would not
+avoid the problem — it would move it to the other side of the ledger and call a method
+wrong for seeing something the truth was never able to look for.
 
 ## Truth sources and what they can support
 
@@ -203,6 +231,33 @@ The Wilson interval is used rather than the normal approximation because benchma
 proportions routinely sit at 0 or 1 with small denominators, where the normal interval
 collapses to zero width.
 
+**Events are not independent either, and the report says so.** Several events routinely
+come from one specimen, and they share its purity, library, coverage and artefacts. An
+event-level interval therefore describes a population of independent events that does not
+exist, and it is narrower than the data support. The aggregate reports the number of
+specimens, the largest number of events contributed by one of them, and a flag —
+`intervals_are_anticonservative` — that says this in one field. `discordant_specimens` does
+the same for McNemar, which treats each discordant pair as an independent coin flip.
+
+A specimen-weighted detection rate is reported alongside the event-level one. It counts a
+specimen as a success only when every assessable event in it was detected: a deliberately
+crude summary whose purpose is to make the gap between the two numbers visible. It is
+**not** the cluster-robust endpoint an analytical validation would pre-specify — that is a
+study-design decision (see ADR-020).
+
+### A direction is not a finding
+
+`favours` names a method only when McNemar's exact test is significant at a pre-specified
+`alpha`. Which way the counts lean is reported separately as `observed_direction`.
+
+The two are separated because they are different claims and only one needs a test. With
+four discordant pairs the smallest attainable two-sided exact p-value is 0.125, so a 4-0
+split looks decisive and could never have been significant at any conventional threshold.
+`minimum_attainable_p_value` and `underpowered` report exactly that, which is what
+separates *we compared them and found no difference* from *this comparison could not have
+found one* — readings a bare non-significant p-value cannot tell apart, and the second of
+which is a design fault rather than a result.
+
 ### Undefined stays undefined
 
 A proportion with a zero denominator is `null`, never `0.0` or `1.0`. An unevaluated
@@ -245,10 +300,14 @@ adaptive-sampling enrichment**. It is never reportable.
 
 Adaptive sampling produces two very different read populations in one run:
 
-- **Rejected (off-target) reads** still occupy the flow cell and form a near-uniform
-  low-coverage whole-genome background. This is the population that depth-based CNV
-  methods such as ichorCNA, QDNAseq and Spectre actually assume, and it is the most
-  promising basis for genome-wide CNV from an adaptive-sampling run.
+- **Rejected (off-target) reads** still occupy the flow cell and **may** form a
+  near-uniform low-coverage whole-genome background. That is the population depth-based
+  CNV methods such as ichorCNA, QDNAseq and Spectre assume, which makes these reads the
+  most promising candidate basis for genome-wide CNV from an adaptive-sampling run — a
+  candidate, not an established one. Whether the assumption holds locally depends on
+  uniformity, GC behaviour, mappability and usable genome fraction at the achieved yield.
+  **None of that has been measured on local GridION data**, and until it is, every result
+  derived from this basis rests on an untested premise.
 - **On-target reads** are deeply but non-uniformly enriched. Their depth is dominated by
   enrichment efficiency rather than copy number, which violates the core assumption of
   every method above.

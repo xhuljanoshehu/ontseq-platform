@@ -89,19 +89,42 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _case(_truth([LOSS]), call_set)
 
-    def test_completed_call_set_must_contain_segments(self) -> None:
+    def _empty_completed(self, **overrides: object) -> CnvCallSet:
+        payload: dict[str, object] = {
+            "call_set_id": "EMPTY",
+            "sample_id": "SYNTHETIC_AML_001",
+            "genome_build": GenomeBuild.GRCH38,
+            "method": "x",
+            "method_version": "1",
+            "data_basis": CnvDataBasis.SIMULATED,
+            "background_state": CopyNumberState.NEUTRAL,
+            "status": ModuleRunStatus.COMPLETED,
+            "segments": [],
+        }
+        payload.update(overrides)
+        return CnvCallSet(**payload)  # type: ignore[arg-type]
+
+    def test_an_empty_completed_call_set_must_assert_the_negative(self) -> None:
+        """Silence about an empty result is what conflates the two meanings."""
         with self.assertRaises(ValueError):
-            CnvCallSet(
-                call_set_id="BAD",
-                sample_id="SYNTHETIC_AML_001",
-                genome_build=GenomeBuild.GRCH38,
-                method="x",
-                method_version="1",
-                data_basis=CnvDataBasis.SIMULATED,
-                background_state=CopyNumberState.NEUTRAL,
-                status=ModuleRunStatus.COMPLETED,
-                segments=[],
-            )
+            self._empty_completed()
+
+    def test_a_method_that_looked_and_found_nothing_can_say_so(self) -> None:
+        """The point of the change: a biological negative is a legitimate completed run."""
+        call_set = self._empty_completed(reports_biological_negative=True)
+        self.assertEqual(call_set.status, ModuleRunStatus.COMPLETED)
+        self.assertTrue(call_set.reports_biological_negative)
+        self.assertEqual(call_set.segments, [])
+
+    def test_a_negative_cannot_be_asserted_by_a_run_that_did_not_complete(self) -> None:
+        with self.assertRaises(ValueError):
+            self._empty_completed(status=ModuleRunStatus.NO_CALL, reports_biological_negative=True)
+
+    def test_declining_to_call_remains_available_and_needs_no_assertion(self) -> None:
+        """An adapter reading a file cannot know which of the two it is looking at."""
+        call_set = self._empty_completed(status=ModuleRunStatus.NO_CALL)
+        self.assertEqual(call_set.status, ModuleRunStatus.NO_CALL)
+        self.assertFalse(call_set.reports_biological_negative)
 
     def test_no_call_set_must_not_contain_segments(self) -> None:
         with self.assertRaises(ValueError):

@@ -27,6 +27,7 @@ from .stats import (
     fit_logistic,
     logistic_threshold,
     mcnemar_exact,
+    minimum_attainable_p_value,
     wilson_interval,
 )
 
@@ -67,6 +68,31 @@ class LimitOfDetection(StrictModel):
     note: str
 
 
+class SpecimenClustering(StrictModel):
+    """How the scored events are distributed over specimens.
+
+    Every interval in this report is computed over *events*, and several events routinely
+    come from the same specimen. Events within one specimen share its purity, its library,
+    its coverage and its artefacts, so they are not independent observations. Treating
+    them as independent narrows every confidence interval: the interval describes a
+    hypothetical population of independent events that does not exist.
+
+    The correction is a specimen-aware endpoint, which is a study-design decision and not
+    something this module can make on the caller's behalf. What it can do is refuse to
+    hide the problem: the numbers below let a reader see the clustering, and
+    ``intervals_are_anticonservative`` states in one field that the intervals beside them
+    are narrower than the data support.
+    """
+
+    specimens: int = Field(ge=0)
+    events: int = Field(ge=0)
+    #: Largest number of events contributed by any single specimen.
+    largest_specimen_events: int = Field(ge=0)
+    mean_events_per_specimen: float | None = Field(default=None, ge=0)
+    #: True whenever any specimen contributed more than one event.
+    intervals_are_anticonservative: bool = False
+
+
 class CnvAggregateReport(StrictModel):
     """Aggregated benchmark evidence across many evaluations."""
 
@@ -76,6 +102,13 @@ class CnvAggregateReport(StrictModel):
     method_version: str
     evaluations: int = Field(ge=0)
     overall_detection_rate: ProportionResult
+    #: Event-level intervals are reported alongside the clustering that qualifies them.
+    clustering: SpecimenClustering | None = None
+    #: Detection rate computed one specimen at a time, then averaged over specimens, so
+    #: each specimen carries equal weight regardless of how many events it contributed.
+    #: Reported next to the event-level rate rather than replacing it: the two answer
+    #: different questions, and a specimen-heavy dataset can pull them far apart.
+    specimen_level_detection_rate: ProportionResult | None = None
     by_tumor_fraction: list[StratumSummary] = Field(default_factory=list)
     by_coverage: list[StratumSummary] = Field(default_factory=list)
     by_size_class: list[StratumSummary] = Field(default_factory=list)
@@ -286,6 +319,49 @@ def aggregate(
             "undefined rather than zero."
         )
 
+    # Events cluster inside specimens, and every interval in this report is computed over
+    # events. Rather than silently presenting intervals that are too narrow, count the
+    # clustering, say so, and put a specimen-weighted rate beside the event-weighted one.
+    by_specimen: dict[str, tuple[int, int]] = {}
+    for report in reports:
+        hits, total = by_specimen.get(report.sample_id, (0, 0))
+        by_specimen[report.sample_id] = (
+            hits + report.detection_rate.successes,
+            total + report.detection_rate.total,
+        )
+    specimen_counts = [total for _, total in by_specimen.values()]
+    clustered = any(count > 1 for count in specimen_counts)
+    clustering = SpecimenClustering(
+        specimens=len(by_specimen),
+        events=assessable,
+        largest_specimen_events=max(specimen_counts, default=0),
+        mean_events_per_specimen=(assessable / len(by_specimen) if by_specimen else None),
+        intervals_are_anticonservative=clustered,
+    )
+    if clustered:
+        warnings.append(
+            f"{assessable} scored event(s) come from {len(by_specimen)} specimen(s), up to "
+            f"{clustering.largest_specimen_events} from one. Events within a specimen share "
+            "its purity, library, coverage and artefacts, so they are not independent. "
+            "Every confidence interval in this report is computed over events and is "
+            "therefore narrower than the data support. Analytical validation needs a "
+            "specimen-level endpoint, which is a study-design decision rather than a "
+            "post-hoc correction."
+        )
+    # Each specimen contributes at most one success and one trial, so no specimen can
+    # dominate the interval by contributing many events. This is a deliberately crude
+    # specimen-level endpoint, and it is labelled as one rather than presented as the
+    # cluster-robust analysis a validation study would specify.
+    specimen_successes = sum(1 for hits, total in by_specimen.values() if total and hits == total)
+    specimen_trials = sum(1 for _, total in by_specimen.values() if total)
+    specimen_rate = (
+        _proportion(
+            wilson_interval(specimen_successes, specimen_trials, confidence_level=confidence_level)
+        )
+        if specimen_trials
+        else None
+    )
+
     tumor_levels: dict[float, tuple[int, int]] = {}
     coverage_levels: dict[float, tuple[int, int]] = {}
     for report in reports:
@@ -330,6 +406,8 @@ def aggregate(
         overall_detection_rate=_proportion(
             wilson_interval(detected, assessable, confidence_level=confidence_level)
         ),
+        clustering=clustering,
+        specimen_level_detection_rate=specimen_rate,
         by_tumor_fraction=_group(
             reports,
             lambda r: None if r.strata.tumor_fraction is None else f"{r.strata.tumor_fraction:g}",
@@ -353,6 +431,12 @@ def aggregate(
             "through the per-stratum tables.",
             "A limit of detection derived from one truth profile does not generalise to "
             "other event classes or sizes.",
+            "Confidence intervals are event-level. Where a specimen contributed several "
+            "events they are not independent observations, and the intervals are "
+            "correspondingly optimistic; see the clustering block.",
+            "The specimen-level rate counts a specimen as a success only when every "
+            "assessable event in it was detected. It is a conservative screening summary, "
+            "not the cluster-robust endpoint an analytical validation would pre-specify.",
         ],
     )
 
@@ -375,7 +459,28 @@ class PairedMethodComparison(StrictModel):
     #: Events dropped because they were not assessable under both methods.
     unpaired_events: int = Field(ge=0)
     p_value: float | None = Field(default=None, ge=0, le=1)
+    #: Significance level the inferential claim is made at. Belongs in the report because
+    #: a direction asserted at an alpha chosen after seeing the counts is not a result.
+    alpha: float = Field(default=0.05, gt=0, lt=1)
+    #: Which method the *test* supports. Only ever "a" or "b" when the paired test is
+    #: significant at ``alpha``; otherwise "neither", however lopsided the counts look.
     favours: Literal["a", "b", "neither"] = "neither"
+    #: Which way the discordant counts happen to lean. Descriptive only, and explicitly
+    #: not a finding: with four discordant pairs the smallest attainable two-sided exact
+    #: p-value is 0.125, so a 4-0 split can look decisive and prove nothing.
+    observed_direction: Literal["a", "b", "neither"] = "neither"
+    #: True when the discordant count is too small for any split to reach ``alpha``.
+    #: Separates "we looked and found no difference" from "this test could never have
+    #: found one", which a bare non-significant p-value cannot express.
+    underpowered: bool = False
+    #: Smallest two-sided exact p-value attainable at this discordant count.
+    minimum_attainable_p_value: float | None = Field(default=None, ge=0, le=1)
+    #: Distinct specimens contributing the discordant pairs. McNemar's exact test assumes
+    #: each pair is an independent coin flip; pairs drawn from the same specimen are not,
+    #: so a p-value computed over fewer specimens than pairs is too small.
+    discordant_specimens: int = Field(default=0, ge=0)
+    #: True when the discordant pairs come from fewer specimens than there are pairs.
+    p_value_is_anticonservative: bool = False
     note: str
     research_only: Literal[True] = True
 
@@ -387,6 +492,8 @@ class PairedMethodComparison(StrictModel):
 def paired_detection_comparison(
     reports_a: Sequence[CnvEvaluationReport],
     reports_b: Sequence[CnvEvaluationReport],
+    *,
+    alpha: float = 0.05,
 ) -> PairedMethodComparison:
     """Compare two methods on the truth events both of them could assess.
 
@@ -398,7 +505,17 @@ def paired_detection_comparison(
     The p-value comes from McNemar's exact test on the discordant pairs. It is ``None``
     when no discordant pair exists, which means the comparison found no evidence either
     way rather than evidence of equivalence.
+
+    ``favours`` names a method only when the test is significant at ``alpha``. The
+    direction the counts happen to lean is reported separately as ``observed_direction``,
+    because those are different claims and only one of them is a result: four discordant
+    pairs split 4-0 look decisive and cannot reach any conventional threshold, since the
+    smallest attainable two-sided p-value at that count is 0.125. ``underpowered`` marks
+    exactly that situation, so a reader can tell a comparison that found no difference
+    from one that could never have found one.
     """
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie in (0, 1)")
     methods_a = {report.method for report in reports_a}
     methods_b = {report.method for report in reports_b}
     if len(methods_a) > 1 or len(methods_b) > 1:
@@ -425,6 +542,14 @@ def paired_detection_comparison(
     neither = sum(1 for key in shared if not left[key] and not right[key])
     p_value = mcnemar_exact(only_a, only_b)
 
+    observed: Literal["a", "b", "neither"] = (
+        "a" if only_a > only_b else "b" if only_b > only_a else "neither"
+    )
+    floor = minimum_attainable_p_value(only_a + only_b)
+    underpowered = floor is None or floor > alpha
+    discordant_specimens = len({key[0] for key in shared if left[key] != right[key]})
+    clustered_pairs = discordant_specimens < (only_a + only_b)
+
     if not shared:
         note = (
             "No truth event was assessable under both methods, so the methods were not "
@@ -437,12 +562,41 @@ def paired_detection_comparison(
             "no evidence either way; this is not evidence of equivalence."
         )
         favours = "neither"
-    else:
-        favours = "a" if only_a > only_b else "b" if only_b > only_a else "neither"
+    elif underpowered:
+        # The decisive case for reviewer trust: a 4-0 split reads as an obvious winner
+        # and is not one, because no split of four pairs can reach 0.05. Naming a winner
+        # here would be an inferential claim the data cannot support at any threshold.
+        favours = "neither"
         note = (
-            f"McNemar exact test on {only_a + only_b} discordant pair(s). Small "
-            "discordant counts have very little power, so a non-significant result must "
-            "not be read as equivalence."
+            f"McNemar exact test on {only_a + only_b} discordant pair(s). The smallest "
+            f"two-sided p-value attainable at this count is {floor:.4g}, above the "
+            f"pre-specified alpha of {alpha:g}, so no observation could have reached "
+            "significance. The comparison is underpowered by design, not inconclusive by "
+            f"result; the counts lean towards {observed}, which is a description and not "
+            "a finding."
+        )
+    elif p_value <= alpha:
+        favours = observed
+        note = (
+            f"McNemar exact test on {only_a + only_b} discordant pair(s), p={p_value:.4g} "
+            f"at a pre-specified alpha of {alpha:g}. The difference is significant in "
+            f"favour of method {observed}."
+        )
+    else:
+        favours = "neither"
+        note = (
+            f"McNemar exact test on {only_a + only_b} discordant pair(s), p={p_value:.4g} "
+            f"at a pre-specified alpha of {alpha:g}. Not significant, so no method is "
+            f"favoured; the counts lean towards {observed}, which is a description and "
+            "not a finding. A non-significant result is not evidence of equivalence."
+        )
+
+    if clustered_pairs:
+        note += (
+            f" The {only_a + only_b} discordant pair(s) come from {discordant_specimens} "
+            "specimen(s). McNemar's exact test treats each pair as an independent coin "
+            "flip, and pairs from one specimen are not independent, so this p-value is "
+            "smaller than the data support."
         )
 
     return PairedMethodComparison(
@@ -455,7 +609,13 @@ def paired_detection_comparison(
         neither_detected=neither,
         unpaired_events=unpaired,
         p_value=p_value,
+        alpha=alpha,
         favours=favours,
+        observed_direction=observed,
+        underpowered=underpowered,
+        minimum_attainable_p_value=floor,
+        discordant_specimens=discordant_specimens,
+        p_value_is_anticonservative=clustered_pairs,
         note=note,
     )
 

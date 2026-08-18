@@ -214,6 +214,7 @@ def evaluate_case(
         reference_bases=mask.reference_bases,
         truth_background=case.truth.background_state,
         query_background=case.call_set.background_state,
+        truth_resolution_bp=case.truth.resolution_bp,
         options=_core_options(case.options),
         default_truth_boundary=default_boundary,
         excluded_bases_by_reason=mask.excluded_bases_by_reason,
@@ -230,16 +231,6 @@ def _to_report(
     evaluation_id: str | None,
 ) -> CnvEvaluationReport:
     warnings = list(result.warnings)
-    if case.truth.resolution_bp > 0:
-        small = [
-            item for item in result.query_events if item.event.length < case.truth.resolution_bp
-        ]
-        if small:
-            warnings.append(
-                f"{len(small)} called event(s) are smaller than the truth set's declared "
-                f"resolution of {case.truth.resolution_bp} bp. The truth cannot confirm "
-                "or refute them, so they must not be read as false positives."
-            )
     if case.call_set.status != "COMPLETED":
         warnings.append(
             f"The call set status is {case.call_set.status}; metrics describe whatever "
@@ -271,6 +262,7 @@ def _to_report(
                 else None
             ),
             excluded_bases_by_reason=dict(mask.excluded_bases_by_reason),
+            truth_resolution_silent_bases=result.partition.truth_resolution_silent_bases,
         ),
         base_level=BaseLevelReport(
             evaluable_bases=result.base_level.evaluable_bases,

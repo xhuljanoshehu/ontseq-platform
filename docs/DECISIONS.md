@@ -134,10 +134,12 @@ baseline then stays as a control rather than being removed.
 adaptive-sampling on-target reads, combined output and separate low-coverage WGS are never
 pooled into one benchmark stratum.
 
-**Reason:** Rejected reads in an adaptive-sampling run form a near-uniform low-coverage
-whole-genome background, which is the population depth-based CNV methods assume. On-target
-depth is dominated by enrichment efficiency rather than copy number and violates that
-assumption. Which basis the local assay should use is an open empirical question, so the
+**Reason:** Rejected reads in an adaptive-sampling run **may** form a near-uniform
+low-coverage whole-genome background — the population depth-based CNV methods assume —
+but that is a hypothesis about the local assay, not an established property: it depends on
+uniformity, GC behaviour, mappability and the usable genome fraction at the achieved yield,
+none of which has been measured here. On-target depth is dominated by enrichment efficiency
+rather than copy number and violates that assumption. Which basis the local assay should use is an open empirical question, so the
 architecture stays agnostic and makes the comparison possible instead of choosing
 prematurely.
 
@@ -262,3 +264,95 @@ it passes `--require-free-gb`.
 space requirement can be derived from the declared input kind and depth rather than supplied
 by the caller — and when a GPU-bearing host can be checked for basecalling capacity, which
 is currently outside what this process can determine.
+
+---
+
+## ADR-018: Below its declared resolution a truth source is silent, and the partition says so
+
+**Decision:** `evaluate()` takes the truth set's `resolution_bp`. Where the truth asserts
+its *background* — its claim of absence — a called event shorter than that resolution
+leaves the evaluable genome and is accounted as `truth_resolution_silent_bases`, a fourth
+term in the partition identity. The affected calls are `NOT_ASSESSABLE`, neither confirmed
+nor false positives, and the count is stated in a warning.
+
+**Reason:** The documentation already said that a closed-world truth is *silent* below its
+resolution rather than negative. The code did not implement it: it appended a warning
+saying those calls "must not be read as false positives" while continuing to count them as
+exactly that. A warning that contradicts the number beside it is worse than either alone,
+because the number is what gets aggregated.
+
+The rule is deliberately asymmetric, and the asymmetry is the substance of it. Resolution
+limits what a source can **deny**, not what it can **affirm**. A karyotype read at 10 Mb
+bands cannot rule out a 200 kb duplication, so it cannot make that call wrong. Where the
+same karyotype explicitly reports a deletion it has made a positive claim, and a small call
+agreeing with it is confirmed on its merits. Applying the rule to affirmations too would
+quietly suppress true positives and depress sensitivity.
+
+This exclusion is the only one in the design that *flatters* the caller: everything removed
+here is something nobody can hold against it. That is why it is a named term in the
+partition rather than a silent filter, why the warning states the base count and the number
+of affected calls, and why specificity read from such a report has to be read together with
+it. The alternative — leaving the false positives in — does not avoid the problem, it just
+moves the dishonesty to the other side of the ledger and calls a caller wrong for seeing
+something the truth was never able to look for.
+
+**Revisit when:** A truth source can express per-region resolution rather than one figure
+for the whole set — an array with variable probe density, or a karyotype where some
+chromosomes were banded more finely than others. The single `resolution_bp` is then the
+coarsest defensible summary of a structure the model cannot yet carry.
+
+---
+
+## ADR-019: A direction is only claimed when a pre-specified test supports it
+
+**Decision:** `paired_detection_comparison()` takes an `alpha` and names a method in
+`favours` only when McNemar's exact test is significant at it. The direction the discordant
+counts happen to lean is reported separately as `observed_direction` and labelled
+descriptive. `minimum_attainable_p_value` and `underpowered` state whether any observation
+at that discordant count could have reached `alpha` at all.
+
+**Reason:** The previous implementation set `favours` from the raw counts, so a 4-0 split
+reported method A as the winner at p=0.125. That reads as a finding and is not one: with
+four discordant pairs the smallest attainable two-sided exact p-value is 0.125, so no
+possible outcome could have been significant. The study was decided before the data were
+seen, and the report said the opposite.
+
+Separating the two fields makes the distinction survive aggregation. "The counts lean
+towards A" and "A is better" are different claims, and only the second needs a test; a
+single field forces them into one word and the reader cannot recover which was meant.
+`underpowered` is what separates *we compared them and found no difference* from *this
+comparison could not have found one* — readings a bare non-significant p-value cannot tell
+apart, and the second of which is a design fault rather than a result.
+
+**Revisit when:** A validation study pre-registers a different inferential rule — a
+non-inferiority margin, a one-sided test, a multiplicity correction across strata. `alpha`
+is then one parameter of that rule rather than the whole of it.
+
+---
+
+## ADR-020: Event-level intervals are reported with their clustering, not without it
+
+**Decision:** `aggregate()` reports how many specimens contributed the scored events, the
+largest number contributed by one specimen, and a flag saying the intervals beside them are
+anticonservative. A specimen-weighted detection rate is reported alongside the event-level
+one. `paired_detection_comparison()` reports how many specimens the discordant pairs came
+from and flags the p-value when there are fewer specimens than pairs.
+
+**Reason:** Every interval in the aggregate is computed over events, and several events
+routinely come from one specimen. Events within a specimen share its purity, its library,
+its coverage and its artefacts, so they are not independent observations. Treating them as
+independent narrows every interval: what is reported then describes a population of
+independent events that does not exist. McNemar has the same problem one level down — it
+treats each discordant pair as an independent coin flip.
+
+The correct fix is a specimen-level endpoint or a cluster-robust test, and that is a
+study-design decision this module has no standing to make: it depends on what the study is
+trying to establish. What the module can do is refuse to present the problem as absent. The
+specimen-weighted rate shipped here counts a specimen as a success only when every
+assessable event in it was detected — a deliberately crude summary, labelled as one, whose
+purpose is to make the gap between the two numbers visible rather than to be the endpoint.
+
+**Revisit when:** An analytical validation is designed. At that point the endpoint, the
+cluster-robust test (Durkalski's clustered McNemar or a GEE formulation) and the sample-size
+calculation are pre-registered together, and these fields become inputs to that design
+rather than caveats attached to an event-level number.

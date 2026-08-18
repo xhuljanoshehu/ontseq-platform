@@ -72,10 +72,13 @@ class CnvDataBasis(StrEnum):
     """Which reads a copy-number estimate was derived from.
 
     Adaptive sampling produces two very different read populations in one run. Rejected
-    reads still occupy the flow cell and form a near-uniform low-coverage whole-genome
-    background, which is the population most depth-based CNV methods actually assume.
-    On-target reads are deeply but non-uniformly enriched and violate that assumption.
-    Mixing the two in one benchmark stratum compares incomparable things.
+    reads still occupy the flow cell and **may** form a near-uniform low-coverage
+    whole-genome background — the population most depth-based CNV methods assume — but
+    whether they do so on any particular assay is an open empirical question, not a
+    property this code has measured. On-target reads are deeply but non-uniformly enriched
+    and violate that assumption. Mixing the two in one benchmark stratum compares
+    incomparable things, which is why the distinction is recorded whichever way the
+    measurement eventually comes out.
     """
 
     ADAPTIVE_SAMPLING_OFF_TARGET = "adaptive_sampling_off_target"
@@ -223,6 +226,11 @@ class CnvCallSet(StrictModel):
     #: Regions the method declined to call. Kept separate from segments so that a
     #: no-call is never confused with a neutral call.
     no_call_regions: list[GenomicRegion] = Field(default_factory=list)
+    #: The method ran to completion and asserts that no copy-number alteration is present
+    #: in the evaluable genome. Required when a COMPLETED call set carries no segments,
+    #: because "found nothing" and "could not look" must never be inferred from the same
+    #: empty list. Still not a clinical negative: it is bounded by the observability mask.
+    reports_biological_negative: bool = False
     bin_size_bp: int | None = Field(default=None, gt=0)
     estimated_tumor_fraction: float | None = Field(default=None, ge=0, le=1)
     estimated_ploidy: float | None = Field(default=None, gt=0)
@@ -236,12 +244,40 @@ class CnvCallSet(StrictModel):
 
     @model_validator(mode="after")
     def status_matches_content(self) -> CnvCallSet:
-        if self.status == ModuleRunStatus.COMPLETED and not self.segments:
-            raise ValueError(
-                "a COMPLETED call set must contain segments; an empty result is NO_CALL"
-            )
+        """Status is the adapter's claim about its own run, not a function of emptiness.
+
+        An empty segment list means two incompatible things depending on the caller. A
+        segment-emitting method that reports nothing has found nothing — a successful,
+        biologically negative result. An alteration-only method that reports nothing may
+        equally have found nothing, or have been unable to look. Deriving the status from
+        emptiness alone forces the first case to masquerade as the second, which is the
+        exact confusion the ``NO_CALL`` vocabulary exists to prevent.
+
+        So the adapter declares the status and this validator only refuses combinations
+        that cannot be true: a method that declined to call must not also have emitted
+        calls, and a completed method claiming a biological negative must say so
+        explicitly rather than leave a reader to infer it from an empty list.
+        """
         if self.status == ModuleRunStatus.NO_CALL and self.segments:
-            raise ValueError("a NO_CALL call set must not contain segments")
+            raise ValueError(
+                "a NO_CALL call set must not contain segments: declining to call and "
+                "reporting a call are different claims"
+            )
+        if (
+            self.status == ModuleRunStatus.COMPLETED
+            and not self.segments
+            and not self.reports_biological_negative
+        ):
+            raise ValueError(
+                "a COMPLETED call set with no segments must set "
+                "reports_biological_negative, so that 'the method looked and found "
+                "nothing' is asserted rather than inferred from an empty list"
+            )
+        if self.reports_biological_negative and self.status != ModuleRunStatus.COMPLETED:
+            raise ValueError(
+                "only a COMPLETED call set can assert a biological negative; a method "
+                "that did not complete has not established one"
+            )
         return self
 
     def state_segments(self) -> list[StateSegment]:
@@ -298,7 +334,8 @@ class GenomePartitionReport(StrictModel):
 
     ``reference_bases == mask_bases + excluded_bases``
 
-    ``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``
+    ``mask_bases == evaluable_bases + truth_silent_bases + truth_resolution_silent_bases
+    + query_no_call_bases``
     """
 
     reference_bases: int = Field(ge=0)
@@ -309,15 +346,21 @@ class GenomePartitionReport(StrictModel):
     truth_silent_bases: int = Field(ge=0)
     evaluable_fraction: float | None = Field(default=None, ge=0, le=1)
     excluded_bases_by_reason: dict[str, int] = Field(default_factory=dict)
+    #: Bases under calls finer than the truth source can resolve. Reported separately
+    #: because this exclusion flatters the caller: nothing here can be a false positive.
+    truth_resolution_silent_bases: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def partition_reconciles(self) -> GenomePartitionReport:
         if self.mask_bases != (
-            self.evaluable_bases + self.truth_silent_bases + self.query_no_call_bases
+            self.evaluable_bases
+            + self.truth_silent_bases
+            + self.truth_resolution_silent_bases
+            + self.query_no_call_bases
         ):
             raise ValueError(
                 "genome partition does not reconcile: mask bases must equal evaluable "
-                "plus truth-silent plus query-no-call bases"
+                "plus truth-silent plus truth-resolution-silent plus query-no-call bases"
             )
         if self.reference_bases != self.mask_bases + self.excluded_bases:
             raise ValueError(

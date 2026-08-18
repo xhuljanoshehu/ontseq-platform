@@ -267,7 +267,8 @@ class GenomePartition:
 
     ``reference_bases == mask_bases + excluded_bases``
 
-    ``mask_bases == evaluable_bases + truth_silent_bases + query_no_call_bases``
+    ``mask_bases == evaluable_bases + truth_silent_bases
+    + truth_resolution_silent_bases + query_no_call_bases``
 
     An accounting that does not add up cannot be audited, so both identities are
     asserted by :meth:`validate` and covered by a test.
@@ -285,16 +286,27 @@ class GenomePartition:
     #: Mask bases dropped because the truth source asserted nothing.
     truth_silent_bases: int
     excluded_bases_by_reason: dict[str, int]
+    #: Mask bases dropped because the called feature is finer than the truth source can
+    #: resolve. Kept separate from ``truth_silent_bases`` because the cause is different
+    #: and the consequence is uncomfortable: these are calls nobody can refute, and a
+    #: reader must be able to see how much of the genome that covers.
+    truth_resolution_silent_bases: int = 0
 
     def validate(self) -> None:
         """Raise when the partition does not reconcile."""
-        if self.mask_bases != (
-            self.evaluable_bases + self.truth_silent_bases + self.query_no_call_bases
-        ):
+        accounted = (
+            self.evaluable_bases
+            + self.truth_silent_bases
+            + self.truth_resolution_silent_bases
+            + self.query_no_call_bases
+        )
+        if self.mask_bases != accounted:
             raise ValueError(
                 "genome partition does not reconcile: mask bases "
                 f"{self.mask_bases} != evaluable {self.evaluable_bases} + truth silent "
-                f"{self.truth_silent_bases} + query no-call {self.query_no_call_bases}"
+                f"{self.truth_silent_bases} + truth resolution silent "
+                f"{self.truth_resolution_silent_bases} + query no-call "
+                f"{self.query_no_call_bases}"
             )
         if self.reference_bases != self.mask_bases + self.excluded_bases:
             raise ValueError(
@@ -493,6 +505,7 @@ def evaluate(
     reference_bases: int,
     truth_background: CopyNumberState,
     query_background: CopyNumberState,
+    truth_resolution_bp: int = 0,
     options: EvaluationOptions | None = None,
     default_truth_boundary: BoundaryUncertainty | None = None,
     excluded_bases_by_reason: Mapping[str, int] | None = None,
@@ -505,6 +518,18 @@ def evaluate(
     is ``NEUTRAL`` (closed world). A karyotype report or an alteration-only caller
     asserts nothing outside what it lists, so its background is ``NO_CALL`` (open world).
     Getting this wrong inverts specificity, which is why it has no default.
+
+    ``truth_resolution_bp`` is the finest feature the truth source can see. Below it the
+    truth is *silent*, not negative, and the distinction is not cosmetic: a karyotype read
+    at 10 Mb bands cannot refute a 200 kb duplication, so scoring that call as a false
+    positive invents an error the truth never had the resolution to observe. Those bases
+    leave the evaluable denominator and are accounted separately.
+
+    The rule is deliberately asymmetric. It applies only where the truth asserts its
+    *background* — that is, where it is claiming absence. Where the truth explicitly
+    asserts an alteration it has made a positive claim, and a call agreeing with that
+    claim is confirmed on its merits however small it is. Absence is the only assertion
+    a source cannot make below its own resolution.
     """
     resolved = options or EvaluationOptions()
     truth_grouped = _validate_segments(truth_segments, "truth")
@@ -525,6 +550,34 @@ def evaluate(
     concordant_bases = 0
     query_no_call_bases = 0
     truth_silent_bases = 0
+    truth_resolution_silent_bases = 0
+
+    # Spans where a call is finer than the truth can resolve. Built from the query
+    # segments rather than from the partition cells, because "too small to be seen" is a
+    # property of the called feature as a whole: a 200 kb duplication does not become
+    # resolvable because the partition happens to cut it into three cells.
+    resolution_silent: IntervalSet = {}
+    if truth_resolution_bp > 0:
+        for contig, items in query_grouped.items():
+            for segment in items:
+                if segment.state == query_background:
+                    continue
+                if segment.end - segment.start < truth_resolution_bp:
+                    resolution_silent.setdefault(contig, []).append((segment.start, segment.end))
+        resolution_silent = normalize_set(resolution_silent)
+    # Where the truth asserts something explicitly it has made a positive claim, which a
+    # call can agree or disagree with at any scale. Only its *background* — its claim of
+    # absence — is limited by its resolution.
+    truth_asserted: IntervalSet = normalize_set(
+        {
+            contig: [(segment.start, segment.end) for segment in items]
+            for contig, items in truth_grouped.items()
+        }
+    )
+    resolution_starts = {
+        contig: [s for s, _ in spans] for contig, spans in resolution_silent.items()
+    }
+    asserted_starts = {contig: [s for s, _ in spans] for contig, spans in truth_asserted.items()}
 
     contigs = sorted(set(truth_grouped) | set(query_grouped) | set(evaluable_set))
     # Per-contig accumulation of concordant bases, keyed by contig, used later to score
@@ -570,6 +623,14 @@ def evaluate(
             # holds exactly and the partition can be reconciled by a reader.
             if truth_state == CopyNumberState.NO_CALL:
                 truth_silent_bases += width
+                continue
+            if (
+                _covered(resolution_silent.get(contig, []), resolution_starts.get(contig, []), left)
+                and not _covered(
+                    truth_asserted.get(contig, []), asserted_starts.get(contig, []), left
+                )
+            ):
+                truth_resolution_silent_bases += width
                 continue
             if query_state == CopyNumberState.NO_CALL:
                 query_no_call_bases += width
@@ -653,6 +714,20 @@ def evaluate(
             "No evaluable bases remained after applying the observability mask; every "
             "metric is undefined rather than zero."
         )
+    if truth_resolution_silent_bases:
+        # Said plainly, because this is the one exclusion that flatters the caller: these
+        # are calls the truth was never able to contradict, and a specificity read without
+        # knowing how many there were is not interpretable.
+        unrefutable = sum(
+            1 for item in query_results if item.outcome == QueryOutcome.NOT_ASSESSABLE
+        )
+        collected_warnings.append(
+            f"{truth_resolution_silent_bases} base(s) under {unrefutable} called event(s) "
+            f"lie below the truth source's declared resolution of {truth_resolution_bp} bp "
+            "and left the evaluable genome. The truth cannot refute them, so they are "
+            "neither confirmed nor false positives; specificity here describes only what "
+            "the truth was able to see."
+        )
 
     partition = GenomePartition(
         reference_bases=max(reference_bases, mask_bases),
@@ -662,6 +737,7 @@ def evaluate(
         query_no_call_bases=query_no_call_bases,
         truth_silent_bases=truth_silent_bases,
         excluded_bases_by_reason=dict(excluded_bases_by_reason or {}),
+        truth_resolution_silent_bases=truth_resolution_silent_bases,
     )
     partition.validate()
 

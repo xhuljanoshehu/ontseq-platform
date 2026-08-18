@@ -224,7 +224,12 @@ def _call_set_for(
         method_version=METHOD_VERSION,
         data_basis=CnvDataBasis.SIMULATED,
         background_state=CopyNumberState.NEUTRAL,
-        status=ModuleRunStatus.COMPLETED if segments else ModuleRunStatus.NO_CALL,
+        # The baseline segments the whole evaluable genome, so an empty result means it
+        # looked everywhere and found nothing to report — a biological negative bounded by
+        # the mask, not a failure to look. Reporting that as NO_CALL would be the exact
+        # conflation the status vocabulary exists to prevent.
+        status=ModuleRunStatus.COMPLETED,
+        reports_biological_negative=not segments,
         segments=segments,
         no_call_regions=no_call,
         bin_size_bp=bin_size_bp,
@@ -351,14 +356,29 @@ def write_demo_benchmark(
 def summarize_comparison(comparison: PairedMethodComparison) -> list[str]:
     """Render a short human-readable summary of a paired method comparison."""
     p_value = "undefined" if comparison.p_value is None else f"{comparison.p_value:.4g}"
-    return [
+    floor = (
+        "n/a"
+        if comparison.minimum_attainable_p_value is None
+        else f"{comparison.minimum_attainable_p_value:.4g}"
+    )
+    lines = [
         f"paired comparison: {comparison.method_a} vs {comparison.method_b}",
         f"  paired events: {comparison.paired_events} (unpaired {comparison.unpaired_events})",
         f"  both={comparison.both_detected} onlyA={comparison.only_a_detected} "
         f"onlyB={comparison.only_b_detected} neither={comparison.neither_detected}",
-        f"  McNemar exact p={p_value}, favours={comparison.favours}",
-        f"  {comparison.note}",
+        f"  McNemar exact p={p_value} at alpha={comparison.alpha:g}, favours={comparison.favours}",
+        f"  observed direction={comparison.observed_direction} (descriptive), "
+        f"smallest attainable p={floor}",
     ]
+    if comparison.underpowered:
+        lines.append("  UNDERPOWERED: no split of this many pairs could have reached alpha")
+    if comparison.p_value_is_anticonservative:
+        lines.append(
+            f"  CLUSTERED: discordant pairs come from {comparison.discordant_specimens} "
+            "specimen(s); the p-value is smaller than the data support"
+        )
+    lines.append(f"  {comparison.note}")
+    return lines
 
 
 def summarize_demo(summary: CnvAggregateReport) -> list[str]:

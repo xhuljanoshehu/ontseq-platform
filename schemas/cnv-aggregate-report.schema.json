@@ -137,6 +137,52 @@
       "title": "ProportionResult",
       "type": "object"
     },
+    "SpecimenClustering": {
+      "additionalProperties": false,
+      "description": "How the scored events are distributed over specimens.\n\nEvery interval in this report is computed over *events*, and several events routinely\ncome from the same specimen. Events within one specimen share its purity, its library,\nits coverage and its artefacts, so they are not independent observations. Treating\nthem as independent narrows every confidence interval: the interval describes a\nhypothetical population of independent events that does not exist.\n\nThe correction is a specimen-aware endpoint, which is a study-design decision and not\nsomething this module can make on the caller's behalf. What it can do is refuse to\nhide the problem: the numbers below let a reader see the clustering, and\n``intervals_are_anticonservative`` states in one field that the intervals beside them\nare narrower than the data support.",
+      "properties": {
+        "events": {
+          "minimum": 0,
+          "title": "Events",
+          "type": "integer"
+        },
+        "intervals_are_anticonservative": {
+          "default": false,
+          "title": "Intervals Are Anticonservative",
+          "type": "boolean"
+        },
+        "largest_specimen_events": {
+          "minimum": 0,
+          "title": "Largest Specimen Events",
+          "type": "integer"
+        },
+        "mean_events_per_specimen": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Events Per Specimen"
+        },
+        "specimens": {
+          "minimum": 0,
+          "title": "Specimens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "specimens",
+        "events",
+        "largest_specimen_events"
+      ],
+      "title": "SpecimenClustering",
+      "type": "object"
+    },
     "StratumSummary": {
       "additionalProperties": false,
       "description": "Pooled outcome for one stratum across several evaluations.",
@@ -255,6 +301,17 @@
       "title": "By Tumor Fraction",
       "type": "array"
     },
+    "clustering": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpecimenClustering"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
@@ -301,6 +358,17 @@
       "default": "0.1.0",
       "title": "Schema Version",
       "type": "string"
+    },
+    "specimen_level_detection_rate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProportionResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "warnings": {
       "items": {

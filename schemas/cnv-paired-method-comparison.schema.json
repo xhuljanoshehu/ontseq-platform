@@ -2,9 +2,22 @@
   "additionalProperties": false,
   "description": "A paired comparison of two methods on the same truth events.\n\nThe contingency counts are reported in full so the reader can judge the comparison\nrather than only its p-value.",
   "properties": {
+    "alpha": {
+      "default": 0.05,
+      "exclusiveMaximum": 1,
+      "exclusiveMinimum": 0,
+      "title": "Alpha",
+      "type": "number"
+    },
     "both_detected": {
       "minimum": 0,
       "title": "Both Detected",
+      "type": "integer"
+    },
+    "discordant_specimens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Discordant Specimens",
       "type": "integer"
     },
     "favours": {
@@ -25,6 +38,20 @@
       "title": "Method B",
       "type": "string"
     },
+    "minimum_attainable_p_value": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Minimum Attainable P Value"
+    },
     "neither_detected": {
       "minimum": 0,
       "title": "Neither Detected",
@@ -32,6 +59,16 @@
     },
     "note": {
       "title": "Note",
+      "type": "string"
+    },
+    "observed_direction": {
+      "default": "neither",
+      "enum": [
+        "a",
+        "b",
+        "neither"
+      ],
+      "title": "Observed Direction",
       "type": "string"
     },
     "only_a_detected": {
@@ -58,6 +95,11 @@
       "default": null,
       "title": "P Value"
     },
+    "p_value_is_anticonservative": {
+      "default": false,
+      "title": "P Value Is Anticonservative",
+      "type": "boolean"
+    },
     "paired_events": {
       "minimum": 0,
       "title": "Paired Events",
@@ -74,6 +116,11 @@
       "default": "0.1.0",
       "title": "Schema Version",
       "type": "string"
+    },
+    "underpowered": {
+      "default": false,
+      "title": "Underpowered",
+      "type": "boolean"
     },
     "unpaired_events": {
       "minimum": 0,

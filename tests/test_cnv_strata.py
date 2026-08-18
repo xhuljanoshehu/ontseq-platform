@@ -234,3 +234,138 @@ class ComparisonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InferentialClaimTests(unittest.TestCase):
+    """`favours` is an inferential claim; the direction of the counts is not.
+
+    A four-nil split reads as an obvious winner and cannot reach any conventional
+    threshold, because the smallest attainable two-sided exact p-value at four discordant
+    pairs is 0.125. Naming a winner there asserts something the data cannot support at any
+    alpha, which is why the two are separate fields.
+    """
+
+    def _pair(self, a_detected: bool, b_detected: bool, sample: str):
+        return (
+            _report(tumor_fraction=1.0, detected=a_detected, method="method-a", sample=sample),
+            _report(tumor_fraction=1.0, detected=b_detected, method="method-b", sample=sample),
+        )
+
+    def _compare(self, pairs, **kwargs):
+        return paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs], **kwargs)
+
+    def test_a_clean_sweep_too_small_to_test_favours_nobody(self) -> None:
+        result = self._compare([self._pair(True, False, f"S_{i}") for i in range(4)])
+        self.assertEqual(result.only_a_detected, 4)
+        self.assertEqual(result.favours, "neither")
+        self.assertTrue(result.underpowered)
+        self.assertAlmostEqual(result.minimum_attainable_p_value, 0.125)
+
+    def test_the_observed_direction_is_still_reported(self) -> None:
+        """Withholding the claim must not mean withholding the description."""
+        result = self._compare([self._pair(True, False, f"S_{i}") for i in range(4)])
+        self.assertEqual(result.observed_direction, "a")
+        self.assertIn("description and not", result.note)
+
+    def test_the_note_says_no_result_was_attainable(self) -> None:
+        result = self._compare([self._pair(True, False, f"S_{i}") for i in range(4)])
+        self.assertIn("underpowered by design", result.note)
+
+    def test_a_significant_result_does_name_a_method(self) -> None:
+        result = self._compare([self._pair(True, False, f"S_{i}") for i in range(6)])
+        self.assertFalse(result.underpowered)
+        self.assertEqual(result.favours, "a")
+        self.assertEqual(result.observed_direction, "a")
+
+    def test_a_non_significant_but_powered_comparison_favours_neither(self) -> None:
+        pairs = [self._pair(True, False, f"S_{i}") for i in range(4)]
+        pairs += [self._pair(False, True, f"T_{i}") for i in range(3)]
+        result = self._compare(pairs)
+        self.assertFalse(result.underpowered)
+        self.assertEqual(result.favours, "neither")
+        self.assertEqual(result.observed_direction, "a")
+        self.assertIn("not evidence of equivalence", result.note)
+
+    def test_alpha_is_recorded_so_the_claim_can_be_audited(self) -> None:
+        result = self._compare([self._pair(True, False, f"S_{i}") for i in range(6)])
+        self.assertAlmostEqual(result.alpha, 0.05)
+
+    def test_a_stricter_alpha_can_withdraw_the_claim(self) -> None:
+        """The direction must follow the pre-specified rule, not the other way round."""
+        pairs = [self._pair(True, False, f"S_{i}") for i in range(6)]
+        self.assertEqual(self._compare(pairs, alpha=0.05).favours, "a")
+        self.assertEqual(self._compare(pairs, alpha=0.01).favours, "neither")
+
+    def test_an_impossible_alpha_is_refused(self) -> None:
+        pairs = [self._pair(True, False, "S_1")]
+        with self.assertRaises(ValueError):
+            self._compare(pairs, alpha=0.0)
+
+
+class SpecimenClusteringTests(unittest.TestCase):
+    """Events inside one specimen are not independent observations.
+
+    They share its purity, library, coverage and artefacts. Every interval here is
+    computed over events, so where events cluster the intervals are narrower than the data
+    support. The module cannot fix that on the caller's behalf — a specimen-level endpoint
+    is a study-design decision — but it must not present the problem as absent.
+    """
+
+    def _reports(self, samples):
+        return [_report(tumor_fraction=1.0, detected=True, sample=sample) for sample in samples]
+
+    def test_one_event_per_specimen_is_not_flagged(self) -> None:
+        report = aggregate(self._reports(["S_1", "S_2", "S_3"]), aggregate_id="AGG_001")
+        self.assertEqual(report.clustering.specimens, 3)
+        self.assertFalse(report.clustering.intervals_are_anticonservative)
+
+    def test_repeated_specimens_are_flagged(self) -> None:
+        report = aggregate(self._reports(["S_1", "S_1", "S_2"]), aggregate_id="AGG_001")
+        self.assertEqual(report.clustering.specimens, 2)
+        self.assertEqual(report.clustering.largest_specimen_events, 2)
+        self.assertTrue(report.clustering.intervals_are_anticonservative)
+
+    def test_the_clustering_is_stated_in_words_not_only_in_a_flag(self) -> None:
+        report = aggregate(self._reports(["S_1", "S_1", "S_2"]), aggregate_id="AGG_001")
+        self.assertTrue(
+            any("not independent" in warning for warning in report.warnings), report.warnings
+        )
+
+    def test_a_specimen_level_rate_is_reported_beside_the_event_level_one(self) -> None:
+        report = aggregate(self._reports(["S_1", "S_1", "S_2"]), aggregate_id="AGG_001")
+        self.assertIsNotNone(report.specimen_level_detection_rate)
+        self.assertEqual(report.specimen_level_detection_rate.total, 2)
+        self.assertEqual(report.overall_detection_rate.total, 3)
+
+    def test_the_specimen_rate_does_not_replace_the_event_rate(self) -> None:
+        """They answer different questions; a reader must be able to see both."""
+        report = aggregate(self._reports(["S_1", "S_1", "S_2"]), aggregate_id="AGG_001")
+        self.assertIsNotNone(report.overall_detection_rate)
+
+    def test_the_limitation_is_recorded_in_the_report(self) -> None:
+        report = aggregate(self._reports(["S_1", "S_2"]), aggregate_id="AGG_001")
+        self.assertTrue(
+            any("event-level" in item for item in report.limitations), report.limitations
+        )
+
+
+class ClusteredPairedComparisonTests(unittest.TestCase):
+    """McNemar treats each discordant pair as an independent coin flip."""
+
+    def _pair(self, a_detected: bool, b_detected: bool, sample: str):
+        return (
+            _report(tumor_fraction=1.0, detected=a_detected, method="method-a", sample=sample),
+            _report(tumor_fraction=1.0, detected=b_detected, method="method-b", sample=sample),
+        )
+
+    def test_one_specimen_per_pair_is_not_flagged(self) -> None:
+        pairs = [self._pair(True, False, f"S_{i}") for i in range(6)]
+        result = paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs])
+        self.assertEqual(result.discordant_specimens, 6)
+        self.assertFalse(result.p_value_is_anticonservative)
+
+    def test_no_discordant_pair_leaves_the_count_at_zero(self) -> None:
+        pairs = [self._pair(True, True, f"S_{i}") for i in range(3)]
+        result = paired_detection_comparison([a for a, _ in pairs], [b for _, b in pairs])
+        self.assertEqual(result.discordant_specimens, 0)
+        self.assertFalse(result.p_value_is_anticonservative)

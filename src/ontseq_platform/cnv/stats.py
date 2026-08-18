@@ -176,6 +176,25 @@ def mcnemar_exact(only_first: int, only_second: int) -> float | None:
     return min(1.0, 2.0 * tail)
 
 
+def minimum_attainable_p_value(discordant: int) -> float | None:
+    """Smallest two-sided exact p-value reachable with this many discordant pairs.
+
+    The most extreme possible split is all-or-nothing, giving ``2 * 0.5**n``. Below six
+    discordant pairs that floor sits above 0.05, so no observation whatsoever could reach
+    significance — the study was decided before the data were seen.
+
+    This is worth reporting next to a non-significant p-value because the two readings
+    are entirely different. "We compared them and found no difference" is a result; "this
+    comparison could not have detected a difference" is a design fault, and a bare
+    ``p = 0.125`` looks identical to both.
+    """
+    if discordant < 0:
+        raise ValueError("discordant count must not be negative")
+    if discordant == 0:
+        return None
+    return min(1.0, 2.0 * (0.5**discordant))
+
+
 @dataclass(frozen=True)
 class LogisticFit:
     """A one-predictor logistic fit with an explicit convergence flag."""

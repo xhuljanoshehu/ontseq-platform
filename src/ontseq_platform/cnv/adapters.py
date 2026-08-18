@@ -298,6 +298,10 @@ def call_set_from_segment_table(
 ) -> CnvCallSet:
     """Parse a tool's segment table into a normalized, non-reportable call set."""
     segments, warnings = parse_segment_table(lines, mapping, baseline_ploidy=baseline_ploidy)
+    # An empty segment table is genuinely ambiguous from the outside: the format records no
+    # difference between a tool that ran and found nothing and one that produced nothing.
+    # A caller that knows its own run can assert `reports_biological_negative`; an adapter
+    # reading its output afterwards cannot, so NO_CALL is the only honest reading here.
     status = ModuleRunStatus.COMPLETED if segments else ModuleRunStatus.NO_CALL
     return CnvCallSet(
         call_set_id=call_set_id,

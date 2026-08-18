@@ -8,6 +8,7 @@ from ontseq_platform.cnv.stats import (
     logistic_threshold,
     mcnemar_exact,
     mean_absolute_error,
+    minimum_attainable_p_value,
     root_mean_square_error,
     wilson_interval,
 )
@@ -134,3 +135,32 @@ class LogisticFitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinimumAttainablePValueTests(unittest.TestCase):
+    """A comparison that could never have reached significance is a design fault.
+
+    Reported next to the p-value because the two readings are entirely different: "we
+    compared them and found no difference" is a result, "this comparison could not have
+    detected one" is not, and a bare p=0.125 looks identical to both.
+    """
+
+    def test_no_discordant_pair_has_no_attainable_value(self) -> None:
+        self.assertIsNone(minimum_attainable_p_value(0))
+
+    def test_four_pairs_cannot_reach_five_percent(self) -> None:
+        self.assertAlmostEqual(minimum_attainable_p_value(4), 0.125)
+
+    def test_six_pairs_is_the_smallest_count_that_can(self) -> None:
+        self.assertGreater(minimum_attainable_p_value(5), 0.05)
+        self.assertLess(minimum_attainable_p_value(6), 0.05)
+
+    def test_the_floor_matches_the_most_extreme_actual_split(self) -> None:
+        """The floor is a claim about the test, so it must equal what the test returns."""
+        for pairs in range(1, 12):
+            with self.subTest(pairs=pairs):
+                self.assertAlmostEqual(minimum_attainable_p_value(pairs), mcnemar_exact(pairs, 0))
+
+    def test_a_negative_count_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            minimum_attainable_p_value(-1)
