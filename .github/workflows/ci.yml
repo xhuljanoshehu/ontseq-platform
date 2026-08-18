@@ -86,6 +86,12 @@ jobs:
             echo "a broken model was still offered as something to record" >&2
             exit 1
           fi
+      - name: Every shipped manifest template still validates
+        run: |
+          set -euo pipefail
+          for manifest in examples/manifests/*.yaml; do
+            python -m ontseq_platform validate-manifest "$manifest"
+          done
       - name: Validate Snakemake DAGs
         run: |
           snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1

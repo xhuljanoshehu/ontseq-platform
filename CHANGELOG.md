@@ -50,6 +50,16 @@ validated release.
   download; it exits 2 and withholds the checksum rather than printing it beside a warning.
   The digest is the one `basecall.model_signature` already computed, now the single
   implementation both call, so the command and the check it feeds cannot drift apart.
+- `docs/SCHNELLSTART.md`, a step-by-step operating guide in German, and
+  `examples/manifests/gridion_adaptive_sampling.example.yaml`, a template for the case this
+  platform is actually aimed at: a GridION or PromethION run with adaptive sampling where
+  the instrument has already basecalled, so the chain enters at `aligned_bam` and the
+  untested POD5 lane is not involved. The guide is in German because it is an operating
+  manual for the laboratory; the rest of `docs/` stays English as the technical record. It
+  states up front which stages do *not* run, so nobody looks for a CNV result that the
+  stage graph correctly reports as `NOT_RUN`.
+- CI validates every shipped manifest template, so a template cannot go stale against the
+  contract without the job failing.
 - `db_records_matched` on the four event sheets. A reviewer who never opens the annotation
   sheet would otherwise not know there was anything there to open. It is a count, named for
   what it counts, so that it cannot be read as a classification of the finding itself.
