@@ -79,9 +79,8 @@ class DigestTests(unittest.TestCase):
 
 class RefusalTests(unittest.TestCase):
     def test_a_missing_path_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaises(ModelLockError):
-                fingerprint(Path(temporary) / "absent")
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(ModelLockError):
+            fingerprint(Path(temporary) / "absent")
 
     def test_a_bare_model_name_is_refused_rather_than_resolved(self) -> None:
         """Guessing at Dorado's cache would produce a lock on a directory nobody chose."""
