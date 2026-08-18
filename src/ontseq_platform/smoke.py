@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .bam_intake import AlignedBamInspector
+from .cutesv_runner import CuteSVExecutionPolicy, run_cutesv
 from .execution import CommandRunner, SubprocessRunner
 from .io import write_json
 from .models import (
@@ -26,6 +27,8 @@ from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
 from .sniffles import run_sniffles
+from .sv_caller_bridge import compare_sniffles_and_cutesv
+from .sv_concordance import SVConcordancePolicy
 from .workbook import render_workbook
 
 SYNTHETIC_SAMPLE_ID = "SYNTHETIC_SMOKE_001"
@@ -92,6 +95,17 @@ def synthetic_sam_text() -> str:
     return "\n".join(lines) + "\n"
 
 
+def _write_synthetic_reference(path: Path) -> None:
+    """Write two 2 Mb synthetic chromosomes without retaining a large in-memory string."""
+    sequence_line = "A" * 80 + "\n"
+    lines_per_chromosome = 2_000_000 // 80
+    with path.open("w", encoding="utf-8") as handle:
+        for chromosome in ("chr1", "chr2"):
+            handle.write(f">{chromosome}\n")
+            for _ in range(lines_per_chromosome):
+                handle.write(sequence_line)
+
+
 def _run_checked(
     runner: CommandRunner,
     argv: list[str],
@@ -121,6 +135,7 @@ def run_local_smoke(
     samtools: str = "samtools",
     cramino: str = "cramino",
     sniffles: str = "sniffles",
+    cutesv: str = "cuteSV",
     threads: int = 2,
     pipeline_version: str = "UNKNOWN",
     git_commit: str = "LOCAL_SMOKE",
@@ -133,13 +148,17 @@ def run_local_smoke(
     unsorted_bam = output_dir / "synthetic.unsorted.bam"
     bam_path = output_dir / "synthetic.sorted.bam"
     bai_path = output_dir / "synthetic.sorted.bam.bai"
-    fai_path = output_dir / "synthetic.reference.fai"
+    reference_fasta_path = output_dir / "synthetic.reference.fa"
+    fai_path = Path(f"{reference_fasta_path}.fai")
     manifest_path = output_dir / "synthetic.manifest.json"
     reference_lock_path = output_dir / "synthetic.reference-lock.json"
     intake_path = output_dir / "synthetic.intake.json"
     qc_path = output_dir / "synthetic.qc.json"
-    vcf_path = output_dir / "synthetic.sniffles.vcf"
+    sniffles_vcf_path = output_dir / "synthetic.sniffles.vcf"
     sniffles_report_path = output_dir / "synthetic.sniffles.json"
+    cutesv_vcf_path = output_dir / "synthetic.cutesv.vcf"
+    cutesv_report_path = output_dir / "synthetic.cutesv.json"
+    concordance_path = output_dir / "synthetic.sv-concordance.json"
     report_path = output_dir / "local-smoke.report.json"
     result_path = output_dir / f"{SYNTHETIC_SAMPLE_ID}.result.json"
     html_path = output_dir / f"{SYNTHETIC_SAMPLE_ID}.report.html"
@@ -149,13 +168,17 @@ def run_local_smoke(
         unsorted_bam,
         bam_path,
         bai_path,
+        reference_fasta_path,
         fai_path,
         manifest_path,
         reference_lock_path,
         intake_path,
         qc_path,
-        vcf_path,
+        sniffles_vcf_path,
         sniffles_report_path,
+        cutesv_vcf_path,
+        cutesv_report_path,
+        concordance_path,
         report_path,
         result_path,
         html_path,
@@ -165,9 +188,12 @@ def run_local_smoke(
 
     command_runner = runner or SubprocessRunner()
     sam_path.write_text(synthetic_sam_text(), encoding="utf-8")
-    fai_path.write_text(
-        "chr1\t2000000\t0\t0\t0\nchr2\t2000000\t0\t0\t0\n",
-        encoding="utf-8",
+    _write_synthetic_reference(reference_fasta_path)
+    _run_checked(
+        command_runner,
+        [samtools, "faidx", str(reference_fasta_path)],
+        label="samtools FASTA index",
+        timeout_seconds=120,
     )
     _run_checked(
         command_runner,
@@ -240,14 +266,32 @@ def run_local_smoke(
         manifest,
         intake,
         sniffles_policy,
-        output_vcf=vcf_path,
+        output_vcf=sniffles_vcf_path,
         runner=command_runner,
         sniffles=sniffles,
         threads=threads,
     )
     write_json(sniffles_report, sniffles_report_path)
 
-    expected_deletions = [
+    cutesv_policy = CuteSVExecutionPolicy(
+        min_support=sniffles_policy.min_support,
+        min_sv_length=sniffles_policy.min_sv_length,
+        min_mapq=sniffles_policy.mapq,
+    )
+    cutesv_report = run_cutesv(
+        manifest,
+        intake,
+        cutesv_policy,
+        reference_fasta=reference_fasta_path,
+        reference_fai=fai_path,
+        output_vcf=cutesv_vcf_path,
+        runner=command_runner,
+        cutesv=cutesv,
+        threads=threads,
+    )
+    write_json(cutesv_report, cutesv_report_path)
+
+    expected_sniffles_deletions = [
         event
         for event in sniffles_report.events
         if event.event_type.value == "deletion"
@@ -259,7 +303,42 @@ def run_local_smoke(
         and event.evidence
         and (event.evidence[0].support_reads or 0) >= sniffles_policy.min_support
     ]
-    deletion_detected = bool(expected_deletions)
+    expected_cutesv_deletions = [
+        event
+        for event in cutesv_report.events
+        if event.event_type.value == "deletion"
+        and event.primary.chromosome == "chr1"
+        and event.primary.start < 10200
+        and event.primary.end > 10000
+        and event.length_bp is not None
+        and 150 <= event.length_bp <= 250
+        and event.evidence
+        and (event.evidence[0].support_reads or 0) >= cutesv_policy.min_support
+    ]
+
+    concordance = compare_sniffles_and_cutesv(
+        sniffles_report,
+        cutesv_report,
+        SVConcordancePolicy(
+            maximum_breakpoint_distance_bp=250,
+            note=(
+                "Synthetic real-tool smoke tolerance only; software comparison evidence, not a "
+                "clinical or biological validation threshold."
+            ),
+        ),
+    )
+    write_json(concordance, concordance_path)
+    expected_sniffles_ids = {event.event_id for event in expected_sniffles_deletions}
+    expected_cutesv_ids = {event.event_id for event in expected_cutesv_deletions}
+    matching_multicaller_pairs = [
+        pair
+        for pair in concordance.pairs
+        if pair.left_observation_id in expected_sniffles_ids
+        and pair.right_observation_id in expected_cutesv_ids
+        and pair.left_event_type.value == "deletion"
+        and pair.right_event_type.value == "deletion"
+    ]
+
     checks = [
         ValidationCheck(
             name="aligned_bam_intake",
@@ -272,19 +351,37 @@ def run_local_smoke(
             message="Cramino executed and returned a normalized QC artifact.",
         ),
         ValidationCheck(
-            name="expected_synthetic_deletion",
-            status=CheckStatus.PASS if deletion_detected else CheckStatus.FAIL,
+            name="expected_synthetic_deletion_sniffles",
+            status=(
+                CheckStatus.PASS if expected_sniffles_deletions else CheckStatus.FAIL
+            ),
             message=(
                 "Sniffles2 recovered the expected synthetic deletion candidate."
-                if deletion_detected
+                if expected_sniffles_deletions
                 else "Sniffles2 did not recover the expected synthetic deletion candidate."
             ),
             details={
                 "accepted_sv_candidates": sniffles_report.accepted_record_count,
-                "matching_expected_deletions": len(expected_deletions),
+                "matching_expected_deletions": len(expected_sniffles_deletions),
                 "raw_sniffles_records": sniffles_report.raw_record_count,
                 "rejected_sniffles_records": sniffles_report.rejected_record_count,
                 "sniffles_rejection_counts": str(sniffles_report.rejection_counts),
+            },
+        ),
+        ValidationCheck(
+            name="expected_synthetic_deletion_cutesv",
+            status=CheckStatus.PASS if expected_cutesv_deletions else CheckStatus.FAIL,
+            message=(
+                "cuteSV recovered the expected synthetic deletion candidate."
+                if expected_cutesv_deletions
+                else "cuteSV did not recover the expected synthetic deletion candidate."
+            ),
+            details={
+                "accepted_sv_candidates": cutesv_report.accepted_record_count,
+                "matching_expected_deletions": len(expected_cutesv_deletions),
+                "raw_cutesv_records": cutesv_report.raw_record_count,
+                "rejected_cutesv_records": cutesv_report.rejected_record_count,
+                "cutesv_rejection_counts": str(cutesv_report.rejection_counts),
             },
         ),
         ValidationCheck(
@@ -295,6 +392,31 @@ def run_local_smoke(
                 else CheckStatus.FAIL
             ),
             message="Read-name export is disabled in the Sniffles2 adapter.",
+        ),
+        ValidationCheck(
+            name="privacy_preserving_cutesv_mode",
+            status=(
+                CheckStatus.PASS
+                if cutesv_report.tool.parameters.get("report_read_ids") is False
+                and cutesv_report.tool.parameters.get("ignore_sequence") is True
+                else CheckStatus.FAIL
+            ),
+            message="cuteSV read-ID export is disabled and inserted sequence output is suppressed.",
+        ),
+        ValidationCheck(
+            name="synthetic_multicaller_concordance",
+            status=CheckStatus.PASS if matching_multicaller_pairs else CheckStatus.FAIL,
+            message=(
+                "Sniffles2 and cuteSV produced software-concordant evidence for the expected "
+                "synthetic deletion; this is not biological truth."
+                if matching_multicaller_pairs
+                else "No software-concordant Sniffles2/cuteSV pair matched the expected deletion."
+            ),
+            details={
+                "concordance_pairs": len(concordance.pairs),
+                "matching_expected_pairs": len(matching_multicaller_pairs),
+                "software_tolerance_bp": concordance.policy.maximum_breakpoint_distance_bp,
+            },
         ),
     ]
     verdict = (
@@ -311,6 +433,10 @@ def run_local_smoke(
             "This is a deterministic engineering smoke test using fully synthetic alignments.",
             "The synthetic reference is not GRCh38 despite exercising the GRCh38 namespace "
             "contract.",
+            "The 250 bp multi-caller matching tolerance is synthetic software-test configuration, "
+            "not a clinical threshold.",
+            "Caller agreement is supporting software evidence only, not biological truth or "
+            "orthogonal validation.",
             "A passing smoke test proves execution and normalization, not clinical performance.",
         ],
     )
