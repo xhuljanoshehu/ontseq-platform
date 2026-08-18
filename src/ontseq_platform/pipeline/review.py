@@ -132,7 +132,8 @@ def _to_entry(payload: dict[str, object]) -> ReviewEntry:
         release_sha256=str(payload["release_sha256"]),
         note=str(payload.get("note", "")),
         previous_entry_sha256=(
-            None if payload.get("previous_entry_sha256") is None
+            None
+            if payload.get("previous_entry_sha256") is None
             else str(payload["previous_entry_sha256"])
         ),
         entry_sha256=str(payload["entry_sha256"]),
