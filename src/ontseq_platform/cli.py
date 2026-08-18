@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -24,6 +25,10 @@ from .demo import build_demo_result
 from .execution import ToolExecutionError
 from .io import load_model, write_json
 from .knowledge.annotate import DEFAULT_EXACT_TOLERANCE_BP, DEFAULT_MINIMUM_OVERLAP
+from .model_lock import ModelLockError
+from .model_lock import exit_code as model_lock_exit_code
+from .model_lock import fingerprint as model_fingerprint
+from .model_lock import render as render_model_lock
 from .models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -114,6 +119,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     reference_lock.add_argument("--allow-extra-contigs", action="store_true")
     reference_lock.add_argument("--output", type=Path, required=True)
+
+    model_lock = subparsers.add_parser(
+        "model-lock",
+        help="Fingerprint a downloaded Dorado model directory for model_sha256",
+        description=(
+            "Compute the checksum a basecalling policy locks its model to, and report what "
+            "went into it. Exits 2 when the directory should not be locked."
+        ),
+    )
+    model_lock.add_argument("model", type=Path, help="Path to a downloaded model directory")
+    model_lock.add_argument(
+        "--list-files",
+        action="store_true",
+        help="List every file in the order it enters the checksum",
+    )
+    model_lock.add_argument("--json", action="store_true", help="Emit JSON for a setup script")
 
     inspect_bam = subparsers.add_parser(
         "inspect-bam", help="Run the aligned-BAM integrity and reference gate"
@@ -499,6 +520,28 @@ def main() -> None:
                 allow_extra_contigs=args.allow_extra_contigs,
             )
             print(write_json(lock, args.output))
+        elif args.command == "model-lock":
+            model = model_fingerprint(args.model)
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "path": str(model.path),
+                            "sha256": model.signature,
+                            "file_count": model.file_count,
+                            "total_bytes": model.total_bytes,
+                            "concerns": list(model.concerns),
+                            "files": [
+                                {"path": item.relative_path, "size_bytes": item.size_bytes}
+                                for item in model.files
+                            ],
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(render_model_lock(model, list_files=args.list_files))
+            raise SystemExit(model_lock_exit_code(model))
         elif args.command == "inspect-bam":
             manifest = load_model(args.manifest, SampleManifest)
             lock = load_model(args.reference_lock, ReferenceLock)
@@ -840,6 +883,9 @@ def main() -> None:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(7) from exc
     except ReviewError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    except ModelLockError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     except RunAlreadyRunning as exc:

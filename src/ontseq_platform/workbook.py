@@ -29,18 +29,31 @@ ANNOTATION_BANNER = (
 )
 
 
-def _style_sheet(sheet: Worksheet) -> None:
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = sheet.dimensions
-    for cell in sheet[1]:
+def _style_header(sheet: Worksheet, row: int) -> None:
+    for cell in sheet[row]:
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = Alignment(horizontal="center")
-    for column in sheet.columns:
+
+
+def _fit_columns(sheet: Worksheet, *, from_row: int) -> None:
+    """Size each column to its widest cell, ignoring rows above ``from_row``.
+
+    The annotation sheet's banner spans every column, so measuring from row 1 there would
+    size the first column to the length of a paragraph.
+    """
+    for column in sheet.iter_cols(min_row=from_row):
         width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
-        column_index = column[0].column
-        if column_index is not None:
-            sheet.column_dimensions[get_column_letter(column_index)].width = width
+        index = column[0].column
+        if index is not None:
+            sheet.column_dimensions[get_column_letter(index)].width = width
+
+
+def _style_sheet(sheet: Worksheet) -> None:
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    _style_header(sheet, 1)
+    _fit_columns(sheet, from_row=1)
 
 
 def _write_table(sheet: Worksheet, headers: list[str], rows: Iterable[list[object]]) -> None:
@@ -139,21 +152,14 @@ def _write_annotations(sheet: Worksheet, result: PipelineResult) -> None:
     # against a somatic question is information about the match, and hiding it would leave
     # the reviewer unable to see why an assertion looks relevant when it is not.
     for row_index in mismatched:
-        for column_index in range(1, len(headers) + 1):
-            sheet.cell(row=row_index, column=column_index).fill = WARNING_FILL
+        for position in range(1, len(headers) + 1):
+            sheet.cell(row=row_index, column=position).fill = WARNING_FILL
 
     sheet.freeze_panes = "A3"
     last_column = get_column_letter(len(headers))
     sheet.auto_filter.ref = f"A2:{last_column}{max(sheet.max_row, 2)}"
-    for cell in sheet[2]:
-        cell.fill = HEADER_FILL
-        cell.font = HEADER_FONT
-        cell.alignment = Alignment(horizontal="center")
-    for column in sheet.iter_cols(min_row=2):
-        width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
-        column_index = column[0].column
-        if column_index is not None:
-            sheet.column_dimensions[get_column_letter(column_index)].width = width
+    _style_header(sheet, 2)
+    _fit_columns(sheet, from_row=2)
 
 
 def render_workbook(result: PipelineResult, output_path: Path) -> Path:

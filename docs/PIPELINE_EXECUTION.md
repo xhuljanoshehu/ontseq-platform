@@ -456,6 +456,37 @@ CI runs preflight on both lanes before the runs it precedes, and asserts two neg
 stated space requirement that cannot be met, and the alignment lane pointed at the *other*
 lane's reference lock — the mistake that otherwise produces confidently wrong coordinates.
 
+### Producing the model checksum preflight compares against
+
+```
+ontseq model-lock /path/to/dna_r10.4.1_e8.2_400bps_sup@v5.0.0
+ontseq model-lock ... --list-files    # every file, in the order it enters the checksum
+ontseq model-lock ... --json          # for a setup script
+```
+
+`basecall.model` may be a name or a path. A name resolves through Dorado's own cache and
+cannot be checksummed, so `model_sha256` only means anything for a downloaded directory —
+and until this command existed, nothing could produce that value except a preflight run
+against a manifest that did not exist yet. The lock stayed `null`, and a check that is
+never populated is a check that never fires.
+
+The command prints `model` and `model_sha256` as the pair to record, because the checksum
+belongs to *that directory*: a re-downloaded or moved model needs a fresh run, not the old
+value copied across.
+
+It also prints the file count and the total size, and this is the part that matters. Every
+directory produces a valid-looking 64-character digest — including one holding three
+zero-byte files from an interrupted download. Where the directory holds no files, empty
+files, or broken symbolic links, the command exits **2** and *withholds* the checksum
+rather than printing it beside a warning; a value on screen next to a caveat is a value
+somebody pastes. Nothing beyond those defects is judged: this repository has never had a
+real Dorado model, so it does not know what a correct one contains, and a file-count
+threshold invented here would be a guess wearing the clothes of a check.
+
+The digest is the one `basecall.model_signature` already computed and preflight already
+compares against — one implementation, called by both, so the command that produces the
+value and the check that enforces it cannot drift apart. CI asserts that equality directly.
+
 ---
 
 ## 10. Signing off a run

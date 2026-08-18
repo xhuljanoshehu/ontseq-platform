@@ -41,6 +41,15 @@ validated release.
   column and reads "Pathogenic" beside an event identifier, and nothing else on the grid
   would say what that means. Rows whose record origin does not match the assay's question
   are filled in the warning colour, because colour is read before column ten is.
+- `ontseq model-lock`, which produces the checksum `BasecallPolicy.model_sha256` locks a
+  Dorado model to. The lock existed and preflight enforced it, but nothing could generate
+  the value except a full preflight run against a manifest that did not exist yet — so in
+  practice it stayed `null` and enforced nothing. The command also reports the file count,
+  the total size and the listed defects, because every directory yields a valid-looking
+  64-character digest, including one holding three zero-byte files from an interrupted
+  download; it exits 2 and withholds the checksum rather than printing it beside a warning.
+  The digest is the one `basecall.model_signature` already computed, now the single
+  implementation both call, so the command and the check it feeds cannot drift apart.
 - `db_records_matched` on the four event sheets. A reviewer who never opens the annotation
   sheet would otherwise not know there was anything there to open. It is a count, named for
   what it counts, so that it cannot be read as a classification of the finding itself.

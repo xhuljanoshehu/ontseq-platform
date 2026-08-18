@@ -36,6 +36,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .execution import StreamingCommandRunner, SubprocessRunner
+from .model_lock import fingerprint as fingerprint_model
 from .models import FileFingerprint, StrictModel, ToolRecord
 from .reference import sha256_file
 
@@ -126,18 +127,15 @@ def model_signature(model: str) -> str | None:
     checksums, so the value is stable across machines and detects a partially downloaded
     or tampered model. A bare model name cannot be fingerprinted without resolving
     Dorado's own cache, and inventing a value would be worse than admitting none.
+
+    Delegates to :mod:`ontseq_platform.model_lock`, which is also what ``ontseq model-lock``
+    calls. Two implementations of one digest is the shape where a preflight check starts
+    disagreeing with the command that produced the value it compares against.
     """
     path = Path(model)
     if not path.is_dir():
         return None
-    import hashlib
-
-    digest = hashlib.sha256()
-    for item in sorted(path.rglob("*")):
-        if item.is_file():
-            digest.update(item.relative_to(path).as_posix().encode("utf-8"))
-            digest.update(sha256_file(item).encode("ascii"))
-    return digest.hexdigest()
+    return fingerprint_model(path).signature
 
 
 def build_basecaller_argv(

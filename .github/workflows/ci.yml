@@ -44,6 +44,48 @@ jobs:
       - name: Unit tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m unittest discover -s tests -v
+      - name: Lock a synthetic model directory and refuse a broken one
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/model/weights
+          printf '[model]\n' > /tmp/model/config.toml
+          head -c 4096 /dev/urandom > /tmp/model/weights/0.tensor
+          python -m ontseq_platform model-lock /tmp/model | tee /tmp/model-lock.log
+          grep -q 'model_sha256: [0-9a-f]\{64\}' /tmp/model-lock.log
+          # The value the command prints must be the value preflight compares against.
+          # Two implementations of one digest is how a lock starts refusing a correct model.
+          python - <<'CHECK'
+          import json
+          import subprocess
+
+          from ontseq_platform.basecall import model_signature
+
+          out = subprocess.run(
+              ["python", "-m", "ontseq_platform", "model-lock", "/tmp/model", "--json"],
+              capture_output=True, text=True, check=True,
+          )
+          payload = json.loads(out.stdout)
+          assert payload["sha256"] == model_signature("/tmp/model"), (
+              "model-lock and the preflight comparison disagree about the same directory"
+          )
+          assert payload["file_count"] == 2, payload["file_count"]
+          assert payload["total_bytes"] == 4096 + len("[model]\n"), payload["total_bytes"]
+          print("model-lock agrees with preflight:", payload["sha256"])
+          CHECK
+          # An interrupted download hashes perfectly happily, so the command has to say so.
+          : > /tmp/model/weights/1.tensor
+          set +e
+          python -m ontseq_platform model-lock /tmp/model > /tmp/model-broken.log
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -q 'DO NOT LOCK THIS DIRECTORY YET' /tmp/model-broken.log
+          grep -q 'weights/1.tensor' /tmp/model-broken.log
+          # and it must not print a line anybody could paste anyway
+          if grep -q 'model_sha256:' /tmp/model-broken.log; then
+            echo "a broken model was still offered as something to record" >&2
+            exit 1
+          fi
       - name: Validate Snakemake DAGs
         run: |
           snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1
