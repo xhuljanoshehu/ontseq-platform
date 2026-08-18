@@ -60,7 +60,7 @@ def analyze_fusion_redundancy(
     for candidate in report.candidates:
         first = _locus_key(candidate.primary.chromosome, candidate.primary.position_0based)
         second = _locus_key(candidate.secondary.chromosome, candidate.secondary.position_0based)
-        key = tuple(sorted((first, second)))
+        key: tuple[str, str] = (first, second) if first <= second else (second, first)
         grouped[key].append(candidate.source_event_id)
 
     groups = [
