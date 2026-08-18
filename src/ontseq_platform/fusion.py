@@ -15,6 +15,7 @@ from .models import (
     SnifflesCallReport,
     StrictModel,
 )
+from .reference import sha256_file
 
 
 class ObservabilityStatus(StrEnum):
@@ -61,15 +62,15 @@ class ObservabilityRegion(StrictModel):
 
 
 class BreakpointGeneHit(StrictModel):
-    gene: str
+    gene: str = Field(min_length=1)
     strand: Literal["+", "-"]
     transcript_ids: list[str] = Field(default_factory=list)
     distance_bp: int = Field(ge=0)
 
 
 class FusionBreakpoint(StrictModel):
-    chromosome: str
-    position: int = Field(ge=0)
+    chromosome: str = Field(pattern=r"^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$")
+    position_0based: int = Field(ge=0)
     genes: list[BreakpointGeneHit] = Field(default_factory=list)
     observability: ObservabilityStatus = ObservabilityStatus.UNKNOWN
     observability_reason: str | None = None
@@ -77,15 +78,26 @@ class FusionBreakpoint(StrictModel):
 
 
 class FusionGenePair(StrictModel):
+    gene_a: str = Field(min_length=1)
+    gene_b: str = Field(min_length=1)
     gene_5prime: str | None = None
     gene_3prime: str | None = None
     orientation_resolved: bool = False
     known_pair: bool = False
 
+    @model_validator(mode="after")
+    def directional_names_require_resolved_orientation(self) -> FusionGenePair:
+        directional = self.gene_5prime is not None or self.gene_3prime is not None
+        if self.orientation_resolved and (self.gene_5prime is None or self.gene_3prime is None):
+            raise ValueError("resolved fusion orientation requires both 5-prime and 3-prime genes")
+        if not self.orientation_resolved and directional:
+            raise ValueError("unresolved fusion orientation must not assign 5-prime/3-prime genes")
+        return self
+
 
 class FusionCandidate(StrictModel):
-    candidate_id: str
-    source_event_id: str
+    candidate_id: str = Field(min_length=1)
+    source_event_id: str = Field(min_length=1)
     primary: FusionBreakpoint
     secondary: FusionBreakpoint
     classification: FusionClassification
@@ -104,6 +116,7 @@ class FusionInterpretationReport(StrictModel):
     status: ModuleRunStatus
     annotation_resource_id: str
     annotation_resource_version: str
+    annotation_source_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     candidates: list[FusionCandidate]
     source_translocation_count: int = Field(ge=0)
     unresolved_source_event_ids: list[str] = Field(default_factory=list)
@@ -120,11 +133,12 @@ class FusionInterpretationReport(StrictModel):
 
 
 class GeneAnnotationIndex:
-    """Minimal build-locked gene interval index for breakpoint annotation.
+    """Build-locked gene interval index for DNA breakpoint annotation.
 
-    The parser intentionally consumes a simple BED6/BED7 contract instead of a presentation
-    file. BED columns: chrom, start, end, gene, score, strand, optional transcript_id.
-    Multiple transcript rows for the same gene interval are collapsed at annotation time.
+    The parser consumes a simple BED6/BED7 contract rather than a presentation file.
+    BED columns are chrom, start, end, gene, score, strand, optional transcript_id.
+    Coordinates are 0-based, half-open. Multiple transcript rows for the same gene are
+    collapsed at annotation time.
     """
 
     def __init__(
@@ -133,9 +147,15 @@ class GeneAnnotationIndex:
         *,
         resource_id: str,
         resource_version: str,
+        genome_build: GenomeBuild,
+        source_sha256: str | None = None,
     ) -> None:
+        if not features:
+            raise ValueError("gene annotation contains no usable features")
         self.resource_id = resource_id
         self.resource_version = resource_version
+        self.genome_build = genome_build
+        self.source_sha256 = source_sha256
         by_chromosome: dict[str, list[GeneFeature]] = defaultdict(list)
         for feature in features:
             by_chromosome[_canonical_chromosome(feature.chromosome)].append(feature)
@@ -151,7 +171,10 @@ class GeneAnnotationIndex:
         *,
         resource_id: str,
         resource_version: str,
+        genome_build: GenomeBuild,
     ) -> GeneAnnotationIndex:
+        if not path.is_file():
+            raise ValueError("gene annotation BED is missing or unreadable")
         features: list[GeneFeature] = []
         with path.open("r", encoding="utf-8") as handle:
             for line_number, raw_line in enumerate(handle, start=1):
@@ -182,11 +205,21 @@ class GeneAnnotationIndex:
                         transcript_ids=[transcript_id] if transcript_id else [],
                     )
                 )
-        if not features:
-            raise ValueError("gene annotation BED contains no usable features")
-        return cls(features, resource_id=resource_id, resource_version=resource_version)
+        return cls(
+            features,
+            resource_id=resource_id,
+            resource_version=resource_version,
+            genome_build=genome_build,
+            source_sha256=sha256_file(path),
+        )
 
-    def annotate(self, chromosome: str, position: int, *, flank_bp: int = 0) -> list[BreakpointGeneHit]:
+    def annotate(
+        self,
+        chromosome: str,
+        position: int,
+        *,
+        flank_bp: int = 0,
+    ) -> list[BreakpointGeneHit]:
         if flank_bp < 0:
             raise ValueError("flank_bp must be non-negative")
         canonical = _canonical_chromosome(chromosome)
@@ -195,10 +228,7 @@ class GeneAnnotationIndex:
             if feature.start - flank_bp <= position < feature.end + flank_bp:
                 distance = _distance_to_interval(position, feature.start, feature.end)
                 key = (feature.gene, feature.strand)
-                entry = grouped.setdefault(
-                    key,
-                    {"distance": distance, "transcripts": set()},
-                )
+                entry = grouped.setdefault(key, {"distance": distance, "transcripts": set()})
                 entry["distance"] = min(int(entry["distance"]), distance)
                 transcripts = entry["transcripts"]
                 assert isinstance(transcripts, set)
@@ -206,7 +236,7 @@ class GeneAnnotationIndex:
         hits = [
             BreakpointGeneHit(
                 gene=gene,
-                strand=strand,
+                strand=strand,  # type: ignore[arg-type]
                 transcript_ids=sorted(str(item) for item in entry["transcripts"] if item),
                 distance_bp=int(entry["distance"]),
             )
@@ -251,7 +281,10 @@ def _observability_at(
     return selected.status, selected.reason
 
 
-def _classification(primary: FusionBreakpoint, secondary: FusionBreakpoint) -> FusionClassification:
+def _classification(
+    primary: FusionBreakpoint,
+    secondary: FusionBreakpoint,
+) -> FusionClassification:
     if primary.genes and secondary.genes:
         return FusionClassification.GENE_GENE
     if primary.genes or secondary.genes:
@@ -262,7 +295,8 @@ def _classification(primary: FusionBreakpoint, secondary: FusionBreakpoint) -> F
 
 
 def _canonical_pair(gene_a: str, gene_b: str) -> tuple[str, str]:
-    return tuple(sorted((gene_a.upper(), gene_b.upper())))  # type: ignore[return-value]
+    first, second = sorted((gene_a.upper(), gene_b.upper()))
+    return first, second
 
 
 def _gene_pairs(
@@ -276,8 +310,8 @@ def _gene_pairs(
             canonical = _canonical_pair(first.gene, second.gene)
             pairs.append(
                 FusionGenePair(
-                    gene_5prime=first.gene,
-                    gene_3prime=second.gene,
+                    gene_a=first.gene,
+                    gene_b=second.gene,
                     orientation_resolved=False,
                     known_pair=canonical in known_pairs,
                 )
@@ -296,7 +330,7 @@ def _breakpoint(
     status, reason = _observability_at(chromosome, position, observability)
     return FusionBreakpoint(
         chromosome=chromosome,
-        position=position,
+        position_0based=position,
         genes=annotation.annotate(chromosome, position, flank_bp=flank_bp),
         observability=status,
         observability_reason=reason,
@@ -334,13 +368,20 @@ def candidate_from_event(
     )
     limitations = [
         "DNA breakend evidence is not equivalent to an expressed or functional fusion transcript.",
-        "Breakend orientation is unresolved because the current normalized Sniffles2 event contract does not retain VCF ALT breakend orientation.",
-        "Gene overlap alone does not establish transcript compatibility, reading frame or oncogenic relevance.",
-        "Candidate remains research-only and non-reportable until assay-specific analytical validation and expert review.",
+        "Breakend orientation is unresolved because the current normalized Sniffles2 event "
+        "contract does not retain VCF ALT breakend orientation.",
+        "Gene overlap alone does not establish transcript compatibility, reading frame or "
+        "oncogenic relevance.",
+        "Candidate remains research-only and non-reportable until assay-specific analytical "
+        "validation and expert review.",
     ]
-    if primary.observability != ObservabilityStatus.OBSERVABLE or secondary.observability != ObservabilityStatus.OBSERVABLE:
+    if (
+        primary.observability != ObservabilityStatus.OBSERVABLE
+        or secondary.observability != ObservabilityStatus.OBSERVABLE
+    ):
         limitations.append(
-            "One or both breakpoints lack confirmed observable status; absence of additional evidence cannot be interpreted as a biological negative."
+            "One or both breakpoints lack confirmed observable status; absence of additional "
+            "evidence cannot be interpreted as a biological negative."
         )
     return FusionCandidate(
         candidate_id=f"FUSION-{event.event_id}",
@@ -362,7 +403,11 @@ def interpret_sniffles_fusions(
     known_pairs: set[tuple[str, str]] | None = None,
     flank_bp: int = 0,
 ) -> FusionInterpretationReport:
-    source_events = [event for event in report.events if event.event_type.value == "translocation"]
+    if report.genome_build != annotation.genome_build:
+        raise ValueError("Sniffles report and gene annotation use different genome builds")
+    source_events = [
+        event for event in report.events if event.event_type.value == "translocation"
+    ]
     candidates: list[FusionCandidate] = []
     unresolved: list[str] = []
     for event in source_events:
@@ -379,12 +424,14 @@ def interpret_sniffles_fusions(
         except ValueError:
             unresolved.append(event.event_id)
     warnings = [
-        "Fusion candidates are derived from DNA structural-variant evidence and require independent biological interpretation.",
+        "Fusion candidates are derived from DNA structural-variant evidence and require "
+        "independent biological interpretation.",
         "No candidate is clinically reportable under this research-only profile.",
     ]
     if not source_events:
         warnings.append(
-            "NO_CALL means no normalized translocation/BND source event was available; it is not a validated negative fusion result."
+            "NO_CALL means no normalized translocation/BND source event was available; it is "
+            "not a validated negative fusion result."
         )
     return FusionInterpretationReport(
         sample_id=report.sample_id,
@@ -392,6 +439,7 @@ def interpret_sniffles_fusions(
         status=ModuleRunStatus.COMPLETED if candidates else ModuleRunStatus.NO_CALL,
         annotation_resource_id=annotation.resource_id,
         annotation_resource_version=annotation.resource_version,
+        annotation_source_sha256=annotation.source_sha256,
         candidates=candidates,
         source_translocation_count=len(source_events),
         unresolved_source_event_ids=unresolved,
