@@ -44,10 +44,7 @@ def _genes_for_fixture(fixture: SyntheticFusionFixture) -> tuple[str | None, str
 
 
 def _write_synthetic_vcf(path: Path, fixture: SyntheticFusionFixture) -> None:
-    header = (
-        "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-    )
+    header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
     if fixture.expected_candidate_count == 0:
         path.write_text(header, encoding="utf-8")
         return
@@ -65,8 +62,7 @@ def _write_synthetic_vcf(path: Path, fixture: SyntheticFusionFixture) -> None:
 
 def _bed_feature(chromosome: str, position: int, gene: str, strand: str) -> str:
     return (
-        f"{chromosome}\t{position - 50}\t{position + 51}\t{gene}\t0\t{strand}\t"
-        f"ENST_SYNTH_{gene}\n"
+        f"{chromosome}\t{position - 50}\t{position + 51}\t{gene}\t0\t{strand}\tENST_SYNTH_{gene}\n"
     )
 
 
