@@ -1,0 +1,92 @@
+schema_version: 0.1.0
+suite_id: hematologic_fusion_software_v1
+status: synthetic_software_benchmark_only
+description: >-
+  Deliberately non-biological software benchmark semantics for the ONTSeq DNA fusion layer.
+  Family labels are mnemonic test names only. This file contains no real genomic coordinates,
+  no clinical reportability rules and no analytical validation thresholds.
+fixtures:
+  - fixture_id: bcr_abl1_exact_pair
+    family_label: BCR::ABL1 synthetic topology
+    expected_classification: gene_gene
+    partner_expectation: exact_pair
+    expected_gene_pair: [BCR, ABL1]
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Exact gene-pair software behavior only; no biological breakpoint or transcript claim.
+
+  - fixture_id: pml_rara_exact_pair
+    family_label: PML::RARA synthetic topology
+    expected_classification: gene_gene
+    partner_expectation: exact_pair
+    expected_gene_pair: [PML, RARA]
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Exact gene-pair software behavior only; no biological breakpoint or transcript claim.
+
+  - fixture_id: runx1_runx1t1_exact_pair
+    family_label: RUNX1::RUNX1T1 synthetic topology
+    expected_classification: gene_gene
+    partner_expectation: exact_pair
+    expected_gene_pair: [RUNX1, RUNX1T1]
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Exact gene-pair software behavior only; no biological breakpoint or transcript claim.
+
+  - fixture_id: cbfb_myh11_exact_pair
+    family_label: CBFB::MYH11 synthetic topology
+    expected_classification: gene_gene
+    partner_expectation: exact_pair
+    expected_gene_pair: [CBFB, MYH11]
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Exact gene-pair software behavior only; no biological breakpoint or transcript claim.
+
+  - fixture_id: kmt2a_any_partner
+    family_label: KMT2A::* synthetic partner-resolution topology
+    expected_classification: gene_gene
+    partner_expectation: any_partner
+    anchor_gene: KMT2A
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Tests generic partner resolution around an anchor gene; no partner whitelist is encoded.
+
+  - fixture_id: gene_intergenic_control
+    family_label: gene-to-intergenic synthetic control
+    expected_classification: gene_intergenic
+    partner_expectation: none
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Prevents the software from forcing every BND into a named gene pair.
+
+  - fixture_id: intergenic_intergenic_control
+    family_label: intergenic-to-intergenic synthetic control
+    expected_classification: intergenic_intergenic
+    partner_expectation: none
+    expected_primary_observability: observable
+    expected_secondary_observability: observable
+    expected_candidate_count: 1
+    note: Preserves valid structural evidence even when neither breakpoint overlaps a gene.
+
+  - fixture_id: partner_outside_observable_region
+    family_label: partially observable synthetic fusion control
+    expected_classification: gene_gene
+    partner_expectation: exact_pair
+    expected_gene_pair: [SYNTHA, SYNTHB]
+    expected_primary_observability: observable
+    expected_secondary_observability: unknown
+    expected_candidate_count: 1
+    note: Tests that incomplete observability is not converted into a biological negative.
+
+  - fixture_id: no_candidate_control
+    family_label: synthetic no-source-event control
+    expected_classification: unresolved
+    partner_expectation: none
+    expected_candidate_count: 0
+    note: Tests NO_CALL behavior without implying a validated negative fusion result.
