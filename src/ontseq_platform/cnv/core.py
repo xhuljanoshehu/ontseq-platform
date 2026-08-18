@@ -624,11 +624,10 @@ def evaluate(
             if truth_state == CopyNumberState.NO_CALL:
                 truth_silent_bases += width
                 continue
-            if (
-                _covered(resolution_silent.get(contig, []), resolution_starts.get(contig, []), left)
-                and not _covered(
-                    truth_asserted.get(contig, []), asserted_starts.get(contig, []), left
-                )
+            if _covered(
+                resolution_silent.get(contig, []), resolution_starts.get(contig, []), left
+            ) and not _covered(
+                truth_asserted.get(contig, []), asserted_starts.get(contig, []), left
             ):
                 truth_resolution_silent_bases += width
                 continue
