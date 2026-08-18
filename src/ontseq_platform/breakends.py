@@ -75,15 +75,11 @@ def parse_breakend_alt(alternate: str) -> tuple[str, int, BreakendAltForm]:
         raise ValueError("VCF breakend ALT must place local sequence on exactly one side")
     if prefix:
         alt_form = (
-            BreakendAltForm.LOCAL_THEN_OPEN
-            if bracket == "["
-            else BreakendAltForm.LOCAL_THEN_CLOSE
+            BreakendAltForm.LOCAL_THEN_OPEN if bracket == "[" else BreakendAltForm.LOCAL_THEN_CLOSE
         )
     else:
         alt_form = (
-            BreakendAltForm.OPEN_THEN_LOCAL
-            if bracket == "["
-            else BreakendAltForm.CLOSE_THEN_LOCAL
+            BreakendAltForm.OPEN_THEN_LOCAL if bracket == "[" else BreakendAltForm.CLOSE_THEN_LOCAL
         )
     return match.group("chromosome"), int(match.group("position")) - 1, alt_form
 
