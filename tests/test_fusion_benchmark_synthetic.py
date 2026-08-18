@@ -10,9 +10,7 @@ from ontseq_platform.fusion_benchmark_synthetic import execute_synthetic_fusion_
 
 class SyntheticFusionBenchmarkExecutionTests(unittest.TestCase):
     def test_all_repository_fixtures_execute_through_real_software_path(self) -> None:
-        suite = load_synthetic_fusion_benchmark(
-            Path("configs/sv/fusion.synthetic_benchmark.yaml")
-        )
+        suite = load_synthetic_fusion_benchmark(Path("configs/sv/fusion.synthetic_benchmark.yaml"))
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -41,18 +39,14 @@ class SyntheticFusionBenchmarkExecutionTests(unittest.TestCase):
         self.assertEqual(len(results), len(suite.fixtures))
 
     def test_generated_files_are_explicitly_synthetic_and_local(self) -> None:
-        suite = load_synthetic_fusion_benchmark(
-            Path("configs/sv/fusion.synthetic_benchmark.yaml")
-        )
+        suite = load_synthetic_fusion_benchmark(Path("configs/sv/fusion.synthetic_benchmark.yaml"))
         fixture = suite.fixtures[0]
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             result = execute_synthetic_fusion_fixture(fixture, root)
             generated_names = sorted(path.name for path in root.iterdir())
-            vcf_text = (root / f"{fixture.fixture_id}.synthetic.vcf").read_text(
-                encoding="utf-8"
-            )
+            vcf_text = (root / f"{fixture.fixture_id}.synthetic.vcf").read_text(encoding="utf-8")
             bed_text = (root / f"{fixture.fixture_id}.synthetic.genes.bed").read_text(
                 encoding="utf-8"
             )
