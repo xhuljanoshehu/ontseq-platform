@@ -9,9 +9,8 @@ from pydantic import ValidationError
 from . import __version__
 from .align import AlignmentPolicy
 from .align_fixture import build_alignment_fixture
-from .annotation import annotate_result
+from .annotation import annotate_result, load_clinvar
 from .annotation import describe as describe_annotation
-from .annotation import load_clinvar
 from .bam_intake import AlignedBamInspector
 from .basecall import BasecallPolicy
 from .benchmark import benchmark_case
