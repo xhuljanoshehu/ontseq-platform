@@ -30,9 +30,7 @@ class FusionRedundancyReport(StrictModel):
 
     @model_validator(mode="after")
     def counts_are_consistent(self) -> FusionRedundancyReport:
-        grouped_ids = {
-            event_id for group in self.groups for event_id in group.source_event_ids
-        }
+        grouped_ids = {event_id for group in self.groups for event_id in group.source_event_ids}
         if self.potentially_redundant_candidate_count != len(grouped_ids):
             raise ValueError("fusion redundancy candidate accounting is inconsistent")
         if self.potentially_redundant_candidate_count > self.candidate_count:
@@ -73,9 +71,7 @@ def analyze_fusion_redundancy(
         for key, event_ids in sorted(grouped.items())
         if len(event_ids) > 1
     ]
-    redundant_ids = {
-        event_id for group in groups for event_id in group.source_event_ids
-    }
+    redundant_ids = {event_id for group in groups for event_id in group.source_event_ids}
     warnings: list[str] = []
     if groups:
         warnings.append(
