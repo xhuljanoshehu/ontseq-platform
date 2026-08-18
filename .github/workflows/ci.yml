@@ -250,9 +250,20 @@ jobs:
           samtools view "$bam" > /tmp/align.records.sam
           samtools view -f 16 "$bam" > /tmp/align.reverse.sam
           # Read groups survive only if the header was re-attached after the FASTQ round
-          # trip and the per-read RG tag was carried through.
-          grep -q '^@RG.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
-          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG' /tmp/align.records.sam
+          # trip and the per-read RG tag was carried through. Both groups are asserted:
+          # with one group a bug collapsing every read onto the first group is invisible,
+          # and a real ONT sample is routinely sequenced across several flowcells.
+          grep -q '^@RG.*ID:SYNTHETIC_ALIGN_RG\b.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
+          grep -q '^@RG.*ID:SYNTHETIC_ALIGN_RG2.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG\b' /tmp/align.records.sam
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG2' /tmp/align.records.sam
+          # Every read keeps the group it came in with. Counting proves no read was
+          # reassigned, which a per-group presence check alone would not.
+          first=$(grep -c 'RG:Z:SYNTHETIC_ALIGN_RG\b' /tmp/align.records.sam)
+          second=$(grep -c 'RG:Z:SYNTHETIC_ALIGN_RG2' /tmp/align.records.sam)
+          echo "read groups: first=$first second=$second"
+          test "$second" -ge 4
+          test "$first" -ge 20
           grep -q 'MM:Z:C+m?' /tmp/align.records.sam
           grep -q 'ML:B:C,' /tmp/align.records.sam
           grep -q 'MD:Z:' /tmp/align.records.sam
@@ -419,6 +430,9 @@ jobs:
           # The watch folder's own output directory carries its ledger alongside the runs.
           PYTHONPATH=src python -m ontseq_platform status results/watched | tee /tmp/watched.log
           grep -q 'watch ledger' /tmp/watched.log
+          # The operator surface must show the sign-off state, or an operator scanning many
+          # envelopes has to run a second command per envelope to learn it.
+          grep -q 'review: ACCEPTED' /tmp/status.log
           PYTHONPATH=src python -m ontseq_platform status results/runs --json > /tmp/status.json
           python -c "import json,sys; d=json.load(open('/tmp/status.json')); assert all(i['state']=='passed' for i in d), d; print(f'{len(d)} envelope(s) reported')"
       - name: Upload synthetic reviewer artifacts (no BAM or VCF)

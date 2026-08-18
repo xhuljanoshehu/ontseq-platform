@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -10,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from ontseq_platform.pipeline.lock import LOCK_FILENAME
+from ontseq_platform.pipeline.review import REVIEW_LOG, Decision, ReviewState, append_entry
 from ontseq_platform.status import (
     RunState,
     exit_code,
@@ -314,6 +316,61 @@ class ExitCodeTests(StatusCase):
 
     def test_an_empty_output_directory_is_not_an_alert(self) -> None:
         self.assertEqual(exit_code([]), 0)
+
+
+class ReviewVisibilityTests(StatusCase):
+    """An operator scanning many envelopes should not need a second command per envelope."""
+
+    def _release(self, root: Path) -> str:
+        (root / "release").mkdir(parents=True, exist_ok=True)
+        path = root / "release" / "release.json"
+        path.write_text('{"synthetic": true}', encoding="utf-8")
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _sign_off(self, root: Path, *, digest: str, decision: str = "accepted") -> None:
+        append_entry(
+            root / REVIEW_LOG,
+            decision=Decision(decision),
+            reviewer="dr.mueller",
+            run_id=root.parent.name,
+            sample_id=root.name,
+            release_sha256=digest,
+        )
+
+    def test_an_envelope_nobody_reviewed_reports_no_review(self) -> None:
+        self._with_report()
+        self.assertIsNone(scan(self.output)[0].review)
+
+    def test_an_accepted_envelope_is_shown(self) -> None:
+        root = self._with_report()
+        self._sign_off(root, digest=self._release(root))
+        status = scan(self.output)[0]
+        self.assertIs(status.review, ReviewState.ACCEPTED)
+        self.assertIn("review: ACCEPTED", render_text([status]))
+
+    def test_a_changed_release_makes_the_review_stale_here_too(self) -> None:
+        """The two surfaces must agree; a stale review shown as accepted would be worse."""
+        root = self._with_report()
+        self._sign_off(root, digest=self._release(root))
+        (root / "release" / "release.json").write_text('{"synthetic": false}', encoding="utf-8")
+        self.assertIs(scan(self.output)[0].review, ReviewState.STALE)
+
+    def test_the_review_state_reaches_the_json(self) -> None:
+        root = self._with_report()
+        self._sign_off(root, digest=self._release(root))
+        payload = json.loads(render_json(scan(self.output)))
+        self.assertEqual(payload[0]["review"], "accepted")
+
+    def test_an_unreviewed_run_is_still_exit_code_zero(self) -> None:
+        """`status` answers whether the runs worked, not whether they may be released."""
+        self._with_report()
+        self.assertEqual(exit_code(scan(self.output)), 0)
+
+    def test_a_rejected_review_does_not_change_the_run_exit_code_either(self) -> None:
+        root = self._with_report()
+        self._sign_off(root, digest=self._release(root), decision="rejected")
+        self.assertIs(scan(self.output)[0].review, ReviewState.REJECTED)
+        self.assertEqual(exit_code(scan(self.output)), 0)
 
 
 if __name__ == "__main__":

@@ -48,7 +48,13 @@ from .reference import reference_lock_from_fai
 
 SAMPLE_ID = "SYNTHETIC_ALIGN_001"
 REFERENCE_ID = "SYNTHETIC_NOT_REAL_GRCH38_ALIGN_V1"
+#: Two read groups, because a real ONT sample is routinely sequenced across several
+#: flowcells and the alignment adapter's read-group handling was only ever exercised with
+#: one. The FASTQ round trip carries `RG:Z:` per read while `samtools reheader` re-attaches
+#: the `@RG` lines afterwards; with a single group a bug that collapses every read onto the
+#: *first* group is invisible, because the first group is the only group.
 READ_GROUP_ID = "SYNTHETIC_ALIGN_RG"
+SECOND_READ_GROUP_ID = "SYNTHETIC_ALIGN_RG2"
 
 #: Contig layout of the synthetic reference. chr1 carries every read; chr2 exists so the
 #: sequence dictionary has more than one entry and the intake gate compares a real set.
@@ -128,7 +134,7 @@ def _modification_tags(sequence: str) -> tuple[str, str] | None:
     return f"MM:Z:C+m?,{first},{skipped};", "ML:B:C,220,180"
 
 
-def _unaligned_record(name: str, sequence: str) -> str:
+def _unaligned_record(name: str, sequence: str, read_group: str = READ_GROUP_ID) -> str:
     """One unmapped SAM record: flag 4, no reference, tags that must survive alignment."""
     fields = [
         name,
@@ -142,7 +148,7 @@ def _unaligned_record(name: str, sequence: str) -> str:
         "0",
         sequence,
         "I" * len(sequence),
-        f"RG:Z:{READ_GROUP_ID}",
+        f"RG:Z:{read_group}",
     ]
     tags = _modification_tags(sequence)
     if tags is not None:
@@ -157,6 +163,7 @@ def unaligned_sam_text(reference: dict[str, str] | None = None) -> str:
     lines = [
         "@HD\tVN:1.6\tSO:unknown",
         f"@RG\tID:{READ_GROUP_ID}\tSM:{SAMPLE_ID}\tPL:ONT",
+        f"@RG\tID:{SECOND_READ_GROUP_ID}\tSM:{SAMPLE_ID}\tPL:ONT",
         "@PG\tID:ontseq-align-fixture\tPN:ontseq-align-fixture\tVN:0.1",
     ]
     span = READ_ARM_BP * 2 + DELETION_BP
@@ -181,6 +188,7 @@ def unaligned_sam_text(reference: dict[str, str] | None = None) -> str:
             _unaligned_record(
                 f"SYNTH_ALIGN_REV_{index + 1:03d}",
                 reverse_complement(chromosome[start : start + span]),
+                read_group=SECOND_READ_GROUP_ID,
             )
         )
     return "\n".join(lines) + "\n"

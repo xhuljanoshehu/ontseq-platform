@@ -381,6 +381,12 @@ job teaches people to ignore it.
 A completed run that rests on an unverified adapter is called out in the summary rather than
 folded into `passed`, so basecalling's status stays visible without opening the report.
 
+The **review state** is shown alongside, so an operator scanning many envelopes sees run
+health and sign-off in one pass rather than running a second command per envelope. It never
+influences the exit code: `ontseq status` answers *did the runs work*, `ontseq review status`
+answers *may this leave the system*. Folding the second into the first would make the check
+fire on every fresh run, which is how a monitoring signal becomes noise.
+
 ---
 
 ## 9. Asking whether a run can succeed, before starting it

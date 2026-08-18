@@ -27,7 +27,11 @@ from enum import StrEnum
 from pathlib import Path
 
 from .models import ModuleRunStatus
+from .pipeline.envelope import sha256_file
 from .pipeline.lock import LOCK_FILENAME, LockHolder, holder_is_running, read_holder
+from .pipeline.review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
+from .pipeline.review import current_state as review_state
+from .pipeline.review import read_log as read_review_log
 from .pipeline.state import RunReport
 from .pipeline.watch import LEDGER_FILENAME, Ledger
 
@@ -62,6 +66,12 @@ class EnvelopeStatus:
     holder_alive: bool | None = None
     report: RunReport | None = None
     detail: str = ""
+    #: Whether anybody has signed this envelope off, and whether that still applies to the
+    #: content on disk. Reported, never used to decide the exit code: a run that nobody has
+    #: reviewed yet is not a fault, and a monitoring check that fires on every fresh run
+    #: teaches people to ignore it.
+    review: ReviewState | None = None
+    review_detail: str = ""
 
     @property
     def unverified_stages(self) -> tuple[str, ...]:
@@ -70,11 +80,33 @@ class EnvelopeStatus:
         return tuple(item.value for item in self.report.unverified_stages)
 
 
+def _review(root: Path) -> tuple[ReviewState | None, str]:
+    """Resolve the envelope's sign-off trail, or ``(None, "")`` when it has none.
+
+    Read here so an operator scanning many envelopes sees run health and sign-off in one
+    pass. It never influences the exit code: `ontseq status` answers "did the runs work",
+    and `ontseq review status` answers "may this leave the system". Folding the second into
+    the first would make the check fire on every fresh run, which is how a monitoring signal
+    becomes noise.
+    """
+    log = root / REVIEW_LOG
+    if not log.is_file():
+        return None, ""
+    release = root / RELEASE_RELATIVE
+    digest = sha256_file(release) if release.is_file() else None
+    try:
+        entries = read_review_log(log)
+    except ReviewError as error:
+        return ReviewState.UNREADABLE, str(error)
+    return review_state(entries, digest)
+
+
 def _classify(root: Path) -> EnvelopeStatus:
     run_id, sample_id = root.parent.name, root.name
     lock_path = root / LOCK_FILENAME
     report: RunReport | None = None
     detail = ""
+    review, review_detail = _review(root)
 
     report_path = root / RUN_REPORT_RELATIVE
     if report_path.is_file():
@@ -87,6 +119,8 @@ def _classify(root: Path) -> EnvelopeStatus:
                 root=root,
                 state=RunState.UNREADABLE,
                 detail=f"{RUN_REPORT_RELATIVE} could not be read: {error}",
+                review=review,
+                review_detail=review_detail,
             )
 
     if lock_path.exists():
@@ -113,6 +147,8 @@ def _classify(root: Path) -> EnvelopeStatus:
             holder_alive=alive,
             report=report,
             detail=detail,
+            review=review,
+            review_detail=review_detail,
         )
 
     if report is None:
@@ -122,6 +158,8 @@ def _classify(root: Path) -> EnvelopeStatus:
             root=root,
             state=RunState.UNFINISHED,
             detail="no run report was written; the run never reached a verdict",
+            review=review,
+            review_detail=review_detail,
         )
     return EnvelopeStatus(
         run_id=run_id,
@@ -130,6 +168,8 @@ def _classify(root: Path) -> EnvelopeStatus:
         state=RunState.PASSED if report.passed else RunState.FAILED,
         report=report,
         detail=report.verdict_reason,
+        review=review,
+        review_detail=review_detail,
     )
 
 
@@ -175,6 +215,8 @@ def render_text(statuses: list[EnvelopeStatus], *, verbose: bool = False) -> str
         )
         if status.holder is not None:
             lines.append(f"    lock: {status.holder.describe()}")
+        if status.review is not None:
+            lines.append(f"    review: {status.review.value.upper()} — {status.review_detail}")
         if status.unverified_stages:
             lines.append(
                 "    UNVERIFIED ADAPTERS COMPLETED: " + ", ".join(status.unverified_stages)
@@ -209,6 +251,8 @@ def render_json(statuses: list[EnvelopeStatus]) -> str:
                 "alive": status.holder_alive,
             },
             "unverified_stages": list(status.unverified_stages),
+            "review": None if status.review is None else status.review.value,
+            "review_detail": status.review_detail,
             "stages": []
             if status.report is None
             else [

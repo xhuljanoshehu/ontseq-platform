@@ -111,6 +111,9 @@ validated release.
   review accepts its current content. Deliberately not overridable: a resumed run would
   rewrite what somebody signed off, and using a new run id costs nothing.
 - `review/` in the run envelope.
+- `ontseq status` shows each envelope's review state beside its run state, so one pass over
+  an output directory answers both questions. It stays out of the exit code: an unreviewed
+  run is not a fault, and a check that fires on every fresh run teaches people to ignore it.
 - `ontseq_platform.knowledge`: a ClinVar annotation layer that attaches records to
   copy-number and structural findings **without classifying them**. Each annotation carries
   the assertion verbatim together with the vocabulary it belongs to (`acmg_germline`), the
@@ -154,6 +157,12 @@ validated release.
   alignment adapter enforces.
 
 ### Fixed
+
+- Read-group preservation was only ever exercised with a *single* read group, so a bug
+  collapsing every read onto the first group would have been invisible — the first group was
+  the only group. A real ONT sample is routinely sequenced across several flowcells. The
+  alignment fixture now carries two, and CI asserts both survive the FASTQ round trip *and*
+  that the per-group read counts are unchanged, which a presence check alone would not catch.
 
 - A truth source's declared resolution affected only a warning, not the score. Calls below
   it were counted as false positives while the warning beside them said they must not be —
