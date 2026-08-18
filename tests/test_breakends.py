@@ -28,11 +28,10 @@ class BreakendParserTests(unittest.TestCase):
 
     def test_parser_rejects_non_breakend_or_ambiguous_forms(self) -> None:
         for alternate in ["<BND>", "N", "N[chr2:5000[N", "[chr2:5000["]:
-            with self.subTest(alternate=alternate):
-                with self.assertRaises(ValueError):
-                    parse_breakend_alt(alternate)
+            with self.subTest(alternate=alternate), self.assertRaises(ValueError):
+                parse_breakend_alt(alternate)
 
-    def test_vcf_extraction_joins_by_sniffles_record_number_without_retaining_sequence(self) -> None:
+    def test_vcf_extraction_joins_by_record_number_without_sequence_retention(self) -> None:
         text = (
             "##fileformat=VCFv4.2\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
