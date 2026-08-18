@@ -28,25 +28,38 @@ validated release.
   bridge into the multi-caller concordance layer.
 - Synthetic cuteSV tests covering 1-based to 0-based coordinate normalization, BND mate parsing,
   support filtering, version mismatch, malformed breakends and exclusion of VCF IDs/read names.
+- Shell-free cuteSV v2.1.4 execution adapter with explicit ONT software parameters, temporary
+  work-directory cleanup, disabled read-ID reporting, suppressed inserted-sequence output and
+  fail-closed FASTA-index/BAM-header contig-signature compatibility checking.
+- Synthetic cuteSV execution tests covering CLI provenance, version mismatch, reference mismatch,
+  partial-output cleanup, overwrite refusal and path-free normalized serialization.
+- Direct Sniffles2-to-cuteSV concordance bridge that requires matching sample/build metadata and
+  preserves caller-level `NO_CALL` as non-negative evidence status.
 
 ### Validation impact
 
 The fusion branch now produces reviewer-facing structured projections of research-only DNA
-rearrangement evidence, can compare normalized observations from independent SV callers, and can
-normalize a version-locked cuteSV VCF into the common candidate evidence model. These projections
-can change how candidate evidence, observability, redundancy, module status and caller concordance
-are presented to a reviewer, but they do not establish biological truth, an expressed or
-functional fusion, or clinical reportability. `NO_CALL` explicitly remains non-negative, known
-gene pairs remain annotation evidence only, genomic BND orientation does not establish transcript
-direction, and duplicate/reciprocal records are preserved rather than collapsed. Multi-caller
-exact or near agreement is labelled software evidence only; the breakpoint tolerance is explicit
-configuration with `clinically_validated=false`, and conflicting caller topology is preserved for
-review rather than coerced into agreement. The cuteSV adapter treats BND/TRA records as DNA
-translocation evidence only, does not propagate RNAMES/read IDs or raw ALT sequence, and locks
-software version 2.1.4 while its current thresholds remain `technical_defaults_only` and
-`clinically_validated=false`. Assay-specific analytical validation and authorized human review
-remain mandatory before any clinical use, real-sample promotion, or connection to final
-HTML/XLSX/ISCN release logic.
+rearrangement evidence, can compare normalized observations from independent SV callers, can
+normalize a version-locked cuteSV VCF into the common candidate evidence model, and can execute
+cuteSV locally against an aligned BAM plus an explicitly supplied reference FASTA. These
+projections and executions can change how candidate evidence, observability, redundancy, module
+status and caller concordance are presented to a reviewer, but they do not establish biological
+truth, an expressed or functional fusion, or clinical reportability. `NO_CALL` explicitly remains
+non-negative, known gene pairs remain annotation evidence only, genomic BND orientation does not
+establish transcript direction, and duplicate/reciprocal records are preserved rather than
+collapsed. Multi-caller exact or near agreement is labelled software evidence only; the breakpoint
+tolerance is explicit configuration with `clinically_validated=false`, and conflicting caller
+topology is preserved for review rather than coerced into agreement. The cuteSV adapter treats
+BND/TRA records as DNA translocation evidence only, does not propagate RNAMES/read IDs or raw ALT
+sequence, and locks software version 2.1.4 while its current thresholds remain
+`technical_defaults_only` and `clinically_validated=false`. The local cuteSV runner uses explicit
+ONT-oriented software parameters, never enables `--report_readid`, enables `--ignore_sequence`,
+uses a temporary work directory, refuses output overwrite, and removes partial VCF output after a
+non-zero caller exit. Reference compatibility is checked by matching the FASTA-index contig
+name/length signature to the aligned-BAM header; this does not prove full reference sequence
+identity and is not a substitute for a future sequence-level reference checksum lock.
+Assay-specific analytical validation and authorized human review remain mandatory before any
+clinical use, real-sample promotion, or connection to final HTML/XLSX/ISCN release logic.
 
 ## 0.3.0 - 2026-08-14
 
