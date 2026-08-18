@@ -13,7 +13,7 @@ from .fusion import (
     ObservabilityStatus,
 )
 from .fusion_redundancy import FusionRedundancyReport, analyze_fusion_redundancy
-from .models import GenomeBuild, ModuleRunStatus, ReviewStatus, StrictModel
+from .models import Evidence, GenomeBuild, ModuleRunStatus, ReviewStatus, StrictModel
 
 
 class FusionReviewDisposition(StrEnum):
@@ -116,24 +116,20 @@ class FusionReviewerReport(StrictModel):
         return self
 
 
-def _caller_evidence(candidate_evidence: list[object]) -> list[FusionReviewerCallerEvidence]:
-    result: list[FusionReviewerCallerEvidence] = []
-    for evidence in candidate_evidence:
-        caller = getattr(evidence, "caller")
-        caller_version = getattr(evidence, "caller_version")
-        result.append(
-            FusionReviewerCallerEvidence(
-                caller=caller,
-                caller_version=caller_version,
-                support_reads=getattr(evidence, "support_reads"),
-                local_coverage=getattr(evidence, "local_coverage"),
-                variant_allele_fraction=getattr(evidence, "variant_allele_fraction"),
-                quality=getattr(evidence, "quality"),
-                filters=list(getattr(evidence, "filters")),
-                precise=getattr(evidence, "precise"),
-            )
+def _caller_evidence(candidate_evidence: list[Evidence]) -> list[FusionReviewerCallerEvidence]:
+    return [
+        FusionReviewerCallerEvidence(
+            caller=evidence.caller,
+            caller_version=evidence.caller_version,
+            support_reads=evidence.support_reads,
+            local_coverage=evidence.local_coverage,
+            variant_allele_fraction=evidence.variant_allele_fraction,
+            quality=evidence.quality,
+            filters=evidence.filters,
+            precise=evidence.precise,
         )
-    return result
+        for evidence in candidate_evidence
+    ]
 
 
 def _disposition(status: ModuleRunStatus) -> FusionReviewDisposition:
