@@ -4,6 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ontseq_platform.breakends import (
+    BreakendAltForm,
+    BreakendDescriptor,
+    SnifflesJunctionOrientation,
+)
 from ontseq_platform.fusion import (
     FusionClassification,
     FusionGenePair,
@@ -44,6 +49,25 @@ def _event() -> GenomicEvent:
         ],
         confidence="unclassified",
         reportable=False,
+    )
+
+
+def _descriptor(
+    *,
+    event_id: str = "SNIFFLES2-000001",
+    primary_chromosome: str = "chr9",
+    primary_position: int = 133_729_450,
+    mate_chromosome: str = "chr22",
+    mate_position: int = 23_632_500,
+) -> BreakendDescriptor:
+    return BreakendDescriptor(
+        source_event_id=event_id,
+        primary_chromosome=primary_chromosome,
+        primary_position_0based=primary_position,
+        mate_chromosome=mate_chromosome,
+        mate_position_0based=mate_position,
+        alt_form=BreakendAltForm.LOCAL_THEN_CLOSE,
+        sniffles_junction_orientation=SnifflesJunctionOrientation.PLUS_PLUS,
     )
 
 
@@ -121,6 +145,81 @@ class FusionInterpretationTests(unittest.TestCase):
         self.assertIsNone(pair.gene_5prime)
         self.assertIsNone(pair.gene_3prime)
         self.assertEqual(candidate.evidence[0].support_reads, 12)
+
+    def test_matching_breakend_descriptor_is_preserved_without_transcript_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            annotation = self._annotation(directory)
+            candidate = candidate_from_event(
+                _event(),
+                annotation,
+                breakend_descriptor=_descriptor(),
+            )
+
+        self.assertIsNotNone(candidate.breakend_descriptor)
+        assert candidate.breakend_descriptor is not None
+        self.assertEqual(
+            candidate.breakend_descriptor.sniffles_junction_orientation,
+            SnifflesJunctionOrientation.PLUS_PLUS,
+        )
+        self.assertTrue(
+            any(
+                "does not establish transcript 5-prime/3-prime direction" in item
+                for item in candidate.limitations
+            )
+        )
+        self.assertFalse(candidate.gene_pairs[0].orientation_resolved)
+
+    def test_breakend_descriptor_coordinate_mismatch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            annotation = self._annotation(directory)
+            with self.assertRaisesRegex(ValueError, "primary locus does not match"):
+                candidate_from_event(
+                    _event(),
+                    annotation,
+                    breakend_descriptor=_descriptor(primary_position=133_729_451),
+                )
+
+    def test_breakend_descriptor_event_id_mismatch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            annotation = self._annotation(directory)
+            with self.assertRaisesRegex(ValueError, "source event does not match"):
+                candidate_from_event(
+                    _event(),
+                    annotation,
+                    breakend_descriptor=_descriptor(event_id="SNIFFLES2-000002"),
+                )
+
+    def test_report_tracks_missing_descriptor_without_reclassifying_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            annotation = self._annotation(directory)
+            report = interpret_sniffles_fusions(
+                _report(_event()),
+                annotation,
+                breakend_descriptors={},
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual(report.breakend_descriptor_count, 0)
+        self.assertEqual(
+            report.missing_breakend_descriptor_event_ids,
+            ["SNIFFLES2-000001"],
+        )
+        self.assertEqual(len(report.candidates), 1)
+        self.assertIsNone(report.candidates[0].breakend_descriptor)
+        self.assertTrue(any("lack a matching" in item for item in report.warnings))
+
+    def test_report_counts_joined_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            annotation = self._annotation(directory)
+            report = interpret_sniffles_fusions(
+                _report(_event()),
+                annotation,
+                breakend_descriptors={"SNIFFLES2-000001": _descriptor()},
+            )
+
+        self.assertEqual(report.breakend_descriptor_count, 1)
+        self.assertEqual(report.missing_breakend_descriptor_event_ids, [])
+        self.assertIsNotNone(report.candidates[0].breakend_descriptor)
 
     def test_unobserved_partner_is_not_interpreted_as_negative(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
