@@ -135,7 +135,9 @@ class CuteSVNormalizerTests(unittest.TestCase):
 
         self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
         self.assertEqual(report.events, [])
-        self.assertTrue(any("not a biological or clinical negative" in item for item in report.warnings))
+        self.assertTrue(
+            any("not a biological or clinical negative" in item for item in report.warnings)
+        )
 
     def test_malformed_bnd_without_alt_mate_is_rejected(self) -> None:
         vcf = VCF_HEADER + _record(
