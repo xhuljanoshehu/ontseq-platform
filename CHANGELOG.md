@@ -35,6 +35,9 @@ validated release.
   partial-output cleanup, overwrite refusal and path-free normalized serialization.
 - Direct Sniffles2-to-cuteSV concordance bridge that requires matching sample/build metadata and
   preserves caller-level `NO_CALL` as non-negative evidence status.
+- Real local-tool smoke coverage for cuteSV v2.1.4 on the same runtime-generated synthetic BAM and
+  synthetic reference used for Sniffles2, including a path-free normalized cuteSV report and a
+  software-only Sniffles2/cuteSV concordance artifact.
 
 ### Validation impact
 
@@ -57,7 +60,12 @@ ONT-oriented software parameters, never enables `--report_readid`, enables `--ig
 uses a temporary work directory, refuses output overwrite, and removes partial VCF output after a
 non-zero caller exit. Reference compatibility is checked by matching the FASTA-index contig
 name/length signature to the aligned-BAM header; this does not prove full reference sequence
-identity and is not a substitute for a future sequence-level reference checksum lock.
+identity and is not a substitute for a future sequence-level reference checksum lock. The CI
+real-tool smoke now runs samtools, Cramino, Sniffles2 and cuteSV on fully synthetic material and
+requires both callers to recover the expected synthetic deletion plus a software-concordant pair
+within a 250 bp synthetic comparison tolerance. That tolerance is an engineering smoke-test
+parameter only and has no clinical meaning. CI uploads only normalized JSON/HTML/XLSX reviewer
+artifacts; BAM, FASTA and VCF files are deliberately excluded from the artifact bundle.
 Assay-specific analytical validation and authorized human review remain mandatory before any
 clinical use, real-sample promotion, or connection to final HTML/XLSX/ISCN release logic.
 
