@@ -405,9 +405,7 @@ def interpret_sniffles_fusions(
 ) -> FusionInterpretationReport:
     if report.genome_build != annotation.genome_build:
         raise ValueError("Sniffles report and gene annotation use different genome builds")
-    source_events = [
-        event for event in report.events if event.event_type.value == "translocation"
-    ]
+    source_events = [event for event in report.events if event.event_type.value == "translocation"]
     candidates: list[FusionCandidate] = []
     unresolved: list[str] = []
     for event in source_events:
