@@ -135,8 +135,7 @@ class FusionWorkflowTests(unittest.TestCase):
             root = Path(directory)
             annotation_path = root / "genes.bed"
             annotation_path.write_text(
-                "chr9\t1\t1000\tGENE9\t0\t+\n"
-                "chr22\t1\t1000\tGENE22\t0\t+\n",
+                "chr9\t1\t1000\tGENE9\t0\t+\nchr22\t1\t1000\tGENE22\t0\t+\n",
                 encoding="utf-8",
             )
             annotation = GeneAnnotationIndex.from_bed(
