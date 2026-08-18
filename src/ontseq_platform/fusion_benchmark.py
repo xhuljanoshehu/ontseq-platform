@@ -48,7 +48,9 @@ class SyntheticFusionFixture(StrictModel):
     def partner_contract_is_consistent(self) -> SyntheticFusionFixture:
         if self.partner_expectation == PartnerExpectation.EXACT_PAIR:
             if self.expected_gene_pair is None or self.anchor_gene is not None:
-                raise ValueError("exact-pair fixtures require expected_gene_pair and no anchor_gene")
+                raise ValueError(
+                    "exact-pair fixtures require expected_gene_pair and no anchor_gene"
+                )
             first, second = self.expected_gene_pair
             if not first or not second or first.upper() == second.upper():
                 raise ValueError("expected_gene_pair requires two distinct non-empty genes")
@@ -105,7 +107,8 @@ def evaluate_fusion_benchmark_case(
     candidates = report.candidates
     if len(candidates) != fixture.expected_candidate_count:
         failures.append(
-            f"candidate_count expected={fixture.expected_candidate_count} observed={len(candidates)}"
+            "candidate_count "
+            f"expected={fixture.expected_candidate_count} observed={len(candidates)}"
         )
 
     for candidate in candidates:
