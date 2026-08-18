@@ -140,9 +140,11 @@ class FusionInterpretationTests(unittest.TestCase):
             )
 
         self.assertEqual(candidate.secondary.observability, ObservabilityStatus.UNKNOWN)
-        self.assertTrue(
-            any("cannot be interpreted as a biological negative" in item for item in candidate.limitations)
+        negative_limitation = any(
+            "cannot be interpreted as a biological negative" in item
+            for item in candidate.limitations
         )
+        self.assertTrue(negative_limitation)
 
     def test_report_preserves_annotation_provenance_and_counts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
