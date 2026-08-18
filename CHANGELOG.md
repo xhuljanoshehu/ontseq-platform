@@ -60,6 +60,17 @@ validated release.
   stage graph correctly reports as `NOT_RUN`.
 - CI validates every shipped manifest template, so a template cannot go stale against the
   contract without the job failing.
+- `containers/Dockerfile`, for an analysis machine with no network at all: one image holding
+  the pipeline and the four pinned tools, built once where there is a network and carried
+  across as a single file. It installs from the same environment file the CI smoke job uses,
+  so image and CI cannot end up pinned differently, and `pip install --no-deps` keeps pip
+  from resolving a second set of versions on top of the ones conda already pinned — which
+  would leave the provenance record naming versions that were never executed. There is
+  deliberately no separate Apptainer definition: `apptainer build` reads the same saved
+  archive, and two recipes for one image are two things that drift.
+- CI builds that image, asserts the four tool versions inside it, runs the pipeline in it,
+  then saves, reloads and re-runs it — the way it actually travels. A build recipe that has
+  never been built is a promise; this is the same rule ADR-015 applies to adapters.
 - `db_records_matched` on the four event sheets. A reviewer who never opens the annotation
   sheet would otherwise not know there was anything there to open. It is a count, named for
   what it counts, so that it cannot be read as a classification of the finding itself.

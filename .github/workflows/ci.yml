@@ -139,6 +139,43 @@ jobs:
             results/cnv-demo/karyotype-truth.json
           if-no-files-found: error
 
+  # The offline container is the delivery route for a machine with no network. A recipe that
+  # has never been built is a promise, not an artifact — so CI builds it and runs the real
+  # tools inside it. Same rule as ADR-015: the status is claimed only once something executed.
+  offline-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the offline image
+        run: docker build -f containers/Dockerfile -t ontseq:ci .
+      - name: The pinned tools are in the image, at the pinned versions
+        run: |
+          set -euo pipefail
+          run() { docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh ontseq:ci "$@"; }
+          run samtools --version | head -1 | tee /tmp/v.log
+          run minimap2 --version | tee -a /tmp/v.log
+          run sniffles --version | tee -a /tmp/v.log
+          run cramino --version | tee -a /tmp/v.log
+          # Version drift between the image and the policies the adapters enforce would only
+          # surface as a refused run on the isolated machine, where nobody can debug it.
+          grep -q '1\.24' /tmp/v.log
+          grep -q '2\.28' /tmp/v.log
+          grep -q '2\.8\.0' /tmp/v.log
+      - name: The pipeline runs inside the image against those tools
+        run: |
+          set -euo pipefail
+          docker run --rm ontseq:ci local-smoke --output-dir /tmp/smoke | tee /tmp/smoke.log
+          grep -q 'PASS\|pass' /tmp/smoke.log
+      - name: The image is loadable from a saved archive, which is how it travels
+        run: |
+          set -euo pipefail
+          docker save ontseq:ci | gzip > /tmp/ontseq-ci.tar.gz
+          sha256sum /tmp/ontseq-ci.tar.gz
+          docker image rm ontseq:ci
+          gunzip -c /tmp/ontseq-ci.tar.gz | docker load
+          docker run --rm ontseq:ci --help > /dev/null
+          echo "Abbildgröße: $(du -h /tmp/ontseq-ci.tar.gz | cut -f1)"
+
   local-real-tool-smoke:
     runs-on: ubuntu-latest
     steps:

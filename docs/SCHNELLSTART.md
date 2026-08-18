@@ -71,6 +71,70 @@ sniffles --version
 
 ---
 
+## 2b. Für eine Maschine ohne Netz: der Container
+
+Überspringen Sie diesen Abschnitt, wenn die Auswertungsmaschine ins Internet kann. Die
+Pipeline selbst geht **nie** ins Netz; Schritt 2 braucht es einmalig, danach nie wieder.
+
+Ist die Maschine dauerhaft getrennt, ist ein Container der saubere Weg. Alles steckt in
+**einer Datei** — Werkzeuge, Bibliotheken, Betriebssystemebene —, und der Digest des
+Abbilds nagelt alles zusammen fest.
+
+### Auf einer Maschine **mit** Netz
+
+```bash
+docker build -f containers/Dockerfile -t ontseq:0.3.0 .
+docker save ontseq:0.3.0 | gzip > ontseq-0.3.0.tar.gz
+sha256sum ontseq-0.3.0.tar.gz > ontseq-0.3.0.tar.gz.sha256
+```
+
+Größenordnung: rund 0,5–1,5 GB. Bevorzugt Ihre Umgebung Apptainer — in klinischen
+Rechenumgebungen die Regel —, liest das dasselbe Archiv:
+
+```bash
+apptainer build ontseq-0.3.0.sif docker-archive://ontseq-0.3.0.tar
+```
+
+### Der Transport
+
+Ein **eigener Datenträger nur für diesen Zweck**, der nie etwas anderes transportiert und
+nie ein Gerät außerhalb des Hauses berührt. Drei Regeln machen daraus eine
+nachvollziehbare Übergabe statt eines Dateikopiervorgangs:
+
+1. **Die Prüfsumme reist getrennt.** Nicht auf demselben Träger — auf Papier, per Mail, im
+   LIMS. Eine Prüfsumme, die neben der Datei liegt, prüft nichts; sie bestätigt nur, dass
+   die Datei zu sich selbst passt.
+2. **Nur in eine Richtung.** Software hinein, nichts heraus. Ergebnisse verlassen die
+   Maschine auf dem Weg, den Ihre Datenschutzregelung dafür vorsieht — nicht auf diesem
+   Träger. Auf der Zielmaschine schreibgeschützt einhängen (`mount -o ro`), dann erzwingt
+   das die Maschine statt der Disziplin.
+3. **Beschriften.** Ein unbeschrifteter Datenträger in einer Schublade ist binnen eines
+   Monats ein Allzweck-Datenträger, und die ganze Maßnahme ist dahin.
+
+### Auf der Maschine **ohne** Netz
+
+```bash
+sha256sum -c ontseq-0.3.0.tar.gz.sha256      # zuerst, immer
+gunzip -c ontseq-0.3.0.tar.gz | docker load
+
+docker run --rm -v /daten:/daten -v /auswertung:/auswertung \
+  ontseq:0.3.0 preflight /daten/probe.manifest.yaml \
+  --reference-lock /daten/hg38.reference-lock.json --run-id RUN_001
+```
+
+Die Datenverzeichnisse werden hineingereicht und mit **absoluten** Pfaden angesprochen. Alle
+weiteren Schritte dieser Anleitung funktionieren unverändert, nur mit `docker run ...` statt
+`ontseq ...` davor.
+
+**Heben Sie den Datenträger auf.** Er trägt dann genau die Fassung, die installiert wurde,
+mit ihrer Prüfsumme — und ist damit Teil des Nachweises, nicht nur ein Transportmittel.
+
+> Das Container-Rezept wird bei jedem CI-Lauf gebaut, die vier Werkzeugversionen darin
+> werden geprüft, und die Pipeline läuft im Abbild einmal komplett durch. Es ist also
+> nachgewiesen, nicht behauptet.
+
+---
+
 ## 3. Referenz einmalig locken
 
 Das machen Sie **einmal pro Referenz**, nicht pro Lauf. Der Lock hält fest, welche Contigs
