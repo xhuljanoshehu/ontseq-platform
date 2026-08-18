@@ -40,17 +40,17 @@ from .pipeline.checks import exit_code as check_exit_code
 from .pipeline.checks import render_json as render_checks_json
 from .pipeline.checks import render_text as render_checks_text
 from .pipeline.lock import RunAlreadyRunning
-from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
 from .pipeline.review import Decision, ReviewError
 from .pipeline.review import exit_code as review_exit_code
+from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
 from .preflight import PreflightRequest, preflight
+from .qc import run_cramino_qc
+from .reference import reference_lock_from_fai
+from .report import render_html
 from .review import inspect as inspect_review
 from .review import record as record_review
 from .review import render_json as render_review_json
 from .review import render_text as render_review_text
-from .qc import run_cramino_qc
-from .reference import reference_lock_from_fai
-from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
 from .status import exit_code, render_json, render_ledger, render_text, scan
