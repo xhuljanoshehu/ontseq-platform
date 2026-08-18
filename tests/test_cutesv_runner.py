@@ -162,7 +162,15 @@ class CuteSVRunnerTests(unittest.TestCase):
             )
 
             serialized = report.model_dump_json()
-            for forbidden_path in [str(bam), str(bai), str(fasta), str(fai), str(output), directory]:
+            forbidden_paths = [
+                str(bam),
+                str(bai),
+                str(fasta),
+                str(fai),
+                str(output),
+                directory,
+            ]
+            for forbidden_path in forbidden_paths:
                 self.assertNotIn(forbidden_path, serialized)
             self.assertNotIn("SECRET_ID", serialized)
 
