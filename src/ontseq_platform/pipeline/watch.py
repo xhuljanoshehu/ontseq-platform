@@ -98,6 +98,19 @@ def _walk_files(root: Path) -> Iterator[Path]:
                 continue
 
 
+def _matching_markers(root: Path, pattern: str) -> Iterator[str]:
+    """Yield the names of files beneath ``root`` matching a marker glob."""
+    try:
+        for candidate in sorted(root.rglob(pattern)):
+            try:
+                if candidate.is_file():
+                    yield candidate.name
+            except OSError:
+                continue
+    except (OSError, ValueError):
+        return
+
+
 def inspect_directory(
     path: Path,
     *,
@@ -110,6 +123,13 @@ def inspect_directory(
     When ``ready_marker`` is set it is the *only* thing consulted, because an explicit
     signal from the producer beats inferring completion from timestamps. Without one,
     quiescence is used and its heuristic nature is stated in the reason.
+
+    The marker is a glob pattern matched anywhere beneath the directory, not a fixed name
+    at its top level. MinKNOW writes ``final_summary_<flowcell>_<run>_<hash>.txt`` when a
+    GridION run finishes: the name carries identifiers that differ per run, and it lands in
+    the run directory rather than the sample directory above it. A literal top-level name
+    could match neither, which would leave the one authoritative completion signal the
+    instrument emits unusable and force every run onto the quiescence heuristic.
     """
     newest: float | None = None
     count = 0
@@ -128,8 +148,9 @@ def inspect_directory(
         return Readiness.EMPTY, "contains no files", None, 0
 
     if ready_marker is not None:
-        if (path / ready_marker).exists():
-            return Readiness.READY, f"the producer wrote {ready_marker}", newest, count
+        found = next(_matching_markers(path, ready_marker), None)
+        if found is not None:
+            return Readiness.READY, f"the producer wrote {found}", newest, count
         return (
             Readiness.MARKER_MISSING,
             f"waiting for the producer to write {ready_marker}",

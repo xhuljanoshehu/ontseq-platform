@@ -271,12 +271,41 @@ Each sub-directory of the drop folder is one sample. The watcher decides two thi
 directory, and both are stated rather than assumed.
 
 **Is it finished being written?** A sequencer writes for hours, and analysing a run
-mid-write yields a truncated result that looks complete. `--ready-marker` names a file the
-producer writes when it is done; when set it is the *only* thing consulted, because an
-explicit signal beats inferring completion from timestamps. Without one, `--quiet-seconds`
-requires the directory to have been unmodified for that long — and the reason recorded says
-in those words that quiescence is a heuristic. A file dated in the future keeps a directory
-not-ready, so clock skew cannot make an in-progress run look long finished.
+mid-write yields a truncated result that looks complete. `--ready-marker` is a **glob**
+matched anywhere beneath the sample directory; when set it is the *only* thing consulted,
+because an explicit signal beats inferring completion from timestamps. Without one,
+`--quiet-seconds` requires the directory to have been unmodified for that long — and the
+reason recorded says in those words that quiescence is a heuristic. A file dated in the
+future keeps a directory not-ready, so clock skew cannot make an in-progress run look long
+finished.
+
+A glob rather than a fixed name because that is what the instrument actually emits. MinKNOW
+writes `final_summary_<flowcell>_<run>_<hash>.txt` when a GridION run completes: the name
+carries per-run identifiers, and it lands in the run directory rather than the sample
+directory above it. A literal top-level name would match neither, leaving the one
+authoritative completion signal unusable and forcing every real run onto the heuristic.
+
+### Running against a GridION
+
+MinKNOW writes `<experiment>/<sample>/<run>/…`, so point the watcher at the **experiment**
+directory — its sub-directories are then the samples, which is the layout above.
+
+```
+ontseq watch /data/AML_RUN_2026_08 \
+  --manifest-template assay.manifest.yaml --reference-lock GRCh38.lock.json \
+  --input-kind pod5 --pod5-subdir pod5_pass \
+  --ready-marker 'final_summary_*.txt' --output-dir results/runs
+```
+
+`--pod5-subdir` exists because MinKNOW splits a run into `pod5_pass` and `pod5_fail` by
+qscore, and **which of those enters the analysis is a scientific decision, not a filesystem
+detail**: including failed reads changes the depth distribution that depth-based
+copy-number methods assume. An undeclared split is refused with both directories named,
+rather than resolved by picking one. A run written without qscore splitting is unambiguous
+and needs no declaration.
+
+The POD5 lane still depends on the unverified Dorado adapter — see section 5. The paths
+above resolve correctly and are unit-tested; what happens after Dorado is invoked is not.
 
 **Has it already been handled?** A ledger beside the *output* — never inside the drop
 folder, which may be owned by the instrument or mounted read-only — records every attempt.

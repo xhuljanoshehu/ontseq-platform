@@ -101,6 +101,9 @@ class WatchSettings:
     run_id_prefix: str = ""
     ready_marker: str | None = None
     quiet_seconds: float = 300.0
+    #: Which POD5 directory to basecall when the instrument wrote more than one.
+    #: MinKNOW splits a GridION run into pass and fail by qscore; see ``find_input``.
+    pod5_subdirectory: str | None = None
     threads: int = 4
     git_commit: str = "UNKNOWN"
     retry_failed: bool = False
@@ -198,12 +201,21 @@ def _matching_files(directory: Path, suffixes: Sequence[str]) -> list[Path]:
     )
 
 
-def find_input(directory: Path, kind: InputKind) -> tuple[Path, Path | None]:
+def find_input(
+    directory: Path, kind: InputKind, *, pod5_subdirectory: str | None = None
+) -> tuple[Path, Path | None]:
     """Locate the declared input inside a drop directory.
 
     Returns the input path and, for an aligned BAM, its index. Ambiguity is an error rather
     than a choice: picking one of two BAMs would silently analyse an arbitrary half of what
     somebody delivered.
+
+    ``pod5_subdirectory`` names which POD5 directory to basecall when the instrument wrote
+    more than one. MinKNOW splits a GridION run into ``pod5_pass`` and ``pod5_fail`` by
+    qscore, and which of those enters the analysis is a scientific decision, not a
+    filesystem detail: including failed reads changes the depth distribution that
+    depth-based copy-number methods assume. So it is declared, and an undeclared split is
+    refused with the directories named rather than resolved by picking one.
     """
     matches = _matching_files(directory, INPUT_SUFFIXES[kind])
     if not matches:
@@ -216,10 +228,28 @@ def find_input(directory: Path, kind: InputKind) -> tuple[Path, Path | None]:
         # Dorado reads a directory of POD5 files, so many are expected and the common parent
         # is the input. Spread across several directories that parent is ambiguous.
         parents = {item.parent for item in matches}
+        if pod5_subdirectory is not None:
+            chosen = [item for item in parents if item.name == pod5_subdirectory]
+            if not chosen:
+                available = ", ".join(sorted(item.name for item in parents))
+                raise DropRejected(
+                    f"{directory.name} has no POD5 directory named "
+                    f"{pod5_subdirectory!r}; it holds: {available}"
+                )
+            if len(chosen) != 1:
+                raise DropRejected(
+                    f"{directory.name} holds {len(chosen)} directories named "
+                    f"{pod5_subdirectory!r}; the basecaller takes exactly one"
+                )
+            return chosen[0], None
         if len(parents) != 1:
+            available = ", ".join(sorted(item.name for item in parents))
             raise DropRejected(
-                f"{directory.name} holds POD5 files in {len(parents)} directories; "
-                "the basecaller takes exactly one"
+                f"{directory.name} holds POD5 files in {len(parents)} directories "
+                f"({available}); the basecaller takes exactly one. MinKNOW splits a run "
+                "into pass and fail by qscore, and which reads enter the analysis changes "
+                "the result, so name the one to use with --pod5-subdir rather than "
+                "leaving it to be guessed"
             )
         return parents.pop(), None
 
@@ -299,7 +329,11 @@ def _attempt_one(
     run_id = f"{settings.run_id_prefix}{sample_id}"
     base = {"name": candidate.name, "attempted_at": _now(), "run_id": run_id}
     try:
-        input_path, index_path = find_input(candidate.path, settings.input_kind)
+        input_path, index_path = find_input(
+            candidate.path,
+            settings.input_kind,
+            pod5_subdirectory=settings.pod5_subdirectory,
+        )
         manifest = _manifest_from(
             resolved.manifest_template,
             sample_id=sample_id,

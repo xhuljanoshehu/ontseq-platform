@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from ontseq_platform.models import InputKind
-from ontseq_platform.pipeline.watch import Outcome
+from ontseq_platform.pipeline.watch import Outcome, sample_id_from_directory
 from ontseq_platform.watchfolder import (
     DropRejected,
     WatchConfigurationError,
@@ -309,3 +309,65 @@ class SweepTests(WatchfolderCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GridionPod5LayoutTests(WatchfolderCase):
+    """MinKNOW splits a GridION run into pod5_pass and pod5_fail by qscore.
+
+    Which of the two enters the analysis is a scientific decision, not a filesystem
+    detail: failed reads change the depth distribution that depth-based copy-number
+    methods assume. So it is declared, and an undeclared split is refused.
+    """
+
+    def _gridion_run(self, *, fail_reads: bool = True) -> Path:
+        sample = self.watch / "AML_00123"
+        run = sample / "20260818_1030_X1_FAV12345_abcdef12"
+        (run / "pod5_pass").mkdir(parents=True)
+        (run / "pod5_pass" / "reads_0.pod5").write_bytes(b"POD5")
+        if fail_reads:
+            (run / "pod5_fail").mkdir(parents=True)
+            (run / "pod5_fail" / "reads_0.pod5").write_bytes(b"POD5")
+        return sample
+
+    def test_an_undeclared_split_is_refused_with_the_directories_named(self) -> None:
+        sample = self._gridion_run()
+        with self.assertRaises(DropRejected) as caught:
+            find_input(sample, InputKind.POD5)
+        message = str(caught.exception)
+        self.assertIn("pod5_fail", message)
+        self.assertIn("pod5_pass", message)
+        self.assertIn("--pod5-subdir", message)
+
+    def test_declaring_the_read_class_resolves_it(self) -> None:
+        sample = self._gridion_run()
+        found, index = find_input(sample, InputKind.POD5, pod5_subdirectory="pod5_pass")
+        self.assertEqual(found.name, "pod5_pass")
+        self.assertIsNone(index)
+
+    def test_the_other_read_class_is_equally_available(self) -> None:
+        """The point is that the choice is stated, not that one of them is correct."""
+        sample = self._gridion_run()
+        found, _ = find_input(sample, InputKind.POD5, pod5_subdirectory="pod5_fail")
+        self.assertEqual(found.name, "pod5_fail")
+
+    def test_naming_a_directory_that_does_not_exist_is_refused(self) -> None:
+        sample = self._gridion_run()
+        with self.assertRaises(DropRejected) as caught:
+            find_input(sample, InputKind.POD5, pod5_subdirectory="pod5_skipped")
+        self.assertIn("pod5_skipped", str(caught.exception))
+
+    def test_an_unsplit_run_needs_no_declaration(self) -> None:
+        """A run written without qscore splitting is unambiguous on its own."""
+        sample = self._gridion_run(fail_reads=False)
+        found, _ = find_input(sample, InputKind.POD5)
+        self.assertEqual(found.name, "pod5_pass")
+
+    def test_a_declaration_is_honoured_even_when_nothing_is_split(self) -> None:
+        sample = self._gridion_run(fail_reads=False)
+        found, _ = find_input(sample, InputKind.POD5, pod5_subdirectory="pod5_pass")
+        self.assertEqual(found.name, "pod5_pass")
+
+    def test_the_sample_identifier_comes_from_the_directory_minknow_named(self) -> None:
+        """MinKNOW nests <experiment>/<sample>/<run>/, so the watch dir is the experiment."""
+        self._gridion_run()
+        self.assertEqual(sample_id_from_directory("AML_00123"), "AML_00123")

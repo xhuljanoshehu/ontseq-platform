@@ -74,6 +74,12 @@ validated release.
   come from a manifest template; only the identifier and the input path are derived, and an
   unusable directory name is rejected rather than repaired. Input kind is declared, not
   sniffed. SIGINT/SIGTERM stop after the current sample.
+- `ontseq watch` handles a real GridION layout: `--ready-marker` is a glob matched anywhere
+  beneath the sample directory, so MinKNOW's `final_summary_<flowcell>_<run>_<hash>.txt`
+  completion signal is usable, and `--pod5-subdir` declares which of `pod5_pass` /
+  `pod5_fail` to basecall. An undeclared split is refused with both directories named:
+  including failed reads changes the depth distribution depth-based copy-number methods
+  assume, so it is a declared decision rather than a guess.
 - `ontseq status`: reports the state of every run envelope beneath an output directory,
   as text or JSON, plus the watch ledger. Distinguishes a run that is *running* from one
   that was *interrupted* — a lock whose holder is gone means a run died there and the next

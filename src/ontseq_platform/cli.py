@@ -288,7 +288,19 @@ def _parser() -> argparse.ArgumentParser:
     watch_parser.add_argument("--reference-fasta", type=Path, help="Required when aligning")
     watch_parser.add_argument(
         "--ready-marker",
-        help="File the producer writes when a directory is complete. Authoritative when set",
+        help=(
+            "Glob for the file the producer writes when a run is complete, matched anywhere "
+            "beneath the sample directory. Authoritative when set. For a GridION: "
+            "'final_summary_*.txt'"
+        ),
+    )
+    watch_parser.add_argument(
+        "--pod5-subdir",
+        help=(
+            "Which POD5 directory to basecall when the instrument wrote several, e.g. "
+            "'pod5_pass'. Declared rather than guessed: including failed reads changes the "
+            "depth distribution that depth-based copy-number methods assume"
+        ),
     )
     watch_parser.add_argument(
         "--quiet-seconds",
@@ -583,6 +595,7 @@ def main() -> None:
                 reference_fasta=args.reference_fasta,
                 run_id_prefix=args.run_id_prefix,
                 ready_marker=args.ready_marker,
+                pod5_subdirectory=args.pod5_subdir,
                 quiet_seconds=args.quiet_seconds,
                 threads=args.threads,
                 git_commit=args.git_commit,

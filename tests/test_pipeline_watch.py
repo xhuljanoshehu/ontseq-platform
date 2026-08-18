@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from ontseq_platform.pipeline.watch import (
     Outcome,
     Readiness,
     discover,
+    inspect_directory,
     sample_id_from_directory,
     should_attempt,
 )
@@ -276,3 +278,59 @@ class LedgerTests(WatchCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GridionMarkerTests(unittest.TestCase):
+    """MinKNOW's completion signal is a glob one level down, not a fixed top-level name.
+
+    A GridION writes ``final_summary_<flowcell>_<run>_<hash>.txt`` into the run directory
+    when sequencing finishes. Matching only a literal name at the top level would leave the
+    one authoritative signal the instrument emits unusable, and force every real run onto
+    the quiescence heuristic the design explicitly calls a heuristic.
+    """
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temporary.cleanup)
+        self.sample = Path(self._temporary.name) / "AML_00123"
+        self.run = self.sample / "20260818_1030_X1_FAV12345_abcdef12"
+        (self.run / "pod5_pass").mkdir(parents=True)
+        (self.run / "pod5_pass" / "reads.pod5").write_bytes(b"POD5")
+
+    def _inspect(self, marker: str | None):
+        return inspect_directory(
+            self.sample, ready_marker=marker, quiet_seconds=0.0, now=time.time() + 10_000
+        )
+
+    def _final_summary(self) -> None:
+        (self.run / "final_summary_FAV12345_abcdef12_0123abcd.txt").write_text("x")
+
+    def test_a_run_still_sequencing_is_not_ready(self) -> None:
+        readiness, detail, _, _ = self._inspect("final_summary_*.txt")
+        self.assertIs(readiness, Readiness.MARKER_MISSING)
+        self.assertIn("final_summary_*.txt", detail)
+
+    def test_a_finished_run_is_ready(self) -> None:
+        self._final_summary()
+        readiness, detail, _, _ = self._inspect("final_summary_*.txt")
+        self.assertIs(readiness, Readiness.READY)
+        self.assertIn("final_summary_FAV12345", detail)
+
+    def test_the_marker_is_found_below_the_sample_directory(self) -> None:
+        """MinKNOW writes it into the run directory, not the sample directory above it."""
+        self._final_summary()
+        self.assertFalse((self.sample / "final_summary_FAV12345_abcdef12_0123abcd.txt").exists())
+        self.assertIs(self._inspect("final_summary_*.txt")[0], Readiness.READY)
+
+    def test_a_literal_marker_name_still_works(self) -> None:
+        (self.sample / "READY").write_text("")
+        self.assertIs(self._inspect("READY")[0], Readiness.READY)
+
+    def test_a_marker_matching_nothing_leaves_the_run_waiting(self) -> None:
+        self._final_summary()
+        self.assertIs(self._inspect("sequencing_finished.txt")[0], Readiness.MARKER_MISSING)
+
+    def test_a_directory_matching_the_glob_is_not_a_marker(self) -> None:
+        """Only a file signals completion; a directory of that name is not the producer's word."""
+        (self.run / "final_summary_dir.txt").mkdir()
+        self.assertIs(self._inspect("final_summary_*.txt")[0], Readiness.MARKER_MISSING)
