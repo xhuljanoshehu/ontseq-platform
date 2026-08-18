@@ -61,6 +61,38 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
     )
     if not module_rows:
         module_rows = "<tr><td colspan='3'>No module outcomes were recorded.</td></tr>"
+    annotation_rows = "".join(
+        "<tr>"
+        f"<td>{_cell(event.event_id)}</td>"
+        f"<td>{_cell(annotation.source_id)} {_cell(annotation.source_release)}</td>"
+        f"<td>{_cell(annotation.record_id)}</td>"
+        f"<td><strong>{_cell(annotation.assertion)}</strong><br>"
+        f"<small>{_cell(annotation.assertion_vocabulary)}</small></td>"
+        f"<td>{_cell(annotation.record_origin)} / {_cell(annotation.scope_alignment)}</td>"
+        f"<td>{_cell(annotation.match_type)} "
+        f"({annotation.reciprocal_overlap:.2f})</td>"
+        f"<td>{_cell(annotation.review_status)} "
+        f"({'?' if annotation.review_stars is None else annotation.review_stars}&#9733;)</td>"
+        f"<td>{_cell(', '.join(annotation.conditions))}</td>"
+        f"<td class='warn'>{_cell(' '.join(annotation.caveats))}</td>"
+        "</tr>"
+        for event in result.events
+        for annotation in event.annotations
+    )
+    annotation_section = (
+        "<section><h2>Knowledge-base annotations</h2>"
+        "<p class='warn'><strong>These are classifications of database records, not "
+        "findings about this sample.</strong> An assertion is shown in the vocabulary of "
+        "the source that made it; a germline classification does not become a statement "
+        "about a somatic finding by appearing here, and nothing in this table makes a "
+        "finding reportable.</p>"
+        "<table><thead><tr><th>Event</th><th>Source</th><th>Record</th>"
+        "<th>Assertion</th><th>Origin / scope</th><th>Match</th><th>Review</th>"
+        "<th>Conditions</th><th>Caveats</th></tr></thead>"
+        f"<tbody>{annotation_rows}</tbody></table></section>"
+        if annotation_rows
+        else ""
+    )
     tool_rows = "".join(
         f"<tr><td>{_cell(tool.name)}</td><td>{_cell(tool.version)}</td>"
         f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
@@ -124,6 +156,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       <th>Length (bp)</th><th>Locus 1</th><th>Locus 2</th><th>Band</th><th>Genes</th>
       <th>Confidence</th><th>Reportable</th><th>Evidence</th></tr></thead>
       <tbody>{"".join(event_rows)}</tbody></table></section>
+    {annotation_section}
     <section><h2>Warnings and limitations</h2><ul class="warn">{warnings}</ul></section>
     <section><h2>Methods and versions</h2><table><thead><tr><th>Tool</th><th>Version</th>
       <th>Parameters</th></tr></thead><tbody>{tool_rows}</tbody></table></section>

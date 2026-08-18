@@ -1,0 +1,6 @@
+#AlleleID	Type	Name	GeneSymbol	ClinicalSignificance	OriginSimple	Assembly	Chromosome	Start	Stop	ReviewStatus	PhenotypeList	VariationID
+1	copy number loss	synthetic	SYNTHETIC_GENE	Pathogenic	germline	GRCh38	1	1	200000	reviewed by expert panel	Synthetic condition	900001
+1	duplication	synthetic	SYNTHETIC_GENE	Uncertain significance	somatic	GRCh38	1	100000	150000	criteria provided, single submitter	Synthetic condition	900002
+1	copy number loss	synthetic	SYNTHETIC_GENE	Pathogenic	germline	GRCh37	1	1	200000	reviewed by expert panel	Synthetic condition	900003
+1	single nucleotide variant	synthetic	SYNTHETIC_GENE	Pathogenic	germline	GRCh38	1	500	500	reviewed by expert panel	Synthetic condition	900004
+1	copy number loss	synthetic	SYNTHETIC_GENE	Pathogenic	germline	GRCh38	1	-1	-1	reviewed by expert panel	Synthetic condition	900005

@@ -319,6 +319,29 @@ jobs:
             --quiet-seconds 0 --threads 2 --once \
             --git-commit "$GITHUB_SHA" | tee /tmp/watch2.log
           grep -q 'WATCHED_SAMPLE_001 *skipped *already completed' /tmp/watch2.log
+      - name: Annotate a real result against a locked ClinVar release
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          result=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/normalized/SYNTHETIC_SMOKE_001.result.json
+          PYTHONPATH=src python -m ontseq_platform annotate "$result" \
+            --clinvar examples/knowledge/synthetic.clinvar.variant_summary.txt \
+            --release CI-SYNTHETIC-2026-08-01 \
+            --output /tmp/annotated.json | tee /tmp/annotate.log
+          # The loader must report what it skipped, or an assembly mismatch looks exactly
+          # like a sample nobody knows anything about.
+          grep -q 'for another assembly' /tmp/annotate.log
+          grep -q 'without a matchable extent' /tmp/annotate.log
+          grep -q 'does not make a finding reportable\|makes a finding reportable' /tmp/annotate.log
+      - name: Prove annotation never touches a judgement field
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          result=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/normalized/SYNTHETIC_SMOKE_001.result.json
+          python -c "import json,sys;a=json.load(open(sys.argv[1]));b=json.load(open(sys.argv[2]));ea={e['event_id']:e for e in a['events']};eb={e['event_id']:e for e in b['events']};assert ea.keys()==eb.keys(),'event set changed';[sys.exit('judgement field changed for '+k) for k in ea if (ea[k]['reportable'],ea[k]['confidence'])!=(eb[k]['reportable'],eb[k]['confidence'])];print('reportable and confidence unchanged for',len(ea),'event(s)')" "$result" /tmp/annotated.json
+          # Every annotation must carry its caveats; the contract refuses an empty list.
+          python -c "import json;d=json.load(open('/tmp/annotated.json'));anns=[x for e in d['events'] for x in e['annotations']];print(len(anns),'annotation(s)');assert anns,'nothing was annotated, so this step proved nothing';assert all(x['caveats'] for x in anns),'an annotation carried no caveats';assert all(x['assertion_vocabulary']=='acmg_germline' for x in anns),'vocabulary was not carried';assert any(x['scope_alignment']=='mismatched' for x in anns),'the germline-under-somatic case was not exercised';assert all(x['source_release']=='CI-SYNTHETIC-2026-08-01' for x in anns),'the release was not recorded'"
+          PYTHONPATH=src python -m ontseq_platform validate-result /tmp/annotated.json
       - name: Sign off a run and prove the trail binds to what was signed
         shell: micromamba-shell {0}
         run: |

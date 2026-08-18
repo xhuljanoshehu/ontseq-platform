@@ -1,5 +1,15 @@
 {
   "$defs": {
+    "AnalysisIntent": {
+      "description": "Whether this analysis is looking for acquired or inherited variation.\n\nLoad-bearing for knowledge-base annotation: ClinVar classifies germline variation under\nACMG rules, and an AML workup asks a somatic question. Pairing the two without saying so\npresents an inherited-disease classification as though it answered a question about a\ntumour.",
+      "enum": [
+        "somatic",
+        "germline",
+        "both"
+      ],
+      "title": "AnalysisIntent",
+      "type": "string"
+    },
     "AnalysisModule": {
       "enum": [
         "qc",
@@ -17,6 +27,17 @@
     "AnalysisSpec": {
       "additionalProperties": false,
       "properties": {
+        "intent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisIntent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "modules": {
           "items": {
             "$ref": "#/$defs/AnalysisModule"

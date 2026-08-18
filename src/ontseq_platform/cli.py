@@ -9,6 +9,9 @@ from pydantic import ValidationError
 from . import __version__
 from .align import AlignmentPolicy
 from .align_fixture import build_alignment_fixture
+from .annotation import annotate_result
+from .annotation import describe as describe_annotation
+from .annotation import load_clinvar
 from .bam_intake import AlignedBamInspector
 from .basecall import BasecallPolicy
 from .benchmark import benchmark_case
@@ -21,6 +24,7 @@ from .cnv.truth import truth_from_karyotype
 from .demo import build_demo_result
 from .execution import ToolExecutionError
 from .io import load_model, write_json
+from .knowledge.annotate import DEFAULT_EXACT_TOLERANCE_BP, DEFAULT_MINIMUM_OVERLAP
 from .models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
@@ -246,6 +250,38 @@ def _parser() -> argparse.ArgumentParser:
     )
     preflight_parser.add_argument(
         "--json", action="store_true", dest="as_json", help="Emit JSON for a scheduler"
+    )
+
+    annotate_parser = subparsers.add_parser(
+        "annotate",
+        help="Attach knowledge-base records to a result's events, without classifying them",
+    )
+    annotate_parser.add_argument("result", type=Path, help="A validated result JSON")
+    annotate_parser.add_argument(
+        "--clinvar",
+        type=Path,
+        required=True,
+        help="NCBI variant_summary.txt for the result's genome build",
+    )
+    annotate_parser.add_argument(
+        "--release",
+        required=True,
+        help="The publisher's release identifier, e.g. 2026-08-01. Recorded with every "
+        "annotation so a report can be reproduced",
+    )
+    annotate_parser.add_argument("--output", type=Path, required=True)
+    annotate_parser.add_argument(
+        "--minimum-overlap",
+        type=float,
+        default=DEFAULT_MINIMUM_OVERLAP,
+        help="Reciprocal overlap for a partial match. An engineering default, not a "
+        "validated concordance criterion",
+    )
+    annotate_parser.add_argument(
+        "--exact-tolerance-bp",
+        type=int,
+        default=DEFAULT_EXACT_TOLERANCE_BP,
+        help="Breakpoint slack within which a match counts as exact",
     )
 
     review_parser = subparsers.add_parser(
@@ -613,6 +649,23 @@ def main() -> None:
             code = check_exit_code(checks)
             if code:
                 raise SystemExit(code)
+        elif args.command == "annotate":
+            annotate_result_input = load_model(args.result, PipelineResult)
+            clinvar_records, clinvar_lock = load_clinvar(
+                args.clinvar,
+                genome_build=annotate_result_input.manifest.assay.genome_build,
+                release=args.release,
+            )
+            outcome = annotate_result(
+                annotate_result_input,
+                clinvar_records,
+                lock=clinvar_lock,
+                minimum_reciprocal_overlap=args.minimum_overlap,
+                exact_tolerance_bp=args.exact_tolerance_bp,
+            )
+            print(write_json(outcome.result, args.output))
+            for line in describe_annotation(outcome):
+                print(line)
         elif args.command == "review":
             if args.review_command == "record":
                 entry = record_review(

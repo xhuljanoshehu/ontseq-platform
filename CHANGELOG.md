@@ -120,6 +120,22 @@ validated release.
   filtered, because filtering them would be a clinical decision made invisibly by code.
   Nothing in the package sets `reportable` or raises `confidence`: deciding that needs
   somatic criteria (ELN, ICC, a local gene list) this repository does not have.
+- `ontseq annotate`: applies a locked ClinVar release to a result contract and writes the
+  annotations back onto the events, leaving every judgement field untouched. CI proves that
+  by diffing `reportable` and `confidence` across the annotation step.
+- `AnalysisSpec.intent` (`somatic` / `germline` / `both`), **without a default**. It decides
+  how every knowledge-base assertion is read, and guessing would settle that silently. Left
+  unset, scope alignment is reported as unknown rather than assumed.
+- `KnowledgeResourceLock` and `EventAnnotation` contracts, plus a `GenomicEvent.annotations`
+  list. `EventAnnotation` refuses an empty `caveats` list: without them a database
+  classification reads as a finding about the sample, which is the one reading the whole
+  design exists to prevent.
+- Knowledge-base annotations are rendered in the HTML report under a heading stating that
+  they are classifications of database records rather than findings about the sample.
+- `examples/knowledge/synthetic.clinvar.variant_summary.txt`, an invented fixture in NCBI's
+  layout containing no real record, with one row for each awkward case the loader must
+  handle: another assembly, a variant with no matchable extent, and ClinVar's `-1`
+  placeholder for unplaced records.
 - `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017, plus ADR-021 and ADR-022.
 
 ### Changed
