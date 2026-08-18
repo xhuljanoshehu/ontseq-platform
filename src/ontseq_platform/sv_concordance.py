@@ -72,9 +72,11 @@ class SVConcordancePair(StrictModel):
                 raise ValueError("near concordance requires the same event type")
             if self.maximum_breakpoint_distance_bp == 0:
                 raise ValueError("zero-distance concordance must be classified as exact")
-        if self.status == SVConcordanceStatus.TOPOLOGY_CONFLICT:
-            if self.left_event_type == self.right_event_type:
-                raise ValueError("topology conflict requires different event types")
+        if (
+            self.status == SVConcordanceStatus.TOPOLOGY_CONFLICT
+            and self.left_event_type == self.right_event_type
+        ):
+            raise ValueError("topology conflict requires different event types")
         return self
 
 
