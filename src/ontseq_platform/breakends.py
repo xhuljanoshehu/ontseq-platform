@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import gzip
 import re
+from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Literal
 
 from pydantic import Field, model_validator
 
