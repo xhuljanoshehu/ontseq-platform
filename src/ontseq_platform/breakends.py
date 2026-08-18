@@ -31,6 +31,27 @@ class BreakendAltForm(StrEnum):
     CLOSE_THEN_LOCAL = "close_then_local"
 
 
+class SnifflesJunctionOrientation(StrEnum):
+    """Two-breakpoint orientation emitted by Sniffles2 for BND calls.
+
+    These values follow Sniffles2's own BND tests and describe genomic breakpoint
+    orientation. They are not equivalent to transcript 5-prime/3-prime direction.
+    """
+
+    PLUS_PLUS = "++"
+    MINUS_PLUS = "-+"
+    PLUS_MINUS = "+-"
+    MINUS_MINUS = "--"
+
+
+_ALT_FORM_TO_SNIFFLES_ORIENTATION = {
+    BreakendAltForm.LOCAL_THEN_CLOSE: SnifflesJunctionOrientation.PLUS_PLUS,
+    BreakendAltForm.CLOSE_THEN_LOCAL: SnifflesJunctionOrientation.MINUS_PLUS,
+    BreakendAltForm.LOCAL_THEN_OPEN: SnifflesJunctionOrientation.PLUS_MINUS,
+    BreakendAltForm.OPEN_THEN_LOCAL: SnifflesJunctionOrientation.MINUS_MINUS,
+}
+
+
 class BreakendDescriptor(StrictModel):
     source_event_id: str = Field(pattern=r"^SNIFFLES2-\d{6}$")
     primary_chromosome: str
@@ -38,12 +59,16 @@ class BreakendDescriptor(StrictModel):
     mate_chromosome: str
     mate_position_0based: int = Field(ge=0)
     alt_form: BreakendAltForm
+    sniffles_junction_orientation: SnifflesJunctionOrientation
     inserted_sequence_retained: Literal[False] = False
 
     @model_validator(mode="after")
-    def positions_are_single_breakpoints(self) -> BreakendDescriptor:
+    def descriptor_is_consistent(self) -> BreakendDescriptor:
         if not self.primary_chromosome or not self.mate_chromosome:
             raise ValueError("breakend chromosomes must be non-empty")
+        expected = _ALT_FORM_TO_SNIFFLES_ORIENTATION[self.alt_form]
+        if self.sniffles_junction_orientation != expected:
+            raise ValueError("Sniffles BND orientation does not match VCF ALT form")
         return self
 
 
@@ -56,13 +81,15 @@ def _open_vcf(path: Path) -> Iterator[str]:
             yield from handle
 
 
-def parse_breakend_alt(alternate: str) -> tuple[str, int, BreakendAltForm]:
+def parse_breakend_alt(
+    alternate: str,
+) -> tuple[str, int, BreakendAltForm, SnifflesJunctionOrientation]:
     """Parse a VCF BND ALT allele without retaining local/inserted sequence.
 
     VCF encodes four adjacency forms using whether the remote locus appears before or after
-    the local sequence and whether `[` or `]` brackets are used. This function preserves
-    that four-state syntax and the mate locus only. It intentionally does not convert the
-    syntax into biological 5-prime/3-prime direction.
+    the local sequence and whether `[` or `]` brackets are used. Sniffles2's own BND test
+    corpus maps these forms to `++`, `-+`, `+-`, and `--` genomic junction orientations.
+    Neither representation is converted here into biological transcript direction.
     """
 
     match = _BND_ALT.fullmatch(alternate)
@@ -81,7 +108,12 @@ def parse_breakend_alt(alternate: str) -> tuple[str, int, BreakendAltForm]:
         alt_form = (
             BreakendAltForm.OPEN_THEN_LOCAL if bracket == "[" else BreakendAltForm.CLOSE_THEN_LOCAL
         )
-    return match.group("chromosome"), int(match.group("position")) - 1, alt_form
+    return (
+        match.group("chromosome"),
+        int(match.group("position")) - 1,
+        alt_form,
+        _ALT_FORM_TO_SNIFFLES_ORIENTATION[alt_form],
+    )
 
 
 def breakend_descriptors_from_sniffles_vcf(path: Path) -> dict[str, BreakendDescriptor]:
@@ -110,7 +142,7 @@ def breakend_descriptors_from_sniffles_vcf(path: Path) -> dict[str, BreakendDesc
             continue
         try:
             primary_position = int(raw_position) - 1
-            mate_chromosome, mate_position, alt_form = parse_breakend_alt(alternate)
+            mate_chromosome, mate_position, alt_form, orientation = parse_breakend_alt(alternate)
         except ValueError:
             continue
         event_id = f"SNIFFLES2-{record_number:06d}"
@@ -121,5 +153,6 @@ def breakend_descriptors_from_sniffles_vcf(path: Path) -> dict[str, BreakendDesc
             mate_chromosome=mate_chromosome,
             mate_position_0based=mate_position,
             alt_form=alt_form,
+            sniffles_junction_orientation=orientation,
         )
     return descriptors
