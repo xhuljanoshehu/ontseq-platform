@@ -203,9 +203,7 @@ def compare_sv_caller_observations(
     if len({item.observation_id for item in right}) != len(right):
         raise ValueError("right caller observation ids must be unique")
 
-    candidate_pairs: list[
-        tuple[int, int, int, int, SVConcordanceStatus, _GeometryMatch]
-    ] = []
+    candidate_pairs: list[tuple[int, int, int, int, SVConcordanceStatus, _GeometryMatch]] = []
     for left_index, left_item in enumerate(left):
         for right_index, right_item in enumerate(right):
             geometry = _geometry_match(left_item, right_item)
