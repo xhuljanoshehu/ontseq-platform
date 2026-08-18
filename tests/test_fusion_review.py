@@ -60,8 +60,13 @@ def _candidate(event_id: str, candidate_id: str) -> FusionCandidate:
     )
 
 
-def _report(*candidates: FusionCandidate, status: ModuleRunStatus | None = None) -> FusionInterpretationReport:
-    resolved_status = status or (ModuleRunStatus.COMPLETED if candidates else ModuleRunStatus.NO_CALL)
+def _report(
+    *candidates: FusionCandidate,
+    status: ModuleRunStatus | None = None,
+) -> FusionInterpretationReport:
+    resolved_status = status or (
+        ModuleRunStatus.COMPLETED if candidates else ModuleRunStatus.NO_CALL
+    )
     return FusionInterpretationReport(
         sample_id="SYNTHETIC_REVIEW_001",
         genome_build=GenomeBuild.GRCH38,
