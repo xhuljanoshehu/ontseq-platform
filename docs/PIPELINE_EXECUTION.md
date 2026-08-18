@@ -452,7 +452,82 @@ lane's reference lock — the mistake that otherwise produces confidently wrong 
 
 ---
 
-## 10. Schedulers call the pipeline; they do not reimplement it
+## 10. Signing off a run
+
+```
+ontseq review record <envelope> --decision accepted --reviewer dr.mueller --note "…"
+ontseq review status <envelope> --verbose
+ontseq review status <envelope> --require-reviewers 2      # four-eyes release gate
+ontseq review status <envelope> --json                     # for a release script
+```
+
+A run produces evidence. Someone has to look at it and say so, and that statement has to
+survive as a record — otherwise "this was reviewed" is a claim nobody can check later.
+
+| State | Meaning |
+| --- | --- |
+| `pending` | no review recorded |
+| `accepted` | the latest review accepts **exactly the content on disk** |
+| `rejected` | the latest review rejects it |
+| `stale` | reviews exist, but the release bundle changed after the last of them |
+| `broken` | the trail does not verify: an entry was removed, reordered or edited |
+| `unreadable` | the log cannot be parsed |
+
+Exit codes match `ontseq status`: **0** nothing in the way, **2** rejected or the trail does
+not verify, **6** not reviewed yet or reviewed against different content.
+
+### Bound to content, not to a directory
+
+Every entry carries the SHA-256 of `release/release.json`, which already covers the run
+report and every exportable artifact by checksum. A review that pointed at a *path* would
+keep vouching for whatever later appeared there. Binding to content means a changed run
+makes the review `stale`: the judgement still stands for what it saw and says nothing about
+what is there now.
+
+### A reviewed envelope cannot be re-run
+
+`ontseq run` refuses with exit **7** when the envelope's latest review accepts its current
+content. This is the property that makes the rest mean anything — the lock stops two runs
+colliding *now*, content-addressed resume stops a stale artifact being *accepted*, and
+neither notices that a human signed this off yesterday and a resumed run is about to rewrite
+what they signed.
+
+It is deliberately **not overridable by a flag**. A flag would be used, and the correct
+alternative costs nothing: use a new `--run-id`. The reviewed envelope then keeps its review
+and the new run gets its own. A rejected or stale review does not block — a rejection is
+often precisely why somebody re-runs.
+
+### Append-only, and the shape shows it
+
+Each entry names the digest of the entry before it, so removing, reordering or editing one
+breaks the chain there and at every later point. Nothing is overwritten: a reviewer who
+accepted and then rejected leaves both facts behind, which is the entire purpose of an audit
+trail. Appending to a log that no longer verifies is refused, because a record that looks
+continuous and is not would be worse than one that admits it is broken.
+
+### What this is **not**
+
+Two limits are printed on every human-readable report and carried as explicit `false` fields
+in the JSON:
+
+- **`identity_is_authenticated: false`.** The reviewer name comes from the command line.
+  Nothing authenticated it, so the record says `asserted` rather than implying otherwise.
+- **`chain_is_tamper_proof: false`.** There is no key. Anyone who can rewrite the file can
+  recompute the whole chain. It detects accidental corruption and casual editing; that is
+  all it detects.
+
+`signature_status` on the release bundle therefore still reads `unsigned`. A qualified
+electronic signature needs an authorised key, an identity provider and a records policy,
+none of which exist here — and a record that quietly implied one would be worse than no
+record at all. See ADR-021.
+
+CI signs off a real run, asserts the trail binds to the bundle digest, asserts a four-eyes
+gate is not satisfied by one person, asserts that re-running the envelope exits 7, and
+asserts that an edited trail is detected as `broken`.
+
+---
+
+## 11. Schedulers call the pipeline; they do not reimplement it
 
 `workflow/aligned_bam.smk` is a single Snakemake rule that invokes `ontseq run`. It used to be
 five rules calling the per-stage commands, which made Snakemake a second execution path —
@@ -470,7 +545,7 @@ itself, there are two behaviours again and only one of them is tested.
 
 ---
 
-## 11. Extending the pipeline
+## 12. Extending the pipeline
 
 To add a stage:
 

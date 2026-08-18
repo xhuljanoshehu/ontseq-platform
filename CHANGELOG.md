@@ -99,7 +99,19 @@ validated release.
   and an invented multiplier would look like a validated figure. It separates a stage that
   will run on an unexecuted adapter from a stage with no adapter at all, because "code
   nobody has run" and "nothing is wired in, so this records NOT_RUN" are different claims.
-- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017.
+- `ontseq review`: records who signed a run off, bound to the SHA-256 of the release bundle
+  they saw rather than to a directory, so a changed run makes the review *stale* instead of
+  silently vouching for something else. The trail is append-only and each entry names the
+  digest of the one before it, so removing, reordering or editing an entry is detectable.
+  A four-eyes gate is available via `--require-reviewers`, counting distinct reviewers of
+  the current content. The record states what it is not: the identity is `asserted` and
+  nothing authenticated it, and the chain is tamper-evident rather than tamper-proof because
+  there is no key — both carried as explicit `false` fields in the JSON output.
+- `ontseq run` refuses, with its own exit code 7, to write into an envelope whose latest
+  review accepts its current content. Deliberately not overridable: a resumed run would
+  rewrite what somebody signed off, and using a new run id costs nothing.
+- `review/` in the run envelope.
+- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017, plus ADR-021.
 
 ### Changed
 

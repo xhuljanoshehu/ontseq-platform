@@ -54,6 +54,9 @@ from ..sniffles import run_sniffles
 from ..workbook import render_workbook
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
 from .lock import run_lock
+from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
+from .review import current_state as review_state
+from .review import read_log as read_review_log
 from .stages import (
     SPEC_BY_STAGE,
     InputKindName,
@@ -682,6 +685,45 @@ def build_release_bundle(
     return bundle
 
 
+class EnvelopeAlreadyReviewed(RuntimeError):
+    """Raised when a run would modify an envelope somebody has already signed off.
+
+    Nothing else in the design catches this. The lock stops two runs colliding *now*;
+    content-addressed resume stops a stale artifact being accepted. Neither notices that a
+    human accepted this envelope yesterday and a resumed run is about to rewrite what they
+    accepted — which would leave the review pointing at content nobody reviewed.
+
+    Deliberately not overridable by a flag. A flag would be used, and the situation it
+    covers has a correct answer that costs nothing: use a new run id. The old envelope then
+    keeps its review, and the new one gets its own.
+    """
+
+
+def _refuse_if_reviewed(envelope_root: Path) -> None:
+    """Refuse to write into an envelope whose latest review accepts its current content.
+
+    A rejected or stale review does not block: a rejection is often precisely why somebody
+    re-runs, and a stale review already says it no longer describes what is on disk.
+    """
+    release = envelope_root / RELEASE_RELATIVE
+    if not release.is_file():
+        return
+    digest = sha256_file(release)
+    try:
+        entries = read_review_log(envelope_root / REVIEW_LOG)
+    except ReviewError:
+        # An unreadable trail is reported by `ontseq review`, whose job that is. Blocking
+        # the run here as well would make a corrupt log impossible to move past.
+        return
+    state, detail = review_state(entries, digest)
+    if state is ReviewState.ACCEPTED:
+        raise EnvelopeAlreadyReviewed(
+            f"{envelope_root} carries an accepted review ({detail}). Running again would "
+            "rewrite the content that was signed off. Use a different --run-id; the "
+            "reviewed envelope then keeps its review and this run gets its own."
+        )
+
+
 def run_pipeline(
     config: RunConfiguration, *, runner: StreamingCommandRunner | None = None
 ) -> tuple[RunReport, ReleaseBundle | None]:
@@ -690,6 +732,7 @@ def run_pipeline(
     envelope = RunEnvelope.create(
         config.output_base, run_id=config.run_id, sample_id=config.manifest.sample_id
     )
+    _refuse_if_reviewed(envelope.root)
     with run_lock(
         envelope.root,
         run_id=config.run_id,

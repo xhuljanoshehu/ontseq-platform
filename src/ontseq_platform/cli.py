@@ -40,8 +40,14 @@ from .pipeline.checks import exit_code as check_exit_code
 from .pipeline.checks import render_json as render_checks_json
 from .pipeline.checks import render_text as render_checks_text
 from .pipeline.lock import RunAlreadyRunning
-from .pipeline.runner import RunConfiguration, run_pipeline
+from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
+from .pipeline.review import Decision, ReviewError
+from .pipeline.review import exit_code as review_exit_code
 from .preflight import PreflightRequest, preflight
+from .review import inspect as inspect_review
+from .review import record as record_review
+from .review import render_json as render_review_json
+from .review import render_text as render_review_text
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
@@ -240,6 +246,46 @@ def _parser() -> argparse.ArgumentParser:
     )
     preflight_parser.add_argument(
         "--json", action="store_true", dest="as_json", help="Emit JSON for a scheduler"
+    )
+
+    review_parser = subparsers.add_parser(
+        "review",
+        help="Record and inspect who signed off a run, bound to what they saw",
+    )
+    review_sub = review_parser.add_subparsers(dest="review_command", required=True)
+
+    review_record = review_sub.add_parser(
+        "record", help="Append one judgement to a run envelope's review trail"
+    )
+    review_record.add_argument("envelope", type=Path, help="Path to <output>/<run-id>/<sample-id>")
+    review_record.add_argument(
+        "--decision", required=True, choices=[item.value for item in Decision]
+    )
+    review_record.add_argument(
+        "--reviewer",
+        required=True,
+        help="Who is taking responsibility. Recorded as asserted; nothing authenticates it",
+    )
+    review_record.add_argument(
+        "--note", default="", help="Reason. Required in practice for a rejection"
+    )
+
+    review_status = review_sub.add_parser(
+        "status", help="Report the review state of a run envelope"
+    )
+    review_status.add_argument("envelope", type=Path)
+    review_status.add_argument(
+        "--verbose", action="store_true", help="List every entry in the trail"
+    )
+    review_status.add_argument("--json", action="store_true", dest="as_json")
+    review_status.add_argument(
+        "--require-reviewers",
+        type=int,
+        default=0,
+        help=(
+            "Exit non-zero unless this many distinct reviewers accepted the content now on "
+            "disk. Use 2 for a four-eyes release gate"
+        ),
     )
 
     status_parser = subparsers.add_parser(
@@ -567,6 +613,32 @@ def main() -> None:
             code = check_exit_code(checks)
             if code:
                 raise SystemExit(code)
+        elif args.command == "review":
+            if args.review_command == "record":
+                entry = record_review(
+                    args.envelope,
+                    decision=Decision(args.decision),
+                    reviewer=args.reviewer,
+                    note=args.note,
+                )
+                print(entry.describe())
+                print(f"bound to release bundle {entry.release_sha256}")
+                print(f"entry digest {entry.entry_sha256}")
+            else:
+                report = inspect_review(args.envelope)
+                if args.as_json:
+                    print(render_review_json(report), end="")
+                else:
+                    print(render_review_text(report, verbose=args.verbose))
+                # 0 nothing stands in the way, 2 rejected or the trail does not verify,
+                # 6 not reviewed yet or reviewed against different content.
+                code = review_exit_code(
+                    report.state,
+                    reviewers=len(report.reviewers),
+                    required_reviewers=args.require_reviewers,
+                )
+                if code:
+                    raise SystemExit(code)
         elif args.command == "status":
             statuses = scan(args.output_dir, run_id=args.run_id)
             if args.as_json:
@@ -710,6 +782,14 @@ def main() -> None:
         # configuration nothing can run under.
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(5) from exc
+    except EnvelopeAlreadyReviewed as exc:
+        # Its own exit code: a scheduler must be able to tell "somebody signed this off,
+        # rerunning would rewrite what they saw" apart from an ordinary failure.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(7) from exc
+    except ReviewError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
     except RunAlreadyRunning as exc:
         # Its own exit code, so a watcher or scheduler can tell "someone else is already
         # on this sample" apart from "this run failed" and simply move on.

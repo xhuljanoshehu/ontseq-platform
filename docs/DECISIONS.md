@@ -356,3 +356,51 @@ purpose is to make the gap between the two numbers visible rather than to be the
 cluster-robust test (Durkalski's clustered McNemar or a GEE formulation) and the sample-size
 calculation are pre-registered together, and these fields become inputs to that design
 rather than caveats attached to an event-level number.
+
+---
+
+## ADR-021: A review is bound to content, appended, and honest about what it is not
+
+**Decision:** `ontseq review record` appends one judgement — `accepted` or `rejected` — to
+`review/review.log.jsonl` inside the run envelope. Every entry carries the SHA-256 of the
+release bundle it was made against and the digest of the entry before it. Nothing is ever
+overwritten. `ontseq review status` resolves the trail against the content currently on
+disk into one of `pending`, `accepted`, `rejected`, `stale`, `broken` or `unreadable`, and
+exits 0 / 2 / 6 on the same convention as `ontseq status`. `ontseq run` refuses, with its
+own exit code 7, to write into an envelope whose latest review accepts its current content.
+
+**Reason:** The pipeline could produce evidence and nobody could record that they had
+examined it. `ReviewStatus` existed as a field on the ISCN proposal and nothing ever wrote
+`REVIEWED` to it; the release bundle said `signature_status: "unsigned"` and left it there.
+Without a trail, "this was reviewed" is a claim that cannot be checked afterwards, which is
+exactly the claim a diagnostic workflow rests on.
+
+**Bound to content, not to a directory.** A review that pointed at a path would keep
+vouching for whatever later appeared there. Binding to the release bundle's digest means a
+changed run makes the review `stale` — the judgement still stands for what it saw, and says
+nothing about what is there now. This is the same rule the resume logic uses, for the same
+reason: identity by content, never by name or timestamp.
+
+**Refusing to re-run a reviewed envelope is the property that makes the rest mean
+anything.** The lock stops two runs colliding now; content-addressed resume stops a stale
+artifact being accepted. Neither notices that a human accepted this envelope yesterday and a
+resumed run is about to rewrite what they accepted. That is deliberately *not* overridable
+by a flag: a flag would be used, and the correct alternative costs nothing — a new run id,
+after which the reviewed envelope keeps its review and the new run gets its own.
+
+**Append-only, with a chain that shows it.** Each entry names the digest of its predecessor,
+so removing, reordering or editing one breaks the chain there and at every later point. A
+reviewer who accepted and then rejected leaves both facts behind; that is the whole purpose.
+
+**And it says what it is not.** The reviewer identity is `asserted`: it comes from the
+command line and nothing authenticated it. The chain is tamper-*evident*, not tamper-proof —
+there is no key, so anyone who can rewrite the file can recompute the chain. It catches
+accidental corruption and casual editing, and that is all it catches. Both facts are printed
+on every human-readable report and carried as explicit `false` fields in the JSON, because a
+record that quietly implies an authentication it never performed is worse than no record.
+
+**Revisit when:** An identity provider exists and a signing key is available under a records
+policy. `identity_source` then carries something other than `asserted`, the entry gains a
+signature, and `signature_status` on the release bundle can stop saying `unsigned`. The log
+format does not have to change for that; only the fields that are currently honest about
+being empty.

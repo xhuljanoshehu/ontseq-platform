@@ -45,6 +45,7 @@ SUBDIRECTORIES: tuple[str, ...] = (
     "reports",
     "provenance",
     "release",
+    "review",
     "work",
 )
 

@@ -319,6 +319,72 @@ jobs:
             --quiet-seconds 0 --threads 2 --once \
             --git-commit "$GITHUB_SHA" | tee /tmp/watch2.log
           grep -q 'WATCHED_SAMPLE_001 *skipped *already completed' /tmp/watch2.log
+      - name: Sign off a run and prove the trail binds to what was signed
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          envelope=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
+          # Nothing reviewed yet: unfinished, not wrong.
+          set +e
+          PYTHONPATH=src python -m ontseq_platform review status "$envelope" > /tmp/rev0.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/rev0.log
+          test "$code" -eq 6
+          grep -q 'PENDING' /tmp/rev0.log
+
+          PYTHONPATH=src python -m ontseq_platform review record "$envelope" \
+            --decision accepted --reviewer dr.mueller --note "CI sign-off" | tee /tmp/rev1.log
+          grep -q 'bound to release bundle' /tmp/rev1.log
+          PYTHONPATH=src python -m ontseq_platform review status "$envelope" --verbose \
+            | tee /tmp/rev2.log
+          grep -q 'ACCEPTED' /tmp/rev2.log
+          grep -q 'chain: intact' /tmp/rev2.log
+          # The record must never imply an authentication it does not perform.
+          grep -q 'asserted, not authenticated' /tmp/rev2.log
+          PYTHONPATH=src python -m ontseq_platform review status "$envelope" --json \
+            > /tmp/rev.json
+          python -c "import json;d=json.load(open('/tmp/rev.json'));assert d['state']=='accepted',d;assert d['accepted_by']==['dr.mueller'],d;assert d['identity_is_authenticated'] is False,d;assert d['chain_is_tamper_proof'] is False,d"
+
+          # A four-eyes gate is not satisfied by one person.
+          set +e
+          PYTHONPATH=src python -m ontseq_platform review status "$envelope" \
+            --require-reviewers 2 > /tmp/rev3.log 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 6
+      - name: Refuse to re-run an envelope somebody signed off
+        shell: micromamba-shell {0}
+        run: |
+          set +e
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/local-smoke/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --output-dir results/runs --run-id CI_RUN_001 --threads 2 \
+            --git-commit "$GITHUB_SHA" > /tmp/rerun.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/rerun.log
+          # Exit 7 is its own code: a scheduler must tell this apart from an ordinary
+          # failure and from a locked envelope.
+          test "$code" -eq 7
+          grep -q 'accepted review' /tmp/rerun.log
+      - name: Prove an edited review trail is detected
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          log=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/review/review.log.jsonl
+          cp "$log" /tmp/review.backup
+          python -c "import json;p='$log';rows=[json.loads(l) for l in open(p) if l.strip()];rows[0]['note']='tampered';open(p,'w').write(''.join(json.dumps(r,sort_keys=True,separators=(',',':'))+chr(10) for r in rows))"
+          set +e
+          PYTHONPATH=src python -m ontseq_platform review status \
+            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001 > /tmp/rev4.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/rev4.log
+          test "$code" -eq 2
+          grep -q 'BROKEN' /tmp/rev4.log
+          cp /tmp/review.backup "$log"
       - name: Report the state of every envelope the job produced
         shell: micromamba-shell {0}
         run: |
