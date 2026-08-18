@@ -89,18 +89,14 @@ def _report(candidate: FusionCandidate | None) -> FusionInterpretationReport:
         annotation_source_sha256="0" * 64,
         candidates=candidates,
         source_translocation_count=len(candidates),
-        breakend_descriptor_count=sum(
-            item.breakend_descriptor is not None for item in candidates
-        ),
+        breakend_descriptor_count=sum(item.breakend_descriptor is not None for item in candidates),
         warnings=["synthetic benchmark only"],
     )
 
 
 class FusionBenchmarkContractTests(unittest.TestCase):
     def test_repository_suite_is_explicitly_nonbiological(self) -> None:
-        suite = load_synthetic_fusion_benchmark(
-            Path("configs/sv/fusion.synthetic_benchmark.yaml")
-        )
+        suite = load_synthetic_fusion_benchmark(Path("configs/sv/fusion.synthetic_benchmark.yaml"))
 
         self.assertEqual(suite.status, "synthetic_software_benchmark_only")
         self.assertGreaterEqual(len(suite.fixtures), 9)
