@@ -6,25 +6,39 @@ from pathlib import Path
 
 from ontseq_platform.breakends import (
     BreakendAltForm,
+    SnifflesJunctionOrientation,
     breakend_descriptors_from_sniffles_vcf,
     parse_breakend_alt,
 )
 
 
 class BreakendParserTests(unittest.TestCase):
-    def test_all_four_vcf_breakend_forms_are_preserved(self) -> None:
+    def test_all_four_vcf_breakend_forms_match_sniffles_orientation(self) -> None:
         cases = {
-            "N[chr2:5000[": BreakendAltForm.LOCAL_THEN_OPEN,
-            "N]chr2:5000]": BreakendAltForm.LOCAL_THEN_CLOSE,
-            "[chr2:5000[N": BreakendAltForm.OPEN_THEN_LOCAL,
-            "]chr2:5000]N": BreakendAltForm.CLOSE_THEN_LOCAL,
+            "N[chr2:5000[": (
+                BreakendAltForm.LOCAL_THEN_OPEN,
+                SnifflesJunctionOrientation.PLUS_MINUS,
+            ),
+            "N]chr2:5000]": (
+                BreakendAltForm.LOCAL_THEN_CLOSE,
+                SnifflesJunctionOrientation.PLUS_PLUS,
+            ),
+            "[chr2:5000[N": (
+                BreakendAltForm.OPEN_THEN_LOCAL,
+                SnifflesJunctionOrientation.MINUS_MINUS,
+            ),
+            "]chr2:5000]N": (
+                BreakendAltForm.CLOSE_THEN_LOCAL,
+                SnifflesJunctionOrientation.MINUS_PLUS,
+            ),
         }
-        for alternate, expected in cases.items():
+        for alternate, (expected_form, expected_orientation) in cases.items():
             with self.subTest(alternate=alternate):
-                chromosome, position, alt_form = parse_breakend_alt(alternate)
+                chromosome, position, alt_form, orientation = parse_breakend_alt(alternate)
                 self.assertEqual(chromosome, "chr2")
                 self.assertEqual(position, 4999)
-                self.assertEqual(alt_form, expected)
+                self.assertEqual(alt_form, expected_form)
+                self.assertEqual(orientation, expected_orientation)
 
     def test_parser_rejects_non_breakend_or_ambiguous_forms(self) -> None:
         for alternate in ["<BND>", "N", "N[chr2:5000[N", "[chr2:5000["]:
@@ -50,6 +64,10 @@ class BreakendParserTests(unittest.TestCase):
         self.assertEqual(item.mate_chromosome, "chr22")
         self.assertEqual(item.mate_position_0based, 2999)
         self.assertEqual(item.alt_form, BreakendAltForm.LOCAL_THEN_CLOSE)
+        self.assertEqual(
+            item.sniffles_junction_orientation,
+            SnifflesJunctionOrientation.PLUS_PLUS,
+        )
         serialized = item.model_dump_json()
         self.assertNotIn("SECRET2", serialized)
         self.assertNotIn("AC]chr22:3000]", serialized)
