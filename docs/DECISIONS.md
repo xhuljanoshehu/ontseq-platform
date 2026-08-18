@@ -404,3 +404,57 @@ policy. `identity_source` then carries something other than `asserted`, the entr
 signature, and `signature_status` on the release bundle can stop saying `unsigned`. The log
 format does not have to change for that; only the fields that are currently honest about
 being empty.
+
+---
+
+## ADR-022: ClinVar annotates findings; it does not classify them
+
+**Decision:** `ontseq_platform.knowledge` attaches ClinVar records to copy-number and
+structural findings and stops there. Each annotation carries the source's assertion
+*verbatim*, the vocabulary that assertion belongs to (`acmg_germline`), the record's own
+origin, how the record matched (type and reciprocal overlap), NCBI's review status and star
+rating, and the checksum of the exact release it came from. Nothing in the package sets
+`reportable`, raises `confidence`, or translates one classification vocabulary into another.
+Records whose origin does not match the assay's question are **kept and marked**, never
+filtered out.
+
+**Reason:** ClinVar was chosen as the knowledge base, and it is a good choice for what it
+is — but what it is matters. ClinVar classifies under ACMG *germline* rules: *Pathogenic*
+there means "this variant causes this inherited condition". The intended use of this
+platform is AML, where the findings are *somatic*. A somatic driver is not "pathogenic" in
+ClinVar's sense, and a somatic finding labelled *Pathogenic* in a report would read as
+though it were.
+
+So the assertion travels with its vocabulary attached and is never restated. This is the
+same rule the CNV truth model already applies to `background_state`: a source's semantics
+belong to the source, and losing them inverts the meaning of everything downstream.
+
+**Origin is checked per record, not assumed per source.** ClinVar publishes `OriginSimple`
+on every row, so alignment is computed rather than guessed. Where either side is silent —
+including when the manifest does not declare whether the assay is looking for somatic or
+germline variation — the alignment is `UNKNOWN` and says which side failed to declare. It is
+never quietly treated as agreement.
+
+**Mismatched records are kept.** A germline pathogenic deletion underlying a somatic finding
+is a secondary finding a reviewer needs to see. Filtering it out would be a clinical decision
+disguised as a technical filter, made by code, invisibly.
+
+**A match is a measurement.** A 3 Mb ClinVar record inside a 90 Mb arm loss is a much weaker
+statement than an exact coordinate match, and the two are distinguished by `MatchType` with
+the reciprocal overlap beside it, rather than both appearing as "ClinVar: Pathogenic".
+
+**The release is locked.** ClinVar republishes weekly. "ClinVar says Pathogenic" without
+saying *which* ClinVar is not reproducible: the same BAM can produce different reports a
+month apart with nothing recording why. The release checksum travels with every annotation,
+as the reference lock and the cytoband resource already do.
+
+**What this deliberately does not do:** decide reportability. That needs somatic criteria —
+ELN, ICC, or a locally agreed gene list — which this repository does not have. Code that
+promoted a ClinVar *Pathogenic* into a reportable finding would be inventing a clinical rule
+nobody agreed to, in the least recoverable place: inside a report a physician is about to
+sign.
+
+**Revisit when:** A somatic knowledge source is added (OncoKB, CIViC, COSMIC) or ELN/ICC
+criteria are encoded. `assertion_vocabulary` then carries more than one value and the
+alignment check becomes genuinely useful in both directions, rather than mostly reporting
+that a germline source was consulted for a somatic question.

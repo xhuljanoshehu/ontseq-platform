@@ -111,7 +111,16 @@ validated release.
   review accepts its current content. Deliberately not overridable: a resumed run would
   rewrite what somebody signed off, and using a new run id costs nothing.
 - `review/` in the run envelope.
-- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017, plus ADR-021.
+- `ontseq_platform.knowledge`: a ClinVar annotation layer that attaches records to
+  copy-number and structural findings **without classifying them**. Each annotation carries
+  the assertion verbatim together with the vocabulary it belongs to (`acmg_germline`), the
+  record's own origin, the match type and reciprocal overlap, NCBI's review status and star
+  rating, and the checksum of the exact weekly release it came from. Records whose origin
+  does not match the assay's question are kept and marked as secondary findings rather than
+  filtered, because filtering them would be a clinical decision made invisibly by code.
+  Nothing in the package sets `reportable` or raises `confidence`: deciding that needs
+  somatic criteria (ELN, ICC, a local gene list) this repository does not have.
+- `docs/PIPELINE_EXECUTION.md` and ADR-013 through ADR-017, plus ADR-021 and ADR-022.
 
 ### Changed
 
