@@ -23,21 +23,30 @@ validated release.
   exact-match, tolerance-based near-match, topology-conflict and unmatched evidence states.
 - Synthetic Sniffles2/cuteSV concordance tests covering exact and near matches, out-of-tolerance
   calls, reciprocal breakpoint ordering, event-type conflicts and privacy-safe serialization.
+- Conservative cuteSV v2.1.4 VCF normalization contract for DEL/DUP/INV/INS/BND/TRA evidence,
+  including explicit filter/support accounting, version lock, `NO_CALL` semantics and a typed
+  bridge into the multi-caller concordance layer.
+- Synthetic cuteSV tests covering 1-based to 0-based coordinate normalization, BND mate parsing,
+  support filtering, version mismatch, malformed breakends and exclusion of VCF IDs/read names.
 
 ### Validation impact
 
 The fusion branch now produces reviewer-facing structured projections of research-only DNA
-rearrangement evidence and can compare normalized observations from independent SV callers. These
-projections can change how candidate evidence, observability, redundancy, module status and
-caller concordance are presented to a reviewer, but they do not establish biological truth, an
-expressed or functional fusion, or clinical reportability. `NO_CALL` explicitly remains
-non-negative, known gene pairs remain annotation evidence only, genomic BND orientation does not
-establish transcript direction, and duplicate/reciprocal records are preserved rather than
-collapsed. Multi-caller exact or near agreement is labelled software evidence only; the
-breakpoint tolerance is explicit configuration with `clinically_validated=false`, and conflicting
-caller topology is preserved for review rather than coerced into agreement. Assay-specific
-analytical validation and authorized human review remain mandatory before any clinical use or
-connection to final HTML/XLSX/ISCN release logic.
+rearrangement evidence, can compare normalized observations from independent SV callers, and can
+normalize a version-locked cuteSV VCF into the common candidate evidence model. These projections
+can change how candidate evidence, observability, redundancy, module status and caller concordance
+are presented to a reviewer, but they do not establish biological truth, an expressed or
+functional fusion, or clinical reportability. `NO_CALL` explicitly remains non-negative, known
+gene pairs remain annotation evidence only, genomic BND orientation does not establish transcript
+direction, and duplicate/reciprocal records are preserved rather than collapsed. Multi-caller
+exact or near agreement is labelled software evidence only; the breakpoint tolerance is explicit
+configuration with `clinically_validated=false`, and conflicting caller topology is preserved for
+review rather than coerced into agreement. The cuteSV adapter treats BND/TRA records as DNA
+translocation evidence only, does not propagate RNAMES/read IDs or raw ALT sequence, and locks
+software version 2.1.4 while its current thresholds remain `technical_defaults_only` and
+`clinically_validated=false`. Assay-specific analytical validation and authorized human review
+remain mandatory before any clinical use, real-sample promotion, or connection to final
+HTML/XLSX/ISCN release logic.
 
 ## 0.3.0 - 2026-08-14
 
