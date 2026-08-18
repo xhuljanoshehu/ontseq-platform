@@ -9,8 +9,19 @@ from ontseq_platform.knowledge.clinvar import ClinVarError, load, release_sha256
 from ontseq_platform.knowledge.scope import Interval, MatchType, Origin, ScopeAlignment
 
 COLUMNS = [
-    "#AlleleID", "Type", "Name", "GeneSymbol", "ClinicalSignificance", "OriginSimple",
-    "Assembly", "Chromosome", "Start", "Stop", "ReviewStatus", "PhenotypeList", "VariationID",
+    "#AlleleID",
+    "Type",
+    "Name",
+    "GeneSymbol",
+    "ClinicalSignificance",
+    "OriginSimple",
+    "Assembly",
+    "Chromosome",
+    "Start",
+    "Stop",
+    "ReviewStatus",
+    "PhenotypeList",
+    "VariationID",
 ]
 
 
