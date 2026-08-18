@@ -163,6 +163,19 @@ validated release.
   the only group. A real ONT sample is routinely sequenced across several flowcells. The
   alignment fixture now carries two, and CI asserts both survive the FASTQ round trip *and*
   that the per-group read counts are unchanged, which a presence check alone would not catch.
+  The assertion passed on its first run against real `minimap2` and `samtools`: the collapse
+  this was written to detect does not occur. That is now a measured property of the current
+  pinned versions rather than an assumption.
+- The unit test asserting a *single* read group was left behind by that change and failed in
+  CI. It also compared the `RG` tag by substring, and `SYNTHETIC_ALIGN_RG` is a prefix of
+  `SYNTHETIC_ALIGN_RG2` — so the check would have passed on a record belonging to the other
+  group. The tag is now read as a whole field, and which reads sit on which group is asserted
+  rather than only how many there are.
+- CI ran `Type check` and `Unit tests` only after every earlier step passed, so a lint error
+  hid the type errors, which hid the test failures — one round trip per layer. Both steps now
+  run whenever the install succeeded, and the job still reports failure. This matters more
+  here than it would elsewhere: pydantic cannot be installed in the development sandbox, so
+  21 of 36 test modules are first executed on the runner.
 
 - A truth source's declared resolution affected only a warning, not the score. Calls below
   it were counted as false positives while the warning beside them said they must not be —

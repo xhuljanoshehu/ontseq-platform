@@ -12,12 +12,30 @@ from ontseq_platform.align_fixture import (
     REFERENCE_READS,
     REVERSE_READS,
     SAMPLE_ID,
+    SECOND_READ_GROUP_ID,
     deterministic_sequence,
     format_fasta,
     reverse_complement,
     synthetic_reference,
     unaligned_sam_text,
 )
+
+
+def _header_field(line: str, tag: str) -> str:
+    """Read one ``TAG:value`` field out of a SAM header line, or fail loudly."""
+    for field in line.split("\t")[1:]:
+        key, _, value = field.partition(":")
+        if key == tag:
+            return value
+    raise AssertionError(f"header line carries no {tag} field: {line}")
+
+
+def _read_group_of(record: str) -> str:
+    """The record's ``RG`` tag as a whole value, never as a substring match."""
+    for field in record.split("\t")[11:]:
+        if field.startswith("RG:Z:"):
+            return field[len("RG:Z:") :]
+    raise AssertionError(f"record carries no RG tag: {record[:60]}")
 
 
 class SequenceTests(unittest.TestCase):
@@ -86,11 +104,21 @@ class UnalignedSamTests(unittest.TestCase):
         """An unaligned BAM must not carry @SQ records; otherwise it is not unaligned."""
         self.assertFalse([line for line in self.lines if line.startswith("@SQ")])
 
-    def test_a_single_read_group_is_declared_with_a_sample(self) -> None:
+    def test_two_read_groups_are_declared_each_with_a_sample(self) -> None:
+        """Two, because one cannot distinguish "preserved" from "collapsed onto the first".
+
+        An aligner that dropped every read onto whichever group it saw first would look
+        perfect against a single-group fixture. The second group is what makes the claim
+        that read groups survive alignment testable at all.
+        """
         read_groups = [line for line in self.lines if line.startswith("@RG")]
-        self.assertEqual(len(read_groups), 1)
-        self.assertIn(f"ID:{READ_GROUP_ID}", read_groups[0])
-        self.assertIn(f"SM:{SAMPLE_ID}", read_groups[0])
+        self.assertEqual(len(read_groups), 2)
+        self.assertEqual(
+            [_header_field(line, "ID") for line in read_groups],
+            [READ_GROUP_ID, SECOND_READ_GROUP_ID],
+        )
+        for line in read_groups:
+            self.assertEqual(_header_field(line, "SM"), SAMPLE_ID)
 
     def test_every_record_is_unmapped(self) -> None:
         for record in self.records:
@@ -104,9 +132,31 @@ class UnalignedSamTests(unittest.TestCase):
 
     def test_every_record_carries_the_tags_alignment_must_preserve(self) -> None:
         for record in self.records:
-            self.assertIn(f"RG:Z:{READ_GROUP_ID}", record)
+            # Compared as a whole field, not as a substring: ``SYNTHETIC_ALIGN_RG`` is a
+            # prefix of ``SYNTHETIC_ALIGN_RG2``, so a containment check would pass on a
+            # record belonging to the other group and prove nothing.
+            self.assertIn(_read_group_of(record), {READ_GROUP_ID, SECOND_READ_GROUP_ID})
             self.assertIn("MM:Z:C+m?", record)
             self.assertIn("ML:B:C,", record)
+
+    def test_both_read_groups_actually_carry_reads(self) -> None:
+        """A declared-but-empty second group would restore the blind spot silently."""
+        counts: dict[str, int] = {}
+        for record in self.records:
+            group = _read_group_of(record)
+            counts[group] = counts.get(group, 0) + 1
+        self.assertEqual(counts[SECOND_READ_GROUP_ID], REVERSE_READS)
+        self.assertEqual(counts[READ_GROUP_ID], DELETION_READS + REFERENCE_READS)
+
+    def test_the_reverse_reads_are_the_ones_on_the_second_group(self) -> None:
+        """Which reads sit on which group has to be stated, or the counts prove nothing."""
+        for record in self.records:
+            expected = (
+                SECOND_READ_GROUP_ID
+                if record.startswith("SYNTH_ALIGN_REV_")
+                else READ_GROUP_ID
+            )
+            self.assertEqual(_read_group_of(record), expected, record[:40])
 
     def test_sequence_and_quality_lengths_agree(self) -> None:
         for record in self.records:

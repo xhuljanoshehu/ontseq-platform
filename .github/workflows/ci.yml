@@ -21,6 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
+        id: install
         run: python -m pip install -e ".[dev,workflow]"
       - name: Repository safety
         run: python scripts/check_repository_safety.py
@@ -30,9 +31,18 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
+      # These two run even when an earlier check failed, because the job still reports
+      # failure and one push should surface everything wrong with it. The alternative
+      # costs a full round trip per layer: a lint error hides the type errors, which hide
+      # the test failures. That is not hypothetical here — pydantic cannot be installed in
+      # the development sandbox, so 21 of 36 test modules are first executed on this
+      # runner, and a step that never runs is the most invisible way to be wrong.
+      # Gated on Install so a broken environment does not produce a page of noise.
       - name: Type check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: mypy src
       - name: Unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m unittest discover -s tests -v
       - name: Validate Snakemake DAGs
         run: |
