@@ -189,19 +189,59 @@ class MaskIntegrationTests(unittest.TestCase):
         self.assertEqual(report.partition.excluded_bases_by_reason["blacklist"], 50_000_000)
 
 
-class WarningTests(unittest.TestCase):
-    def test_calls_below_truth_resolution_are_flagged_not_counted_as_errors(self) -> None:
-        small = CnvSegment(
-            contig="chr5", start=0, end=50_000, state=CopyNumberState.GAIN, copy_number=3.0
+class TruthResolutionTests(unittest.TestCase):
+    """Sub-resolution calls must leave the score, not merely carry a warning.
+
+    This used to assert only that a warning was emitted, while the call was still counted
+    as a false positive underneath it. A warning that contradicts the number beside it is
+    worse than either alone, because the number is what aggregates.
+    """
+
+    SMALL = CnvSegment(
+        contig="chr5", start=0, end=50_000, state=CopyNumberState.GAIN, copy_number=3.0
+    )
+
+    def _report(self, *, resolution: int):
+        return evaluate_case(
+            _case(_truth([LOSS], resolution=resolution), _call_set([self.SMALL, LOSS]))
         )
-        case = _case(
-            _truth([LOSS], resolution=10_000_000),
-            _call_set([small, LOSS]),
-        )
-        report = evaluate_case(case)
+
+    def test_the_bases_leave_the_evaluable_genome(self) -> None:
+        report = self._report(resolution=10_000_000)
+        self.assertEqual(report.partition.truth_resolution_silent_bases, 50_000)
+
+    def test_the_call_is_neither_confirmed_nor_a_false_positive(self) -> None:
+        report = self._report(resolution=10_000_000)
+        outcomes = {item.length_bp: item.outcome for item in report.query_events}
+        self.assertEqual(outcomes[50_000], "NOT_ASSESSABLE")
+
+    def test_the_exclusion_is_stated_in_words(self) -> None:
+        report = self._report(resolution=10_000_000)
         self.assertTrue(
-            any("smaller than the truth set's declared resolution" in w for w in report.warnings)
+            any("below the truth source's declared resolution" in w for w in report.warnings),
+            report.warnings,
         )
+
+    def test_a_truth_that_can_resolve_the_call_still_scores_it(self) -> None:
+        report = self._report(resolution=10_000)
+        self.assertEqual(report.partition.truth_resolution_silent_bases, 0)
+        outcomes = {item.length_bp: item.outcome for item in report.query_events}
+        self.assertEqual(outcomes[50_000], "UNCONFIRMED")
+
+    def test_the_reported_partition_still_reconciles(self) -> None:
+        """The contract re-validates it, so a mis-accounted exclusion cannot be reported."""
+        report = self._report(resolution=10_000_000)
+        self.assertEqual(
+            report.partition.mask_bases,
+            report.partition.evaluable_bases
+            + report.partition.truth_silent_bases
+            + report.partition.truth_resolution_silent_bases
+            + report.partition.query_no_call_bases,
+        )
+
+    def test_the_detected_truth_event_is_unaffected(self) -> None:
+        report = self._report(resolution=10_000_000)
+        self.assertEqual(report.detection_rate.successes, 1)
 
 
 class MethodComparisonTests(unittest.TestCase):
