@@ -5,7 +5,31 @@ validated release.
 
 ## Unreleased
 
-No entries.
+### Added
+
+- Research-only DNA fusion evidence contracts with build-locked local gene annotation,
+  privacy-safe BND adjacency descriptors and explicit breakpoint observability.
+- Synthetic fusion software benchmark fixtures and executable VCF-to-review test paths that do
+  not contain patient-derived genomic material.
+- Exact duplicate/reciprocal breakpoint redundancy detection that preserves every source event
+  and never auto-deduplicates candidate evidence.
+- Adversarial fusion tests covering filtered and low-support records, malformed BND ALT fallback,
+  reciprocal breakends and exact duplicate breakpoints.
+- Typed fusion reviewer contract that keeps candidate evidence, `NO_CALL`, `NOT_RUN` and `FAILED`
+  distinct and exposes review-required, research-only, non-reportable candidate summaries.
+- Reviewer privacy tests that prohibit raw VCF ALT, inserted sequence, read names and source file
+  paths from the serialized reviewer contract.
+
+### Validation impact
+
+The fusion branch now produces a new reviewer-facing structured projection of research-only DNA
+rearrangement evidence. The projection can change how candidate evidence, observability,
+redundancy and module status are presented to a reviewer, but it does not establish an expressed
+or functional fusion and does not authorize clinical reportability. `NO_CALL` explicitly remains
+non-negative, known gene pairs remain annotation evidence only, genomic BND orientation does not
+establish transcript direction, and duplicate/reciprocal records are preserved rather than
+collapsed. Assay-specific analytical validation and authorized human review remain mandatory
+before any clinical use or connection to final HTML/XLSX/ISCN release logic.
 
 ## 0.3.0 - 2026-08-14
 
