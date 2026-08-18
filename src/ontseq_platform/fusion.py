@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
@@ -132,6 +133,12 @@ class FusionInterpretationReport(StrictModel):
         return self
 
 
+@dataclass
+class _GeneHitAccumulator:
+    distance: int
+    transcripts: set[str] = field(default_factory=set)
+
+
 class GeneAnnotationIndex:
     """Build-locked gene interval index for DNA breakpoint annotation.
 
@@ -223,22 +230,20 @@ class GeneAnnotationIndex:
         if flank_bp < 0:
             raise ValueError("flank_bp must be non-negative")
         canonical = _canonical_chromosome(chromosome)
-        grouped: dict[tuple[str, str], dict[str, object]] = {}
+        grouped: dict[tuple[str, Literal["+", "-"]], _GeneHitAccumulator] = {}
         for feature in self._features.get(canonical, []):
             if feature.start - flank_bp <= position < feature.end + flank_bp:
                 distance = _distance_to_interval(position, feature.start, feature.end)
                 key = (feature.gene, feature.strand)
-                entry = grouped.setdefault(key, {"distance": distance, "transcripts": set()})
-                entry["distance"] = min(int(entry["distance"]), distance)
-                transcripts = entry["transcripts"]
-                assert isinstance(transcripts, set)
-                transcripts.update(feature.transcript_ids)
+                entry = grouped.setdefault(key, _GeneHitAccumulator(distance=distance))
+                entry.distance = min(entry.distance, distance)
+                entry.transcripts.update(feature.transcript_ids)
         hits = [
             BreakpointGeneHit(
                 gene=gene,
-                strand=strand,  # type: ignore[arg-type]
-                transcript_ids=sorted(str(item) for item in entry["transcripts"] if item),
-                distance_bp=int(entry["distance"]),
+                strand=strand,
+                transcript_ids=sorted(entry.transcripts),
+                distance_bp=entry.distance,
             )
             for (gene, strand), entry in grouped.items()
         ]
