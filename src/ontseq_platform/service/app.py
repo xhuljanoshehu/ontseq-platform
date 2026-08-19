@@ -49,7 +49,11 @@ from ..models import (
     SampleManifest,
     SnifflesPolicy,
 )
+from ..pipeline.review import Decision, ReviewError
 from ..pipeline.runner import RunConfiguration, run_pipeline
+from ..review import inspect as inspect_review
+from ..review import record as record_review
+from ..status import scan as scan_envelopes
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -274,13 +278,16 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._json(HTTPStatus.OK, self._config_view())
             elif route.path == "/api/browse":
                 self._browse(query.get("path", [""])[0])
+            elif route.path == "/api/findings":
+                self._findings()
             elif route.path.startswith("/api/runs/"):
                 self._run_status(route.path.rsplit("/", 1)[-1])
             else:
                 self._refuse(HTTPStatus.NOT_FOUND, "no such endpoint")
 
         def do_POST(self) -> None:  # noqa: N802 - name fixed by BaseHTTPRequestHandler
-            if urlparse(self.path).path != "/api/runs":
+            path = urlparse(self.path).path
+            if path not in {"/api/runs"} and not path.startswith("/api/review/"):
                 self._refuse(HTTPStatus.NOT_FOUND, "no such endpoint")
                 return
             if not self._authorised():
@@ -291,7 +298,14 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             except ValueError:
                 self._refuse(HTTPStatus.BAD_REQUEST, "request body was not JSON")
                 return
-            self._start_run(payload)
+            if path == "/api/runs":
+                self._start_run(payload)
+                return
+            parts = path[len("/api/review/") :].split("/")
+            if len(parts) != 2 or not all(parts):
+                self._refuse(HTTPStatus.BAD_REQUEST, "expected /api/review/<run>/<sample>")
+                return
+            self._review(parts[0], parts[1], payload)
 
         # -- handlers ------------------------------------------------------------------
         def _serve_page(self) -> None:
@@ -381,6 +395,79 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             args = (config, manifest, job)
             threading.Thread(target=_execute, args=args, daemon=True).start()
             self._json(HTTPStatus.ACCEPTED, job.snapshot())
+
+        def _findings(self) -> None:
+            """Every envelope this output directory holds, for the reviewing physician.
+
+            Deliberately not filtered to the ones that passed. A run that failed, or one
+            whose sign-off went stale because the release changed underneath it, is exactly
+            what somebody needs to see — hiding it would make the list look tidier and the
+            situation less true.
+            """
+            try:
+                statuses = scan_envelopes(config.output_dir)
+            except NotADirectoryError:
+                self._json(HTTPStatus.OK, {"findings": []})
+                return
+            findings = []
+            for status in statuses:
+                result = status.report
+                findings.append(
+                    {
+                        "run_id": status.run_id,
+                        "sample_id": status.sample_id,
+                        "state": status.state.value,
+                        "detail": status.detail,
+                        "review": None if status.review is None else status.review.value,
+                        "review_detail": status.review_detail,
+                        "unverified_stages": list(status.unverified_stages),
+                        "finished_at": None
+                        if result is None
+                        else result.finished_at.isoformat(),
+                        "not_run": []
+                        if result is None
+                        else [
+                            record.title
+                            for record in result.stages
+                            if record.status.value == "NOT_RUN"
+                        ],
+                    }
+                )
+            self._json(HTTPStatus.OK, {"findings": findings})
+
+        def _review(self, run_id: str, sample_id: str, payload: dict[str, Any]) -> None:
+            """Record one judgement. The name is asserted; nothing here authenticates it.
+
+            That is not a gap this layer introduces — the trail says the same about a
+            judgement recorded from the command line. What the entry binds to is the
+            checksum of the release bundle, so a judgement always names what was judged.
+            """
+            reviewer = str(payload.get("reviewer", "")).strip()
+            if not reviewer:
+                self._refuse(HTTPStatus.BAD_REQUEST, "no reviewer name was given")
+                return
+            envelope = config.output_dir / run_id / sample_id
+            try:
+                entry = record_review(
+                    envelope,
+                    decision=Decision(str(payload.get("decision", ""))),
+                    reviewer=reviewer,
+                    note=str(payload.get("note", "")).strip(),
+                )
+            except (NotADirectoryError, ReviewError, ValueError) as error:
+                self._refuse(HTTPStatus.BAD_REQUEST, str(error))
+                return
+            report = inspect_review(envelope)
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "decision": entry.decision.value,
+                    "reviewer": entry.reviewer,
+                    "state": report.state.value,
+                    "detail": report.detail,
+                    "release_sha256": report.release_sha256,
+                },
+            )
 
         def _run_status(self, run_id: str) -> None:
             job = jobs.get(run_id)

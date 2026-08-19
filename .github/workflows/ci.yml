@@ -273,6 +273,27 @@ jobs:
           # contract's value at the point of display, which is why the class names below
           # are lowercase while the API is not.
           grep -q 'toLowerCase()' src/ontseq_platform/service/ONTSeq.html
+
+          # The reviewing physician's path: the finished run appears in the list, is signed
+          # off through the interface, and the trail says so afterwards.
+          get -f "${auth[@]}" http://127.0.0.1:8765/api/findings | tee /tmp/find.json
+          grep -q 'CI_SERVICE_001' /tmp/find.json
+          # A run with stages that did not run must say which, in the list itself.
+          grep -q 'Copy-number evidence' /tmp/find.json
+
+          get -f "${auth[@]}" -X POST \
+            http://127.0.0.1:8765/api/review/CI_SERVICE_RUN_001/CI_SERVICE_001 \
+            -d '{"decision":"accepted","reviewer":"CI Pruefer","note":"CI"}' \
+            | tee /tmp/signed.json
+          grep -q '"state": *"accepted"' /tmp/signed.json
+          # A judgement that names no reviewer is refused: an unsigned signature is not one.
+          test "$(code "${auth[@]}" -X POST \
+            http://127.0.0.1:8765/api/review/CI_SERVICE_RUN_001/CI_SERVICE_001 \
+            -d '{"decision":"accepted","reviewer":"  "}')" = 400
+          # And the trail is now visible to the command line too — same log, same envelope.
+          PYTHONPATH=src python -m ontseq_platform review status \
+            results/service-runs/CI_SERVICE_RUN_001/CI_SERVICE_001 | tee /tmp/rev.log
+          grep -qi 'accepted' /tmp/rev.log
       - name: Preflight the run before starting it
         shell: micromamba-shell {0}
         run: |

@@ -57,6 +57,30 @@
   .err{background:#fdf0ef;border-color:#f2c9c4;color:#7a1c14}
   .files a{display:inline-block;margin:4px 10px 4px 0;color:var(--accent)}
   .hidden{display:none}
+  nav.tabs{display:flex;gap:2px;margin:-4px 0 18px}
+  nav.tabs button{border-radius:6px 6px 0 0;border-bottom-color:transparent;
+                  font-weight:600;color:var(--muted)}
+  nav.tabs button.on{background:var(--panel);color:var(--accent);border-color:var(--line);
+                     border-bottom-color:var(--panel)}
+  table.cases{width:100%;border-collapse:collapse}
+  table.cases th{text-align:left;font-size:12px;text-transform:uppercase;
+                 letter-spacing:.06em;color:var(--muted);padding:0 10px 8px 0;
+                 border-bottom:1px solid var(--line)}
+  table.cases td{padding:11px 10px 11px 0;border-bottom:1px solid #eef2f5;
+                 vertical-align:top;font-size:14px}
+  table.cases tr:hover{background:#f7fafc}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.04em;
+       padding:2px 8px;border-radius:3px;text-transform:uppercase}
+  .t-passed{background:#e2f1e8;color:var(--ok)} .t-failed{background:#fdf0ef;color:var(--bad)}
+  .t-accepted{background:#e2f1e8;color:var(--ok)}
+  .t-rejected{background:#fdf0ef;color:var(--bad)}
+  .t-pending{background:#fef6e7;color:var(--warn)}
+  .t-stale{background:#fdf0ef;color:var(--bad)}
+  .t-none{background:#eef2f5;color:var(--idle)}
+  .signoff{margin-top:10px;padding:14px;border:1px solid var(--line);border-radius:6px;
+           background:#f7f9fb}
+  .signoff .row{margin-bottom:8px}
+  .notrun{color:var(--idle);font-size:12.5px}
   footer{color:var(--muted);font-size:12px;text-align:center;padding:8px 0 28px}
 </style>
 
@@ -67,6 +91,21 @@
 
 <main>
   <div id="notice" class="banner">Verbinde mit der Analyse-Engine …</div>
+
+  <nav class="tabs">
+    <button id="tab-run" class="on">Analyse starten</button>
+    <button id="tab-cases">Befunde &amp; Vidierung</button>
+  </nav>
+
+  <section id="cases-panel" class="hidden">
+    <h2>Befunde</h2>
+    <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">
+      Alle Läufe in diesem Ausgabeverzeichnis — auch die fehlgeschlagenen und die, deren
+      Freigabe verfallen ist. Eine Liste, die nur das Gelungene zeigt, sieht ordentlicher
+      aus und ist weniger wahr.
+    </p>
+    <table class="cases" id="cases"></table>
+  </section>
 
   <section id="form-panel">
     <h2>Analyse</h2>
@@ -259,7 +298,7 @@ async function poll(runId) {
   if (job.state === "running") { setTimeout(() => poll(runId), 2000); return; }
 
   $("start").disabled = false;
-  $("result-panel").classList.remove("hidden");
+  $("result-panel").classList.remove("hidden"); RESULT_SEEN = true;
   const bad = job.state !== "passed";
   $("verdict").innerHTML =
     `<b style="color:var(--${bad ? "bad" : "ok"})">${job.state.toUpperCase()}</b> — ` +
@@ -273,7 +312,7 @@ async function poll(runId) {
 $("start").onclick = async () => {
   notice("");
   $("start").disabled = true;
-  $("progress-panel").classList.remove("hidden");
+  $("progress-panel").classList.remove("hidden"); PROGRESS_SEEN = true;
   $("result-panel").classList.add("hidden");
   $("stages").innerHTML = '<li class="running"><span class="mark">●</span>' +
     '<span class="name">Start</span><span class="why">Lauf wird vorbereitet …</span></li>';
@@ -294,6 +333,96 @@ $("start").onclick = async () => {
     notice(error.message, true);
   }
 };
+
+// --- Befunde und Vidierung ------------------------------------------------------------
+const REVIEW_WORD = {accepted:"vidiert", rejected:"abgelehnt", pending:"offen",
+                     stale:"verfallen", broken:"Kette beschädigt",
+                     unreadable:"nicht lesbar"};
+
+function tab(which) {
+  const onCases = which === "cases";
+  $("cases-panel").classList.toggle("hidden", !onCases);
+  $("form-panel").classList.toggle("hidden", onCases);
+  $("progress-panel").classList.toggle("hidden", onCases || !PROGRESS_SEEN);
+  $("result-panel").classList.toggle("hidden", onCases || !RESULT_SEEN);
+  $("tab-cases").classList.toggle("on", onCases);
+  $("tab-run").classList.toggle("on", !onCases);
+  if (onCases) loadCases();
+}
+let PROGRESS_SEEN = false, RESULT_SEEN = false;
+$("tab-run").onclick = () => tab("run");
+$("tab-cases").onclick = () => tab("cases");
+
+async function loadCases() {
+  const table = $("cases");
+  try {
+    const data = await api("/api/findings");
+    if (!data.findings.length) {
+      table.innerHTML = '<tr><td style="color:var(--muted)">Noch keine Läufe.</td></tr>';
+      return;
+    }
+    table.innerHTML =
+      "<tr><th>Probe</th><th>Lauf</th><th>Ergebnis</th><th>Freigabe</th><th></th></tr>" +
+      data.findings.map((f, i) => {
+        const rv = f.review || "none";
+        const notRun = f.not_run.length
+          ? `<div class="notrun">nicht ausgeführt: ${f.not_run.join(", ")}</div>` : "";
+        return `<tr>
+          <td><b>${f.sample_id}</b>${notRun}</td>
+          <td style="font-family:ui-monospace,monospace;font-size:12.5px">${f.run_id}</td>
+          <td><span class="tag t-${f.state}">${f.state}</span></td>
+          <td><span class="tag t-${rv === "none" ? "none" : rv}">${
+              REVIEW_WORD[rv] || "keine"}</span>
+              <div class="notrun">${f.review_detail || ""}</div></td>
+          <td><button data-i="${i}" class="sign">Vidieren …</button></td>
+        </tr><tr id="sign-${i}" class="hidden"><td colspan="5"></td></tr>`;
+      }).join("");
+    table.querySelectorAll("button.sign").forEach(b => b.onclick = () =>
+      openSignoff(Number(b.dataset.i), data.findings[Number(b.dataset.i)]));
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function openSignoff(index, finding) {
+  const row = $("sign-" + index);
+  row.classList.toggle("hidden");
+  if (row.classList.contains("hidden")) return;
+  row.firstElementChild.innerHTML = `
+    <div class="signoff">
+      <div class="row"><b>${finding.sample_id}</b> — ${finding.detail}</div>
+      <div class="row">
+        <input type="text" id="who-${index}" placeholder="Name der vidierenden Person"
+               style="max-width:340px">
+      </div>
+      <div class="row">
+        <input type="text" id="note-${index}" placeholder="Begründung (bei Ablehnung nötig)">
+      </div>
+      <div class="row">
+        <button class="primary" style="padding:8px 16px" id="acc-${index}">Freigeben</button>
+        <button id="rej-${index}">Ablehnen</button>
+      </div>
+      <div class="legend" style="margin-top:4px">
+        Der Name wird <b>als Behauptung</b> festgehalten — hier authentifiziert ihn nichts,
+        so wenig wie auf der Kommandozeile. Die Freigabe bindet an die Prüfsumme des
+        Release-Bündels: ändert sich die Datei danach, verfällt sie.
+      </div>
+    </div>`;
+  const send = async (decision) => {
+    const reviewer = $("who-" + index).value.trim();
+    if (!reviewer) { alert("Bitte den Namen eintragen."); return; }
+    try {
+      await api(`/api/review/${encodeURIComponent(finding.run_id)}/` +
+                `${encodeURIComponent(finding.sample_id)}`, {
+        method: "POST",
+        body: JSON.stringify({decision, reviewer, note: $("note-" + index).value}),
+      });
+      loadCases();
+    } catch (error) { notice(error.message, true); }
+  };
+  $("acc-" + index).onclick = () => send("accepted");
+  $("rej-" + index).onclick = () => send("rejected");
+}
 
 boot();
 </script>

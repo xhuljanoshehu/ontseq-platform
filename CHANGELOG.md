@@ -50,6 +50,15 @@ validated release.
   download; it exits 2 and withholds the checksum rather than printing it beside a warning.
   The digest is the one `basecall.model_signature` already computed, now the single
   implementation both call, so the command and the check it feeds cannot drift apart.
+- The interface has two views, because it has two audiences. The operator picks a BAM and
+  starts a run; the reviewing physician reads finished cases and signs them off. Both live
+  in the same page behind a tab, and the second one lists **every** envelope — including the
+  runs that failed and the sign-offs that went stale because the release changed underneath
+  them. A list showing only what succeeded looks tidier and is less true.
+- Sign-off is available in the interface after all. An earlier note said it did not belong
+  there because a token-authenticated single-user page authenticates nobody — but neither
+  does the command line, and the trail already records the name *as asserted*. The
+  interface is no weaker than the path it mirrors, and it says so where the name is typed.
 - `ontseq serve`, a local browser interface: one page, served by the pipeline itself, from
   which an operator picks a BAM, starts a run and watches it. It computes nothing — it calls
   the same `run_pipeline` the command line calls and reads progress from the same
