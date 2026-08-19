@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/ontseq-packed
           tar -xzf ontseq-linux-runtime.tar.gz -C /tmp/ontseq-packed
-          /tmp/ontseq-packed/bin/conda-unpack
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/conda-unpack
           test -f /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq --help >/dev/null
@@ -71,6 +71,30 @@ jobs:
             --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
             --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           test -d /tmp/ontseq-packed-smoke
+      - name: Prove first bootstrap on stock Ubuntu without host Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/ontseq-linux-runtime.tar.gz:/runtime.tar.gz:ro" \
+            ubuntu:24.04 \
+            bash -lc '
+              set -euo pipefail
+              if command -v python >/dev/null 2>&1; then
+                echo "stock-image invariant violated: python unexpectedly present" >&2
+                exit 1
+              fi
+              mkdir -p /opt/ontseq
+              tar -xzf /runtime.tar.gz -C /opt/ontseq
+              RUNTIME_PATH="/opt/ontseq/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/conda-unpack
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq local-smoke \
+                --output-dir /tmp/ontseq-smoke \
+                --qc-policy /opt/ontseq/share/ontseq/configs/qc/defaults.yaml \
+                --sniffles-policy /opt/ontseq/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
+              test -d /tmp/ontseq-smoke
+            '
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
         with:
@@ -112,7 +136,7 @@ jobs:
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.1.1-win-x64-setup-engineering
+          name: ontseq-desktop-v0.1.2-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30
