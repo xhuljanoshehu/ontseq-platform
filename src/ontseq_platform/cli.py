@@ -103,7 +103,9 @@ def _parser() -> argparse.ArgumentParser:
 
     local_smoke = subparsers.add_parser(
         "local-smoke",
-        help="Exercise samtools, Cramino and Sniffles2 with generated synthetic alignments",
+        help=(
+            "Exercise samtools, Cramino, Sniffles2 and cuteSV with generated synthetic alignments"
+        ),
     )
     local_smoke.add_argument("--output-dir", type=Path, default=Path("results/local-smoke"))
     local_smoke.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
@@ -115,6 +117,7 @@ def _parser() -> argparse.ArgumentParser:
     local_smoke.add_argument("--samtools", default="samtools")
     local_smoke.add_argument("--cramino", default="cramino")
     local_smoke.add_argument("--sniffles", default="sniffles")
+    local_smoke.add_argument("--cutesv", default="cuteSV")
     local_smoke.add_argument("--threads", type=int, default=2)
     local_smoke.add_argument("--git-commit", default="LOCAL_SMOKE")
 
@@ -205,6 +208,7 @@ def main() -> None:
                 samtools=args.samtools,
                 cramino=args.cramino,
                 sniffles=args.sniffles,
+                cutesv=args.cutesv,
                 threads=args.threads,
                 pipeline_version=__version__,
                 git_commit=args.git_commit,

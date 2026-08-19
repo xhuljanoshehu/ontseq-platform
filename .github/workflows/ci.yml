@@ -63,7 +63,7 @@ jobs:
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
-      - name: Upload synthetic reviewer artifacts (no BAM or VCF)
+      - name: Upload synthetic reviewer artifacts (no BAM, FASTA or VCF)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -76,4 +76,6 @@ jobs:
             results/local-smoke/synthetic.intake.json
             results/local-smoke/synthetic.qc.json
             results/local-smoke/synthetic.sniffles.json
+            results/local-smoke/synthetic.cutesv.json
+            results/local-smoke/synthetic.sv-concordance.json
           if-no-files-found: error

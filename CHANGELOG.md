@@ -5,7 +5,69 @@ validated release.
 
 ## Unreleased
 
-No entries.
+### Added
+
+- Research-only DNA fusion evidence contracts with build-locked local gene annotation,
+  privacy-safe BND adjacency descriptors and explicit breakpoint observability.
+- Synthetic fusion software benchmark fixtures and executable VCF-to-review test paths that do
+  not contain patient-derived genomic material.
+- Exact duplicate/reciprocal breakpoint redundancy detection that preserves every source event
+  and never auto-deduplicates candidate evidence.
+- Adversarial fusion tests covering filtered and low-support records, malformed BND ALT fallback,
+  reciprocal breakends and exact duplicate breakpoints.
+- Typed fusion reviewer contract that keeps candidate evidence, `NO_CALL`, `NOT_RUN` and `FAILED`
+  distinct and exposes review-required, research-only, non-reportable candidate summaries.
+- Reviewer privacy tests that prohibit raw VCF ALT, inserted sequence, read names and source file
+  paths from the serialized reviewer contract.
+- Typed multi-caller SV concordance contract for independent caller comparison, with explicit
+  exact-match, tolerance-based near-match, topology-conflict and unmatched evidence states.
+- Synthetic Sniffles2/cuteSV concordance tests covering exact and near matches, out-of-tolerance
+  calls, reciprocal breakpoint ordering, event-type conflicts and privacy-safe serialization.
+- Conservative cuteSV v2.1.4 VCF normalization contract for DEL/DUP/INV/INS/BND/TRA evidence,
+  including explicit filter/support accounting, version lock, `NO_CALL` semantics and a typed
+  bridge into the multi-caller concordance layer.
+- Synthetic cuteSV tests covering 1-based to 0-based coordinate normalization, BND mate parsing,
+  support filtering, version mismatch, malformed breakends and exclusion of VCF IDs/read names.
+- Shell-free cuteSV v2.1.4 execution adapter with explicit ONT software parameters, temporary
+  work-directory cleanup, disabled read-ID reporting, suppressed inserted-sequence output and
+  fail-closed FASTA-index/BAM-header contig-signature compatibility checking.
+- Synthetic cuteSV execution tests covering CLI provenance, version mismatch, reference mismatch,
+  partial-output cleanup, overwrite refusal and path-free normalized serialization.
+- Direct Sniffles2-to-cuteSV concordance bridge that requires matching sample/build metadata and
+  preserves caller-level `NO_CALL` as non-negative evidence status.
+- Real local-tool smoke coverage for cuteSV v2.1.4 on the same runtime-generated synthetic BAM and
+  synthetic reference used for Sniffles2, including a path-free normalized cuteSV report and a
+  software-only Sniffles2/cuteSV concordance artifact.
+
+### Validation impact
+
+The fusion branch now produces reviewer-facing structured projections of research-only DNA
+rearrangement evidence, can compare normalized observations from independent SV callers, can
+normalize a version-locked cuteSV VCF into the common candidate evidence model, and can execute
+cuteSV locally against an aligned BAM plus an explicitly supplied reference FASTA. These
+projections and executions can change how candidate evidence, observability, redundancy, module
+status and caller concordance are presented to a reviewer, but they do not establish biological
+truth, an expressed or functional fusion, or clinical reportability. `NO_CALL` explicitly remains
+non-negative, known gene pairs remain annotation evidence only, genomic BND orientation does not
+establish transcript direction, and duplicate/reciprocal records are preserved rather than
+collapsed. Multi-caller exact or near agreement is labelled software evidence only; the breakpoint
+tolerance is explicit configuration with `clinically_validated=false`, and conflicting caller
+topology is preserved for review rather than coerced into agreement. The cuteSV adapter treats
+BND/TRA records as DNA translocation evidence only, does not propagate RNAMES/read IDs or raw ALT
+sequence, and locks software version 2.1.4 while its current thresholds remain
+`technical_defaults_only` and `clinically_validated=false`. The local cuteSV runner uses explicit
+ONT-oriented software parameters, never enables `--report_readid`, enables `--ignore_sequence`,
+uses a temporary work directory, refuses output overwrite, and removes partial VCF output after a
+non-zero caller exit. Reference compatibility is checked by matching the FASTA-index contig
+name/length signature to the aligned-BAM header; this does not prove full reference sequence
+identity and is not a substitute for a future sequence-level reference checksum lock. The CI
+real-tool smoke now runs samtools, Cramino, Sniffles2 and cuteSV on fully synthetic material and
+requires both callers to recover the expected synthetic deletion plus a software-concordant pair
+within a 250 bp synthetic comparison tolerance. That tolerance is an engineering smoke-test
+parameter only and has no clinical meaning. CI uploads only normalized JSON/HTML/XLSX reviewer
+artifacts; BAM, FASTA and VCF files are deliberately excluded from the artifact bundle.
+Assay-specific analytical validation and authorized human review remain mandatory before any
+clinical use, real-sample promotion, or connection to final HTML/XLSX/ISCN release logic.
 
 ## 0.3.0 - 2026-08-14
 
