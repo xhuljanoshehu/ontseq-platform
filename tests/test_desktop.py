@@ -131,9 +131,7 @@ class DesktopTests(unittest.TestCase):
             analysis = manifest["analysis"]
             self.assertIsInstance(analysis, dict)
             assert isinstance(analysis, dict)
-            self.assertEqual(
-                analysis["modules"], ["qc", "cnv", "sv", "fusion", "iscn", "report"]
-            )
+            self.assertEqual(analysis["modules"], ["qc", "cnv", "sv", "fusion", "iscn", "report"])
             assay = manifest["assay"]
             self.assertIsInstance(assay, dict)
             assert isinstance(assay, dict)

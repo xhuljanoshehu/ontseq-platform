@@ -434,8 +434,7 @@ class MainWindow(QMainWindow):
         root.addLayout(self._header())
 
         banner = QLabel(
-            "RESEARCH USE ONLY · nicht klinisch validiert · "
-            "Ergebnisse erfordern fachliche Prüfung"
+            "RESEARCH USE ONLY · nicht klinisch validiert · Ergebnisse erfordern fachliche Prüfung"
         )
         banner.setObjectName("researchBanner")
         banner.setWordWrap(True)
@@ -573,9 +572,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _browse_bam(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Aligned BAM auswählen", filter="BAM (*.bam)"
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Aligned BAM auswählen", filter="BAM (*.bam)")
         if not path:
             return
         bam = Path(path)

@@ -191,9 +191,7 @@ class DesktopBackend:
             bai=bai,
             profile=profile,
         )
-        paths["manifest"].write_text(
-            yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
-        )
+        paths["manifest"].write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
 
         backend = {name: self._backend_path(path) for name, path in paths.items()}
         reference_lock = self._backend_path(Path(profile.reference_lock_path))
