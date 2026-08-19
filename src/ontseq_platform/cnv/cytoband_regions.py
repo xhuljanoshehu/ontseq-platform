@@ -26,7 +26,7 @@ _ALLOWED_STATES = {
     CopyNumberState.LOSS,
     CopyNumberState.GAIN,
     CopyNumberState.HOMOZYGOUS_LOSS,
-    CopyNumberState.AMPLIFICATION,
+    CopyNumberState.HIGH_AMPLIFICATION,
 }
 
 
