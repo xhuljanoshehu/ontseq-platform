@@ -27,9 +27,14 @@ dev = [
 workflow = [
   "snakemake>=9,<10",
 ]
+desktop = [
+  "PySide6>=6.8,<7",
+  "pyinstaller>=6.11,<7",
+]
 
 [project.scripts]
 ontseq = "ontseq_platform.cli:main"
+ontseq-desktop = "ontseq_platform.desktop_entry:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -45,6 +50,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["ontseq_platform.desktop.app"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
