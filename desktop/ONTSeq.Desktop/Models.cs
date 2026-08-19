@@ -7,6 +7,7 @@ public sealed class DesktopSettings
 {
     public string WslDistribution { get; set; } = "Ubuntu";
     public string BackendCommand { get; set; } = "ontseq";
+    public string? RuntimeBinWsl { get; set; }
     public string OutputDirectoryWindows { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONTSeq", "results");
     public Dictionary<string, string> ReferenceLocksWsl { get; set; } = new(StringComparer.OrdinalIgnoreCase);
