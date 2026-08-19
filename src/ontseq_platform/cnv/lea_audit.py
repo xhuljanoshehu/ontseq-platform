@@ -37,6 +37,8 @@ class LeaTruthAuditSummary(StrictModel):
     unsupported_construct_count: int = Field(ge=0)
     unsupported_reason_counts: dict[str, int] = Field(default_factory=dict)
     balanced_construct_count: int = Field(ge=0)
+    formatting_issue_rows: int = Field(default=0, ge=0)
+    formatting_issue_counts: dict[str, int] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     contains_sample_identifiers: Literal[False] = False
@@ -49,6 +51,18 @@ class LeaTruthAuditSummary(StrictModel):
         if sum(self.unsupported_reason_counts.values()) != self.unsupported_construct_count:
             raise ValueError("truth-audit unsupported reason counts do not reconcile")
         return self
+
+
+def _formatting_issues(text: str) -> list[str]:
+    """Name invisible formatting characters without changing the historical text."""
+    issues: list[str] = []
+    if "\u200b" in text:
+        issues.append("zero_width_space_u200b")
+    if "\ufeff" in text:
+        issues.append("byte_order_mark_ufeff")
+    if "\u00a0" in text:
+        issues.append("non_breaking_space_u00a0")
+    return issues
 
 
 def _reason_category(reason: str) -> str:
@@ -77,7 +91,13 @@ def audit_lea_ground_truth(
     unsupported_count = 0
     balanced_count = 0
     reason_counts: Counter[str] = Counter()
+    formatting_counts: Counter[str] = Counter()
+    formatting_rows = 0
     for row in rows:
+        formatting = _formatting_issues(row.karyotype)
+        if formatting:
+            formatting_rows += 1
+            formatting_counts.update(formatting)
         conversion = convert_karyotype(row.karyotype, cytobands)
         balanced_count += len(conversion.balanced_constructs)
         if conversion.unsupported:
@@ -96,12 +116,16 @@ def audit_lea_ground_truth(
         unsupported_construct_count=unsupported_count,
         unsupported_reason_counts=dict(sorted(reason_counts.items())),
         balanced_construct_count=balanced_count,
-        warnings=(["The local truth table contained no rows."] if total == 0 else []),
+        formatting_issue_rows=formatting_rows,
+        formatting_issue_counts=dict(sorted(formatting_counts.items())),
+        warnings=["The local truth table contained no rows."] if total == 0 else [],
         limitations=[
             "Convertibility is a software capability measurement, not agreement with ONT and "
             "not a clinical performance metric.",
             "A fully convertible karyotype can still be limited by cytogenetic resolution, "
             "clone flattening and constructs that assert balanced rather than dosage change.",
+            "Historical text is never silently Unicode-normalized; invisible formatting "
+            "characters are counted separately for adjudication.",
             "The aggregate intentionally contains no sample identifiers or karyotype strings.",
         ],
     )
