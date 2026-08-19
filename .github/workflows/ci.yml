@@ -274,6 +274,20 @@ jobs:
           # are lowercase while the API is not.
           grep -q 'toLowerCase()' src/ontseq_platform/service/ONTSeq.html
 
+          # Dragging a file onto the page gives JavaScript only its name. The service
+          # finds it where it already lies — the point being that nothing is copied.
+          get -f "${auth[@]}" \
+            'http://127.0.0.1:8765/api/locate?name=synthetic.sorted.bam' | tee /tmp/loc.json
+          grep -q '"indexed": *true' /tmp/loc.json
+          grep -q 'results/local-smoke/synthetic.sorted.bam' /tmp/loc.json
+          # A name that is not there is not silently turned into something that is.
+          get -f "${auth[@]}" \
+            'http://127.0.0.1:8765/api/locate?name=nicht_vorhanden.bam' > /tmp/loc2.json
+          grep -q '"matches": *\[\]' /tmp/loc2.json
+          # And nothing but a BAM gets past the front door.
+          test "$(code "${auth[@]}" \
+            'http://127.0.0.1:8765/api/locate?name=/etc/passwd')" = 400
+
           # The reviewing physician's path: the finished run appears in the list, is signed
           # off through the interface, and the trail says so afterwards.
           get -f "${auth[@]}" http://127.0.0.1:8765/api/findings | tee /tmp/find.json

@@ -57,6 +57,13 @@
   .err{background:#fdf0ef;border-color:#f2c9c4;color:#7a1c14}
   .files a{display:inline-block;margin:4px 10px 4px 0;color:var(--accent)}
   .hidden{display:none}
+  .drop{border:2px dashed var(--line);border-radius:8px;padding:24px 16px;text-align:center;
+        color:var(--muted);background:#fbfcfd;margin:2px 0 12px;transition:border-color .15s}
+  .drop.hot{border-color:var(--accent);background:#eef6fb;color:var(--accent)}
+  .drop b{display:block;font-size:15px;color:var(--ink);margin-bottom:3px}
+  .drop small{font-size:12.5px;line-height:1.4;display:block}
+  .matches button{display:block;width:100%;text-align:left;margin-bottom:5px;
+                  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
   nav.tabs{display:flex;gap:2px;margin:-4px 0 18px}
   nav.tabs button{border-radius:6px 6px 0 0;border-bottom-color:transparent;
                   font-weight:600;color:var(--muted)}
@@ -109,6 +116,13 @@
 
   <section id="form-panel">
     <h2>Analyse</h2>
+
+    <div class="drop" id="drop">
+      <b>BAM-Datei hierher ziehen</b>
+      <small>Die Datei bleibt liegen, wo sie ist — es wird nichts kopiert und nichts
+        hochgeladen. Gesucht wird nur ihr Name in den freigegebenen Ordnern.</small>
+    </div>
+    <div class="matches" id="matches"></div>
 
     <label>BAM-Datei</label>
     <div class="row">
@@ -333,6 +347,58 @@ $("start").onclick = async () => {
     notice(error.message, true);
   }
 };
+
+// --- Datei per Ziehen auswählen ------------------------------------------------------
+// Ein Browser gibt hier nur den Dateinamen heraus, nie den Pfad. Genau deshalb wird der
+// Name gesucht statt die Datei übertragen: bei 30 GB landete ein Upload auf derselben
+// Platte, nur Stunden später.
+const drop = $("drop");
+["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => {
+  ev.preventDefault(); drop.classList.add("hot");
+}));
+["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => {
+  ev.preventDefault(); drop.classList.remove("hot");
+}));
+drop.addEventListener("drop", (ev) => {
+  const file = ev.dataTransfer.files && ev.dataTransfer.files[0];
+  if (file) locate(file.name);
+});
+
+async function locate(name) {
+  const box = $("matches");
+  box.innerHTML = "";
+  try {
+    const found = await api("/api/locate?name=" + encodeURIComponent(name));
+    if (!found.matches.length) {
+      notice(found.search_incomplete
+        ? `„${found.name}" nicht gefunden — die Suche wurde vorher abgebrochen, weil zu ` +
+          `viele Verzeichnisse zu durchsuchen waren. Bitte über „Auswählen" gehen.`
+        : `„${found.name}" liegt in keinem freigegebenen Ordner (${found.roots.join(", ")}).`,
+        true);
+      return;
+    }
+    if (found.matches.length === 1) { choose(found.matches[0], found.name); return; }
+    // Zwei Läufe können eine Datei gleichen Namens enthalten. Stillschweigend eine davon
+    // zu nehmen hieße, eine Probe auszuwerten, die niemand ausgewählt hat.
+    notice(`„${found.name}" kommt ${found.matches.length}× vor — bitte auswählen:`);
+    found.matches.forEach((m) => {
+      const b = document.createElement("button");
+      b.textContent = m.display + (m.indexed ? "" : "   ⚠ kein .bai");
+      b.onclick = () => { box.innerHTML = ""; choose(m, found.name); };
+      box.appendChild(b);
+    });
+  } catch (error) { notice(error.message, true); }
+}
+
+function choose(match, name) {
+  if (!match.indexed) {
+    notice(`Zu „${name}" fehlt der Index (.bai). Die Analyse würde abgelehnt.`, true);
+    return;
+  }
+  notice("");
+  $("bam").value = match.display;
+  if (!$("sample").value) $("sample").value = name.replace(/\.bam$/i, "");
+}
 
 // --- Befunde und Vidierung ------------------------------------------------------------
 const REVIEW_WORD = {accepted:"vidiert", rejected:"abgelehnt", pending:"offen",

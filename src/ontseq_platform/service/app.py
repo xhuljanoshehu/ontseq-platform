@@ -21,6 +21,7 @@ everybody looks, the distinction the rest of the system is built to preserve.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import traceback
 import webbrowser
@@ -78,6 +79,11 @@ INPUT_SUFFIXES = frozenset({".bam"})
 # buffer an arbitrary amount of data.
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 MAX_CHUNK_LINE_BYTES = 8192
+
+#: Directories a by-name search may descend into before it gives up. A run directory holds
+#: hundreds of gigabytes; a search with no bound would appear to hang, and a bound that is
+#: hit must be reported rather than passed off as "not found".
+SEARCH_DIRECTORY_LIMIT = 20_000
 
 
 def _read_chunked_body(stream: BufferedIOBase) -> bytes:
@@ -349,6 +355,8 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._browse(query.get("path", [""])[0])
             elif route.path == "/api/findings":
                 self._findings()
+            elif route.path == "/api/locate":
+                self._locate(query.get("name", [""])[0])
             elif route.path.startswith("/api/runs/"):
                 self._run_status(route.path.rsplit("/", 1)[-1])
             else:
@@ -467,6 +475,58 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             args = (config, manifest, job)
             threading.Thread(target=_execute, args=args, daemon=True).start()
             self._json(HTTPStatus.ACCEPTED, job.snapshot())
+
+        def _locate(self, name: str) -> None:
+            """Find a file by its bare name inside the allowed roots.
+
+            A browser hands JavaScript only the file name when something is dropped on the
+            page — never the path. Searching for that name is what lets somebody drag a BAM
+            out of Explorer and have the pipeline read it where it already lies, instead of
+            copying thirty gigabytes through an upload to reach the same disk.
+
+            Ambiguity is returned, not resolved: two runs may hold a file of the same name,
+            and picking one of them silently would analyse a sample nobody chose.
+            """
+            wanted = Path(name.replace("\\", "/")).name
+            if not wanted or wanted.startswith("."):
+                self._refuse(HTTPStatus.BAD_REQUEST, "no usable file name was given")
+                return
+            if Path(wanted).suffix.lower() not in INPUT_SUFFIXES:
+                self._refuse(HTTPStatus.BAD_REQUEST, f"not a BAM file: {wanted}")
+                return
+
+            matches: list[dict[str, Any]] = []
+            visited = 0
+            exhausted = False
+            for root in config.allowed_roots:
+                for directory, _subdirs, files in os.walk(Path(root).expanduser().resolve()):
+                    visited += 1
+                    if visited > SEARCH_DIRECTORY_LIMIT:
+                        exhausted = True
+                        break
+                    if wanted in files:
+                        found = Path(directory) / wanted
+                        matches.append(
+                            {
+                                "posix": str(found),
+                                "display": wsl_to_windows(str(found)),
+                                "size_bytes": found.stat().st_size,
+                                "indexed": Path(f"{found}.bai").is_file(),
+                            }
+                        )
+                if exhausted:
+                    break
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "name": wanted,
+                    "matches": matches,
+                    # Said plainly: a search that ran out of budget found nothing *yet*,
+                    # which is a different answer from the file not being there.
+                    "search_incomplete": exhausted,
+                    "roots": [wsl_to_windows(str(root)) for root in config.allowed_roots],
+                },
+            )
 
         def _findings(self) -> None:
             """Every envelope this output directory holds, for the reviewing physician.
