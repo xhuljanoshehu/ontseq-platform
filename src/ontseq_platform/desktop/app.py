@@ -5,7 +5,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -48,7 +48,6 @@ from .config import (
     save_desktop_config,
 )
 
-
 STAGE_LABELS = {
     DesktopStage.INPUT: "Inputprüfung",
     DesktopStage.QC: "Quality Control",
@@ -68,6 +67,122 @@ STATUS_SYMBOLS = {
     DesktopStageStatus.NOT_RUN: "—",
     DesktopStageStatus.NO_CALL: "∅",
 }
+
+APP_STYLE = """
+QMainWindow, QWidget {
+    background: #f5f7fa;
+    color: #17202a;
+    font-family: 'Segoe UI';
+    font-size: 10pt;
+}
+QLabel#title {
+    font-size: 24pt;
+    font-weight: 700;
+    color: #102a43;
+}
+QLabel#sectionTitle {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #102a43;
+    padding-bottom: 6px;
+}
+QLabel#muted {
+    color: #627d98;
+}
+QLabel#researchBanner {
+    background: #fff3cd;
+    color: #6b4f00;
+    border: 1px solid #e6c65c;
+    border-radius: 7px;
+    padding: 10px;
+    font-weight: 600;
+}
+QFrame#card {
+    background: white;
+    border: 1px solid #d9e2ec;
+    border-radius: 10px;
+}
+QFrame[runStatus="RUNNING"] {
+    background: #eef6ff;
+    border: 1px solid #9fc5e8;
+    border-radius: 7px;
+}
+QFrame[runStatus="PASS"] {
+    background: #effaf3;
+    border: 1px solid #a8d5b5;
+    border-radius: 7px;
+}
+QFrame[runStatus="WARN"] {
+    background: #fff8e8;
+    border: 1px solid #e6c65c;
+    border-radius: 7px;
+}
+QFrame[runStatus="FAIL"] {
+    background: #fff0f0;
+    border: 1px solid #e6a3a3;
+    border-radius: 7px;
+}
+QFrame[runStatus="NO_CALL"], QFrame[runStatus="NOT_RUN"] {
+    background: #f7f8fa;
+    border: 1px solid #d9e2ec;
+    border-radius: 7px;
+}
+QLabel#stageTitle {
+    font-weight: 600;
+}
+QLineEdit, QComboBox, QTextEdit {
+    background: white;
+    border: 1px solid #bcccdc;
+    border-radius: 6px;
+    padding: 7px;
+}
+QPushButton {
+    background: white;
+    border: 1px solid #bcccdc;
+    border-radius: 6px;
+    padding: 7px 12px;
+}
+QPushButton:hover {
+    background: #edf2f7;
+}
+QPushButton:disabled {
+    color: #9aa5b1;
+    background: #f1f3f5;
+}
+QPushButton#primaryButton {
+    background: #0b5fa5;
+    color: white;
+    border: none;
+    font-weight: 700;
+    padding: 9px 14px;
+}
+QPushButton#primaryButton:hover {
+    background: #084c84;
+}
+QProgressBar {
+    border: 1px solid #bcccdc;
+    border-radius: 6px;
+    text-align: center;
+    background: #edf2f7;
+    min-height: 20px;
+}
+QProgressBar::chunk {
+    background: #0b5fa5;
+    border-radius: 5px;
+}
+QGroupBox {
+    font-weight: 600;
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding-top: 12px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+}
+"""
 
 
 class AnalysisWorker(QObject):
@@ -103,20 +218,19 @@ class AnalysisWorker(QObject):
 class StageRow(QFrame):
     def __init__(self, stage: DesktopStage) -> None:
         super().__init__()
-        self.stage = stage
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
-        self.symbol = QLabel(STATUS_SYMBOLS[DesktopStageStatus.PENDING])
+        self.symbol = QLabel()
         self.symbol.setFixedWidth(22)
-        self.title = QLabel(STAGE_LABELS[stage])
-        self.title.setObjectName("stageTitle")
-        self.message = QLabel("Ausstehend")
+        title = QLabel(STAGE_LABELS[stage])
+        title.setObjectName("stageTitle")
+        self.message = QLabel()
         self.message.setObjectName("muted")
         self.message.setWordWrap(True)
-        self.status = QLabel(DesktopStageStatus.PENDING.value)
+        self.status = QLabel()
         self.status.setFixedWidth(82)
         layout.addWidget(self.symbol)
-        layout.addWidget(self.title, 2)
+        layout.addWidget(title, 2)
         layout.addWidget(self.message, 5)
         layout.addWidget(self.status)
         self.set_status(DesktopStageStatus.PENDING, "Ausstehend")
@@ -133,17 +247,20 @@ class StageRow(QFrame):
 class SettingsDialog(QDialog):
     def __init__(self, config: DesktopConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.saved_config: DesktopConfig | None = None
+        self.reference_fields: dict[GenomeBuild, dict[str, QLineEdit]] = {}
         self.setWindowTitle("ONTSeq Desktop – Einstellungen")
         self.resize(760, 590)
+
         root = QVBoxLayout(self)
         tabs = QTabWidget()
-        tabs.addTab(self._build_backend_tab(config), "Backend")
-        tabs.addTab(self._build_reference_tab(config), "Referenzen")
+        tabs.addTab(self._backend_tab(config), "Backend")
+        tabs.addTab(self._reference_tab(config), "Referenzen")
         root.addWidget(tabs)
 
         note = QLabel(
-            "Diese Einstellungen enthalten nur lokale Tool-/Referenzpfade. Patientendaten "
-            "gehören nicht in die Konfiguration."
+            "Die Konfiguration enthält nur lokale Tool- und Referenzpfade. "
+            "Patientendaten gehören nicht in die Konfiguration."
         )
         note.setWordWrap(True)
         note.setObjectName("muted")
@@ -159,9 +276,8 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(save)
         root.addLayout(buttons)
-        self.saved_config: DesktopConfig | None = None
 
-    def _build_backend_tab(self, config: DesktopConfig) -> QWidget:
+    def _backend_tab(self, config: DesktopConfig) -> QWidget:
         widget = QWidget()
         form = QFormLayout(widget)
         self.backend_mode = QComboBox()
@@ -171,18 +287,11 @@ class SettingsDialog(QDialog):
         self.wsl_distribution = QLineEdit(config.wsl_distribution or "")
         self.wsl_distribution.setPlaceholderText("leer = Standard-Distribution")
         self.project_root = QLineEdit(config.wsl_project_root)
-        self.project_root.setPlaceholderText("~/ontseq-platform")
         self.output_root = QLineEdit(config.output_root)
-        output_row = QWidget()
-        output_layout = QHBoxLayout(output_row)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.addWidget(self.output_root)
-        browse = QPushButton("Ordner…")
-        browse.clicked.connect(self._browse_output_root)
-        output_layout.addWidget(browse)
         self.qc_policy = QLineEdit(config.qc_policy_path)
         self.sniffles_policy = QLineEdit(config.sniffles_policy_path)
 
+        output_row = self._folder_row(self.output_root)
         form.addRow("Ausführung:", self.backend_mode)
         form.addRow("WSL-Distribution:", self.wsl_distribution)
         form.addRow("ONTSeq-Projekt in WSL:", self.project_root)
@@ -191,32 +300,21 @@ class SettingsDialog(QDialog):
         form.addRow("Sniffles2-Policy:", self.sniffles_policy)
         return widget
 
-    def _build_reference_tab(self, config: DesktopConfig) -> QWidget:
+    def _reference_tab(self, config: DesktopConfig) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         existing = {profile.genome_build: profile for profile in config.reference_profiles}
-        self.reference_fields: dict[GenomeBuild, dict[str, QLineEdit]] = {}
         for build in (GenomeBuild.GRCH37, GenomeBuild.GRCH38):
             profile = existing.get(build)
             group = QGroupBox(build.value)
             form = QFormLayout(group)
             reference_id = QLineEdit(profile.reference_id if profile else "")
             lock_path = QLineEdit(profile.reference_lock_path if profile else "")
-            lock_row = self._path_row(lock_path, "JSON auswählen…")
-            bed_path = QLineEdit(
-                profile.adaptive_sampling_target_bed_path
-                if profile and profile.adaptive_sampling_target_bed_path
-                else ""
-            )
-            bed_row = self._path_row(bed_path, "BED auswählen…")
-            bed_version = QLineEdit(
-                profile.adaptive_sampling_target_bed_version
-                if profile and profile.adaptive_sampling_target_bed_version
-                else ""
-            )
+            bed_path = QLineEdit(self._profile_bed_path(profile))
+            bed_version = QLineEdit(self._profile_bed_version(profile))
             form.addRow("Reference ID:", reference_id)
-            form.addRow("Reference lock:", lock_row)
-            form.addRow("Adaptive-Sampling BED:", bed_row)
+            form.addRow("Reference lock:", self._file_row(lock_path))
+            form.addRow("Adaptive-Sampling BED:", self._file_row(bed_path))
             form.addRow("BED-Version:", bed_version)
             layout.addWidget(group)
             self.reference_fields[build] = {
@@ -228,13 +326,35 @@ class SettingsDialog(QDialog):
         layout.addStretch(1)
         return widget
 
-    def _path_row(self, field: QLineEdit, button_text: str) -> QWidget:
+    @staticmethod
+    def _profile_bed_path(profile: DesktopReferenceProfile | None) -> str:
+        if profile is None or profile.adaptive_sampling_target_bed_path is None:
+            return ""
+        return profile.adaptive_sampling_target_bed_path
+
+    @staticmethod
+    def _profile_bed_version(profile: DesktopReferenceProfile | None) -> str:
+        if profile is None or profile.adaptive_sampling_target_bed_version is None:
+            return ""
+        return profile.adaptive_sampling_target_bed_version
+
+    def _file_row(self, field: QLineEdit) -> QWidget:
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(field)
-        button = QPushButton(button_text)
+        button = QPushButton("Datei…")
         button.clicked.connect(lambda: self._browse_file(field))
+        layout.addWidget(button)
+        return row
+
+    def _folder_row(self, field: QLineEdit) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(field)
+        button = QPushButton("Ordner…")
+        button.clicked.connect(lambda: self._browse_folder(field))
         layout.addWidget(button)
         return row
 
@@ -243,31 +363,15 @@ class SettingsDialog(QDialog):
         if path:
             target.setText(path)
 
-    def _browse_output_root(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Ergebnisordner auswählen")
+    def _browse_folder(self, target: QLineEdit) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Ordner auswählen")
         if path:
-            self.output_root.setText(path)
+            target.setText(path)
 
     @Slot()
     def _save(self) -> None:
-        profiles: list[DesktopReferenceProfile] = []
         try:
-            for build, fields in self.reference_fields.items():
-                reference_id = fields["reference_id"].text().strip()
-                lock_path = fields["lock_path"].text().strip()
-                bed_path = fields["bed_path"].text().strip()
-                bed_version = fields["bed_version"].text().strip()
-                if not reference_id and not lock_path and not bed_path and not bed_version:
-                    continue
-                profiles.append(
-                    DesktopReferenceProfile(
-                        genome_build=build,
-                        reference_id=reference_id,
-                        reference_lock_path=lock_path,
-                        adaptive_sampling_target_bed_path=bed_path or None,
-                        adaptive_sampling_target_bed_version=bed_version or None,
-                    )
-                )
+            profiles = self._collect_profiles()
             self.saved_config = DesktopConfig(
                 backend_mode=self.backend_mode.currentData(),
                 wsl_distribution=self.wsl_distribution.text().strip() or None,
@@ -277,28 +381,49 @@ class SettingsDialog(QDialog):
                 sniffles_policy_path=self.sniffles_policy.text().strip(),
                 reference_profiles=profiles,
             )
+            save_desktop_config(self.saved_config)
         except Exception as exc:
             QMessageBox.critical(self, "Ungültige Einstellungen", str(exc))
             return
-        save_desktop_config(self.saved_config)
         self.accept()
+
+    def _collect_profiles(self) -> list[DesktopReferenceProfile]:
+        profiles: list[DesktopReferenceProfile] = []
+        for build, fields in self.reference_fields.items():
+            values = {name: field.text().strip() for name, field in fields.items()}
+            if not any(values.values()):
+                continue
+            profiles.append(
+                DesktopReferenceProfile(
+                    genome_build=build,
+                    reference_id=values["reference_id"],
+                    reference_lock_path=values["lock_path"],
+                    adaptive_sampling_target_bed_path=values["bed_path"] or None,
+                    adaptive_sampling_target_bed_version=values["bed_version"] or None,
+                )
+            )
+        return profiles
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"ONTSeq Desktop {__version__}")
-        self.resize(1120, 790)
-        try:
-            self.config = load_desktop_config()
-        except Exception:
-            self.config = DesktopConfig()
+        self.config = self._load_config()
         self.thread: QThread | None = None
         self.worker: AnalysisWorker | None = None
         self.last_result: DesktopRunResult | None = None
         self.stage_rows: dict[DesktopStage, StageRow] = {}
+        self.setWindowTitle(f"ONTSeq Desktop {__version__}")
+        self.resize(1120, 790)
         self._build_ui()
-        self._apply_styles()
+        self.setStyleSheet(APP_STYLE)
+
+    @staticmethod
+    def _load_config() -> DesktopConfig:
+        try:
+            return load_desktop_config()
+        except Exception:
+            return DesktopConfig()
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -306,39 +431,23 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
-
-        header = QHBoxLayout()
-        title_block = QVBoxLayout()
-        title = QLabel("ONTSeq Desktop")
-        title.setObjectName("title")
-        subtitle = QLabel("Oxford Nanopore – strukturierte Einzelprobenanalyse")
-        subtitle.setObjectName("muted")
-        title_block.addWidget(title)
-        title_block.addWidget(subtitle)
-        header.addLayout(title_block)
-        header.addStretch(1)
-        system_check = QPushButton("Systemcheck")
-        system_check.clicked.connect(self._system_check)
-        settings = QPushButton("Einstellungen")
-        settings.clicked.connect(self._open_settings)
-        header.addWidget(system_check)
-        header.addWidget(settings)
-        root.addLayout(header)
+        root.addLayout(self._header())
 
         banner = QLabel(
-            "RESEARCH USE ONLY · nicht klinisch validiert · Ergebnisse erfordern fachliche Prüfung"
+            "RESEARCH USE ONLY · nicht klinisch validiert · "
+            "Ergebnisse erfordern fachliche Prüfung"
         )
         banner.setObjectName("researchBanner")
         banner.setWordWrap(True)
         root.addWidget(banner)
 
-        main_grid = QGridLayout()
-        main_grid.setHorizontalSpacing(16)
-        root.addLayout(main_grid, 1)
-        main_grid.addWidget(self._build_input_panel(), 0, 0)
-        main_grid.addWidget(self._build_progress_panel(), 0, 1)
-        main_grid.setColumnStretch(0, 4)
-        main_grid.setColumnStretch(1, 6)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.addWidget(self._input_panel(), 0, 0)
+        grid.addWidget(self._progress_panel(), 0, 1)
+        grid.setColumnStretch(0, 4)
+        grid.setColumnStretch(1, 6)
+        root.addLayout(grid, 1)
 
         self.details_button = QPushButton("Technische Details anzeigen")
         self.details_button.clicked.connect(self._toggle_log)
@@ -349,7 +458,26 @@ class MainWindow(QMainWindow):
         self.log_view.setVisible(False)
         root.addWidget(self.log_view)
 
-    def _build_input_panel(self) -> QWidget:
+    def _header(self) -> QHBoxLayout:
+        header = QHBoxLayout()
+        title_block = QVBoxLayout()
+        title = QLabel("ONTSeq Desktop")
+        title.setObjectName("title")
+        subtitle = QLabel("Oxford Nanopore – strukturierte Einzelprobenanalyse")
+        subtitle.setObjectName("muted")
+        title_block.addWidget(title)
+        title_block.addWidget(subtitle)
+        header.addLayout(title_block)
+        header.addStretch(1)
+        check = QPushButton("Systemcheck")
+        check.clicked.connect(self._system_check)
+        settings = QPushButton("Einstellungen")
+        settings.clicked.connect(self._open_settings)
+        header.addWidget(check)
+        header.addWidget(settings)
+        return header
+
+    def _input_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("card")
         layout = QVBoxLayout(panel)
@@ -390,8 +518,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(form)
 
         privacy = QLabel(
-            "Nur pseudonymisierte Sample-IDs verwenden. BAM/VCF/Patientendaten werden nicht "
-            "an GitHub oder externe Dienste übertragen."
+            "Nur pseudonymisierte Sample-IDs verwenden. BAM/VCF/Patientendaten "
+            "werden nicht an GitHub oder externe Dienste übertragen."
         )
         privacy.setWordWrap(True)
         privacy.setObjectName("muted")
@@ -409,7 +537,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.cancel_button)
         return panel
 
-    def _build_progress_panel(self) -> QWidget:
+    def _progress_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("card")
         layout = QVBoxLayout(panel)
@@ -420,6 +548,7 @@ class MainWindow(QMainWindow):
             row = StageRow(stage)
             self.stage_rows[stage] = row
             layout.addWidget(row)
+
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -429,22 +558,24 @@ class MainWindow(QMainWindow):
         self.summary.setObjectName("muted")
         layout.addWidget(self.summary)
 
-        output_row = QHBoxLayout()
+        outputs = QHBoxLayout()
         self.open_report = QPushButton("HTML-Bericht")
         self.open_excel = QPushButton("Excel")
         self.open_folder = QPushButton("Ergebnisordner")
         for button in (self.open_report, self.open_excel, self.open_folder):
             button.setEnabled(False)
-            output_row.addWidget(button)
+            outputs.addWidget(button)
         self.open_report.clicked.connect(lambda: self._open_result_path("report"))
         self.open_excel.clicked.connect(lambda: self._open_result_path("excel"))
         self.open_folder.clicked.connect(lambda: self._open_result_path("folder"))
-        layout.addLayout(output_row)
+        layout.addLayout(outputs)
         return panel
 
     @Slot()
     def _browse_bam(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Aligned BAM auswählen", filter="BAM (*.bam)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Aligned BAM auswählen", filter="BAM (*.bam)"
+        )
         if not path:
             return
         bam = Path(path)
@@ -476,8 +607,8 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("ONTSeq Desktop – Systemcheck")
         box.setIcon(QMessageBox.Information if all_ok else QMessageBox.Warning)
         box.setText("System bereit" if all_ok else "Konfiguration unvollständig")
-        box.setDetailedText("\n".join(lines))
         box.setInformativeText("\n".join(lines[:5]))
+        box.setDetailedText("\n".join(lines))
         box.exec()
 
     @Slot()
@@ -489,6 +620,7 @@ class MainWindow(QMainWindow):
         if not bam_text or not sample_text:
             QMessageBox.warning(self, "Eingaben fehlen", "Bitte BAM-Datei und Sample-ID angeben.")
             return
+
         sample = sanitize_sample_id(sample_text)
         build = self.genome_build.currentData()
         assay = self.assay_mode.currentData()
@@ -511,12 +643,7 @@ class MainWindow(QMainWindow):
             assay_mode=assay,
             output_dir=output_dir,
         )
-        self._reset_run_ui()
-        self.start_button.setEnabled(False)
-        self.cancel_button.setEnabled(True)
-        self.summary.setText("Analyse läuft …")
-        self.log_view.clear()
-
+        self._prepare_running_ui()
         self.thread = QThread(self)
         self.worker = AnalysisWorker(DesktopBackend(self.config), request)
         self.worker.moveToThread(self.thread)
@@ -529,6 +656,18 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self.thread.quit)
         self.thread.finished.connect(self._thread_finished)
         self.thread.start()
+
+    def _prepare_running_ui(self) -> None:
+        self.last_result = None
+        self.progress.setValue(0)
+        self.log_view.clear()
+        for row in self.stage_rows.values():
+            row.set_status(DesktopStageStatus.PENDING, "Ausstehend")
+        for button in (self.open_report, self.open_excel, self.open_folder):
+            button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.summary.setText("Analyse läuft …")
 
     @Slot()
     def _cancel_analysis(self) -> None:
@@ -557,9 +696,8 @@ class MainWindow(QMainWindow):
             f"{len(payload.pipeline_result.events)} SV-Kandidat(en) · "
             "fachliche Prüfung erforderlich"
         )
-        self.open_report.setEnabled(True)
-        self.open_excel.setEnabled(True)
-        self.open_folder.setEnabled(True)
+        for button in (self.open_report, self.open_excel, self.open_folder):
+            button.setEnabled(True)
         self.start_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
@@ -585,56 +723,18 @@ class MainWindow(QMainWindow):
     def _toggle_log(self) -> None:
         visible = not self.log_view.isVisible()
         self.log_view.setVisible(visible)
-        self.details_button.setText(
-            "Technische Details ausblenden" if visible else "Technische Details anzeigen"
-        )
-
-    def _reset_run_ui(self) -> None:
-        self.last_result = None
-        self.progress.setValue(0)
-        for row in self.stage_rows.values():
-            row.set_status(DesktopStageStatus.PENDING, "Ausstehend")
-        for button in (self.open_report, self.open_excel, self.open_folder):
-            button.setEnabled(False)
+        label = "Technische Details ausblenden" if visible else "Technische Details anzeigen"
+        self.details_button.setText(label)
 
     def _open_result_path(self, kind: str) -> None:
-        result = self.last_result
-        if result is None:
+        if self.last_result is None:
             return
-        path = {
-            "report": result.report_html,
-            "excel": result.workbook_xlsx,
-            "folder": result.output_dir,
-        }[kind]
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-
-    def _apply_styles(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow, QWidget { background: #f5f7fa; color: #17202a; font-family: 'Segoe UI'; font-size: 10pt; }
-            QLabel#title { font-size: 24pt; font-weight: 700; color: #102a43; }
-            QLabel#sectionTitle { font-size: 13pt; font-weight: 700; color: #102a43; padding-bottom: 6px; }
-            QLabel#muted { color: #627d98; }
-            QLabel#researchBanner { background: #fff3cd; color: #6b4f00; border: 1px solid #e6c65c; border-radius: 7px; padding: 10px; font-weight: 600; }
-            QFrame#card { background: white; border: 1px solid #d9e2ec; border-radius: 10px; }
-            QFrame[runStatus="RUNNING"] { background: #eef6ff; border: 1px solid #9fc5e8; border-radius: 7px; }
-            QFrame[runStatus="PASS"] { background: #effaf3; border: 1px solid #a8d5b5; border-radius: 7px; }
-            QFrame[runStatus="WARN"] { background: #fff8e8; border: 1px solid #e6c65c; border-radius: 7px; }
-            QFrame[runStatus="FAIL"] { background: #fff0f0; border: 1px solid #e6a3a3; border-radius: 7px; }
-            QFrame[runStatus="NO_CALL"], QFrame[runStatus="NOT_RUN"] { background: #f7f8fa; border: 1px solid #d9e2ec; border-radius: 7px; }
-            QLabel#stageTitle { font-weight: 600; }
-            QLineEdit, QComboBox, QTextEdit { background: white; border: 1px solid #bcccdc; border-radius: 6px; padding: 7px; }
-            QPushButton { background: white; border: 1px solid #bcccdc; border-radius: 6px; padding: 7px 12px; }
-            QPushButton:hover { background: #edf2f7; }
-            QPushButton:disabled { color: #9aa5b1; background: #f1f3f5; }
-            QPushButton#primaryButton { background: #0b5fa5; color: white; border: none; font-weight: 700; padding: 9px 14px; }
-            QPushButton#primaryButton:hover { background: #084c84; }
-            QProgressBar { border: 1px solid #bcccdc; border-radius: 6px; text-align: center; background: #edf2f7; min-height: 20px; }
-            QProgressBar::chunk { background: #0b5fa5; border-radius: 5px; }
-            QGroupBox { font-weight: 600; border: 1px solid #d9e2ec; border-radius: 8px; margin-top: 10px; padding-top: 12px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            """
-        )
+        paths = {
+            "report": self.last_result.report_html,
+            "excel": self.last_result.workbook_xlsx,
+            "folder": self.last_result.output_dir,
+        }
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths[kind])))
 
 
 def run() -> int:
