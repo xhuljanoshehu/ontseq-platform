@@ -1,5 +1,12 @@
 # ONTSeq Desktop changelog
 
+## 0.1.3-engineering
+
+- support both common BAM index names: `sample.bam.bai` and `sample.bai`
+- prefer `sample.bam.bai` deterministically when both files exist
+- validate the selected index again inside the local service boundary
+- add Windows and backend regression tests for index selection
+
 ## 0.1.0-engineering
 
 - initial .NET 10 WPF operator shell
