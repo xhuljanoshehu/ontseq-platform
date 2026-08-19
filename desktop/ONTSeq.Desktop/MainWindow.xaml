@@ -19,9 +19,12 @@
                 <TextBlock Text="ONTSeq Desktop" FontSize="30" FontWeight="SemiBold" Foreground="#152238" />
                 <TextBlock Text="Oxford Nanopore Genomic Analysis" FontSize="14" Foreground="#5F6B7A" Margin="1,4,0,0" />
             </StackPanel>
-            <Border Grid.Column="1" Background="#E8EEF7" CornerRadius="6" Padding="12,7" VerticalAlignment="Center">
-                <TextBlock x:Name="BackendStateText" Text="Backend wird beim Start geprüft" Foreground="#34465F" />
-            </Border>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Background="#E8EEF7" CornerRadius="6" Padding="12,7" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock x:Name="BackendStateText" Text="Backend wird beim Start geprüft" Foreground="#34465F" />
+                </Border>
+                <Button x:Name="SetupButton" Content="System einrichten" Click="Setup_Click" Padding="12,7" />
+            </StackPanel>
         </Grid>
 
         <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E8C861" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,0,0,18">
