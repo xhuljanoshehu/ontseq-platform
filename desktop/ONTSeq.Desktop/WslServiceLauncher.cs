@@ -101,15 +101,19 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var home = homeResult.StdOut.Trim();
         var target = home + "/.local/share/ontseq/runtime-v0.1.1";
         var bin = target + "/bin";
+        var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
         var qc = target + "/share/ontseq/configs/qc/defaults.yaml";
         var sniffles = target + "/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml";
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
-            $"{ShellQuote(bin + "/conda-unpack")} && " +
+            // conda-unpack itself has a '#!/usr/bin/env python' shebang. A fresh Ubuntu WSL
+            // installation does not provide a system 'python' executable. Put the packed
+            // runtime first on PATH before the first Python-backed script is invoked.
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/conda-unpack")} && " +
             $"test -f {ShellQuote(qc)} && test -f {ShellQuote(sniffles)} && " +
-            $"env PATH={ShellQuote(bin + ":" + BaseLinuxPath)} {ShellQuote(bin + "/ontseq")} --help >/dev/null";
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} --help >/dev/null";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
         if (install.ExitCode != 0)
