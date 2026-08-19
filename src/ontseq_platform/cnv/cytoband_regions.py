@@ -2,13 +2,14 @@
 
 This module is an independent implementation of a useful behavior found in the historical
 ONTseq workflow: adjacent affected cytobands can be presented as one region, and a complete
-set of sub-bands can sometimes be represented by their parent designation.  The output here
-is deliberately **not ISCN**.  It is a structured intermediate representation with source
-band traceability that can later be reviewed by the ISCN proposal layer.
+set of sub-bands can sometimes be represented by their immediate parent designation.  The
+output here is deliberately **not ISCN**.  It is a structured intermediate representation
+with source-band traceability that can later be reviewed by the ISCN proposal layer.
 
 Coordinates and adjacency always come from a locked :class:`CytobandTable`.  Band-name
-arithmetic is used only for parent-label compaction after the coordinate coverage has been
-proved against that reference.
+arithmetic is used only for one-level parent-label compaction after coordinate coverage has
+been proved against that reference.  Restricting one normalization pass to the immediate
+parent avoids silently over-collapsing deep labels such as ``q31.21`` straight to ``q31``.
 """
 
 from __future__ import annotations
@@ -91,11 +92,11 @@ def _parse_band_name(name: str) -> tuple[str, str, str | None]:
 
 
 def _parent_band(name: str) -> str | None:
-    """Return the next useful parent label, stopping at the integer band.
+    """Return the immediate useful parent label, stopping at the integer band.
 
-    Examples: ``q31.21 -> q31.2 -> q31`` and ``p12.3 -> p12``.  ``q31`` has no
-    parent here: collapsing it to ``q3`` would change a band into a region-level shorthand
-    that is not represented by the UCSC cytoband resource.
+    Examples: ``q31.21 -> q31.2`` and ``p12.3 -> p12``.  ``q31`` has no parent here:
+    collapsing it to ``q3`` would change a band into a region-level shorthand that is not
+    represented by the UCSC cytoband resource.
     """
     arm, integer, decimal = _parse_band_name(name)
     if decimal is None:
@@ -105,33 +106,22 @@ def _parent_band(name: str) -> str | None:
     return f"{arm}{integer}.{decimal[:-1]}"
 
 
-def _candidate_ancestors(name: str) -> list[str]:
-    result: list[str] = []
-    current = name
-    while True:
-        parent = _parent_band(current)
-        if parent is None:
-            break
-        result.append(parent)
-        current = parent
-    return result
-
-
 def _leaf_bands_under(table: CytobandTable, contig: str, designation: str) -> list[Cytoband]:
     """Return reference leaf bands represented by ``designation``.
 
     UCSC tables normally contain terminal band labels only.  A parent such as ``q13`` is
     represented by every exact/sub-band row whose name is ``q13`` or begins ``q13.``.
+    Contig comparison is canonicalized because reference tables may use ``chr5`` while the
+    normalized event contract uses ``5``.
     """
     _parse_band_name(designation)
-    matches = [
+    canonical = canonical_contig(contig)
+    return [
         band
-        for band in table.contig_bands(contig)
-        if band.name == designation or band.name.startswith(f"{designation}.")
+        for band in table.bands
+        if canonical_contig(band.contig) == canonical
+        and (band.name == designation or band.name.startswith(f"{designation}."))
     ]
-    if not matches:
-        return []
-    return matches
 
 
 def _interval_fully_covered(start: int, end: int, intervals: Sequence[tuple[int, int]]) -> bool:
@@ -154,20 +144,18 @@ def _compact_endpoint(
     source_band: str,
     affected_intervals: Sequence[tuple[int, int]],
 ) -> str:
-    """Compact an endpoint only when every reference child of a parent is covered."""
-    compacted = source_band
-    for parent in _candidate_ancestors(source_band):
-        children = _leaf_bands_under(table, contig, parent)
-        if not children:
-            break
-        if all(
-            _interval_fully_covered(child.start, child.end, affected_intervals)
-            for child in children
-        ):
-            compacted = parent
-        else:
-            break
-    return compacted
+    """Compact to the immediate parent only when all of its reference leaves are covered."""
+    parent = _parent_band(source_band)
+    if parent is None:
+        return source_band
+    children = _leaf_bands_under(table, contig, parent)
+    if not children:
+        return source_band
+    if all(
+        _interval_fully_covered(child.start, child.end, affected_intervals) for child in children
+    ):
+        return parent
+    return source_band
 
 
 def _resolve_event(event: CytobandEvent, table: CytobandTable) -> _ResolvedEvent:
@@ -270,8 +258,8 @@ def normalize_cytoband_regions(
     * overlapping parent/child or duplicate designations fail closed;
     * only directly coordinate-adjacent bands merge;
     * state, chromosome and p/q arm must match, so the centromere is never crossed;
-    * parent-label compaction is allowed only when all reference leaf bands underneath that
-      parent are covered by the affected region;
+    * one normalization pass may compact an endpoint only to its immediate parent, and only
+      when all reference leaf bands underneath that parent are covered by the affected region;
     * source labels and non-identifying source IDs are retained for auditability.
     """
     resolved = [_resolve_event(event, table) for event in events]
