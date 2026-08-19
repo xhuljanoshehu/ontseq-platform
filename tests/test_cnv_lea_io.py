@@ -123,6 +123,21 @@ class LeaTruthAuditTests(unittest.TestCase):
         self.assertNotIn("add(5)(q13)", serialized)
         self.assertFalse(summary.contains_sample_identifiers)
 
+    def test_audit_counts_invisible_unicode_without_normalizing_it(self) -> None:
+        table = CytobandTable(
+            resource_id="SYNTHETIC_HG19_BANDS",
+            genome_build=GenomeBuild.GRCH37,
+            source="synthetic",
+            bands=[Cytoband(contig="chr5", start=0, end=1000, name="q13", stain="gneg")],
+        )
+        summary = audit_lea_ground_truth(
+            [LeaGroundTruthRow(sample_id="PRIVATE_C", karyotype="\u200b46,XX")],
+            table,
+        )
+        self.assertEqual(summary.formatting_issue_rows, 1)
+        self.assertEqual(summary.formatting_issue_counts["zero_width_space_u200b"], 1)
+        self.assertEqual(summary.incomplete_rows, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
