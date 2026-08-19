@@ -17,10 +17,11 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         string referenceLockWsl,
         CancellationToken cancellationToken)
     {
-        var status = await RunWslAsync(settings.WslDistribution, ["sh", "-lc", "printf ready"], cancellationToken);
-        if (status.ExitCode != 0 || !status.StdOut.Contains("ready", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "WSL2 ist nicht einsatzbereit. Windows muss WSL2 und die konfigurierte Linux-Distribution bereitstellen.\n" + status.StdErr);
+        var status = await CheckWslAsync(settings, cancellationToken);
+        if (!status.Ok) throw new InvalidOperationException(status.Detail);
+
+        var backend = await CheckBackendAsync(settings, cancellationToken);
+        if (!backend.Ok) throw new InvalidOperationException(backend.Detail);
 
         var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
         var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
@@ -33,6 +34,160 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 "Bei einem Netzlaufwerk wie P: muss dieses in WSL als drvfs eingebunden sein.\n" +
                 $"Erwarteter WSL-Pfad: {rootWsl}\nReferenz: {referenceLockWsl}\n{check.StdErr}");
         }
+    }
+
+    public async Task<(bool Ok, string Detail)> CheckWslAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var status = await RunWslAsync(
+                settings.WslDistribution, ["sh", "-lc", "printf ready"], cancellationToken);
+            if (status.ExitCode == 0 && status.StdOut.Contains("ready", StringComparison.Ordinal))
+                return (true, $"WSL-Distribution '{settings.WslDistribution}' ist erreichbar.");
+            return (false, $"WSL2 bzw. die Distribution '{settings.WslDistribution}' ist nicht einsatzbereit. {status.StdErr}".Trim());
+        }
+        catch (Exception error)
+        {
+            return (false, "WSL2 konnte nicht gestartet werden: " + error.Message);
+        }
+    }
+
+    public async Task<(bool Ok, string Detail)> CheckBackendAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await RunWslAsync(
+                settings.WslDistribution,
+                [settings.BackendCommand, "--help"],
+                cancellationToken);
+            return result.ExitCode == 0
+                ? (true, $"ONTSeq Backend gefunden: {settings.BackendCommand}")
+                : (false, "ONTSeq Backend ist in WSL nicht einsatzbereit. " + result.StdErr);
+        }
+        catch (Exception error)
+        {
+            return (false, "ONTSeq Backend fehlt oder kann nicht gestartet werden: " + error.Message);
+        }
+    }
+
+    public async Task<string> InstallBundledRuntimeAsync(
+        DesktopSettings settings,
+        string runtimeArchiveWindows,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(runtimeArchiveWindows))
+            throw new FileNotFoundException(
+                "Das gebündelte Linux-Runtime-Paket fehlt. Bitte den vollständigen ONTSeq-Desktop-ZIP entpacken, nicht nur die EXE.",
+                runtimeArchiveWindows);
+
+        var wsl = await CheckWslAsync(settings, cancellationToken);
+        if (!wsl.Ok) throw new InvalidOperationException(wsl.Detail);
+
+        var homeResult = await RunWslAsync(
+            settings.WslDistribution, ["sh", "-lc", "printf %s \"$HOME\""], cancellationToken);
+        if (homeResult.ExitCode != 0 || string.IsNullOrWhiteSpace(homeResult.StdOut))
+            throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
+
+        var home = homeResult.StdOut.Trim();
+        var target = home + "/.local/share/ontseq/runtime-v0.1.1";
+        var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
+        var command =
+            $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
+            $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
+            $"{ShellQuote(target + "/bin/conda-unpack")} && " +
+            $"{ShellQuote(target + "/bin/ontseq")} --help >/dev/null";
+        var install = await RunWslAsync(
+            settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
+        if (install.ExitCode != 0)
+            throw new InvalidOperationException("ONTSeq Linux-Runtime konnte nicht installiert werden.\n" + install.StdErr);
+
+        settings.BackendCommand = target + "/bin/ontseq";
+        settings.SaveUserSettings();
+        return target;
+    }
+
+    public async Task<string> ConfigureReferenceAsync(
+        DesktopSettings settings,
+        string sourceWindows,
+        string genomeBuild,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(sourceWindows))
+            throw new FileNotFoundException("Referenzdatei nicht gefunden.", sourceWindows);
+
+        var backend = await CheckBackendAsync(settings, cancellationToken);
+        if (!backend.Ok) throw new InvalidOperationException(backend.Detail);
+
+        var suffix = Path.GetExtension(sourceWindows).ToLowerInvariant();
+        var faiWindows = sourceWindows;
+        if (suffix is ".fa" or ".fasta" or ".fna")
+        {
+            var fastaWsl = PathBridge.WindowsToWsl(sourceWindows);
+            var faidx = await RunWslAsync(
+                settings.WslDistribution, ["samtools", "faidx", fastaWsl], cancellationToken);
+            if (faidx.ExitCode != 0)
+                throw new InvalidOperationException("FASTA konnte nicht mit samtools faidx indexiert werden.\n" + faidx.StdErr);
+            faiWindows = sourceWindows + ".fai";
+        }
+        else if (suffix != ".fai")
+        {
+            throw new InvalidOperationException("Bitte eine FASTA (.fa/.fasta/.fna) oder deren .fai-Index auswählen.");
+        }
+
+        if (!File.Exists(faiWindows))
+            throw new InvalidOperationException("Der erwartete FAI-Index wurde nicht gefunden: " + faiWindows);
+
+        var referenceDirWindows = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ONTSeq", "references");
+        Directory.CreateDirectory(referenceDirWindows);
+        var lockWindows = Path.Combine(referenceDirWindows, $"{genomeBuild}.reference-lock.json");
+        var faiWsl = PathBridge.WindowsToWsl(faiWindows);
+        var lockWsl = PathBridge.WindowsToWsl(lockWindows);
+        var referenceId = $"{genomeBuild}_LOCAL_{DateTime.UtcNow:yyyyMMdd}";
+
+        var create = await RunWslAsync(
+            settings.WslDistribution,
+            [settings.BackendCommand, "reference-lock",
+                "--fai", faiWsl,
+                "--reference-id", referenceId,
+                "--genome-build", genomeBuild,
+                "--output", lockWsl],
+            cancellationToken);
+        if (create.ExitCode != 0)
+            throw new InvalidOperationException("Reference-Lock konnte nicht erzeugt werden.\n" + create.StdErr);
+        if (!File.Exists(lockWindows))
+            throw new InvalidOperationException("Reference-Lock wurde nicht am erwarteten Ort geschrieben: " + lockWindows);
+
+        settings.ReferenceLocksWsl[genomeBuild] = lockWsl;
+        settings.SaveUserSettings();
+        return lockWindows;
+    }
+
+    public async Task<string> RunSelfTestAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var backend = await CheckBackendAsync(settings, cancellationToken);
+        if (!backend.Ok) throw new InvalidOperationException(backend.Detail);
+
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        Directory.CreateDirectory(root);
+        var rootWsl = PathBridge.WindowsToWsl(root);
+        var result = await RunWslAsync(
+            settings.WslDistribution,
+            [settings.BackendCommand, "local-smoke", "--output-dir", rootWsl],
+            cancellationToken);
+        File.WriteAllText(Path.Combine(root, "self-test.log.txt"), result.StdOut + Environment.NewLine + result.StdErr);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException("ONTSeq Selbsttest ist fehlgeschlagen.\n" + result.StdErr);
+        return root;
     }
 
     public void Start(
@@ -101,7 +256,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         }
     }
 
-    private static async Task<(int ExitCode, string StdOut, string StdErr)> RunWslAsync(
+    public static async Task<(int ExitCode, string StdOut, string StdErr)> RunWslAsync(
         string distribution,
         IReadOnlyList<string> command,
         CancellationToken cancellationToken)
