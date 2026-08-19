@@ -5,6 +5,7 @@ namespace ONTSeq.Desktop;
 
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
+    private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
     private Process? _process;
     private readonly StringBuilder _stderr = new();
     private readonly StringBuilder _stdout = new();
@@ -62,7 +63,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         {
             var result = await RunWslAsync(
                 settings.WslDistribution,
-                [settings.BackendCommand, "--help"],
+                BackendInvocation(settings, "--help"),
                 cancellationToken);
             return result.ExitCode == 0
                 ? (true, $"ONTSeq Backend gefunden: {settings.BackendCommand}")
@@ -94,18 +95,20 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
         var home = homeResult.StdOut.Trim();
         var target = home + "/.local/share/ontseq/runtime-v0.1.1";
+        var bin = target + "/bin";
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
-            $"{ShellQuote(target + "/bin/conda-unpack")} && " +
-            $"{ShellQuote(target + "/bin/ontseq")} --help >/dev/null";
+            $"{ShellQuote(bin + "/conda-unpack")} && " +
+            $"env PATH={ShellQuote(bin + ":" + BaseLinuxPath)} {ShellQuote(bin + "/ontseq")} --help >/dev/null";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
         if (install.ExitCode != 0)
             throw new InvalidOperationException("ONTSeq Linux-Runtime konnte nicht installiert werden.\n" + install.StdErr);
 
-        settings.BackendCommand = target + "/bin/ontseq";
+        settings.RuntimeBinWsl = bin;
+        settings.BackendCommand = bin + "/ontseq";
         settings.SaveUserSettings();
         return target;
     }
@@ -128,7 +131,9 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         {
             var fastaWsl = PathBridge.WindowsToWsl(sourceWindows);
             var faidx = await RunWslAsync(
-                settings.WslDistribution, ["samtools", "faidx", fastaWsl], cancellationToken);
+                settings.WslDistribution,
+                RuntimeToolInvocation(settings, "samtools", "faidx", fastaWsl),
+                cancellationToken);
             if (faidx.ExitCode != 0)
                 throw new InvalidOperationException("FASTA konnte nicht mit samtools faidx indexiert werden.\n" + faidx.StdErr);
             faiWindows = sourceWindows + ".fai";
@@ -152,11 +157,12 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
         var create = await RunWslAsync(
             settings.WslDistribution,
-            [settings.BackendCommand, "reference-lock",
+            BackendInvocation(settings,
+                "reference-lock",
                 "--fai", faiWsl,
                 "--reference-id", referenceId,
                 "--genome-build", genomeBuild,
-                "--output", lockWsl],
+                "--output", lockWsl),
             cancellationToken);
         if (create.ExitCode != 0)
             throw new InvalidOperationException("Reference-Lock konnte nicht erzeugt werden.\n" + create.StdErr);
@@ -182,7 +188,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var rootWsl = PathBridge.WindowsToWsl(root);
         var result = await RunWslAsync(
             settings.WslDistribution,
-            [settings.BackendCommand, "local-smoke", "--output-dir", rootWsl],
+            BackendInvocation(settings, "local-smoke", "--output-dir", rootWsl),
             cancellationToken);
         File.WriteAllText(Path.Combine(root, "self-test.log.txt"), result.StdOut + Environment.NewLine + result.StdErr);
         if (result.ExitCode != 0)
@@ -201,6 +207,15 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
         var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
 
+        var args = BackendInvocation(
+            settings,
+            "serve",
+            "--reference-lock", referenceLockWsl,
+            "--allow-root", rootWsl,
+            "--output-dir", outputWsl,
+            "--port", settings.Port.ToString(),
+            "--no-browser");
+
         var psi = new ProcessStartInfo
         {
             FileName = "wsl.exe",
@@ -212,17 +227,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         psi.ArgumentList.Add("-d");
         psi.ArgumentList.Add(settings.WslDistribution);
         psi.ArgumentList.Add("--");
-        psi.ArgumentList.Add(settings.BackendCommand);
-        psi.ArgumentList.Add("serve");
-        psi.ArgumentList.Add("--reference-lock");
-        psi.ArgumentList.Add(referenceLockWsl);
-        psi.ArgumentList.Add("--allow-root");
-        psi.ArgumentList.Add(rootWsl);
-        psi.ArgumentList.Add("--output-dir");
-        psi.ArgumentList.Add(outputWsl);
-        psi.ArgumentList.Add("--port");
-        psi.ArgumentList.Add(settings.Port.ToString());
-        psi.ArgumentList.Add("--no-browser");
+        foreach (var item in args) psi.ArgumentList.Add(item);
 
         _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _process.OutputDataReceived += (_, e) => { if (e.Data is not null) _stdout.AppendLine(e.Data); };
@@ -279,6 +284,38 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
         return (process.ExitCode, await stdout, await stderr);
+    }
+
+    private static IReadOnlyList<string> BackendInvocation(DesktopSettings settings, params string[] args)
+    {
+        var command = new List<string>();
+        if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+        {
+            command.Add("env");
+            command.Add($"PATH={settings.RuntimeBinWsl}:{BaseLinuxPath}");
+        }
+        command.Add(settings.BackendCommand);
+        command.AddRange(args);
+        return command;
+    }
+
+    private static IReadOnlyList<string> RuntimeToolInvocation(
+        DesktopSettings settings,
+        string tool,
+        params string[] args)
+    {
+        var executable = string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)
+            ? tool
+            : settings.RuntimeBinWsl.TrimEnd('/') + "/" + tool;
+        var command = new List<string>();
+        if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+        {
+            command.Add("env");
+            command.Add($"PATH={settings.RuntimeBinWsl}:{BaseLinuxPath}");
+        }
+        command.Add(executable);
+        command.AddRange(args);
+        return command;
     }
 
     private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
