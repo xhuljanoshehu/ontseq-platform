@@ -1,13 +1,13 @@
 """Historical compatibility adapters for Lea Evers' ONTseq CNV outputs.
 
-The goal is reproducibility and comparison, not code reuse. This module does not execute
-Lea's workflow and does not copy its implementation. It normalizes the documented output
+The goal is reproducibility and comparison, not code reuse.  This module does not execute
+Lea's workflow and does not copy its implementation.  It normalizes the documented output
 contracts of the historical QDNAseq + ACE path into ONTSeq's research-only CNV contract so
 that the old workflow can be benchmarked on the same evaluable genome as newer methods.
 
 The historical profile represented here is the supplied 2026 snapshot whose active
 Snakemake configuration used GRCh37/hg19, QDNAseq bin size 1000 kbp, ACE penalty 0.6 and a
-66% affected-band threshold. Those values are compatibility metadata, not validated
+66% affected-band threshold.  Those values are compatibility metadata, not validated
 clinical thresholds.
 """
 
@@ -37,7 +37,7 @@ class LeaCompatibilityError(ValueError):
 class LeaAceCompatibilityProfile:
     """Frozen metadata for one reproducibility profile of Lea's ACE path.
 
-    ``declared_*_version`` records versions found in the supplied ``renv.lock``. The
+    ``declared_*_version`` records versions found in the supplied ``renv.lock``.  The
     supplied ``r-ace.def`` installed Bioconductor packages without version pins, so these
     values are deliberately labelled declarations rather than verified runtime versions.
     """
@@ -121,10 +121,7 @@ def _reader(
             raise LeaCompatibilityError(
                 f"{artifact_name} line {line_number} contains more fields than the header"
             )
-        normalized = {
-            key.lstrip("\ufeff").strip(): (value or "").strip()
-            for key, value in raw_row.items()
-        }
+        normalized = {key.lstrip("\ufeff").strip(): (value or "").strip() for key, value in raw_row.items()}
         if not any(normalized.values()):
             continue
         rows.append(normalized)
@@ -158,7 +155,7 @@ def parse_lea_cn_csv(lines: Sequence[str]) -> list[LeaChromosomeCopy]:
     """Parse and cross-check the historical ACE ``CN.csv`` output.
 
     The active R script writes ``Chromosome,Copies,Ploidy,CNA`` and defines
-    ``CNA = Copies - Ploidy``. The adapter verifies that identity rather than trusting a
+    ``CNA = Copies - Ploidy``.  The adapter verifies that identity rather than trusting a
     plausible-looking CNA column.
     """
     rows = _reader(
@@ -195,9 +192,7 @@ def parse_lea_cn_csv(lines: Sequence[str]) -> list[LeaChromosomeCopy]:
                 f"CN.csv line {line_number} contains negative copy number or ploidy"
             )
         if not math.isclose(cna, copies - ploidy, abs_tol=1e-6):
-            raise LeaCompatibilityError(
-                f"CN.csv line {line_number} violates CNA = Copies - Ploidy"
-            )
+            raise LeaCompatibilityError(f"CN.csv line {line_number} violates CNA = Copies - Ploidy")
         parsed.append(LeaChromosomeCopy(contig, copies, ploidy, cna))
     return parsed
 
@@ -325,10 +320,10 @@ def lea_ace_call_set_from_outputs(
 ) -> CnvCallSet:
     """Normalize Lea's paired ACE outputs into a research-only :class:`CnvCallSet`.
 
-    No lift-over is attempted. The historical profile, the locked cytoband table and the
-    caller-supplied reference lengths must all agree on the genome build. Whole-chromosome
-    CNA rows are converted to whole-contig intervals. Partial calls are mapped from the
-    exact cytobands emitted in ``dels_dups.csv``. The latter file does not contain an
+    No lift-over is attempted.  The historical profile, the locked cytoband table and the
+    caller-supplied reference lengths must all agree on the genome build.  Whole-chromosome
+    CNA rows are converted to whole-contig intervals.  Partial calls are mapped from the
+    exact cytobands emitted in ``dels_dups.csv``.  The latter file does not contain an
     absolute copy number, so partial calls retain only the historical gain/loss direction.
     """
     profile.validate()
@@ -355,7 +350,8 @@ def lea_ace_call_set_from_outputs(
     missing_autosomes = sorted(AUTOSOMES - set(chromosome_by_contig), key=int)
     if missing_autosomes:
         raise LeaCompatibilityError(
-            "historical CN.csv lacks autosome row(s): " + ", ".join(missing_autosomes)
+            "historical CN.csv lacks autosome row(s): "
+            + ", ".join(missing_autosomes)
             + "; the frozen whole-genome compatibility profile is incomplete"
         )
     missing_sex = sorted({"X", "Y"} - set(chromosome_by_contig))
@@ -365,60 +361,60 @@ def lea_ace_call_set_from_outputs(
         )
 
     abnormal_whole_contigs: set[str] = set()
-    for row in chromosome_rows:
-        state = _directional_state(cna=row.cna)
+    for chromosome_row in chromosome_rows:
+        state = _directional_state(cna=chromosome_row.cna)
         if state == CopyNumberState.NEUTRAL:
             continue
-        length = lengths.get(row.contig)
+        length = lengths.get(chromosome_row.contig)
         if length is None:
             raise LeaCompatibilityError(
-                f"reference lengths do not contain chromosome {row.contig} from CN.csv"
+                f"reference lengths do not contain chromosome {chromosome_row.contig} from CN.csv"
             )
-        abnormal_whole_contigs.add(row.contig)
+        abnormal_whole_contigs.add(chromosome_row.contig)
         segments.append(
             CnvSegment(
-                contig=row.contig,
+                contig=chromosome_row.contig,
                 start=0,
                 end=length,
                 state=state,
-                copy_number=row.copies,
+                copy_number=chromosome_row.copies,
                 notes=[
                     "Historical Lea QDNAseq+ACE whole-chromosome call; direction derives "
                     "from CNA = Copies - Ploidy.",
-                    f"Historical baseline ploidy for this chromosome: {row.ploidy:g}.",
+                    f"Historical baseline ploidy for this chromosome: {chromosome_row.ploidy:g}.",
                 ],
             )
         )
 
-    for row in band_rows:
-        if row.contig not in chromosome_by_contig:
+    for band_row in band_rows:
+        if band_row.contig not in chromosome_by_contig:
             raise LeaCompatibilityError(
-                f"dels_dups.csv contains {row.contig}{row.band}, but CN.csv has no "
-                f"chromosome {row.contig} row"
+                f"dels_dups.csv contains {band_row.contig}{band_row.band}, but CN.csv has no "
+                f"chromosome {band_row.contig} row"
             )
-        if row.contig in abnormal_whole_contigs:
+        if band_row.contig in abnormal_whole_contigs:
             raise LeaCompatibilityError(
-                f"dels_dups.csv contains a partial call on chromosome {row.contig}, while "
+                f"dels_dups.csv contains a partial call on chromosome {band_row.contig}, while "
                 "CN.csv already declares a whole-chromosome CNA; the historical ACE script "
                 "suppresses this combination, so the artifacts are inconsistent"
             )
         try:
-            start, end = cytobands.band_interval(row.contig, row.band)
+            start, end = cytobands.band_interval(band_row.contig, band_row.band)
         except (KeyError, ValueError) as error:
             raise LeaCompatibilityError(
-                f"cannot map historical cytoband {row.contig}{row.band}: {error}"
+                f"cannot map historical cytoband {band_row.contig}{band_row.band}: {error}"
             ) from error
-        state = CopyNumberState.LOSS if row.event == "del" else CopyNumberState.GAIN
+        state = CopyNumberState.LOSS if band_row.event == "del" else CopyNumberState.GAIN
         segments.append(
             CnvSegment(
-                contig=row.contig,
+                contig=band_row.contig,
                 start=start,
                 end=end,
                 state=state,
                 copy_number=None,
                 notes=[
                     "Historical Lea QDNAseq+ACE partial-band call.",
-                    f"Affected fraction of cytoband: {row.affected_fraction:.6g}.",
+                    f"Affected fraction of cytoband: {band_row.affected_fraction:.6g}.",
                     "Absolute copy number is unavailable in dels_dups.csv and is not "
                     "invented by the compatibility adapter.",
                 ],
