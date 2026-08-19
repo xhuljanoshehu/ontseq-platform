@@ -74,10 +74,7 @@ def _rows(
             raise LeaTruthTableError(
                 f"{artifact_name} line {line_number} contains more fields than the header"
             )
-        row = {
-            key.lstrip("\ufeff").strip(): (value or "").strip()
-            for key, value in raw.items()
-        }
+        row = {key.lstrip("\ufeff").strip(): (value or "").strip() for key, value in raw.items()}
         if not any(row.values()):
             continue
         result.append(row)
@@ -163,9 +160,7 @@ def parse_lea_gt_full_csv(lines: Sequence[str]) -> list[LeaEvaluationRow]:
                 "karyotype_cg and karyotype_ont"
             )
         if sample_id in seen:
-            raise LeaTruthTableError(
-                f"gt_full.csv contains duplicate sample_name {sample_id!r}"
-            )
+            raise LeaTruthTableError(f"gt_full.csv contains duplicate sample_name {sample_id!r}")
         seen.add(sample_id)
         parsed.append(
             LeaEvaluationRow(
