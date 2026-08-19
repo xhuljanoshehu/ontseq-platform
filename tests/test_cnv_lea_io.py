@@ -25,9 +25,7 @@ def _lock() -> ReferenceLock:
     return ReferenceLock(
         reference_id="SYNTHETIC_GRCH37",
         genome_build=GenomeBuild.GRCH37,
-        contigs=[
-            ReferenceContig(name=str(index), length=1000) for index in range(1, 23)
-        ]
+        contigs=[ReferenceContig(name=str(index), length=1000) for index in range(1, 23)]
         + [ReferenceContig(name="X", length=1000), ReferenceContig(name="Y", length=1000)],
         source_fai_sha256="0" * 64,
     )
