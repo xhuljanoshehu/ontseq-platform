@@ -158,6 +158,33 @@ wsl -d Ubuntu -- bash -lc "ontseq serve --reference-lock ... --allow-root /mnt/p
 
 Doppelklick, Browser geht auf, Oberfläche da.
 
+### Der Weg für den Anwender: eine Datei zum Doppelklicken
+
+`windows/ONTSeq.bat` auf den Desktop legen und **einmalig** die vier Zeilen oben darin
+anpassen — WSL-Distribution, Reference-Lock, Datenordner, Ausgabeordner. Pfade in
+WSL-Schreibweise: aus `P:\NANOPORE` wird `/mnt/p/NANOPORE`.
+
+Danach ist der Ablauf:
+
+1. **Doppelklick auf ONTSeq**
+2. Browser geht auf
+3. **BAM-Datei aus dem Explorer auf das Fenster ziehen**
+4. Sample-ID prüfen, **Analyse starten**
+5. Fertig — Bericht, Excel-Mappe und JSON liegen im Ausgabeordner
+
+Läuft der Dienst schon, öffnet ein zweiter Doppelklick nur das Fenster, statt am belegten
+Port zu scheitern. Fehlt WSL, sagt die Datei das im Klartext statt eine Fehlermeldung zu
+zeigen, mit der niemand etwas anfangen kann.
+
+### Warum „hochladen" hier nichts hochlädt
+
+Ein Browser gibt der Seite beim Ziehen **nur den Dateinamen** heraus, nie den Pfad. Der
+Dienst sucht diesen Namen in den freigegebenen Ordnern und liest die Datei dort, wo sie
+liegt. Bei 30 GB wäre ein echter Upload dieselbe Platte — nur Stunden später.
+
+Kommt derselbe Name mehrfach vor, werden **alle** Treffer angeboten. Einen davon stillschweigend
+zu nehmen hieße, eine Probe auszuwerten, die niemand ausgewählt hat.
+
 ### Was der Dienst nicht tut
 
 Er rechnet nichts. Er ruft dieselbe Funktion auf, die auch `ontseq run` aufruft, liest den

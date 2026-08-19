@@ -50,6 +50,17 @@ validated release.
   download; it exits 2 and withholds the checksum rather than printing it beside a warning.
   The digest is the one `basecall.model_signature` already computed, now the single
   implementation both call, so the command and the check it feeds cannot drift apart.
+- `windows/ONTSeq.bat`: one file on the desktop that starts the service in WSL and opens
+  the browser. It checks whether the service is already running — a second double-click
+  would otherwise fail on the busy port and look like a fault when nothing is wrong — and
+  says in plain words what to do when WSL is missing, instead of showing an error nobody
+  can act on. Four lines at the top are edited once per site and never again.
+- Dragging a BAM onto the page selects it. A browser hands JavaScript only the file name,
+  never the path, so the service searches the allowed roots for that name and reads the
+  file where it already lies. Nothing is copied: at thirty gigabytes an upload would put
+  the data on the same disk it started on, hours later. Where a name occurs more than once
+  every match is offered — taking one silently would analyse a sample nobody chose — and a
+  search that ran out of its directory budget says so rather than reporting "not found".
 - The interface has two views, because it has two audiences. The operator picks a BAM and
   starts a run; the reviewing physician reads finished cases and signs them off. Both live
   in the same page behind a tab, and the second one lists **every** envelope — including the
