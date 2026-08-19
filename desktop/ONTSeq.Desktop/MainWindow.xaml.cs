@@ -29,10 +29,25 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        ReloadSettingsState();
+    }
+
+    private void ReloadSettingsState()
+    {
         try
         {
             _settings = DesktopSettings.Load();
-            BackendStateText.Text = $"WSL: {_settings.WslDistribution} · Backend wird beim Start geprüft";
+            var configured = new List<string>();
+            if (_settings.TryReferenceLockFor("GRCh38", out _)) configured.Add("GRCh38");
+            if (_settings.TryReferenceLockFor("GRCh37", out _)) configured.Add("GRCh37");
+
+            BackendStateText.Text = configured.Count == 0
+                ? "Einrichtung erforderlich"
+                : $"WSL: {_settings.WslDistribution} · Ref: {string.Join(", ", configured)}";
+
+            if (configured.Count == 0)
+                DetailText.Text = "Vor der ersten Analyse bitte 'System einrichten' öffnen: Linux-Runtime installieren, passende Referenz konfigurieren und Selbsttest ausführen.";
+            StartButton.IsEnabled = true;
         }
         catch (Exception error)
         {
@@ -40,6 +55,13 @@ public partial class MainWindow : Window
             DetailText.Text = error.Message;
             StartButton.IsEnabled = false;
         }
+    }
+
+    private void Setup_Click(object sender, RoutedEventArgs e)
+    {
+        var setup = new SetupWindow(_settings) { Owner = this };
+        setup.ShowDialog();
+        ReloadSettingsState();
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
@@ -64,8 +86,32 @@ public partial class MainWindow : Window
     {
         if (!TryValidateForm(out var bam, out var sampleId, out var genomeBuild, out var assay)) return;
 
+        if (!_settings.TryReferenceLockFor(genomeBuild, out var referenceLock))
+        {
+            RunStateText.Text = "EINRICHTUNG";
+            DetailText.Text = $"Für {genomeBuild} fehlt der Reference-Lock. Die Analyse wurde noch nicht gestartet.";
+            var openSetup = MessageBox.Show(
+                this,
+                $"Für {genomeBuild} ist noch keine passende Referenz eingerichtet. Jetzt 'System einrichten' öffnen?",
+                "ONTSeq Einrichtung erforderlich",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+            if (openSetup != MessageBoxResult.Yes) return;
+
+            var setup = new SetupWindow(_settings) { Owner = this };
+            setup.ShowDialog();
+            ReloadSettingsState();
+            if (!_settings.TryReferenceLockFor(genomeBuild, out referenceLock))
+            {
+                RunStateText.Text = "EINRICHTUNG";
+                DetailText.Text = $"{genomeBuild}-Referenz ist weiterhin nicht konfiguriert; es wurde keine Analyse gestartet.";
+                return;
+            }
+        }
+
         StartButton.IsEnabled = false;
         BrowseButton.IsEnabled = false;
+        SetupButton.IsEnabled = false;
         OpenReportButton.IsEnabled = false;
         OpenExcelButton.IsEnabled = false;
         OpenFolderButton.IsEnabled = false;
@@ -84,12 +130,11 @@ public partial class MainWindow : Window
             if (_launcher is not null) await _launcher.DisposeAsync();
             _launcher = new WslServiceLauncher();
 
-            var referenceLock = _settings.ReferenceLockFor(genomeBuild);
             var allowedRoot = Path.GetDirectoryName(bam)
                               ?? throw new InvalidOperationException("BAM-Verzeichnis konnte nicht bestimmt werden.");
 
-            BackendStateText.Text = "WSL und Referenz werden geprüft…";
-            DetailText.Text = "Vorprüfung: WSL2, BAM-Speicher, Ausgabeverzeichnis und Reference-Lock.";
+            BackendStateText.Text = "WSL, Backend und Referenz werden geprüft…";
+            DetailText.Text = "Vorprüfung: WSL2, ONTSeq-Runtime, BAM-Speicher, Ausgabeverzeichnis und Reference-Lock.";
             await _launcher.VerifyPrerequisitesAsync(_settings, allowedRoot, referenceLock, cancellationToken);
 
             BackendStateText.Text = "Backend startet…";
@@ -117,7 +162,8 @@ public partial class MainWindow : Window
                 (string.IsNullOrWhiteSpace(request.TargetBed) || string.IsNullOrWhiteSpace(request.TargetBedVersion)))
             {
                 throw new InvalidOperationException(
-                    "Adaptive Sampling benötigt das freigegebene Analyse-ROI-BED und dessen Version in desktop.settings.json.");
+                    "Adaptive Sampling benötigt das freigegebene Analyse-ROI-BED und dessen Version. " +
+                    "Diese Ressource ist noch nicht konfiguriert; der Lauf wird fail-closed gestoppt.");
             }
 
             await _client.StartRunAsync(request, cancellationToken);
@@ -141,6 +187,7 @@ public partial class MainWindow : Window
         {
             StartButton.IsEnabled = true;
             BrowseButton.IsEnabled = true;
+            SetupButton.IsEnabled = true;
         }
     }
 
