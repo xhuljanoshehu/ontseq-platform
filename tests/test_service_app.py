@@ -27,7 +27,11 @@ class ServiceManifestIndexTests(unittest.TestCase):
             for path in (bam, preferred, alternative):
                 path.write_bytes(b"x")
 
-            manifest = _build_manifest(_payload(bam), reference_id="GRCh38_TEST")
+            manifest = _build_manifest(
+                _payload(bam),
+                reference_id="GRCh38_TEST",
+                allowed_roots=[Path(temporary)],
+            )
 
             self.assertEqual(manifest.input.index_path, str(preferred))
 
@@ -38,7 +42,11 @@ class ServiceManifestIndexTests(unittest.TestCase):
             bam.write_bytes(b"BAM")
             alternative.write_bytes(b"BAI")
 
-            manifest = _build_manifest(_payload(bam), reference_id="GRCh38_TEST")
+            manifest = _build_manifest(
+                _payload(bam),
+                reference_id="GRCh38_TEST",
+                allowed_roots=[Path(temporary)],
+            )
 
             self.assertEqual(manifest.input.index_path, str(alternative))
 
@@ -48,7 +56,28 @@ class ServiceManifestIndexTests(unittest.TestCase):
             bam.write_bytes(b"BAM")
 
             with self.assertRaises(GuardError):
-                _build_manifest(_payload(bam), reference_id="GRCh38_TEST")
+                _build_manifest(
+                    _payload(bam),
+                    reference_id="GRCh38_TEST",
+                    allowed_roots=[Path(temporary)],
+                )
+
+    def test_outside_path_is_refused_before_index_discovery(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as allowed,
+            tempfile.TemporaryDirectory() as outside,
+        ):
+            bam = Path(outside) / "sample.bam"
+            bam.write_bytes(b"BAM")
+
+            with self.assertRaises(GuardError) as caught:
+                _build_manifest(
+                    _payload(bam),
+                    reference_id="GRCh38_TEST",
+                    allowed_roots=[Path(allowed)],
+                )
+
+            self.assertIn("outside the allowed directories", str(caught.exception))
 
 
 if __name__ == "__main__":
