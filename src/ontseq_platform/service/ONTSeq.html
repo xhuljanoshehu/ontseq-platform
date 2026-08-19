@@ -239,12 +239,16 @@ function renderStages(stages) {
   const list = $("stages");
   list.innerHTML = "";
   for (const stage of stages) {
+    // The API hands over the contract's own value — COMPLETED, NO_CALL, FAILED, NOT_RUN —
+    // verbatim, so what the page shows can be compared with provenance/run.json without
+    // translating. Lowercasing happens here, at the point of display, and nowhere else.
+    const key = String(stage.status || "").toLowerCase();
     const li = document.createElement("li");
-    li.className = stage.status;
+    li.className = key;
     li.innerHTML =
-      `<span class="mark">${MARKS[stage.status] || "?"}</span>` +
+      `<span class="mark">${MARKS[key] || "?"}</span>` +
       `<span class="name">${stage.title}</span>` +
-      `<span class="why">${WORDS[stage.status] || stage.status} — ${stage.reason}</span>`;
+      `<span class="why">${WORDS[key] || stage.status} — ${stage.reason}</span>`;
     list.appendChild(li);
   }
 }

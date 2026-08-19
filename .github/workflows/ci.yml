@@ -267,8 +267,12 @@ jobs:
           # The four outcomes must survive the trip to the page. A progress list showing
           # only done-or-pending would undo, where everybody looks, the distinction the
           # whole design rests on.
-          grep -q '"status": *"not_run"' /tmp/job.json
-          grep -q '"status": *"completed"' /tmp/job.json
+          grep -q '"status": *"NOT_RUN"' /tmp/job.json
+          grep -q '"status": *"COMPLETED"' /tmp/job.json
+          # And the page must not have its own spelling of them: it lowercases the
+          # contract's value at the point of display, which is why the class names below
+          # are lowercase while the API is not.
+          grep -q 'toLowerCase()' src/ontseq_platform/service/ONTSeq.html
       - name: Preflight the run before starting it
         shell: micromamba-shell {0}
         run: |

@@ -138,6 +138,9 @@ def _stage_view(record: Any) -> dict[str, Any]:
     return {
         "stage": record.stage.value,
         "title": record.title,
+        # The contract's value verbatim — COMPLETED, NO_CALL, FAILED, NOT_RUN — so what the
+        # page shows can be compared with provenance/run.json without translating. The page
+        # lowercases it for display; nothing renames it here.
         "status": record.status.value,
         "reason": record.reason,
         "required": record.required,
@@ -394,11 +397,11 @@ def serve(config: ServiceConfig, *, open_browser: bool = True) -> None:
     jobs = Jobs()
     server = ThreadingHTTPServer((config.host, config.port), make_handler(config, jobs))
     url = f"http://{config.host}:{config.port}/"
-    print(f"ONTSeq {__version__} — {url}")
+    print(f"ONTSeq {__version__} — {url}", flush=True)
     print(f"  Ausgabe:   {config.output_dir}")
     for root in config.allowed_roots:
         print(f"  Freigabe:  {root}  ({wsl_to_windows(str(root))})")
-    print("  Der Dienst hört nur auf der Loopback-Schnittstelle. Beenden mit Strg+C.")
+    print("  Nur auf der Loopback-Schnittstelle. Beenden mit Strg+C.", flush=True)
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
