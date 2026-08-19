@@ -1,0 +1,295 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ONTSeq</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --ink:#12181f; --muted:#5b6773; --line:#d9e0e7; --bg:#f4f6f8; --panel:#fff;
+    --accent:#075985; --ok:#0f7b4f; --warn:#b45309; --bad:#b42318; --idle:#8a949e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{background:var(--accent);color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px;letter-spacing:.02em}
+  header p{margin:2px 0 0;opacity:.85;font-size:13px}
+  main{max-width:960px;margin:0 auto;padding:24px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          padding:20px;margin-bottom:18px}
+  h2{margin:0 0 14px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;
+     color:var(--muted)}
+  label{display:block;font-weight:600;margin:14px 0 4px;font-size:13px}
+  input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--line);
+                   border-radius:6px;font:inherit;background:#fff}
+  .row{display:flex;gap:10px;align-items:center}
+  .row input{flex:1}
+  button{font:inherit;padding:9px 16px;border-radius:6px;border:1px solid var(--line);
+         background:#fff;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);
+                 font-weight:600;padding:11px 22px}
+  .choice{display:inline-flex;gap:18px;margin-top:4px}
+  .choice label{font-weight:400;margin:0;display:inline-flex;gap:6px;align-items:center}
+  .browser{border:1px solid var(--line);border-radius:6px;max-height:260px;overflow:auto;
+           margin-top:8px;display:none}
+  .browser.open{display:block}
+  .entry{display:flex;gap:10px;padding:7px 12px;cursor:pointer;border-bottom:1px solid #eef2f5}
+  .entry:hover{background:#f0f6fb}
+  .entry .grow{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  .entry .note{color:var(--warn);font-size:12px}
+  .path{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);
+        padding:7px 12px;background:#f7f9fb;border-bottom:1px solid var(--line)}
+  ul.stages{list-style:none;padding:0;margin:0}
+  ul.stages li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #eef2f5;
+               align-items:baseline}
+  .mark{width:1.4em;text-align:center;font-weight:700}
+  .completed .mark{color:var(--ok)} .no_call .mark{color:var(--accent)}
+  .failed .mark{color:var(--bad)} .not_run .mark{color:var(--idle)}
+  .running .mark{color:var(--warn)}
+  .name{font-weight:600;min-width:9em}
+  .why{color:var(--muted);font-size:13px;flex:1}
+  .legend{margin-top:16px;padding:12px 14px;background:#f7f9fb;border-radius:6px;
+          font-size:13px;color:var(--muted)}
+  .legend b{color:var(--ink)}
+  .banner{background:#fef6e7;border:1px solid #f0d9a8;border-radius:6px;padding:12px 14px;
+          font-size:13px;margin-bottom:18px}
+  .err{background:#fdf0ef;border-color:#f2c9c4;color:#7a1c14}
+  .files a{display:inline-block;margin:4px 10px 4px 0;color:var(--accent)}
+  .hidden{display:none}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:8px 0 28px}
+</style>
+
+<header>
+  <h1>ONTSeq</h1>
+  <p>Oxford Nanopore Analysis Platform · nur für Forschungszwecke, kein validierter Befund</p>
+</header>
+
+<main>
+  <div id="notice" class="banner">Verbinde mit der Analyse-Engine …</div>
+
+  <section id="form-panel">
+    <h2>Analyse</h2>
+
+    <label>BAM-Datei</label>
+    <div class="row">
+      <input type="text" id="bam" placeholder="P:\NANOPORE\...\sample.bam" autocomplete="off">
+      <button type="button" id="browse-btn">Auswählen</button>
+    </div>
+    <div class="browser" id="browser"></div>
+
+    <label for="sample">Sample-ID</label>
+    <input type="text" id="sample" placeholder="PROBE_001" autocomplete="off">
+
+    <label for="run">Run-ID</label>
+    <input type="text" id="run" placeholder="260611_RAD114_AS_PROBE" autocomplete="off">
+
+    <label>Referenz</label>
+    <div class="choice">
+      <label><input type="radio" name="build" value="GRCh38" checked> GRCh38</label>
+      <label><input type="radio" name="build" value="GRCh37"> GRCh37</label>
+    </div>
+
+    <label>Assay</label>
+    <div class="choice">
+      <label><input type="radio" name="assay" value="adaptive_sampling" checked>
+             Adaptive Sampling</label>
+      <label><input type="radio" name="assay" value="lcwgs"> Whole Genome (lcWGS)</label>
+    </div>
+
+    <div id="bed-block">
+      <label for="bed">Target-BED <span style="font-weight:400;color:var(--muted)">
+        — bei Adaptive Sampling erforderlich</span></label>
+      <input type="text" id="bed" placeholder="P:\...\fusion_panel_with_buffer.bed">
+      <label for="bedver">BED-Version</label>
+      <input type="text" id="bedver" placeholder="250611">
+    </div>
+
+    <p style="margin-top:22px"><button class="primary" id="start">Analyse starten</button></p>
+  </section>
+
+  <section id="progress-panel" class="hidden">
+    <h2>Fortschritt</h2>
+    <ul class="stages" id="stages"></ul>
+    <div class="legend">
+      <b>✓ abgeschlossen</b> — gelaufen, Ergebnis liegt vor &nbsp;·&nbsp;
+      <b>◇ kein Nachweis</b> — gelaufen, nichts gefunden: ein biologisch negatives Ergebnis
+      &nbsp;·&nbsp; <b>✕ fehlgeschlagen</b> — versucht, gescheitert &nbsp;·&nbsp;
+      <b>– nicht ausgeführt</b> — <b>gar nicht gelaufen. Das ist kein negativer Befund.</b>
+    </div>
+  </section>
+
+  <section id="result-panel" class="hidden">
+    <h2>Ergebnisse</h2>
+    <p id="verdict"></p>
+    <div class="files" id="files"></div>
+    <div class="legend">Freigabe erfolgt nicht hier, sondern durch Vidierung:
+      <code>ontseq review record …</code>. Bis dahin ist nichts freigegeben.</div>
+  </section>
+</main>
+
+<footer>ONTSeq <span id="version"></span> · Dienst nur auf 127.0.0.1</footer>
+
+<script>
+// The token is substituted by the service when it serves this page, so nobody has to copy
+// it. A copy of this file opened straight from disk therefore cannot drive the service —
+// which is the intended outcome, not a limitation.
+const TOKEN = "__ONTSEQ_TOKEN__";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {"X-ONTSeq-Token": TOKEN, "Content-Type": "application/json",
+              ...(options.headers || {})},
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+
+function notice(text, bad) {
+  const el = $("notice");
+  el.textContent = text;
+  el.className = "banner" + (bad ? " err" : "");
+  el.style.display = text ? "" : "none";
+}
+
+let CONFIG = null;
+
+async function boot() {
+  try {
+    CONFIG = await api("/api/config");
+    $("version").textContent = CONFIG.version;
+    notice("Nicht ausgeführt in dieser Fassung: " + CONFIG.not_wired.join(" · "));
+  } catch (error) {
+    notice("Keine Verbindung zur Analyse-Engine: " + error.message, true);
+  }
+}
+
+// --- server-side file browser ------------------------------------------------------
+// A browser file dialog hands JavaScript only the file name, never the path, so the
+// service lists the directories it was told it may read and the operator picks from those.
+async function browse(path) {
+  const box = $("browser");
+  try {
+    const listing = await api("/api/browse?path=" + encodeURIComponent(path || ""));
+    box.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "path";
+    header.textContent = listing.display;
+    box.appendChild(header);
+    if (listing.parent) box.appendChild(entry("..", listing.parent, true, null, true));
+    for (const item of listing.entries) {
+      box.appendChild(entry(item.name, item.posix, item.directory, item, false));
+    }
+    box.classList.add("open");
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function entry(name, posix, isDir, item, isUp) {
+  const row = document.createElement("div");
+  row.className = "entry";
+  const label = document.createElement("span");
+  label.className = "grow";
+  label.textContent = (isDir ? "📁 " : "🧬 ") + name;
+  row.appendChild(label);
+  if (item && !isDir) {
+    const size = document.createElement("span");
+    size.style.color = "var(--muted)";
+    size.style.fontSize = "12px";
+    size.textContent = (item.size_bytes / 1e9).toFixed(1) + " GB";
+    row.appendChild(size);
+    if (!item.indexed) {
+      const warn = document.createElement("span");
+      warn.className = "note";
+      warn.textContent = "kein .bai";
+      row.appendChild(warn);
+    }
+  }
+  row.onclick = () => {
+    if (isDir || isUp) { browse(posix); return; }
+    $("bam").value = item.display;
+    $("browser").classList.remove("open");
+    if (!$("sample").value) $("sample").value = name.replace(/\.bam$/i, "");
+  };
+  return row;
+}
+
+$("browse-btn").onclick = () => {
+  const box = $("browser");
+  if (box.classList.contains("open")) { box.classList.remove("open"); return; }
+  browse("");
+};
+
+document.querySelectorAll('input[name=assay]').forEach((radio) => {
+  radio.onchange = () => {
+    $("bed-block").style.display = radio.value === "adaptive_sampling" ? "" : "none";
+  };
+});
+
+// --- run -----------------------------------------------------------------------------
+const MARKS = {completed: "✓", no_call: "◇", failed: "✕", not_run: "–", running: "●"};
+const WORDS = {completed: "abgeschlossen", no_call: "kein Nachweis",
+               failed: "fehlgeschlagen", not_run: "nicht ausgeführt"};
+
+function renderStages(stages) {
+  const list = $("stages");
+  list.innerHTML = "";
+  for (const stage of stages) {
+    const li = document.createElement("li");
+    li.className = stage.status;
+    li.innerHTML =
+      `<span class="mark">${MARKS[stage.status] || "?"}</span>` +
+      `<span class="name">${stage.title}</span>` +
+      `<span class="why">${WORDS[stage.status] || stage.status} — ${stage.reason}</span>`;
+    list.appendChild(li);
+  }
+}
+
+async function poll(runId) {
+  const job = await api("/api/runs/" + encodeURIComponent(runId));
+  renderStages(job.stages);
+  if (job.state === "running") { setTimeout(() => poll(runId), 2000); return; }
+
+  $("start").disabled = false;
+  $("result-panel").classList.remove("hidden");
+  const bad = job.state !== "passed";
+  $("verdict").innerHTML =
+    `<b style="color:var(--${bad ? "bad" : "ok"})">${job.state.toUpperCase()}</b> — ` +
+    job.detail;
+  $("files").innerHTML =
+    "Ergebnisse liegen im Envelope: <code>" + runId + "/" + job.sample_id + "/</code> " +
+    "— <code>reports/</code> (HTML, XLSX), <code>normalized/</code> (JSON), " +
+    "<code>release/</code> (Prüfsummen)";
+}
+
+$("start").onclick = async () => {
+  notice("");
+  $("start").disabled = true;
+  $("progress-panel").classList.remove("hidden");
+  $("result-panel").classList.add("hidden");
+  $("stages").innerHTML = '<li class="running"><span class="mark">●</span>' +
+    '<span class="name">Start</span><span class="why">Lauf wird vorbereitet …</span></li>';
+  try {
+    const job = await api("/api/runs", {method: "POST", body: JSON.stringify({
+      bam: $("bam").value,
+      sample_id: $("sample").value,
+      run_id: $("run").value,
+      genome_build: document.querySelector('input[name=build]:checked').value,
+      assay: document.querySelector('input[name=assay]:checked').value,
+      target_bed: $("bed").value,
+      target_bed_version: $("bedver").value,
+    })});
+    poll(job.run_id);
+  } catch (error) {
+    $("start").disabled = false;
+    $("progress-panel").classList.add("hidden");
+    notice(error.message, true);
+  }
+};
+
+boot();
+</script>

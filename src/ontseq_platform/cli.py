@@ -59,6 +59,7 @@ from .review import inspect as inspect_review
 from .review import record as record_review
 from .review import render_json as render_review_json
 from .review import render_text as render_review_text
+from .service.app import ServiceConfig, serve
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
 from .status import exit_code, render_json, render_ledger, render_text, scan
@@ -135,6 +136,38 @@ def _parser() -> argparse.ArgumentParser:
         help="List every file in the order it enters the checksum",
     )
     model_lock.add_argument("--json", action="store_true", help="Emit JSON for a setup script")
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Run the local browser interface on the loopback interface",
+        description=(
+            "Serve the ONTSeq page and start runs from it. Binds to 127.0.0.1 only, "
+            "requires a per-process token, and reads only the directories named with "
+            "--allow-root."
+        ),
+    )
+    serve_parser.add_argument("--reference-lock", type=Path, required=True)
+    serve_parser.add_argument(
+        "--allow-root",
+        type=Path,
+        action="append",
+        required=True,
+        dest="allow_roots",
+        help="A directory the interface may browse and read. Repeatable. Nothing else "
+        "is reachable, whatever path is requested.",
+    )
+    serve_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    serve_parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    serve_parser.add_argument(
+        "--sniffles-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+    )
+    serve_parser.add_argument("--port", type=int, default=8765)
+    serve_parser.add_argument("--threads", type=int, default=4)
+    serve_parser.add_argument(
+        "--no-browser", action="store_true", help="Do not open a browser window"
+    )
 
     inspect_bam = subparsers.add_parser(
         "inspect-bam", help="Run the aligned-BAM integrity and reference gate"
@@ -542,6 +575,19 @@ def main() -> None:
             else:
                 print(render_model_lock(model, list_files=args.list_files))
             raise SystemExit(model_lock_exit_code(model))
+        elif args.command == "serve":
+            serve(
+                ServiceConfig(
+                    reference_lock=args.reference_lock,
+                    output_dir=args.output_dir,
+                    allowed_roots=list(args.allow_roots),
+                    qc_policy=args.qc_policy,
+                    sniffles_policy=args.sniffles_policy,
+                    port=args.port,
+                    threads=args.threads,
+                ),
+                open_browser=not args.no_browser,
+            )
         elif args.command == "inspect-bam":
             manifest = load_model(args.manifest, SampleManifest)
             lock = load_model(args.reference_lock, ReferenceLock)

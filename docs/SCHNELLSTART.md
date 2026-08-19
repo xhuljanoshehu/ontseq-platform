@@ -135,6 +135,65 @@ mit ihrer Prüfsumme — und ist damit Teil des Nachweises, nicht nur ein Transp
 
 ---
 
+## 2c. Die Oberfläche im Browser
+
+Statt der Kommandozeile geht es auch per Browser. Der Dienst startet die Läufe, die
+Oberfläche zeigt sie an.
+
+```bash
+ontseq serve \
+  --reference-lock /pfad/zu/hg38.reference-lock.json \
+  --allow-root /mnt/p/NANOPORE \
+  --output-dir /mnt/p/AUSWERTUNG
+```
+
+Danach öffnet sich `http://127.0.0.1:8765/`. Unter Windows mit WSL2 genügt eine
+`ONTSeq.bat` auf dem Desktop:
+
+```bat
+@echo off
+start "" http://127.0.0.1:8765/
+wsl -d Ubuntu -- bash -lc "ontseq serve --reference-lock ... --allow-root /mnt/p/NANOPORE"
+```
+
+Doppelklick, Browser geht auf, Oberfläche da.
+
+### Was der Dienst nicht tut
+
+Er rechnet nichts. Er ruft dieselbe Funktion auf, die auch `ontseq run` aufruft, liest den
+Fortschritt aus derselben `provenance/run.json`, die auch `ontseq status` liest, und reicht
+die Ergebnisse durch. Ein Fehler dort kann ein Ergebnis verlieren — verändern kann er keines.
+
+### Sicherheit, in vier Sätzen
+
+- **Nur `127.0.0.1`.** Kein Netz, keine anderen Rechner.
+- **Token pro Prozess.** Die Seite bekommt es beim Ausliefern eingesetzt. Eine von der
+  Platte geöffnete Kopie der Datei hat keins und kommt deshalb nicht durch — beabsichtigt.
+- **`--allow-root` ist eine Whitelist.** Was nicht darunter liegt, ist nicht lesbar, egal
+  welcher Pfad angefragt wird. Symlinks werden vorher aufgelöst.
+- **`Host` und `Origin` werden geprüft.** Das ist der Schutz gegen DNS-Rebinding und gegen
+  eine andere offene Registerkarte, die im Hintergrund Läufe startet.
+
+Wird `--allow-root` weggelassen, ist der Dienst nicht etwa offen, sondern liest gar nichts.
+
+### Der Dateidialog kommt vom Dienst, nicht vom Browser
+
+Ein Browser gibt JavaScript nur den Dateinamen, nie den Pfad. Der Dienst listet deshalb die
+freigegebenen Verzeichnisse selbst auf. Nebeneffekt: die Liste zeigt gleich, ob zu einer BAM
+ein `.bai` existiert — statt dass der Lauf Stunden später daran scheitert.
+
+### Vier Zustände, nicht zwei
+
+Die Fortschrittsanzeige unterscheidet **✓ abgeschlossen**, **◇ kein Nachweis**,
+**✕ fehlgeschlagen** und **– nicht ausgeführt**. Das ist kein Detail: „nicht ausgeführt" und
+„nichts gefunden" bedeuten das Gegenteil voneinander, und CNV steht heute auf *nicht
+ausgeführt*. Eine Oberfläche, die beides als leeren Kreis malt, macht genau den Fehler, den
+der Rest des Systems verhindert.
+
+**Vidiert wird nicht in der Oberfläche.** Die Freigabe läuft über `ontseq review record`.
+
+---
+
 ## 3. Referenz einmalig locken
 
 Das machen Sie **einmal pro Referenz**, nicht pro Lauf. Der Lock hält fest, welche Contigs

@@ -191,6 +191,62 @@ jobs:
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
+      - name: The browser interface refuses what it should and runs what it should
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform serve \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --allow-root results/local-smoke \
+            --output-dir results/service-runs \
+            --port 8765 --no-browser > /tmp/serve.log 2>&1 &
+          for _ in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8765/ -o /tmp/page.html && break || sleep 0.5
+          done
+          # The token reaches the page the way the browser gets it: by fetching the page.
+          # A copy of the file opened from disk has no token and therefore no access.
+          TOKEN=$(sed -n 's/.*const TOKEN = "\([^"]*\)".*/\1/p' /tmp/page.html)
+          test -n "$TOKEN"
+          test "$TOKEN" != "__ONTSEQ_TOKEN__"
+
+          code() { curl -s -o /tmp/body -w '%{http_code}' "$@"; }
+          # Every refusal below is a real attack shape, not a formality.
+          test "$(code http://127.0.0.1:8765/api/config)" = 401                      # no token
+          test "$(code -H "X-ONTSeq-Token: wrong" http://127.0.0.1:8765/api/config)" = 401
+          test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Origin: https://evil.example' \
+                  http://127.0.0.1:8765/api/config)" = 403                           # other tab
+          test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Host: evil.example:8765' \
+                  http://127.0.0.1:8765/api/config)" = 403                    # DNS rebinding
+          test "$(code -H "X-ONTSeq-Token: $TOKEN" \
+                  'http://127.0.0.1:8765/api/browse?path=/etc')" = 403        # outside roots
+
+          auth=(-H "X-ONTSeq-Token: $TOKEN")
+          curl -fsS "${auth[@]}" http://127.0.0.1:8765/api/browse | tee /tmp/browse.json
+          grep -q 'synthetic.sorted.bam' /tmp/browse.json
+          # The picker must say when an index is missing rather than fail hours later.
+          grep -q '"indexed"' /tmp/browse.json
+
+          curl -fsS "${auth[@]}" -X POST http://127.0.0.1:8765/api/runs \
+            -d '{"bam":"results/local-smoke/synthetic.sorted.bam",
+                 "sample_id":"CI_SERVICE_001","run_id":"CI_SERVICE_RUN_001",
+                 "genome_build":"GRCh38","assay":"lcwgs"}' | tee /tmp/started.json
+          grep -q '"state": *"running"' /tmp/started.json
+
+          for _ in $(seq 1 120); do
+            curl -fsS "${auth[@]}" \
+              http://127.0.0.1:8765/api/runs/CI_SERVICE_RUN_001 > /tmp/job.json
+            grep -q '"state": *"running"' /tmp/job.json || break
+            sleep 1
+          done
+          cat /tmp/job.json
+          grep -q '"state": *"passed"' /tmp/job.json
+          # The four outcomes must survive the trip to the page. A progress list that shows
+          # only done-or-pending would undo the distinction the whole design rests on, in
+          # the one place everybody actually looks.
+          grep -q '"status": *"not_run"' /tmp/job.json
+          grep -q '"status": *"completed"' /tmp/job.json
+          kill %1
+
       - name: Preflight the run before starting it
         shell: micromamba-shell {0}
         run: |

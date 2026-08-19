@@ -50,6 +50,28 @@ validated release.
   download; it exits 2 and withholds the checksum rather than printing it beside a warning.
   The digest is the one `basecall.model_signature` already computed, now the single
   implementation both call, so the command and the check it feeds cannot drift apart.
+- `ontseq serve`, a local browser interface: one page, served by the pipeline itself, from
+  which an operator picks a BAM, starts a run and watches it. It computes nothing — it calls
+  the same `run_pipeline` the command line calls and reads progress from the same
+  `provenance/run.json` that `ontseq status` reads.
+- `service/guard.py` holds every decision where a wrong answer is dangerous — constant-time
+  token comparison, the allowed-root boundary with symlinks resolved before the comparison,
+  the `Host`/`Origin` checks against DNS rebinding and other open tabs, and Windows/WSL path
+  translation. It carries no dependency beyond the standard library, deliberately: this is
+  the part that must not be first executed on a CI runner, and 29 tests cover it locally.
+- The page is served rather than opened from disk. A `file://` page has an opaque origin,
+  cannot be told apart from any other local page, and would need the service to allow
+  cross-origin requests at all. Serving it means the token can be handed over without
+  anyone copying it, and a stray copy of the file has no access — the intended outcome.
+- The file picker is server-side because a browser hands JavaScript only the file name,
+  never the path. That also lets the listing say whether a `.bai` exists, instead of the
+  run failing on it hours later.
+- Progress carries all four stage outcomes. Collapsing `NOT_RUN` and `NO_CALL` into one
+  empty circle would undo, in the one place everybody looks, the distinction the rest of
+  the system exists to preserve — and CNV is `NOT_RUN` today.
+- CI starts the service, obtains the token the way a browser does, and asserts the four
+  refusals it must make: no token, wrong token, foreign `Origin`, forged `Host`, and a path
+  outside the allowed roots. Then it runs an analysis through the HTTP interface end to end.
 - `docs/SCHNELLSTART.md`, a step-by-step operating guide in German, and
   `examples/manifests/gridion_adaptive_sampling.example.yaml`, a template for the case this
   platform is actually aimed at: a GridION or PromethION run with adaptive sampling where
