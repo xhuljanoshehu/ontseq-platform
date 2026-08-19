@@ -42,6 +42,13 @@ jobs:
           set -euo pipefail
           micromamba install -y -n ontseq-aligned-bam -c conda-forge pip conda-pack
           micromamba run -n ontseq-aligned-bam python -m pip install .
+      - name: Add versioned runtime resources
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          prefix="$(micromamba run -n ontseq-aligned-bam python -c 'import sys; print(sys.prefix)')"
+          mkdir -p "$prefix/share/ontseq"
+          cp -a configs "$prefix/share/ontseq/configs"
       - name: Pack relocatable Linux runtime
         shell: bash -el {0}
         run: |
@@ -56,8 +63,13 @@ jobs:
           mkdir -p /tmp/ontseq-packed
           tar -xzf ontseq-linux-runtime.tar.gz -C /tmp/ontseq-packed
           /tmp/ontseq-packed/bin/conda-unpack
+          test -f /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq --help >/dev/null
-          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq local-smoke --output-dir /tmp/ontseq-packed-smoke
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq local-smoke \
+            --output-dir /tmp/ontseq-packed-smoke \
+            --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
+            --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           test -d /tmp/ontseq-packed-smoke
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
