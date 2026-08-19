@@ -11,6 +11,8 @@ without the serialization contract:
     Versioned pydantic contracts for truth sets, call sets and evaluation reports.
 ``truth``
     Multi-source truth ingestion, including cytogenetic band uncertainty.
+``cytoband_regions``
+    Build-aware compaction of adjacent cytoband dosage events into traceable review regions.
 ``evaluate``
     Orchestration between the contract layer and :mod:`core`.
 ``simulate``
@@ -31,6 +33,7 @@ from __future__ import annotations
 __all__ = [
     "adapters",
     "core",
+    "cytoband_regions",
     "evaluate",
     "intervals",
     "lea_audit",
