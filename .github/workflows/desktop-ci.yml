@@ -114,6 +114,8 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Build WPF shell
         run: dotnet build desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release
+      - name: Test BAM index detection
+        run: dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release
       - name: Publish self-contained win-x64 executable
         run: >-
           dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj
@@ -136,7 +138,7 @@ jobs:
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.1.2-win-x64-setup-engineering
+          name: ontseq-desktop-v0.1.3-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30
