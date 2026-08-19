@@ -42,6 +42,9 @@ jobs:
           set -euo pipefail
           micromamba install -y -n ontseq-aligned-bam -c conda-forge pip conda-pack
           micromamba run -n ontseq-aligned-bam python -m pip install .
+      - name: Regress Desktop chunked JSON transport
+        shell: bash -el {0}
+        run: micromamba run -n ontseq-aligned-bam python -m unittest tests.test_service_http -v
       - name: Add versioned runtime resources
         shell: bash -el {0}
         run: |
@@ -136,7 +139,7 @@ jobs:
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.1.2-win-x64-setup-engineering
+          name: ontseq-desktop-v0.1.3-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30

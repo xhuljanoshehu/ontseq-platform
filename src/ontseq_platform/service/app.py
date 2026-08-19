@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BufferedIOBase
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -71,6 +72,49 @@ PAGE = Path(__file__).with_name("ONTSeq.html")
 #: Extensions the file browser offers. A picker that lists everything invites a path that
 #: was never meant to be an input.
 INPUT_SUFFIXES = frozenset({".bam"})
+
+# Run-start and review requests contain only small JSON documents. Bounding the transport
+# parser prevents a local client that already has the session token from making the service
+# buffer an arbitrary amount of data.
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
+MAX_CHUNK_LINE_BYTES = 8192
+
+
+def _read_chunked_body(stream: BufferedIOBase) -> bytes:
+    """Decode one HTTP/1.1 chunked body from ``BaseHTTPRequestHandler.rfile``."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        line = stream.readline(MAX_CHUNK_LINE_BYTES + 1)
+        if not line.endswith(b"\r\n") or len(line) > MAX_CHUNK_LINE_BYTES:
+            raise ValueError("invalid chunk header")
+        size_text = line[:-2].split(b";", 1)[0].strip()
+        try:
+            size = int(size_text, 16)
+        except ValueError as error:
+            raise ValueError("invalid chunk size") from error
+        if size < 0:
+            raise ValueError("invalid chunk size")
+        if size == 0:
+            # Trailers are not used by ONTSeq, but consuming valid ones keeps the next
+            # request on a persistent connection aligned with the HTTP message boundary.
+            trailer_bytes = 0
+            while True:
+                trailer = stream.readline(MAX_CHUNK_LINE_BYTES + 1)
+                if trailer == b"\r\n":
+                    return b"".join(chunks)
+                if not trailer.endswith(b"\r\n") or len(trailer) > MAX_CHUNK_LINE_BYTES:
+                    raise ValueError("invalid chunk trailer")
+                trailer_bytes += len(trailer)
+                if trailer_bytes > MAX_REQUEST_BODY_BYTES:
+                    raise ValueError("chunk trailers are too large")
+        total += size
+        if total > MAX_REQUEST_BODY_BYTES:
+            raise ValueError("request body is too large")
+        chunk = stream.read(size)
+        if len(chunk) != size or stream.read(2) != b"\r\n":
+            raise ValueError("truncated chunked request body")
+        chunks.append(chunk)
 
 
 @dataclass
@@ -262,6 +306,31 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return False
             return True
 
+        def _request_body(self) -> bytes:
+            """Read a bounded fixed-length or HTTP/1.1 chunked request body."""
+            transfer_encoding = self.headers.get("Transfer-Encoding")
+            content_length = self.headers.get("Content-Length")
+            if transfer_encoding is not None:
+                if content_length is not None:
+                    raise ValueError("ambiguous request framing")
+                if transfer_encoding.strip().lower() != "chunked":
+                    raise ValueError("unsupported transfer encoding")
+                return _read_chunked_body(self.rfile)
+            if content_length is None:
+                return b""
+            try:
+                length = int(content_length)
+            except ValueError as error:
+                raise ValueError("invalid content length") from error
+            if length < 0:
+                raise ValueError("invalid content length")
+            if length > MAX_REQUEST_BODY_BYTES:
+                raise ValueError("request body is too large")
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ValueError("truncated request body")
+            return body
+
         # -- routes --------------------------------------------------------------------
         def do_GET(self) -> None:  # noqa: N802 - name fixed by BaseHTTPRequestHandler
             route = urlparse(self.path)
@@ -292,11 +361,14 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             if not self._authorised():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
             try:
-                payload = json.loads(self.rfile.read(length) or b"{}")
+                payload = json.loads(self._request_body() or b"{}")
             except ValueError:
+                self.close_connection = True
                 self._refuse(HTTPStatus.BAD_REQUEST, "request body was not JSON")
+                return
+            if not isinstance(payload, dict):
+                self._refuse(HTTPStatus.BAD_REQUEST, "request body was not a JSON object")
                 return
             if path == "/api/runs":
                 self._start_run(payload)

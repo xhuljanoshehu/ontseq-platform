@@ -229,6 +229,11 @@ validated release.
 
 ### Fixed
 
+- The native Windows desktop uses `.NET PostAsJsonAsync`, which sends HTTP/1.1 JSON with
+  `Transfer-Encoding: chunked` when it cannot precompute `Content-Length`. The local Python
+  service previously treated that body as empty and returned `no BAM was selected`. Its
+  bounded request parser now accepts both fixed-length and chunked JSON while retaining the
+  loopback, origin and session-token checks before reading the body.
 - Read-group preservation was only ever exercised with a *single* read group, so a bug
   collapsing every read onto the first group would have been invisible — the first group was
   the only group. A real ONT sample is routinely sequenced across several flowcells. The

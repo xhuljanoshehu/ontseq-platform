@@ -99,7 +99,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.1.1";
+        var target = home + "/.local/share/ontseq/runtime-v0.1.3";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);

@@ -1,4 +1,4 @@
-# ONTSeq Desktop v0.1.1 — first run (engineering / RUO)
+# ONTSeq Desktop v0.1.3 — first run (engineering / RUO)
 
 ONTSeq Desktop is deliberately fail-closed. A BAM is not analysed until the local Linux runtime and an explicit reference lock are available.
 
@@ -22,6 +22,8 @@ WSL2 and the configured Linux distribution (`Ubuntu` by default) must already be
 3. Choose **System einrichten**.
 4. Choose **System prüfen**.
 5. If the backend is missing, choose **Runtime installieren**.
+   When upgrading from v0.1.2, install the bundled runtime again so the desktop uses
+   `runtime-v0.1.3` with the corrected Windows-to-backend request transport.
 6. Configure the reference build needed for the BAM by selecting the **exact FASTA or FAI used for alignment**.
 7. Run **Selbsttest starten**. This creates a synthetic alignment and runs the real bundled samtools/Cramino/Sniffles2 path before any research BAM is used.
 8. Return to the main window, select BAM + `.bam.bai`, choose the matching build/profile, and start the analysis.
