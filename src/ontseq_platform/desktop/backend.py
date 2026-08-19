@@ -6,7 +6,6 @@ import re
 import shlex
 import subprocess
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,7 +29,7 @@ from .config import DesktopConfig, DesktopReferenceProfile
 
 
 class DesktopBackendError(RuntimeError):
-    pass
+    """Raised when a desktop analysis cannot safely continue."""
 
 
 class DesktopStage(StrEnum):
@@ -103,14 +102,8 @@ def sanitize_sample_id(value: str) -> str:
 
 
 def locate_bam_index(bam_path: Path) -> Path | None:
-    candidates = (
-        Path(f"{bam_path}.bai"),
-        bam_path.with_suffix(".bai"),
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
+    candidates = (Path(f"{bam_path}.bai"), bam_path.with_suffix(".bai"))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
 def default_run_id() -> str:
@@ -118,94 +111,20 @@ def default_run_id() -> str:
 
 
 class DesktopBackend:
+    """Run the existing ONTSeq CLI through a local or WSL2 boundary."""
+
     def __init__(self, config: DesktopConfig) -> None:
         self.config = config
 
     def diagnose(self) -> list[DiagnosticCheck]:
         checks: list[DiagnosticCheck] = []
-        output_root = Path(self.config.output_root).expanduser()
-        try:
-            output_root.mkdir(parents=True, exist_ok=True)
-            probe = output_root / ".ontseq-write-test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
-            checks.append(DiagnosticCheck("Output folder", True, str(output_root)))
-        except OSError as exc:
-            checks.append(DiagnosticCheck("Output folder", False, str(exc)))
-
+        checks.append(self._check_output_folder())
         if self.config.backend_mode == "wsl":
-            try:
-                completed = subprocess.run(
-                    self._wsl_base() + ["--status"],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=15,
-                )
-                checks.append(
-                    DiagnosticCheck(
-                        "WSL",
-                        completed.returncode == 0,
-                        (completed.stdout or completed.stderr or "WSL responded").strip(),
-                    )
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                checks.append(DiagnosticCheck("WSL", False, str(exc)))
-
-            tool_check = (
-                "for c in ontseq samtools cramino sniffles; do "
-                "command -v \"$c\" >/dev/null || { echo missing:$c; exit 7; }; done; "
-                "echo ready"
-            )
-            try:
-                completed = subprocess.run(
-                    self._wsl_shell_command(tool_check),
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=20,
-                )
-                checks.append(
-                    DiagnosticCheck(
-                        "ONTSeq backend tools",
-                        completed.returncode == 0,
-                        (completed.stdout or completed.stderr).strip(),
-                    )
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                checks.append(DiagnosticCheck("ONTSeq backend tools", False, str(exc)))
+            checks.extend((self._check_wsl(), self._check_wsl_tools()))
         else:
-            project_root = Path(self.config.wsl_project_root).expanduser()
-            checks.append(
-                DiagnosticCheck(
-                    "Local project root",
-                    project_root.is_dir(),
-                    str(project_root),
-                )
-            )
-
-        for profile in self.config.reference_profiles:
-            lock = Path(profile.reference_lock_path).expanduser()
-            checks.append(
-                DiagnosticCheck(
-                    f"{profile.genome_build.value} reference lock",
-                    lock.is_file(),
-                    str(lock),
-                )
-            )
-            if profile.adaptive_sampling_target_bed_path:
-                bed = Path(profile.adaptive_sampling_target_bed_path).expanduser()
-                checks.append(
-                    DiagnosticCheck(
-                        f"{profile.genome_build.value} adaptive target BED",
-                        bed.is_file(),
-                        str(bed),
-                    )
-                )
+            root = Path(self.config.wsl_project_root).expanduser()
+            checks.append(DiagnosticCheck("Local project root", root.is_dir(), str(root)))
+        checks.extend(self._check_reference_resources())
         return checks
 
     def run(
@@ -224,7 +143,7 @@ class DesktopBackend:
         with log_path.open("a", encoding="utf-8") as log_handle:
             self._log(log_handle, on_log, "ONTSeq Desktop run started")
             try:
-                return self._run(
+                return self._run_pipeline(
                     request,
                     output_dir=output_dir,
                     log_handle=log_handle,
@@ -243,7 +162,7 @@ class DesktopBackend:
                 self._log(log_handle, on_log, f"FAILED: {exc}")
                 raise
 
-    def _run(
+    def _run_pipeline(
         self,
         request: DesktopAnalysisRequest,
         *,
@@ -261,8 +180,23 @@ class DesktopBackend:
             raise DesktopBackendError(
                 "No BAM index found. Expected <sample>.bam.bai or <sample>.bai next to the BAM."
             )
+
         sample_id = sanitize_sample_id(request.sample_id)
         profile = self._validate_reference_profile(request.genome_build, request.assay_mode)
+        paths = self._artifact_paths(output_dir, sample_id)
+        manifest = self._build_manifest(
+            request,
+            sample_id=sample_id,
+            bam=bam,
+            bai=bai,
+            profile=profile,
+        )
+        paths["manifest"].write_text(
+            yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+        )
+
+        backend = {name: self._backend_path(path) for name, path in paths.items()}
+        reference_lock = self._backend_path(Path(profile.reference_lock_path))
 
         self._emit(
             on_progress,
@@ -271,40 +205,14 @@ class DesktopBackend:
             "Input and reference provenance are being checked",
             5,
         )
-
-        manifest_path = output_dir / f"{sample_id}.manifest.yaml"
-        intake_path = output_dir / f"{sample_id}.intake.json"
-        qc_path = output_dir / f"{sample_id}.qc.json"
-        sniffles_vcf = output_dir / f"{sample_id}.sniffles.vcf"
-        sniffles_path = output_dir / f"{sample_id}.sniffles.json"
-        result_json = output_dir / f"{sample_id}.result.json"
-
-        manifest = self._build_manifest(
-            request,
-            sample_id=sample_id,
-            bam=bam,
-            bai=bai,
-            profile=profile,
-        )
-        manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
-
-        backend_manifest = self._backend_path(manifest_path)
-        backend_reference_lock = self._backend_path(Path(profile.reference_lock_path))
-        backend_intake = self._backend_path(intake_path)
-        backend_qc = self._backend_path(qc_path)
-        backend_sniffles_vcf = self._backend_path(sniffles_vcf)
-        backend_sniffles = self._backend_path(sniffles_path)
-        backend_result = self._backend_path(result_json)
-        backend_output_dir = self._backend_path(output_dir)
-
         self._run_cli(
             [
                 "inspect-bam",
-                backend_manifest,
+                backend["manifest"],
                 "--reference-lock",
-                backend_reference_lock,
+                reference_lock,
                 "--output",
-                backend_intake,
+                backend["intake"],
             ],
             log_handle=log_handle,
             on_log=on_log,
@@ -328,11 +236,11 @@ class DesktopBackend:
         self._run_cli(
             [
                 "qc-cramino",
-                backend_manifest,
+                backend["manifest"],
                 "--policy",
                 self.config.qc_policy_path,
                 "--output",
-                backend_qc,
+                backend["qc"],
             ],
             log_handle=log_handle,
             on_log=on_log,
@@ -356,15 +264,15 @@ class DesktopBackend:
         self._run_cli(
             [
                 "call-sniffles",
-                backend_manifest,
+                backend["manifest"],
                 "--intake",
-                backend_intake,
+                backend["intake"],
                 "--policy",
                 self.config.sniffles_policy_path,
                 "--vcf",
-                backend_sniffles_vcf,
+                backend["sniffles_vcf"],
                 "--output",
-                backend_sniffles,
+                backend["sniffles"],
             ],
             log_handle=log_handle,
             on_log=on_log,
@@ -381,17 +289,17 @@ class DesktopBackend:
         self._run_cli(
             [
                 "assemble-aligned-mvp",
-                backend_manifest,
+                backend["manifest"],
                 "--intake",
-                backend_intake,
+                backend["intake"],
                 "--qc",
-                backend_qc,
+                backend["qc"],
                 "--sniffles",
-                backend_sniffles,
+                backend["sniffles"],
                 "--git-commit",
                 "DESKTOP_LOCAL",
                 "--output",
-                backend_result,
+                backend["result_json"],
             ],
             log_handle=log_handle,
             on_log=on_log,
@@ -406,26 +314,20 @@ class DesktopBackend:
             80,
         )
         self._run_cli(
-            ["render", backend_result, "--output-dir", backend_output_dir],
+            [
+                "render",
+                backend["result_json"],
+                "--output-dir",
+                self._backend_path(output_dir),
+            ],
             log_handle=log_handle,
             on_log=on_log,
             cancel=cancel,
         )
 
-        pipeline_result = load_model(result_json, PipelineResult)
+        pipeline_result = load_model(paths["result_json"], PipelineResult)
         self._emit_result_module_states(pipeline_result, on_progress)
-        report_html = output_dir / f"{sample_id}.report.html"
-        workbook_xlsx = output_dir / f"{sample_id}.results.xlsx"
-        missing = [
-            path
-            for path in (result_json, report_html, workbook_xlsx)
-            if not path.is_file()
-        ]
-        if missing:
-            raise DesktopBackendError(
-                "Expected output was not created: " + ", ".join(path.name for path in missing)
-            )
-
+        self._require_outputs(paths)
         report_status = (
             DesktopStageStatus.WARN
             if pipeline_result.qc.verdict == Verdict.WARN or pipeline_result.warnings
@@ -442,12 +344,102 @@ class DesktopBackend:
         return DesktopRunResult(
             sample_id=sample_id,
             output_dir=output_dir,
-            result_json=result_json,
-            report_html=report_html,
-            workbook_xlsx=workbook_xlsx,
+            result_json=paths["result_json"],
+            report_html=paths["report_html"],
+            workbook_xlsx=paths["workbook_xlsx"],
             run_log=output_dir / "ontseq-desktop.log",
             pipeline_result=pipeline_result,
         )
+
+    def _check_output_folder(self) -> DiagnosticCheck:
+        root = Path(self.config.output_root).expanduser()
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            probe = root / ".ontseq-write-test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except OSError as exc:
+            return DiagnosticCheck("Output folder", False, str(exc))
+        return DiagnosticCheck("Output folder", True, str(root))
+
+    def _check_wsl(self) -> DiagnosticCheck:
+        try:
+            completed = subprocess.run(
+                ["wsl.exe", "--status"],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return DiagnosticCheck("WSL", False, str(exc))
+        detail = (completed.stdout or completed.stderr or "WSL responded").strip()
+        return DiagnosticCheck("WSL", completed.returncode == 0, detail)
+
+    def _check_wsl_tools(self) -> DiagnosticCheck:
+        shell = (
+            "for c in ontseq samtools cramino sniffles; do "
+            'command -v "$c" >/dev/null || { echo missing:$c; exit 7; }; '
+            "done; echo ready"
+        )
+        try:
+            completed = subprocess.run(
+                self._wsl_shell_command(shell),
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return DiagnosticCheck("ONTSeq backend tools", False, str(exc))
+        detail = (completed.stdout or completed.stderr).strip()
+        return DiagnosticCheck("ONTSeq backend tools", completed.returncode == 0, detail)
+
+    def _check_reference_resources(self) -> list[DiagnosticCheck]:
+        checks: list[DiagnosticCheck] = []
+        for profile in self.config.reference_profiles:
+            lock = Path(profile.reference_lock_path).expanduser()
+            checks.append(
+                DiagnosticCheck(
+                    f"{profile.genome_build.value} reference lock",
+                    lock.is_file(),
+                    str(lock),
+                )
+            )
+            if profile.adaptive_sampling_target_bed_path:
+                bed = Path(profile.adaptive_sampling_target_bed_path).expanduser()
+                checks.append(
+                    DiagnosticCheck(
+                        f"{profile.genome_build.value} adaptive target BED",
+                        bed.is_file(),
+                        str(bed),
+                    )
+                )
+        return checks
+
+    @staticmethod
+    def _artifact_paths(output_dir: Path, sample_id: str) -> dict[str, Path]:
+        return {
+            "manifest": output_dir / f"{sample_id}.manifest.yaml",
+            "intake": output_dir / f"{sample_id}.intake.json",
+            "qc": output_dir / f"{sample_id}.qc.json",
+            "sniffles_vcf": output_dir / f"{sample_id}.sniffles.vcf",
+            "sniffles": output_dir / f"{sample_id}.sniffles.json",
+            "result_json": output_dir / f"{sample_id}.result.json",
+            "report_html": output_dir / f"{sample_id}.report.html",
+            "workbook_xlsx": output_dir / f"{sample_id}.results.xlsx",
+        }
+
+    @staticmethod
+    def _require_outputs(paths: dict[str, Path]) -> None:
+        expected = (paths["result_json"], paths["report_html"], paths["workbook_xlsx"])
+        missing = [path.name for path in expected if not path.is_file()]
+        if missing:
+            raise DesktopBackendError("Expected output was not created: " + ", ".join(missing))
 
     def _validate_reference_profile(
         self, genome_build: GenomeBuild, assay_mode: AssayMode
@@ -490,15 +482,12 @@ class DesktopBackend:
             "reference_id": profile.reference_id,
         }
         if request.assay_mode == AssayMode.ADAPTIVE_SAMPLING:
-            if (
-                profile.adaptive_sampling_target_bed_path is None
-                or profile.adaptive_sampling_target_bed_version is None
-            ):
+            bed_path = profile.adaptive_sampling_target_bed_path
+            bed_version = profile.adaptive_sampling_target_bed_version
+            if bed_path is None or bed_version is None:
                 raise DesktopBackendError("Adaptive Sampling target configuration is incomplete")
-            assay["target_bed"] = self._backend_path(
-                Path(profile.adaptive_sampling_target_bed_path)
-            )
-            assay["target_bed_version"] = profile.adaptive_sampling_target_bed_version
+            assay["target_bed"] = self._backend_path(Path(bed_path))
+            assay["target_bed_version"] = bed_version
 
         return {
             "schema_version": "0.1.0",
@@ -546,9 +535,8 @@ class DesktopBackend:
         }
         for outcome in result.modules:
             stage = stage_map.get(outcome.module)
-            if stage is None:
-                continue
-            self._emit(on_progress, stage, status_map[outcome.status], outcome.reason, 90)
+            if stage is not None:
+                self._emit(on_progress, stage, status_map[outcome.status], outcome.reason, 90)
 
     def _backend_path(self, path: Path) -> str:
         local_path = path.expanduser().resolve()
@@ -605,9 +593,9 @@ class DesktopBackend:
         on_log: LogCallback | None,
         cancel: threading.Event,
     ) -> None:
-        self._log(log_handle, on_log, f"RUN: {self._redacted_command(command)}")
+        self._log(log_handle, on_log, f"RUN: {shlex.join(command)}")
         try:
-            process = subprocess.Popen(
+            process: subprocess.Popen[str] = subprocess.Popen(
                 command,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
@@ -622,7 +610,8 @@ class DesktopBackend:
         output_queue: queue.Queue[str] = queue.Queue()
 
         def read_output() -> None:
-            assert process.stdout is not None
+            if process.stdout is None:
+                return
             for line in process.stdout:
                 output_queue.put(line.rstrip())
 
@@ -660,7 +649,8 @@ class DesktopBackend:
                 del recent[:-30]
             self._log(log_handle, on_log, line)
 
-    def _terminate_process(self, process: subprocess.Popen[str]) -> None:
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen[str]) -> None:
         if process.poll() is not None:
             return
         if os.name == "nt":
@@ -684,12 +674,11 @@ class DesktopBackend:
         return command
 
     def _wsl_exec(self, argv: list[str]) -> list[str]:
-        return self._wsl_base() + ["--exec", *argv]
+        return [*self._wsl_base(), "--exec", *argv]
 
     def _wsl_shell_command(self, command: str) -> list[str]:
-        project_root = self._project_root_expression(self.config.wsl_project_root)
-        shell_command = f"cd {project_root} && {command}"
-        return self._wsl_exec(["bash", "-lc", shell_command])
+        root = self._project_root_expression(self.config.wsl_project_root)
+        return self._wsl_exec(["bash", "-lc", f"cd {root} && {command}"])
 
     @staticmethod
     def _project_root_expression(value: str) -> str:
@@ -718,9 +707,3 @@ class DesktopBackend:
         log_handle.flush()
         if callback is not None:
             callback(rendered)
-
-    @staticmethod
-    def _redacted_command(command: list[str]) -> str:
-        # Commands are written only to the local run log. Keep the representation shell-safe and
-        # avoid adding any data content beyond already-local filesystem paths and tool arguments.
-        return shlex.join(command)
