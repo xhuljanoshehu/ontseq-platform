@@ -63,9 +63,7 @@ class LeaCnCsvTests(unittest.TestCase):
 
     def test_duplicate_chromosome_is_rejected(self) -> None:
         with self.assertRaises(LeaCompatibilityError):
-            parse_lea_cn_csv(
-                ["Chromosome,Copies,Ploidy,CNA", "5,2,2,0", "chr5,2,2,0"]
-            )
+            parse_lea_cn_csv(["Chromosome,Copies,Ploidy,CNA", "5,2,2,0", "chr5,2,2,0"])
 
     def test_empty_cn_table_is_not_a_negative_result(self) -> None:
         with self.assertRaises(LeaCompatibilityError):
@@ -75,9 +73,7 @@ class LeaCnCsvTests(unittest.TestCase):
 class LeaBandCsvTests(unittest.TestCase):
     def test_historical_fraction_threshold_is_enforced(self) -> None:
         with self.assertRaises(LeaCompatibilityError) as context:
-            parse_lea_dels_dups_csv(
-                ["chromosome,name,event,frac_abr", "chr5,q13.1,del,0.65"]
-            )
+            parse_lea_dels_dups_csv(["chromosome,name,event,frac_abr", "chr5,q13.1,del,0.65"])
         self.assertIn("threshold", str(context.exception))
 
     def test_conflicting_event_for_same_band_is_rejected(self) -> None:
@@ -226,9 +222,7 @@ class LeaAceCallSetTests(unittest.TestCase):
 
 class HistoricalTruthTableTests(unittest.TestCase):
     def test_gt_tsv_preserves_uncertain_iscn_verbatim(self) -> None:
-        rows = parse_lea_gt_tsv(
-            ["sample\tiscn", "SYNTHETIC_001\t45,XY,-7,del(7)(q?31)"]
-        )
+        rows = parse_lea_gt_tsv(["sample\tiscn", "SYNTHETIC_001\t45,XY,-7,del(7)(q?31)"])
         self.assertEqual(rows[0].karyotype, "45,XY,-7,del(7)(q?31)")
 
     def test_gt_full_preserves_labels_without_recomputing_them(self) -> None:
