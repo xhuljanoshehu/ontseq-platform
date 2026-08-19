@@ -1,0 +1,28 @@
+name: Desktop Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build ONTSeq Desktop
+        shell: pwsh
+        run: ./scripts/build_windows_desktop.ps1
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ONTSeqDesktop-windows-x64
+          path: dist/ONTSeqDesktop.exe
+          if-no-files-found: error
+          retention-days: 14
