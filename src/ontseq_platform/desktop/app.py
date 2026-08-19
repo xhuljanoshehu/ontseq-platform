@@ -5,7 +5,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -135,7 +135,6 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("ONTSeq Desktop – Einstellungen")
         self.resize(760, 590)
-        self._original = config
         root = QVBoxLayout(self)
         tabs = QTabWidget()
         tabs.addTab(self._build_backend_tab(config), "Backend")
@@ -466,7 +465,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _system_check(self) -> None:
-        QApplication.setOverrideCursor("WaitCursor")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             checks = DesktopBackend(self.config).diagnose()
         finally:
