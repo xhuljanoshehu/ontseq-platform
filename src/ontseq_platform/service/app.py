@@ -60,6 +60,7 @@ from .guard import (
     host_is_loopback,
     new_token,
     origin_is_loopback,
+    resolve_bam_index,
     resolve_within,
     token_matches,
     windows_to_wsl,
@@ -160,7 +161,7 @@ def _build_manifest(payload: dict[str, Any], *, reference_id: str) -> SampleMani
     if not raw_path:
         raise GuardError("no BAM was selected")
     bam = windows_to_wsl(raw_path)
-    index = f"{bam}.bai"
+    index = str(resolve_bam_index(bam))
 
     mode = AssayMode(str(payload.get("assay", "")))
     target_bed = str(payload.get("target_bed", "")).strip() or None
@@ -379,6 +380,9 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 lock = load_model(config.reference_lock, ReferenceLock)
                 manifest = _build_manifest(payload, reference_id=lock.reference_id)
                 resolve_within(manifest.input.path, config.allowed_roots)
+                if manifest.input.index_path is None:
+                    raise GuardError("aligned BAM manifest has no index path")
+                resolve_within(manifest.input.index_path, config.allowed_roots)
             except GuardError as error:
                 self._refuse(HTTPStatus.FORBIDDEN, str(error))
                 return
