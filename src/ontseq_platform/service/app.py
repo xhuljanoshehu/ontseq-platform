@@ -412,6 +412,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             findings = []
             for status in statuses:
                 result = status.report
+                finished = None if result is None else result.finished_at.isoformat()
                 findings.append(
                     {
                         "run_id": status.run_id,
@@ -421,9 +422,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                         "review": None if status.review is None else status.review.value,
                         "review_detail": status.review_detail,
                         "unverified_stages": list(status.unverified_stages),
-                        "finished_at": None
-                        if result is None
-                        else result.finished_at.isoformat(),
+                        "finished_at": finished,
                         "not_run": []
                         if result is None
                         else [
