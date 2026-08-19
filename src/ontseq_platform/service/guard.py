@@ -113,8 +113,7 @@ def resolve_bam_index(bam_path: str | Path) -> Path:
         if candidate.is_file():
             return candidate
     raise GuardError(
-        "no BAM index found; expected "
-        f"{preferred.name} or {alternative.name} next to the BAM"
+        f"no BAM index found; expected {preferred.name} or {alternative.name} next to the BAM"
     )
 
 
