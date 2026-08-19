@@ -121,7 +121,9 @@ def _reader(
             raise LeaCompatibilityError(
                 f"{artifact_name} line {line_number} contains more fields than the header"
             )
-        normalized = {key.lstrip("\ufeff").strip(): (value or "").strip() for key, value in raw_row.items()}
+        normalized: dict[str, str] = {}
+        for key, value in raw_row.items():
+            normalized[key.lstrip("\ufeff").strip()] = (value or "").strip()
         if not any(normalized.values()):
             continue
         rows.append(normalized)
