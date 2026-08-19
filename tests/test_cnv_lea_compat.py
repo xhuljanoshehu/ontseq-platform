@@ -205,7 +205,9 @@ class LeaAceCallSetTests(unittest.TestCase):
         self.assertEqual(result.status, ModuleRunStatus.COMPLETED)
         self.assertTrue(result.reports_biological_negative)
         self.assertEqual(result.segments, [])
-        self.assertTrue(any("not an assay-wide or clinical negative" in x for x in result.limitations))
+        self.assertTrue(
+            any("not an assay-wide or clinical negative" in x for x in result.limitations)
+        )
 
     def test_runtime_versions_are_not_claimed_as_verified(self) -> None:
         result = lea_ace_call_set_from_outputs(
@@ -245,7 +247,8 @@ class HistoricalTruthTableTests(unittest.TestCase):
         with self.assertRaises(LeaTruthTableError):
             parse_lea_gt_full_csv(
                 [
-                    "sample_name,karyotype_cg,karyotype_ont,cellularity,complex,monosomal,mrc,mrca,mra",
+                    "sample_name,karyotype_cg,karyotype_ont,cellularity,complex,"
+                    "monosomal,mrc,mrca,mra",
                     'SYNTHETIC_001,"46,XX","46,XX",0.60,2,0,1,1,1',
                 ]
             )
