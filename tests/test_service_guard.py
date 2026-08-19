@@ -9,6 +9,7 @@ from ontseq_platform.service.guard import (
     host_is_loopback,
     new_token,
     origin_is_loopback,
+    resolve_bam_index,
     resolve_within,
     token_matches,
     windows_to_wsl,
@@ -131,6 +132,51 @@ class RootBoundaryTests(unittest.TestCase):
             sibling.mkdir()
             with self.assertRaises(GuardError):
                 resolve_within(sibling, [allowed])
+
+
+class BamIndexResolutionTests(unittest.TestCase):
+    def test_bam_dot_bai_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bam = Path(temporary) / "sample.bam"
+            index = Path(f"{bam}.bai")
+            bam.write_bytes(b"BAM")
+            index.write_bytes(b"BAI")
+            self.assertEqual(resolve_bam_index(bam), index)
+
+    def test_short_bai_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bam = Path(temporary) / "sample.bam"
+            index = bam.with_suffix(".bai")
+            bam.write_bytes(b"BAM")
+            index.write_bytes(b"BAI")
+            self.assertEqual(resolve_bam_index(bam), index)
+
+    def test_bam_dot_bai_has_deterministic_precedence_when_both_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bam = Path(temporary) / "sample.bam"
+            preferred = Path(f"{bam}.bai")
+            alternative = bam.with_suffix(".bai")
+            for path in (bam, preferred, alternative):
+                path.write_bytes(b"x")
+            self.assertEqual(resolve_bam_index(bam), preferred)
+
+    def test_missing_index_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bam = Path(temporary) / "sample.bam"
+            bam.write_bytes(b"BAM")
+            with self.assertRaises(GuardError) as caught:
+                resolve_bam_index(bam)
+            self.assertIn("sample.bam.bai", str(caught.exception))
+            self.assertIn("sample.bai", str(caught.exception))
+
+    def test_unrelated_bai_is_not_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bam = root / "sample.bam"
+            bam.write_bytes(b"BAM")
+            (root / "other.bai").write_bytes(b"BAI")
+            with self.assertRaises(GuardError):
+                resolve_bam_index(bam)
 
 
 class PathTranslationTests(unittest.TestCase):
