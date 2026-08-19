@@ -1,0 +1,45 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build WPF shell
+        run: dotnet build desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release
+      - name: Publish self-contained win-x64 executable
+        run: >-
+          dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -o desktop/publish
+      - name: Verify executable exists
+        shell: pwsh
+        run: |
+          $exe = "desktop/publish/ONTSeq.Desktop.exe"
+          if (-not (Test-Path $exe)) { throw "Desktop executable was not published" }
+          Get-Item $exe | Select-Object Name,Length,LastWriteTime
+      - name: Upload unsigned engineering artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontseq-desktop-win-x64-unsigned-engineering
+          path: desktop/publish/
+          if-no-files-found: error
