@@ -27,11 +27,16 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
         var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
         var checks = $"test -d {ShellQuote(rootWsl)} && test -f {ShellQuote(referenceLockWsl)} && mkdir -p {ShellQuote(outputWsl)}";
+        if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+        {
+            checks += $" && test -f {ShellQuote(RuntimeResource(settings, "configs/qc/defaults.yaml"))}" +
+                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"))}";
+        }
         var check = await RunWslAsync(settings.WslDistribution, ["sh", "-lc", checks], cancellationToken);
         if (check.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                "Der Windows-Speicher oder das Referenzpaket ist in WSL nicht erreichbar. " +
+                "Der Windows-Speicher, die Runtime-Ressourcen oder das Referenzpaket sind in WSL nicht erreichbar. " +
                 "Bei einem Netzlaufwerk wie P: muss dieses in WSL als drvfs eingebunden sein.\n" +
                 $"Erwarteter WSL-Pfad: {rootWsl}\nReferenz: {referenceLockWsl}\n{check.StdErr}");
         }
@@ -97,10 +102,13 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var target = home + "/.local/share/ontseq/runtime-v0.1.1";
         var bin = target + "/bin";
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
+        var qc = target + "/share/ontseq/configs/qc/defaults.yaml";
+        var sniffles = target + "/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml";
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
             $"{ShellQuote(bin + "/conda-unpack")} && " +
+            $"test -f {ShellQuote(qc)} && test -f {ShellQuote(sniffles)} && " +
             $"env PATH={ShellQuote(bin + ":" + BaseLinuxPath)} {ShellQuote(bin + "/ontseq")} --help >/dev/null";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
@@ -186,9 +194,11 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
         Directory.CreateDirectory(root);
         var rootWsl = PathBridge.WindowsToWsl(root);
+        var args = new List<string> { "local-smoke", "--output-dir", rootWsl };
+        AddBundledPolicies(settings, args);
         var result = await RunWslAsync(
             settings.WslDistribution,
-            BackendInvocation(settings, "local-smoke", "--output-dir", rootWsl),
+            BackendInvocation(settings, args.ToArray()),
             cancellationToken);
         File.WriteAllText(Path.Combine(root, "self-test.log.txt"), result.StdOut + Environment.NewLine + result.StdErr);
         if (result.ExitCode != 0)
@@ -206,15 +216,17 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         Directory.CreateDirectory(settings.OutputDirectoryWindows);
         var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
         var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
-
-        var args = BackendInvocation(
-            settings,
+        var serviceArgs = new List<string>
+        {
             "serve",
             "--reference-lock", referenceLockWsl,
             "--allow-root", rootWsl,
             "--output-dir", outputWsl,
             "--port", settings.Port.ToString(),
-            "--no-browser");
+            "--no-browser"
+        };
+        AddBundledPolicies(settings, serviceArgs);
+        var args = BackendInvocation(settings, serviceArgs.ToArray());
 
         var psi = new ProcessStartInfo
         {
@@ -284,6 +296,25 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
         return (process.ExitCode, await stdout, await stderr);
+    }
+
+    private static void AddBundledPolicies(DesktopSettings settings, List<string> args)
+    {
+        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)) return;
+        args.Add("--qc-policy");
+        args.Add(RuntimeResource(settings, "configs/qc/defaults.yaml"));
+        args.Add("--sniffles-policy");
+        args.Add(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"));
+    }
+
+    private static string RuntimeResource(DesktopSettings settings, string relative)
+    {
+        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+            throw new InvalidOperationException("Gebündelte Runtime ist nicht konfiguriert.");
+        var root = settings.RuntimeBinWsl.EndsWith("/bin", StringComparison.Ordinal)
+            ? settings.RuntimeBinWsl[..^4]
+            : settings.RuntimeBinWsl.TrimEnd('/');
+        return root + "/share/ontseq/" + relative.TrimStart('/');
     }
 
     private static IReadOnlyList<string> BackendInvocation(DesktopSettings settings, params string[] args)
