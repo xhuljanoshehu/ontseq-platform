@@ -14,12 +14,15 @@ public sealed class DesktopSettings
     public string? AdaptiveTargetBedVersion { get; set; }
     public int Port { get; set; } = 8765;
 
+    public static string UserSettingsPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ONTSeq", "desktop.settings.json");
+
     public static DesktopSettings Load()
     {
         var candidates = new[]
         {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ONTSeq", "desktop.settings.json"),
+            UserSettingsPath,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "ONTSeq", "desktop.settings.json")
         };
@@ -35,13 +38,33 @@ public sealed class DesktopSettings
         return new DesktopSettings();
     }
 
-    public string ReferenceLockFor(string genomeBuild)
+    public void SaveUserSettings()
+    {
+        var path = UserSettingsPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temp = path + ".tmp";
+        var json = JsonSerializer.Serialize(this, JsonDefaults.OptionsIndented);
+        File.WriteAllText(temp, json + Environment.NewLine);
+        File.Move(temp, path, overwrite: true);
+    }
+
+    public bool TryReferenceLockFor(string genomeBuild, out string referenceLock)
     {
         if (ReferenceLocksWsl.TryGetValue(genomeBuild, out var value) && !string.IsNullOrWhiteSpace(value))
-            return value;
+        {
+            referenceLock = value;
+            return true;
+        }
+        referenceLock = string.Empty;
+        return false;
+    }
+
+    public string ReferenceLockFor(string genomeBuild)
+    {
+        if (TryReferenceLockFor(genomeBuild, out var value)) return value;
         throw new InvalidOperationException(
             $"Für {genomeBuild} ist noch kein Reference-Lock konfiguriert. " +
-            "Der ONTSeq-Installer muss desktop.settings.json mit dem freigegebenen Referenzpaket anlegen.");
+            "Öffne 'System einrichten' und wähle die zum BAM passende FASTA/FAI-Referenz.");
     }
 }
 
@@ -52,6 +75,11 @@ public static class JsonDefaults
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public static readonly JsonSerializerOptions OptionsIndented = new(Options)
+    {
+        WriteIndented = true
     };
 }
 
