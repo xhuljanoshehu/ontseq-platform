@@ -77,9 +77,10 @@ public partial class MainWindow : Window
         BamPathTextBox.Text = dialog.FileName;
         var sample = Path.GetFileNameWithoutExtension(dialog.FileName);
         SampleIdTextBox.Text = SanitizeSuggestedId(sample);
-        DetailText.Text = File.Exists(dialog.FileName + ".bai")
-            ? "BAM und BAM-Index gefunden."
-            : "Hinweis: Die Pipeline erwartet aktuell einen Index als <sample>.bam.bai.";
+        var index = BamIndexLocator.Find(dialog.FileName);
+        DetailText.Text = index is not null
+            ? $"BAM und BAM-Index gefunden ({Path.GetFileName(index)})."
+            : "Hinweis: Erwartet wird <sample>.bam.bai oder <sample>.bai neben der BAM-Datei.";
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
@@ -242,10 +243,12 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Bitte eine vorhandene BAM-Datei auswählen.", "ONTSeq", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
-        if (!File.Exists(bam + ".bai"))
+        if (BamIndexLocator.Find(bam) is null)
         {
+            var shortIndex = Path.ChangeExtension(bam, ".bai");
             MessageBox.Show(this,
-                "Der zugehörige BAM-Index fehlt. Erwartet wird aktuell: " + bam + ".bai",
+                "Der zugehörige BAM-Index fehlt. Erwartet wird entweder:\n" +
+                bam + ".bai\noder:\n" + shortIndex,
                 "ONTSeq", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
