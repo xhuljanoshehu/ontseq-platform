@@ -24,6 +24,41 @@ typed Sniffles2 v2.8.0 adapter. Accepted Sniffles2 output is retained only as no
 evidence until assay-specific benchmarks pass. CNV, fusion interpretation and ISCN generation
 remain disabled in the aligned-BAM path.
 
+## ONTSeq Desktop
+
+A Windows desktop shell is available as an optional interface over the aligned-BAM research
+workflow. Its purpose is to hide Python/Snakemake/Linux operation from routine users while
+keeping the bioinformatics backend in a reproducible WSL/Linux environment.
+
+The desktop application provides:
+
+- BAM selection and automatic BAM-index discovery;
+- pseudonymized sample-ID handling;
+- GRCh37/GRCh38 and lcWGS/Adaptive-Sampling selection;
+- explicit `PASS`, `WARN`, `FAIL`, `NO_CALL` and `NOT_RUN` states;
+- progress display and a local technical log;
+- one-click access to HTML, Excel and the result folder;
+- deployment-local reference-lock and Adaptive-Sampling BED configuration;
+- a Windows executable build (`ONTSeqDesktop.exe`).
+
+Install the optional desktop dependencies and start the GUI during development:
+
+```bash
+python -m pip install -e ".[desktop]"
+ontseq-desktop
+```
+
+On Windows, build the executable with:
+
+```powershell
+./scripts/build_windows_desktop.ps1
+```
+
+See [ONTSeq Desktop](docs/DESKTOP_APP.md) for deployment, WSL configuration and current
+limitations. The polished GUI does not change the analytical boundary: CNV, fusion
+interpretation and ISCN remain visibly `NOT_RUN` in the current aligned-BAM MVP until the
+corresponding benchmark/validation gates pass.
+
 ## Why this repository exists
 
 The architecture is an independent, evidence-led implementation based on peer-reviewed
@@ -90,12 +125,13 @@ For a real on-premises aligned BAM, follow the [aligned-BAM MVP guide](docs/ALIG
 | Path | Responsibility |
 | --- | --- |
 | `src/ontseq_platform/` | Typed contracts, ISCN proposal logic, HTML/Excel exporters, CLI |
+| `src/ontseq_platform/desktop/` | Windows GUI contracts, WSL runner and desktop UI |
 | `workflow/` | Snakemake entry point, modular rules, environments, runtime profiles |
 | `configs/` | Assay profiles and non-clinical default configuration |
 | `schemas/` | Versioned JSON Schemas for manifests and results |
-| `tests/` | Contract, safety, ISCN-subset, HTML and Excel regression tests |
+| `tests/` | Contract, safety, ISCN-subset, HTML, Excel and desktop regression tests |
 | `docs/` | Architecture, security, validation, roadmap and thesis traceability |
-| `.github/` | CI, dependency updates, issue forms and review templates |
+| `.github/` | CI, dependency updates, desktop build, issue forms and review templates |
 
 ## Planned production modules
 
@@ -123,6 +159,7 @@ system. See [Data security](docs/DATA_SECURITY.md).
 - [Architecture](docs/ARCHITECTURE.md)
 - [Evidence base and tool-selection record](docs/EVIDENCE_BASE.md)
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
+- [ONTSeq Desktop](docs/DESKTOP_APP.md)
 - [Sniffles2 candidate adapter](docs/SNIFFLES2_ADAPTER.md)
 - [Benchmarking](docs/BENCHMARKING.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
