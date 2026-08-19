@@ -97,6 +97,27 @@ def resolve_within(candidate: str | Path, roots: Sequence[Path]) -> Path:
     raise GuardError(f"path is outside the allowed directories ({allowed}): {resolved}")
 
 
+def resolve_bam_index(bam_path: str | Path) -> Path:
+    """Return the supported BAM index beside *bam_path*, with deterministic precedence.
+
+    Both naming conventions are common: ``sample.bam.bai`` and ``sample.bai``. When both
+    exist, the explicit ``sample.bam.bai`` form wins. No recursive search or unrelated
+    index file is accepted.
+    """
+    bam = Path(bam_path)
+    if bam.suffix.lower() != ".bam":
+        raise GuardError(f"not a BAM path: {bam}")
+    preferred = Path(f"{bam}.bai")
+    alternative = bam.with_suffix(".bai")
+    for candidate in (preferred, alternative):
+        if candidate.is_file():
+            return candidate
+    raise GuardError(
+        "no BAM index found; expected "
+        f"{preferred.name} or {alternative.name} next to the BAM"
+    )
+
+
 def windows_to_wsl(path: str) -> str:
     """``P:\\Lab\\run.bam`` to ``/mnt/p/Lab/run.bam``.
 
