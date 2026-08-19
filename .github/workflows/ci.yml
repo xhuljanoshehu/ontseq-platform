@@ -5,12 +5,19 @@ on:
   push:
     branches: [main]
 
+# A newer push makes an older run irrelevant. Without this, a run that hangs keeps a
+# runner for the job timeout while its replacement is already queued behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -144,6 +151,7 @@ jobs:
   # tools inside it. Same rule as ADR-015: the status is claimed only once something executed.
   offline-container:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build the offline image
@@ -178,6 +186,7 @@ jobs:
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v3
@@ -200,53 +209,66 @@ jobs:
             --allow-root results/local-smoke \
             --output-dir results/service-runs \
             --port 8765 --no-browser > /tmp/serve.log 2>&1 &
-          for _ in $(seq 1 40); do
-            curl -fsS http://127.0.0.1:8765/ -o /tmp/page.html && break || sleep 0.5
+          # By PID, not by %1: job control is off in a non-interactive shell, so `kill %1`
+          # cannot find the job — and a service left running holds the step open until the
+          # job timeout rather than failing.
+          SERVICE_PID=$!
+          trap 'kill "$SERVICE_PID" 2>/dev/null || true; wait "$SERVICE_PID" 2>/dev/null || true' EXIT
+
+          # Every request is bounded. One curl that never returns would otherwise stall the
+          # whole job, which is exactly what happened the first time this step ran.
+          get() { curl -sS --max-time 20 "$@"; }
+          code() { curl -sS --max-time 20 -o /tmp/body -w '%{http_code}' "$@"; }
+
+          for _ in $(seq 1 60); do
+            if get -f http://127.0.0.1:8765/ -o /tmp/page.html; then break; fi
+            if ! kill -0 "$SERVICE_PID" 2>/dev/null; then
+              echo "der Dienst ist beim Start gestorben:"; cat /tmp/serve.log; exit 1
+            fi
+            sleep 0.5
           done
-          # The token reaches the page the way the browser gets it: by fetching the page.
-          # A copy of the file opened from disk has no token and therefore no access.
+          test -s /tmp/page.html || { echo "Seite kam nie"; cat /tmp/serve.log; exit 1; }
+
+          # The token reaches the page the way a browser gets it: by fetching the page. A
+          # copy of the file opened from disk has no token and therefore no access.
           TOKEN=$(sed -n 's/.*const TOKEN = "\([^"]*\)".*/\1/p' /tmp/page.html)
           test -n "$TOKEN"
           test "$TOKEN" != "__ONTSEQ_TOKEN__"
 
-          code() { curl -s -o /tmp/body -w '%{http_code}' "$@"; }
-          # Every refusal below is a real attack shape, not a formality.
-          test "$(code http://127.0.0.1:8765/api/config)" = 401                      # no token
+          # Each refusal below is a real attack shape, not a formality.
+          test "$(code http://127.0.0.1:8765/api/config)" = 401
           test "$(code -H "X-ONTSeq-Token: wrong" http://127.0.0.1:8765/api/config)" = 401
           test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Origin: https://evil.example' \
-                  http://127.0.0.1:8765/api/config)" = 403                           # other tab
+                  http://127.0.0.1:8765/api/config)" = 403
           test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Host: evil.example:8765' \
-                  http://127.0.0.1:8765/api/config)" = 403                    # DNS rebinding
+                  http://127.0.0.1:8765/api/config)" = 403
           test "$(code -H "X-ONTSeq-Token: $TOKEN" \
-                  'http://127.0.0.1:8765/api/browse?path=/etc')" = 403        # outside roots
+                  'http://127.0.0.1:8765/api/browse?path=/etc')" = 403
 
           auth=(-H "X-ONTSeq-Token: $TOKEN")
-          curl -fsS "${auth[@]}" http://127.0.0.1:8765/api/browse | tee /tmp/browse.json
+          get -f "${auth[@]}" http://127.0.0.1:8765/api/browse | tee /tmp/browse.json
           grep -q 'synthetic.sorted.bam' /tmp/browse.json
-          # The picker must say when an index is missing rather than fail hours later.
           grep -q '"indexed"' /tmp/browse.json
 
-          curl -fsS "${auth[@]}" -X POST http://127.0.0.1:8765/api/runs \
-            -d '{"bam":"results/local-smoke/synthetic.sorted.bam",
-                 "sample_id":"CI_SERVICE_001","run_id":"CI_SERVICE_RUN_001",
-                 "genome_build":"GRCh38","assay":"lcwgs"}' | tee /tmp/started.json
+          get -f "${auth[@]}" -X POST http://127.0.0.1:8765/api/runs \
+            -d '{"bam":"results/local-smoke/synthetic.sorted.bam","sample_id":"CI_SERVICE_001","run_id":"CI_SERVICE_RUN_001","genome_build":"GRCh38","assay":"lcwgs"}' \
+            | tee /tmp/started.json
           grep -q '"state": *"running"' /tmp/started.json
 
-          for _ in $(seq 1 120); do
-            curl -fsS "${auth[@]}" \
+          for _ in $(seq 1 90); do
+            get -f "${auth[@]}" \
               http://127.0.0.1:8765/api/runs/CI_SERVICE_RUN_001 > /tmp/job.json
             grep -q '"state": *"running"' /tmp/job.json || break
             sleep 1
           done
           cat /tmp/job.json
+          echo "--- Dienstprotokoll ---"; cat /tmp/serve.log
           grep -q '"state": *"passed"' /tmp/job.json
-          # The four outcomes must survive the trip to the page. A progress list that shows
-          # only done-or-pending would undo the distinction the whole design rests on, in
-          # the one place everybody actually looks.
+          # The four outcomes must survive the trip to the page. A progress list showing
+          # only done-or-pending would undo, where everybody looks, the distinction the
+          # whole design rests on.
           grep -q '"status": *"not_run"' /tmp/job.json
           grep -q '"status": *"completed"' /tmp/job.json
-          kill %1
-
       - name: Preflight the run before starting it
         shell: micromamba-shell {0}
         run: |
