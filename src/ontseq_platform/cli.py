@@ -138,9 +138,7 @@ def _parser() -> argparse.ArgumentParser:
             "QDNAseq+ACE CNV, reporting, release checksums and resume"
         ),
     )
-    system_smoke.add_argument(
-        "--output-dir", type=Path, default=Path("results/system-smoke")
-    )
+    system_smoke.add_argument("--output-dir", type=Path, default=Path("results/system-smoke"))
     system_smoke.add_argument("--qc-policy", type=Path, required=True)
     system_smoke.add_argument("--sniffles-policy", type=Path, required=True)
     system_smoke.add_argument("--cnv-policy", type=Path, required=True)
@@ -217,7 +215,7 @@ def main() -> None:
             if cramino_report.qc.verdict == Verdict.FAIL:
                 raise SystemExit(2)
         elif args.command == "qc-target-coverage":
-            manifest = load_model(args.manifest, SampleManifest)
+            manifest = load_model(args.manifest, AlignedBamIntakeReport)
             intake = load_model(args.intake, AlignedBamIntakeReport)
             coverage_policy = load_model(args.policy, TargetCoveragePolicy)
             coverage_report = run_target_coverage(
@@ -257,9 +255,7 @@ def main() -> None:
                 git_commit=args.git_commit,
             )
             print(args.output_dir / "local-smoke.report.json")
-            print(
-                f"PASS: {local_smoke_report.sniffles.accepted_record_count} SV candidate(s)"
-            )
+            print(f"PASS: {local_smoke_report.sniffles.accepted_record_count} SV candidate(s)")
         elif args.command == "system-smoke":
             from .cnv.qdnaseq import QDNAseqPolicy
             from .system_smoke import run_system_smoke
