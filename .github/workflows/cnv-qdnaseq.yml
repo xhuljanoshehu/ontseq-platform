@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src/ontseq_platform/cnv/**"
+      - "src/ontseq_platform/runtime_cli.py"
       - "scripts/run_qdnaseq_ace.R"
       - "configs/cnv/**"
       - "workflow/envs/cnv_qdnaseq.yaml"
@@ -144,11 +145,11 @@ jobs:
           (root / "sample.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
           PY
 
-      - name: Run the integrated run-envelope with real QDNAseq and ACE
+      - name: Run canonical ONTSeq with real QDNAseq and ACE
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform.cnv run \
+          PYTHONPATH=src python -m ontseq_platform run \
             results/cnv-fixture/sample.manifest.json \
             --reference-lock results/cnv-fixture/reference.lock.json \
             --output-dir results/runs \
@@ -157,7 +158,7 @@ jobs:
             --git-commit "$GITHUB_SHA" | tee /tmp/cnv-run.log
           grep -qE '^  cnv[[:space:]]+(COMPLETED|NO_CALL)' /tmp/cnv-run.log
 
-      - name: Verify normalized CNV, plots, workbook and release
+      - name: Verify CNV truth, plots, workbook and release
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
@@ -179,10 +180,25 @@ jobs:
           root = Path("results/runs/CI_CNV_001/CNV_SYNTH_001")
           result = json.loads((root / "normalized/CNV_SYNTH_001.result.json").read_text(encoding="utf-8"))
           cnv = next(item for item in result["modules"] if item["module"] == "cnv")
-          assert cnv["status"] in {"COMPLETED", "NO_CALL"}, cnv
+          assert cnv["status"] == "COMPLETED", cnv
+
           report = json.loads((root / "evidence/cnv/CNV_SYNTH_001.qdnaseq.json").read_text(encoding="utf-8"))
           assert [fit["bin_size_kbp"] for fit in report["fits"]] == [100, 500, 1000]
           assert report["primary_fit"]["bin_size_kbp"] == 500
+          assert all(0.05 <= fit["cellularity"] <= 1.0 for fit in report["fits"]), report["fits"]
+
+          events = {(event["primary"]["chromosome"], event["event_type"]): event for event in report["events"]}
+          loss7 = events[("chr7", "chromosome_loss")]
+          gain8 = events[("chr8", "chromosome_gain")]
+          assert 0.8 <= loss7["copy_number"] <= 1.2, loss7
+          assert 2.8 <= gain8["copy_number"] <= 3.2, gain8
+
+          consensus = {item["chromosome"]: item for item in report["chromosome_consensus"]}
+          assert consensus["chr7"]["rounded_copy_number"] == 1, consensus["chr7"]
+          assert consensus["chr7"]["agreeing_bins"] == 3, consensus["chr7"]
+          assert consensus["chr8"]["rounded_copy_number"] == 3, consensus["chr8"]
+          assert consensus["chr8"]["agreeing_bins"] == 3, consensus["chr8"]
+
           wb = load_workbook(root / "reports/CNV_SYNTH_001.results.xlsx", read_only=True)
           assert "CNV Fits" in wb.sheetnames
           assert "CNV Consensus" in wb.sheetnames
@@ -195,7 +211,7 @@ jobs:
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform.cnv run \
+          PYTHONPATH=src python -m ontseq_platform run \
             results/cnv-fixture/sample.manifest.json \
             --reference-lock results/cnv-fixture/reference.lock.json \
             --output-dir results/runs \
