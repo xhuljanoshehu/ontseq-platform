@@ -555,7 +555,10 @@ def run_system_smoke(
             message=(
                 "Normalized JSON, provenance, HTML and Excel all contain the integrated CNV result."
                 if report_bundle_ok
-                else "The integrated CNV result is incomplete across JSON, provenance, HTML or Excel."
+                else (
+                    "The integrated CNV result is incomplete across JSON, provenance, "
+                    "HTML or Excel."
+                )
             ),
             details={
                 "html_has_cnv": html_has_cnv,
@@ -644,9 +647,18 @@ def run_system_smoke(
             "release_checksums": str(checksums_path),
         },
         limitations=[
-            "The fixtures are deterministic synthetic engineering data, not biological validation material.",
-            "The CNV fixture deliberately targets the packaged GRCh37/QDNAseq.hg19 lane.",
-            "A passing system smoke proves local execution, integration, packaging and resume behavior for the exercised paths.",
+            (
+                "The fixtures are deterministic synthetic engineering data, not "
+                "biological validation material."
+            ),
+            (
+                "The CNV fixture deliberately targets the packaged "
+                "GRCh37/QDNAseq.hg19 lane."
+            ),
+            (
+                "A passing system smoke proves local execution, integration, packaging "
+                "and resume behavior for the exercised paths."
+            ),
         ],
     )
     write_json(report, summary_path)
