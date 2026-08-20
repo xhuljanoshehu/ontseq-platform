@@ -37,7 +37,12 @@ jobs:
       - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/cnv_qdnaseq.yaml
-          cache-environment: true
+          # conda-pack must see the original package cache so that hard-coded prefixes in
+          # R and compiled Bioconductor packages are rewritten. Restoring only a cached
+          # environment makes conda-pack treat those files as unmanaged and can produce a
+          # bundle that works only while the build-time prefix still exists.
+          cache-environment: false
+          cache-downloads: true
       - name: Add packaging tools and ONTSeq package
         shell: bash -el {0}
         run: |
@@ -60,14 +65,18 @@ jobs:
           micromamba run -n ontseq-qdnaseq-cnv samtools --version | head -1
           micromamba run -n ontseq-qdnaseq-cnv cramino --version
           micromamba run -n ontseq-qdnaseq-cnv sniffles --version
-          micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep="")'
+          micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep="")'
           micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--cnv-policy'
       - name: Pack relocatable Linux runtime
         shell: bash -el {0}
         run: |
           set -euo pipefail
           prefix="$(micromamba run -n ontseq-qdnaseq-cnv python -c 'import sys; print(sys.prefix)')"
-          micromamba run -n ontseq-qdnaseq-cnv conda-pack -p "$prefix" -o ontseq-linux-runtime.tar.gz
+          micromamba run -n ontseq-qdnaseq-cnv conda-pack -p "$prefix" -o ontseq-linux-runtime.tar.gz 2>&1 | tee /tmp/conda-pack.log
+          if grep -q 'Uncached packages:' /tmp/conda-pack.log; then
+            echo 'conda-pack could not safely relocate every managed package' >&2
+            exit 1
+          fi
           test -s ontseq-linux-runtime.tar.gz
       - name: Prove packed runtime works after relocation
         shell: bash
@@ -105,6 +114,7 @@ jobs:
               RUNTIME_PATH="/opt/ontseq/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/conda-unpack
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript --version
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\"QDNAseq\",quietly=TRUE), requireNamespace(\"QDNAseq.hg19\",quietly=TRUE), requireNamespace(\"ACE\",quietly=TRUE))"
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq local-smoke \
                 --output-dir /tmp/ontseq-smoke \
