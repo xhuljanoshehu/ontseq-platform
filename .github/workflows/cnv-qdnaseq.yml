@@ -61,13 +61,14 @@ jobs:
               serial = 0
               # One synthetic locus every 100 kbp. chr7 has half-depth and chr8
               # has 1.5x depth; this is intentionally simple, deterministic data.
+              # NM and de mirror the alignment tags Cramino uses for identity.
               for chrom, length in lengths.items():
                   copies = 1 if chrom == 7 else 3 if chrom == 8 else 2
                   for pos in range(50_001, length - 100, 100_000):
                       for replicate in range(copies):
                           serial += 1
                           out.write(
-                              f"CNVREAD_{serial:07d}\t0\tchr{chrom}\t{pos + replicate * 5}\t60\t100M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:CNV_SYNTH\n"
+                              f"CNVREAD_{serial:07d}\t0\tchr{chrom}\t{pos + replicate * 5}\t60\t100M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:CNV_SYNTH\tNM:i:0\tAS:i:100\tde:f:0.0\n"
                           )
           fai = root / "synthetic.hg19.fai"
           fai.write_text("".join(f"chr{c}\t{n}\t0\t0\t0\n" for c, n in lengths.items()), encoding="utf-8")
@@ -76,6 +77,15 @@ jobs:
             | samtools sort -@ 2 -o results/cnv-fixture/synthetic.hg19.bam -
           samtools index results/cnv-fixture/synthetic.hg19.bam
           samtools quickcheck -v results/cnv-fixture/synthetic.hg19.bam
+          cramino --threads 2 --format json results/cnv-fixture/synthetic.hg19.bam \
+            > results/cnv-fixture/cramino.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("results/cnv-fixture/cramino.json").read_text(encoding="utf-8"))
+          assert payload["alignment_stats"]["num_reads"] > 0, payload
+          PY
           rm results/cnv-fixture/synthetic.hg19.sam
 
       - name: Build manifest and locked reference contract
