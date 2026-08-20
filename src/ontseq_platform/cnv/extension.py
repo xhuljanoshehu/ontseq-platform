@@ -414,7 +414,7 @@ def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:
     specs[StageId.CNV] = replace(
         current,
         title="QDNAseq + ACE copy-number analysis",
-        verification=VerificationStatus.UNVERIFIED_ADAPTER,
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         purpose=(
             "Run multi-resolution QDNAseq read-depth correction and CBS segmentation, "
             "estimate purity/ploidy with ACE, and retain consensus plus plots."
