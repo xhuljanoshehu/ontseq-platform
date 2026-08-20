@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import os
 import re
+import tempfile
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -473,6 +475,23 @@ def sniffles_version(text: str) -> str:
     return first_line[:80]
 
 
+def _staged_vcf_path(output_vcf: Path) -> Path:
+    """Reserve a unique same-filesystem path, then leave it absent for Sniffles to create."""
+    if output_vcf.name.lower().endswith(".vcf.gz"):
+        suffix = ".vcf.gz"
+    else:
+        suffix = output_vcf.suffix or ".vcf"
+    descriptor, staged_name = tempfile.mkstemp(
+        dir=output_vcf.parent,
+        prefix=f".{output_vcf.name}.",
+        suffix=suffix,
+    )
+    os.close(descriptor)
+    staged = Path(staged_name)
+    staged.unlink()
+    return staged
+
+
 def run_sniffles(
     manifest: SampleManifest,
     intake: AlignedBamIntakeReport,
@@ -520,12 +539,13 @@ def run_sniffles(
         "output_read_names": False,
         "expected_version": policy.expected_version,
     }
+    staged_vcf = _staged_vcf_path(output_vcf)
     argv = [
         sniffles,
         "--input",
         manifest.input.path,
         "--vcf",
-        str(output_vcf),
+        str(staged_vcf),
         "--threads",
         str(threads),
         "--minsupport",
@@ -539,14 +559,24 @@ def run_sniffles(
     ]
     if policy.mode == SnifflesMode.MOSAIC:
         argv.append("--mosaic")
-    result = command_runner.run(argv, timeout_seconds=7200)
-    if result.returncode != 0:
-        raise ValueError(f"Sniffles2 failed with exit code {result.returncode}")
-    tool = ToolRecord(name="Sniffles2", version=version, parameters=parameters)
-    return normalize_sniffles_vcf(
-        output_vcf,
-        sample_id=manifest.sample_id,
-        genome_build=manifest.assay.genome_build,
-        policy=policy,
-        tool=tool,
-    )
+    try:
+        result = command_runner.run(argv, timeout_seconds=7200)
+        if result.returncode != 0:
+            diagnostic = result.stderr.strip()[-2000:]
+            detail = f": {diagnostic}" if diagnostic else ""
+            raise ValueError(f"Sniffles2 failed with exit code {result.returncode}{detail}")
+        if not staged_vcf.is_file():
+            raise ValueError("Sniffles2 returned success but produced no VCF")
+        tool = ToolRecord(name="Sniffles2", version=version, parameters=parameters)
+        report = normalize_sniffles_vcf(
+            staged_vcf,
+            sample_id=manifest.sample_id,
+            genome_build=manifest.assay.genome_build,
+            policy=policy,
+            tool=tool,
+        )
+        os.replace(staged_vcf, output_vcf)
+        return report
+    except BaseException:
+        staged_vcf.unlink(missing_ok=True)
+        raise
