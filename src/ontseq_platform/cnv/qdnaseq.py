@@ -15,8 +15,8 @@ from ..execution import StreamingCommandRunner
 from ..models import (
     EventType,
     Evidence,
-    GenomicEvent,
     GenomeBuild,
+    GenomicEvent,
     Locus,
     ModuleRunStatus,
     ReferenceLock,
@@ -121,7 +121,7 @@ def _float(row: Mapping[str, str], key: str) -> float:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
-    if parsed != parsed:  # NaN
+    if parsed != parsed:
         raise ValueError(f"invalid NaN value for {key}")
     return parsed
 
@@ -134,11 +134,37 @@ def _int(row: Mapping[str, str], key: str) -> int:
         raise ValueError(f"invalid integer value for {key}: {value!r}") from exc
 
 
+def _as_float(value: object, key: str) -> float:
+    if not isinstance(value, (int, float, str)):
+        raise ValueError(f"invalid numeric value for {key}: {value!r}")
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
+    if parsed != parsed:
+        raise ValueError(f"invalid NaN value for {key}")
+    return parsed
+
+
+def _as_int(value: object, key: str) -> int:
+    parsed = _as_float(value, key)
+    if not parsed.is_integer():
+        raise ValueError(f"invalid integer value for {key}: {value!r}")
+    return int(parsed)
+
+
+def _as_text(value: object, key: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"invalid text value for {key}: {value!r}")
+    return value
+
+
 def _contig_lengths(reference_lock: ReferenceLock) -> dict[str, int]:
     result: dict[str, int] = {}
+    canonical = {f"chr{i}" for i in range(1, 23)} | {"chrX", "chrY"}
     for item in reference_lock.contigs:
         name = item.name if item.name.startswith("chr") else f"chr{item.name}"
-        if name in {f"chr{i}" for i in range(1, 23)} | {"chrX", "chrY"}:
+        if name in canonical:
             result[name] = item.length
     return result
 
@@ -147,7 +173,7 @@ def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[
     raw_versions = summary.get("package_versions")
     if not isinstance(raw_versions, dict):
         raise ValueError("QDNAseq summary is missing package_versions")
-    versions = {str(k): str(v) for k, v in raw_versions.items() if v is not None}
+    versions = {str(key): str(value) for key, value in raw_versions.items() if value is not None}
     qdna = versions.get("QDNAseq", "UNKNOWN")
     ace = versions.get("ACE", "UNKNOWN")
     if policy.expected_qdnaseq_version and qdna != policy.expected_qdnaseq_version:
@@ -155,7 +181,8 @@ def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[
             f"QDNAseq version mismatch: expected {policy.expected_qdnaseq_version}, observed {qdna}"
         )
     if policy.expected_ace_version and ace != policy.expected_ace_version:
-        raise ValueError(f"ACE version mismatch: expected {policy.expected_ace_version}, observed {ace}")
+        expected = policy.expected_ace_version
+        raise ValueError(f"ACE version mismatch: expected {expected}, observed {ace}")
     shared = {
         "profile": policy.profile_id,
         "bin_sizes_kbp": policy.bin_sizes_kbp,
@@ -181,24 +208,24 @@ def _parse_fit(raw: Mapping[str, object]) -> CnvFit:
                 continue
             alternatives.append(
                 {
-                    "cellularity": float(item["cellularity"]),
-                    "ploidy": float(item["ploidy"]),
-                    "fit_error": float(item["fit_error"]),
+                    "cellularity": _as_float(item.get("cellularity"), "alternative.cellularity"),
+                    "ploidy": _as_float(item.get("ploidy"), "alternative.ploidy"),
+                    "fit_error": _as_float(item.get("fit_error"), "alternative.fit_error"),
                 }
             )
     return CnvFit(
-        bin_size_kbp=int(raw["bin_size_kbp"]),
-        cellularity=float(raw["cellularity"]),
-        ploidy=float(raw["ploidy"]),
-        fit_error=float(raw["fit_error"]),
-        candidate_count=int(raw["candidate_count"]),
-        segment_count=int(raw["segment_count"]),
+        bin_size_kbp=_as_int(raw.get("bin_size_kbp"), "bin_size_kbp"),
+        cellularity=_as_float(raw.get("cellularity"), "cellularity"),
+        ploidy=_as_float(raw.get("ploidy"), "ploidy"),
+        fit_error=_as_float(raw.get("fit_error"), "fit_error"),
+        candidate_count=_as_int(raw.get("candidate_count"), "candidate_count"),
+        segment_count=_as_int(raw.get("segment_count"), "segment_count"),
         alternatives=alternatives,
-        segment_file=str(raw["segment_file"]),
-        chromosome_file=str(raw["chromosome_file"]),
-        fit_plot=str(raw["fit_plot"]),
-        copy_number_plot=str(raw["copy_number_plot"]),
-        rds_file=str(raw["rds_file"]),
+        segment_file=_as_text(raw.get("segment_file"), "segment_file"),
+        chromosome_file=_as_text(raw.get("chromosome_file"), "chromosome_file"),
+        fit_plot=_as_text(raw.get("fit_plot"), "fit_plot"),
+        copy_number_plot=_as_text(raw.get("copy_number_plot"), "copy_number_plot"),
+        rds_file=_as_text(raw.get("rds_file"), "rds_file"),
     )
 
 
@@ -263,7 +290,10 @@ def _events_from_primary_segments(
         agreement = consensus.get(chromosome)
         notes = [
             f"QDNAseq primary bin {fit.bin_size_kbp} kbp",
-            f"ACE cellularity={fit.cellularity:.3f}, ploidy={fit.ploidy:.3f}, fit_error={fit.fit_error:.6g}",
+            (
+                f"ACE cellularity={fit.cellularity:.3f}, ploidy={fit.ploidy:.3f}, "
+                f"fit_error={fit.fit_error:.6g}"
+            ),
             f"ACE call={call:.3g}; segment supported by {bins} QDNAseq bin(s)",
         ]
         if agreement is not None:
@@ -272,6 +302,9 @@ def _events_from_primary_segments(
                 f"{agreement.agreeing_bins}/{agreement.contributing_bins}; "
                 f"median CN={agreement.median_copy_number:.3f}"
             )
+        quality = None
+        if row.get("qnorm_log10") not in {None, ""}:
+            quality = abs(_float(row, "qnorm_log10"))
         events.append(
             GenomicEvent(
                 event_id=f"CNV_{sample_id}_{serial:04d}",
@@ -283,9 +316,7 @@ def _events_from_primary_segments(
                     Evidence(
                         caller="QDNAseq+ACE",
                         caller_version=caller_version,
-                        quality=abs(_float(row, "qnorm_log10"))
-                        if row.get("qnorm_log10") not in {None, ""}
-                        else None,
+                        quality=quality,
                     )
                 ],
                 confidence="unclassified",
@@ -317,9 +348,9 @@ def run_qdnaseq_ace(
 ) -> QDNAseqCallReport:
     """Run QDNAseq at multiple resolutions, fit ACE purity/ploidy and normalize events.
 
-    The R process writes into a staging directory. Only a fully parseable result directory is
-    promoted into ``output_dir`` so an interrupted R process cannot leave a plausible final
-    CNV result behind.
+    The R process writes into a staging directory. Only a fully parseable result directory
+    is promoted into ``output_dir`` so an interrupted R process cannot leave a plausible
+    final CNV result behind.
     """
     if not bam.is_file():
         raise ValueError(f"CNV BAM does not exist: {bam}")
@@ -369,12 +400,16 @@ def run_qdnaseq_ace(
         summary_path = staged / f"{sample_id}.qdnaseq-ace.summary.json"
         if not summary_path.is_file():
             raise ValueError("QDNAseq/ACE completed without a summary JSON")
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        raw_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        if not isinstance(raw_summary, dict):
+            raise ValueError("QDNAseq summary must be a JSON object")
+        summary: Mapping[str, object] = raw_summary
         if summary.get("sample_id") != sample_id:
             raise ValueError("QDNAseq summary sample ID does not match the manifest")
         if summary.get("genome_build") != genome_build.value:
             raise ValueError("QDNAseq summary genome build does not match the manifest")
-        if int(summary.get("primary_bin_size_kbp", -1)) != policy.primary_bin_size_kbp:
+        observed_primary = _as_int(summary.get("primary_bin_size_kbp"), "primary_bin_size_kbp")
+        if observed_primary != policy.primary_bin_size_kbp:
             raise ValueError("QDNAseq summary primary bin does not match policy")
 
         runs_raw = summary.get("runs")
@@ -385,16 +420,15 @@ def run_qdnaseq_ace(
             raise ValueError("QDNAseq summary does not contain exactly the configured bin sizes")
         primary = next(item for item in fits if item.bin_size_kbp == policy.primary_bin_size_kbp)
 
-        consensus_name = str(summary.get("consensus_file", ""))
-        if not consensus_name or Path(consensus_name).name != consensus_name:
+        consensus_name = _as_text(summary.get("consensus_file"), "consensus_file")
+        if Path(consensus_name).name != consensus_name:
             raise ValueError("QDNAseq summary contains an invalid consensus filename")
         consensus = _parse_consensus(staged / consensus_name)
         consensus_by_chr = {item.chromosome: item for item in consensus}
         tools = _tool_records(summary, policy)
 
-        primary_segments = staged / primary.segment_file
         events = _events_from_primary_segments(
-            primary_segments,
+            staged / primary.segment_file,
             sample_id=sample_id,
             fit=primary,
             tools=tools,
@@ -404,8 +438,6 @@ def run_qdnaseq_ace(
             consensus=consensus_by_chr,
         )
 
-        # Every file named by the summary must exist before promotion. This catches partial
-        # R output even when R happened to return zero after a late file-system problem.
         expected_names = {summary_path.name, consensus_name}
         for fit in fits:
             expected_names.update(
@@ -422,11 +454,12 @@ def run_qdnaseq_ace(
             raise ValueError("QDNAseq result is incomplete; missing: " + ", ".join(missing))
 
         warnings: list[str] = []
-        for item in consensus:
-            if item.agreeing_bins < item.contributing_bins:
+        for chromosome in consensus:
+            if chromosome.agreeing_bins < chromosome.contributing_bins:
+                disagreements = chromosome.contributing_bins - chromosome.agreeing_bins
                 warnings.append(
-                    f"{item.chromosome}: rounded chromosome CN disagrees across "
-                    f"{item.contributing_bins - item.agreeing_bins}/{item.contributing_bins} bin sizes"
+                    f"{chromosome.chromosome}: rounded chromosome CN disagrees across "
+                    f"{disagreements}/{chromosome.contributing_bins} bin sizes"
                 )
         cellularities = [item.cellularity for item in fits]
         ploidies = [item.ploidy for item in fits]
@@ -449,10 +482,15 @@ def run_qdnaseq_ace(
             output_files=sorted(expected_names),
             warnings=warnings,
             limitations=[
-                "Segment-level event normalization uses the configured primary QDNAseq bin size; "
-                "chromosome-level agreement is retained across all configured bin sizes.",
-                "ACE purity/ploidy is selected deterministically from squaremodel minima; alternative "
-                "low-error fits are retained in the CNV JSON for inspection.",
+                (
+                    "Segment-level event normalization uses the configured primary QDNAseq "
+                    "bin size; chromosome-level agreement is retained across all configured "
+                    "bin sizes."
+                ),
+                (
+                    "ACE purity/ploidy is selected deterministically from squaremodel minima; "
+                    "alternative low-error fits are retained in the CNV JSON for inspection."
+                ),
             ],
         )
     finally:
