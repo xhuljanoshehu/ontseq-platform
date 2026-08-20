@@ -1,0 +1,14 @@
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - r-base=4.4
+  - bioconductor-qdnaseq=1.42.0
+  - bioconductor-qdnaseq.hg19=1.36.0
+  - bioconductor-ace=1.24.0
+  - bioconductor-dnacopy=1.80.0
+  - r-jsonlite=1.8.9
+  - r-future=1.34.0
+  - r-ggplot2=3.5.1
+  - samtools=1.24
