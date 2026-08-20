@@ -67,6 +67,7 @@ jobs:
           micromamba run -n ontseq-qdnaseq-cnv sniffles --version
           micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep="")'
           micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--cnv-policy'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq system-smoke --help | grep -q -- '--qdnaseq-script'
       - name: Pack relocatable Linux runtime
         shell: bash -el {0}
         run: |
@@ -95,8 +96,8 @@ jobs:
             --output-dir /tmp/ontseq-packed-smoke \
             --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
             --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
-          test -d /tmp/ontseq-packed-smoke
-      - name: Prove first bootstrap on stock Ubuntu without host Python or R
+          test -s /tmp/ontseq-packed-smoke/local-smoke.report.json
+      - name: Prove full system smoke on stock Ubuntu without host Python or R
         shell: bash
         run: |
           set -euo pipefail
@@ -116,11 +117,49 @@ jobs:
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript --version
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\"QDNAseq\",quietly=TRUE), requireNamespace(\"QDNAseq.hg19\",quietly=TRUE), requireNamespace(\"ACE\",quietly=TRUE))"
-              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq local-smoke \
-                --output-dir /tmp/ontseq-smoke \
+
+              set +e
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq system-smoke \
+                --output-dir /tmp/ontseq-system-smoke \
                 --qc-policy /opt/ontseq/share/ontseq/configs/qc/defaults.yaml \
-                --sniffles-policy /opt/ontseq/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
-              test -d /tmp/ontseq-smoke
+                --sniffles-policy /opt/ontseq/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml \
+                --cnv-policy /opt/ontseq/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml \
+                --qdnaseq-rscript /opt/ontseq/bin/Rscript \
+                --qdnaseq-script /opt/ontseq/share/ontseq/scripts/run_qdnaseq_ace.R \
+                --samtools /opt/ontseq/bin/samtools \
+                --cramino /opt/ontseq/bin/cramino \
+                --sniffles /opt/ontseq/bin/sniffles \
+                --threads 2
+              smoke_status=$?
+              set -e
+
+              report=/tmp/ontseq-system-smoke/system-smoke.report.json
+              root=/tmp/ontseq-system-smoke/runs/SYSTEM_CNV_SMOKE_RUN_001/SYSTEM_CNV_SMOKE_001
+              qdnaseq="$root/evidence/cnv/SYSTEM_CNV_SMOKE_001.qdnaseq.json"
+              if test "$smoke_status" -ne 0; then
+                echo "system-smoke failed with exit code $smoke_status; preserving compact diagnostics" >&2
+                if test -s "$report"; then
+                  echo "--- system-smoke report ---" >&2
+                  env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq . "$report" >&2 || true
+                fi
+                if test -s "$qdnaseq"; then
+                  echo "--- QDNAseq/ACE chr7/chr8 diagnostics ---" >&2
+                  env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq "{status, primary_fit, fits, chromosome_consensus: [.chromosome_consensus[] | select(.chromosome==\"chr7\" or .chromosome==\"chr8\")], events: [.events[] | select(.primary.chromosome==\"chr7\" or .primary.chromosome==\"chr8\")], warnings, limitations}" "$qdnaseq" >&2 || true
+                fi
+                exit "$smoke_status"
+              fi
+
+              test -s "$report"
+              verdict="$(env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq -r .verdict "$report")"
+              test "$verdict" = "PASS"
+              echo "system-smoke verdict: $verdict"
+              test -s "$qdnaseq"
+              test -s "$root/reports/SYSTEM_CNV_SMOKE_001.report.html"
+              test -s "$root/reports/SYSTEM_CNV_SMOKE_001.results.xlsx"
+              echo "verifying release checksums independently with GNU sha256sum"
+              cd "$root"
+              sha256sum -c release/checksums.sha256
+              echo "stock Ubuntu full system smoke: PASS"
             '
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
@@ -165,7 +204,7 @@ jobs:
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.2-win-x64-setup-engineering
+          name: ontseq-desktop-v0.2.1-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30

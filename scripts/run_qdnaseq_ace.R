@@ -8,6 +8,12 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
+# QDNAseq::segmentBins() delegates to DNAcopy::segment(), which uses RNG and explicitly
+# documents that identical inputs can otherwise yield slightly different segmentations.
+# Keep this technical seed fixed and record it in the emitted summary. The R script SHA is
+# part of the ONTSeq CNV stage signature, so changing this constant invalidates resume.
+SEGMENTATION_SEED <- 104729L
+
 fail <- function(message, code = 2L) {
   cat(sprintf("ERROR: %s\n", message), file = stderr())
   quit(save = "no", status = code)
@@ -157,6 +163,10 @@ for (bin_size in bin_sizes) {
   copy_numbers <- QDNAseq::correctBins(filtered)
   copy_numbers <- QDNAseq::normalizeBins(copy_numbers)
   copy_numbers <- QDNAseq::smoothOutlierBins(copy_numbers)
+
+  # Reset before every resolution so a result depends on its own data and this explicit
+  # technical seed, not on bin-size iteration order or RNG consumed by an earlier run.
+  set.seed(SEGMENTATION_SEED)
   segmented <- QDNAseq::segmentBins(copy_numbers, transformFun = "sqrt")
   segmented <- QDNAseq::normalizeSegmentedBins(segmented)
 
@@ -297,6 +307,7 @@ summary <- list(
   genome_build = genome_build,
   genome_annotation = genome,
   primary_bin_size_kbp = primary_bin,
+  segmentation_seed = SEGMENTATION_SEED,
   ace_penalty = penalty,
   ploidy_search = list(min = ploidy_min, max = ploidy_max, step = ploidy_step),
   consensus_strategy = "median_rounded_across_bins",

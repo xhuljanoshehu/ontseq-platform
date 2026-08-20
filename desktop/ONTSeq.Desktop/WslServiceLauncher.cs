@@ -104,7 +104,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.2.0";
+        var target = home + "/.local/share/ontseq/runtime-v0.2.1";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
@@ -200,21 +200,28 @@ public sealed class WslServiceLauncher : IAsyncDisposable
     {
         var backend = await CheckBackendAsync(settings, cancellationToken);
         if (!backend.Ok) throw new InvalidOperationException(backend.Detail);
+        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+        {
+            throw new InvalidOperationException(
+                "Der vollständige System-Selbsttest benötigt die gebündelte ONTSeq-Runtime. " +
+                "Bitte zuerst 'Runtime installieren' ausführen.");
+        }
 
         var root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
         Directory.CreateDirectory(root);
         var rootWsl = PathBridge.WindowsToWsl(root);
-        var args = new List<string> { "local-smoke", "--output-dir", rootWsl };
-        AddBundledPolicies(settings, args, includeCnv: false);
+        var args = new List<string> { "system-smoke", "--output-dir", rootWsl };
+        AddBundledPolicies(settings, args, includeCnv: true);
         var result = await RunWslAsync(
             settings.WslDistribution,
             BackendInvocation(settings, args.ToArray()),
             cancellationToken);
         File.WriteAllText(Path.Combine(root, "self-test.log.txt"), result.StdOut + Environment.NewLine + result.StdErr);
         if (result.ExitCode != 0)
-            throw new InvalidOperationException("ONTSeq Selbsttest ist fehlgeschlagen.\n" + result.StdErr);
+            throw new InvalidOperationException(
+                "ONTSeq Selbsttest ist fehlgeschlagen.\n" + result.StdErr);
         return root;
     }
 

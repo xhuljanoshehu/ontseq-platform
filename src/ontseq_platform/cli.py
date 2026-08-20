@@ -131,6 +131,25 @@ def _parser() -> argparse.ArgumentParser:
     local_smoke.add_argument("--threads", type=int, default=2)
     local_smoke.add_argument("--git-commit", default="LOCAL_SMOKE")
 
+    system_smoke = subparsers.add_parser(
+        "system-smoke",
+        help=(
+            "Exercise the installed samtools/Cramino/Sniffles path plus canonical "
+            "QDNAseq+ACE CNV, reporting, release checksums and resume"
+        ),
+    )
+    system_smoke.add_argument("--output-dir", type=Path, default=Path("results/system-smoke"))
+    system_smoke.add_argument("--qc-policy", type=Path, required=True)
+    system_smoke.add_argument("--sniffles-policy", type=Path, required=True)
+    system_smoke.add_argument("--cnv-policy", type=Path, required=True)
+    system_smoke.add_argument("--qdnaseq-rscript", default="Rscript")
+    system_smoke.add_argument("--qdnaseq-script", type=Path, required=True)
+    system_smoke.add_argument("--samtools", default="samtools")
+    system_smoke.add_argument("--cramino", default="cramino")
+    system_smoke.add_argument("--sniffles", default="sniffles")
+    system_smoke.add_argument("--threads", type=int, default=2)
+    system_smoke.add_argument("--git-commit", default="SYSTEM_SMOKE")
+
     benchmark = subparsers.add_parser(
         "benchmark", help="Benchmark normalized CNV or SV events against a locked truth case"
     )
@@ -224,7 +243,7 @@ def main() -> None:
         elif args.command == "local-smoke":
             qc_policy = load_model(args.qc_policy, QCPolicy)
             sniffles_policy = load_model(args.sniffles_policy, SnifflesPolicy)
-            smoke_report = run_local_smoke(
+            local_smoke_report = run_local_smoke(
                 args.output_dir,
                 qc_policy,
                 sniffles_policy,
@@ -236,7 +255,27 @@ def main() -> None:
                 git_commit=args.git_commit,
             )
             print(args.output_dir / "local-smoke.report.json")
-            print(f"PASS: {smoke_report.sniffles.accepted_record_count} SV candidate(s)")
+            print(f"PASS: {local_smoke_report.sniffles.accepted_record_count} SV candidate(s)")
+        elif args.command == "system-smoke":
+            from .cnv.qdnaseq import QDNAseqPolicy
+            from .system_smoke import run_system_smoke
+
+            system_smoke_report = run_system_smoke(
+                args.output_dir,
+                load_model(args.qc_policy, QCPolicy),
+                load_model(args.sniffles_policy, SnifflesPolicy),
+                load_model(args.cnv_policy, QDNAseqPolicy),
+                qdnaseq_script=args.qdnaseq_script,
+                samtools=args.samtools,
+                cramino=args.cramino,
+                sniffles=args.sniffles,
+                rscript=args.qdnaseq_rscript,
+                threads=args.threads,
+                pipeline_version=__version__,
+                git_commit=args.git_commit,
+            )
+            print(args.output_dir / "system-smoke.report.json")
+            print(f"PASS: {len(system_smoke_report.checks)} system checks")
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
