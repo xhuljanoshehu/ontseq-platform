@@ -218,10 +218,7 @@ def main() -> None:
             for stage in run_report.stages:
                 marker = "resumed" if stage.resumed else stage.status.value
                 print(f"  {stage.stage.value:<16} {marker:<10} {stage.reason}")
-            print(
-                f"verdict: {'PASS' if run_report.passed else 'FAIL'} - "
-                f"{run_report.verdict_reason}"
-            )
+            print(f"verdict: {'PASS' if run_report.passed else 'FAIL'} - {run_report.verdict_reason}")
             if run_report.unverified_stages:
                 names = ", ".join(item.value for item in run_report.unverified_stages)
                 print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
