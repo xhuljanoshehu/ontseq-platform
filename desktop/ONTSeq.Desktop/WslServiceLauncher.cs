@@ -34,6 +34,9 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                       $" && test -f {ShellQuote(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"))}" +
                       $" && test -f {ShellQuote(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"))}";
         }
+        if (!string.IsNullOrWhiteSpace(settings.AdaptiveTargetBedWsl))
+            checks += $" && test -s {ShellQuote(settings.AdaptiveTargetBedWsl)}";
+
         var check = await RunWslAsync(settings.WslDistribution, ["sh", "-lc", checks], cancellationToken);
         if (check.ExitCode != 0)
         {
@@ -112,9 +115,6 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
-            // conda-unpack itself has a '#!/usr/bin/env python' shebang. A fresh Ubuntu WSL
-            // installation does not provide a system 'python' executable. Put the packed
-            // runtime first on PATH before the first Python-backed script is invoked.
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/conda-unpack")} && " +
             $"test -f {ShellQuote(qc)} && test -f {ShellQuote(sniffles)} && " +
             $"test -f {ShellQuote(cnvPolicy)} && test -f {ShellQuote(cnvScript)} && " +
@@ -237,6 +237,11 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             "--port", settings.Port.ToString(),
             "--no-browser"
         };
+        if (!string.IsNullOrWhiteSpace(settings.AdaptiveTargetBedWsl))
+        {
+            serviceArgs.Add("--allow-root");
+            serviceArgs.Add(PosixDirectoryName(settings.AdaptiveTargetBedWsl));
+        }
         AddBundledPolicies(settings, serviceArgs, includeCnv: true);
         var args = BackendInvocation(settings, serviceArgs.ToArray());
 
@@ -276,7 +281,6 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         }
         catch
         {
-            // App shutdown must not be blocked by a backend that is already disappearing.
         }
         finally
         {
@@ -337,6 +341,15 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             ? settings.RuntimeBinWsl[..^4]
             : settings.RuntimeBinWsl.TrimEnd('/');
         return root + "/share/ontseq/" + relative.TrimStart('/');
+    }
+
+    private static string PosixDirectoryName(string path)
+    {
+        var normalized = path.Trim().TrimEnd('/');
+        var separator = normalized.LastIndexOf('/');
+        if (separator <= 0)
+            throw new InvalidOperationException($"Kein absoluter WSL-Pfad: {path}");
+        return normalized[..separator];
     }
 
     private static IReadOnlyList<string> BackendInvocation(DesktopSettings settings, params string[] args)
