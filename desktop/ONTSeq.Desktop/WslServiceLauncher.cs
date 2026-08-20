@@ -30,7 +30,9 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
         {
             checks += $" && test -f {ShellQuote(RuntimeResource(settings, "configs/qc/defaults.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"))}";
+                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"))}" +
+                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"))}" +
+                      $" && test -f {ShellQuote(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"))}";
         }
         var check = await RunWslAsync(settings.WslDistribution, ["sh", "-lc", checks], cancellationToken);
         if (check.ExitCode != 0)
@@ -99,12 +101,14 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.1.1";
+        var target = home + "/.local/share/ontseq/runtime-v0.2.0";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
         var qc = target + "/share/ontseq/configs/qc/defaults.yaml";
         var sniffles = target + "/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml";
+        var cnvPolicy = target + "/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml";
+        var cnvScript = target + "/share/ontseq/scripts/run_qdnaseq_ace.R";
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
@@ -113,6 +117,10 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             // runtime first on PATH before the first Python-backed script is invoked.
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/conda-unpack")} && " +
             $"test -f {ShellQuote(qc)} && test -f {ShellQuote(sniffles)} && " +
+            $"test -f {ShellQuote(cnvPolicy)} && test -f {ShellQuote(cnvScript)} && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/Rscript")} -e " +
+            ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +
+            " && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} --help >/dev/null";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
@@ -199,7 +207,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         Directory.CreateDirectory(root);
         var rootWsl = PathBridge.WindowsToWsl(root);
         var args = new List<string> { "local-smoke", "--output-dir", rootWsl };
-        AddBundledPolicies(settings, args);
+        AddBundledPolicies(settings, args, includeCnv: false);
         var result = await RunWslAsync(
             settings.WslDistribution,
             BackendInvocation(settings, args.ToArray()),
@@ -229,7 +237,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             "--port", settings.Port.ToString(),
             "--no-browser"
         };
-        AddBundledPolicies(settings, serviceArgs);
+        AddBundledPolicies(settings, serviceArgs, includeCnv: true);
         var args = BackendInvocation(settings, serviceArgs.ToArray());
 
         var psi = new ProcessStartInfo
@@ -302,13 +310,23 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         return (process.ExitCode, await stdout, await stderr);
     }
 
-    private static void AddBundledPolicies(DesktopSettings settings, List<string> args)
+    private static void AddBundledPolicies(
+        DesktopSettings settings,
+        List<string> args,
+        bool includeCnv)
     {
         if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)) return;
         args.Add("--qc-policy");
         args.Add(RuntimeResource(settings, "configs/qc/defaults.yaml"));
         args.Add("--sniffles-policy");
         args.Add(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"));
+        if (!includeCnv) return;
+        args.Add("--cnv-policy");
+        args.Add(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"));
+        args.Add("--qdnaseq-rscript");
+        args.Add(settings.RuntimeBinWsl.TrimEnd('/') + "/Rscript");
+        args.Add("--qdnaseq-script");
+        args.Add(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"));
     }
 
     private static string RuntimeResource(DesktopSettings settings, string relative)
