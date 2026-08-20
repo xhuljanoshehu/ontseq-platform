@@ -116,9 +116,7 @@ def _write_cnv_sam(path: Path) -> None:
         handle.write("@HD\tVN:1.6\tSO:unsorted\n")
         for chromosome, length in GRCH37_AUTOSOME_LENGTHS.items():
             handle.write(f"@SQ\tSN:chr{chromosome}\tLN:{length}\n")
-        handle.write(
-            f"@RG\tID:SYSTEM_CNV_SMOKE\tSM:{SYSTEM_SMOKE_SAMPLE_ID}\tPL:ONT\n"
-        )
+        handle.write(f"@RG\tID:SYSTEM_CNV_SMOKE\tSM:{SYSTEM_SMOKE_SAMPLE_ID}\tPL:ONT\n")
         for chromosome, length in GRCH37_AUTOSOME_LENGTHS.items():
             copies = synthetic_cnv_copy_count(chromosome)
             for position in range(50_001, length - 100, 100_000):
@@ -462,9 +460,7 @@ def run_system_smoke(
         raise ValueError("Canonical CNV system-smoke run failed: " + first_report.verdict_reason)
 
     envelope_root = output_base / SYSTEM_SMOKE_RUN_ID / SYSTEM_SMOKE_SAMPLE_ID
-    qdnaseq_path = (
-        envelope_root / "evidence" / "cnv" / f"{SYSTEM_SMOKE_SAMPLE_ID}.qdnaseq.json"
-    )
+    qdnaseq_path = envelope_root / "evidence" / "cnv" / f"{SYSTEM_SMOKE_SAMPLE_ID}.qdnaseq.json"
     result_path = envelope_root / "normalized" / f"{SYSTEM_SMOKE_SAMPLE_ID}.result.json"
     html_path = envelope_root / "reports" / f"{SYSTEM_SMOKE_SAMPLE_ID}.report.html"
     workbook_path = envelope_root / "reports" / f"{SYSTEM_SMOKE_SAMPLE_ID}.results.xlsx"
@@ -492,9 +488,7 @@ def run_system_smoke(
             + ", ".join(missing_outputs)
         )
 
-    qdnaseq_report = QDNAseqCallReport.model_validate_json(
-        qdnaseq_path.read_text(encoding="utf-8")
-    )
+    qdnaseq_report = QDNAseqCallReport.model_validate_json(qdnaseq_path.read_text(encoding="utf-8"))
     normalized = PipelineResult.model_validate_json(result_path.read_text(encoding="utf-8"))
     first_cnv_stage = next(
         (item for item in first_report.stages if item.stage == StageId.CNV),
@@ -533,9 +527,7 @@ def run_system_smoke(
         (item for item in normalized.modules if item.module == AnalysisModule.CNV),
         None,
     )
-    html_has_cnv = "Copy-number analysis — QDNAseq + ACE" in html_path.read_text(
-        encoding="utf-8"
-    )
+    html_has_cnv = "Copy-number analysis — QDNAseq + ACE" in html_path.read_text(encoding="utf-8")
     workbook = load_workbook(workbook_path, read_only=True, data_only=True)
     required_sheets = {"CNV Fits", "CNV Consensus", "CNV Segments"}
     workbook_has_cnv = required_sheets.issubset(set(workbook.sheetnames))
@@ -610,15 +602,11 @@ def run_system_smoke(
         )
     )
 
-    checksum_ok_after_resume, checksum_count_after_resume = _verify_release_checksums(
-        envelope_root
-    )
+    checksum_ok_after_resume, checksum_count_after_resume = _verify_release_checksums(envelope_root)
     checks.append(
         ValidationCheck(
             name="release_checksums_after_resume",
-            status=(
-                CheckStatus.PASS if checksum_ok_after_resume else CheckStatus.FAIL
-            ),
+            status=(CheckStatus.PASS if checksum_ok_after_resume else CheckStatus.FAIL),
             message=(
                 "Release checksums remained internally valid after the resumed run."
                 if checksum_ok_after_resume
@@ -628,11 +616,7 @@ def run_system_smoke(
         )
     )
 
-    verdict = (
-        Verdict.FAIL
-        if any(item.status == CheckStatus.FAIL for item in checks)
-        else Verdict.PASS
-    )
+    verdict = Verdict.FAIL if any(item.status == CheckStatus.FAIL for item in checks) else Verdict.PASS
     report = SystemSmokeReport(
         verdict=verdict,
         checks=checks,
@@ -651,10 +635,7 @@ def run_system_smoke(
                 "The fixtures are deterministic synthetic engineering data, not "
                 "biological validation material."
             ),
-            (
-                "The CNV fixture deliberately targets the packaged "
-                "GRCh37/QDNAseq.hg19 lane."
-            ),
+            ("The CNV fixture deliberately targets the packaged GRCh37/QDNAseq.hg19 lane."),
             (
                 "A passing system smoke proves local execution, integration, packaging "
                 "and resume behavior for the exercised paths."
