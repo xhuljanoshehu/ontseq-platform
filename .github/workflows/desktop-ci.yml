@@ -1,0 +1,144 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "src/**"
+      - "configs/**"
+      - "workflow/envs/aligned_bam.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/desktop-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "src/**"
+      - "configs/**"
+      - "workflow/envs/aligned_bam.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/desktop-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/aligned_bam.yaml
+          cache-environment: true
+      - name: Add packaging tools and ONTSeq package
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          micromamba install -y -n ontseq-aligned-bam -c conda-forge pip conda-pack
+          micromamba run -n ontseq-aligned-bam python -m pip install .
+      - name: Add versioned runtime resources
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          prefix="$(micromamba run -n ontseq-aligned-bam python -c 'import sys; print(sys.prefix)')"
+          mkdir -p "$prefix/share/ontseq"
+          cp -a configs "$prefix/share/ontseq/configs"
+      - name: Pack relocatable Linux runtime
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          prefix="$(micromamba run -n ontseq-aligned-bam python -c 'import sys; print(sys.prefix)')"
+          micromamba run -n ontseq-aligned-bam conda-pack -p "$prefix" -o ontseq-linux-runtime.tar.gz
+          test -s ontseq-linux-runtime.tar.gz
+      - name: Prove packed runtime works after relocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ontseq-packed
+          tar -xzf ontseq-linux-runtime.tar.gz -C /tmp/ontseq-packed
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/conda-unpack
+          test -f /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq --help >/dev/null
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq local-smoke \
+            --output-dir /tmp/ontseq-packed-smoke \
+            --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
+            --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
+          test -d /tmp/ontseq-packed-smoke
+      - name: Prove first bootstrap on stock Ubuntu without host Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/ontseq-linux-runtime.tar.gz:/runtime.tar.gz:ro" \
+            ubuntu:24.04 \
+            bash -lc '
+              set -euo pipefail
+              if command -v python >/dev/null 2>&1; then
+                echo "stock-image invariant violated: python unexpectedly present" >&2
+                exit 1
+              fi
+              mkdir -p /opt/ontseq
+              tar -xzf /runtime.tar.gz -C /opt/ontseq
+              RUNTIME_PATH="/opt/ontseq/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/conda-unpack
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq local-smoke \
+                --output-dir /tmp/ontseq-smoke \
+                --qc-policy /opt/ontseq/share/ontseq/configs/qc/defaults.yaml \
+                --sniffles-policy /opt/ontseq/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
+              test -d /tmp/ontseq-smoke
+            '
+      - name: Upload Linux runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontseq-linux-runtime
+          path: ontseq-linux-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  windows-desktop:
+    needs: linux-runtime
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build WPF shell
+        run: dotnet build desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release
+      - name: Test BAM index detection
+        run: dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release
+      - name: Publish self-contained win-x64 executable
+        run: >-
+          dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -o desktop/publish
+      - name: Add pinned Linux runtime to desktop bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ontseq-linux-runtime
+          path: desktop/publish/runtime
+      - name: Verify complete first-run bundle
+        shell: pwsh
+        run: |
+          $exe = "desktop/publish/ONTSeq.Desktop.exe"
+          $runtime = "desktop/publish/runtime/ontseq-linux-runtime.tar.gz"
+          if (-not (Test-Path $exe)) { throw "Desktop executable was not published" }
+          if (-not (Test-Path $runtime)) { throw "Bundled Linux runtime is missing" }
+          Get-Item $exe,$runtime | Select-Object Name,Length,LastWriteTime
+      - name: Upload unsigned setup engineering artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ontseq-desktop-v0.1.3-win-x64-setup-engineering
+          path: desktop/publish/
+          if-no-files-found: error
+          retention-days: 30
