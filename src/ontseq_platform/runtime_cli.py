@@ -42,6 +42,10 @@ RUNTIME_COMMANDS = frozenset(
 )
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 def _alignment_policy(path: Path) -> AlignmentPolicy | None:
     return load_model(path, AlignmentPolicy) if path.is_file() else None
 
@@ -52,6 +56,41 @@ def _basecall_policy(path: Path) -> BasecallPolicy | None:
 
 def _sniffles_policy(path: Path) -> SnifflesPolicy | None:
     return load_model(path, SnifflesPolicy) if path.is_file() else None
+
+
+def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
+    root = _repo_root()
+    parser.add_argument(
+        "--cnv-policy",
+        type=Path,
+        default=root / "configs/cnv/qdnaseq_ace.technical.yaml",
+    )
+    parser.add_argument("--qdnaseq-rscript", default="Rscript")
+    parser.add_argument(
+        "--qdnaseq-script",
+        type=Path,
+        default=root / "scripts/run_qdnaseq_ace.R",
+    )
+
+
+def _register_cnv(args: argparse.Namespace) -> None:
+    from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
+    from .cnv.qdnaseq import QDNAseqPolicy
+
+    if args.cnv_policy.is_file():
+        policy = load_model(args.cnv_policy, QDNAseqPolicy)
+    else:
+        policy = QDNAseqPolicy(
+            profile_id="qdnaseq-ace-multibin-v1",
+            note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
+        )
+    register_qdnaseq_extension(
+        QDNAseqExtensionSettings(
+            policy=policy,
+            rscript=args.qdnaseq_rscript,
+            script=args.qdnaseq_script,
+        )
+    )
 
 
 def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool) -> None:
@@ -94,6 +133,7 @@ def _parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="Execute one sample into a resumable run envelope")
     _add_execution_options(run, include_qc=True)
+    _add_cnv_options(run)
     run.add_argument("--threads", type=int, default=4)
     run.add_argument("--git-commit", default="UNKNOWN")
     run.add_argument("--force", action="store_true")
@@ -119,6 +159,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
     )
+    _add_cnv_options(srv)
     srv.add_argument("--port", type=int, default=8765)
     srv.add_argument("--threads", type=int, default=4)
     srv.add_argument("--no-browser", action="store_true")
@@ -159,6 +200,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/alignment/minimap2.ont.technical.yaml"),
     )
+    _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)
     watcher.add_argument("--ready-marker")
     watcher.add_argument("--pod5-subdir")
@@ -195,6 +237,8 @@ def _print_pass(result: PassResult) -> None:
 
 def main() -> None:
     args = _parser().parse_args()
+    if args.command in {"run", "serve", "watch"}:
+        _register_cnv(args)
     try:
         if args.command == "run":
             config = RunConfiguration(
