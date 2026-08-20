@@ -33,7 +33,8 @@ from .review import render_text as render_review_text
 from .service.app import ServiceConfig, serve
 from .status import exit_code as status_exit_code
 from .status import render_json as render_status_json
-from .status import render_ledger, render_text as render_status_text, scan
+from .status import render_ledger, scan
+from .status import render_text as render_status_text
 from .watchfolder import PassResult, WatchConfigurationError, WatchSettings, watch
 
 RUNTIME_COMMANDS = frozenset(
