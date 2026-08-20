@@ -616,7 +616,8 @@ def run_system_smoke(
         )
     )
 
-    verdict = Verdict.FAIL if any(item.status == CheckStatus.FAIL for item in checks) else Verdict.PASS
+    has_failures = any(item.status == CheckStatus.FAIL for item in checks)
+    verdict = Verdict.FAIL if has_failures else Verdict.PASS
     report = SystemSmokeReport(
         verdict=verdict,
         checks=checks,
