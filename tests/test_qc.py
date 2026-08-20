@@ -57,6 +57,19 @@ class FakeCraminoRunner:
         return CommandResult(normalized, 0, CRAMINO_JSON, "")
 
 
+class FailingCraminoRunner:
+    def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
+        normalized = tuple(argv)
+        if normalized[1:] == ("--version",):
+            return CommandResult(normalized, 0, "cramino 1.3.0\n", "")
+        return CommandResult(
+            normalized,
+            101,
+            "",
+            "thread 'main' panicked at missing NM/de alignment tag\nsynthetic diagnostic",
+        )
+
+
 def _policy(mean_coverage: float | None = None) -> QCPolicy:
     return QCPolicy(
         status="technical_defaults_only",
@@ -112,6 +125,18 @@ class CraminoQCTests(unittest.TestCase):
         self.assertEqual(report.tool.version, "1.3.0")
         self.assertEqual(report.qc.verdict, Verdict.WARN)
         self.assertNotIn("/sensitive/", report.model_dump_json())
+
+    def test_runner_includes_bounded_stderr_on_tool_failure(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Cramino failed with exit code 101: .*missing NM/de alignment tag",
+        ):
+            run_cramino_qc(
+                _manifest(),
+                _policy(),
+                runner=FailingCraminoRunner(),
+                threads=2,
+            )
 
 
 if __name__ == "__main__":
