@@ -27,8 +27,7 @@ VCF_HEADER = """##fileformat=VCFv4.2
 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC
 """
 VALID_VCF = (
-    VCF_HEADER
-    + "chr1\t1000\t.\tN\t<DEL>\t60\tPASS\t"
+    VCF_HEADER + "chr1\t1000\t.\tN\t<DEL>\t60\tPASS\t"
     "SVTYPE=DEL;END=1200;SVLEN=-201;SUPPORT=8\tGT:DR:DV\t0/1:8:8\n"
 )
 
