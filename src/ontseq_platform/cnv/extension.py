@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import base64
 import html
-import json
+from collections.abc import MutableMapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Sequence
+from typing import cast
 
 from openpyxl import load_workbook
 
@@ -23,11 +23,10 @@ from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
 from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
-from ..pipeline.stages import SPEC_BY_STAGE, StageId, VerificationStatus
+from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
 from ..workbook import render_workbook
 from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
-
 
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
@@ -65,11 +64,18 @@ def _probe_r_packages(ctx: pipeline_runner.RunContext) -> dict[str, str]:
     )
     packages = ctx.runner.run([settings.rscript, "-e", expression], timeout_seconds=60)
     if packages.returncode != 0:
-        raise ValueError("QDNAseq/ACE R packages are unavailable: " + packages.stderr.strip()[-2000:])
+        diagnostic = packages.stderr.strip()[-2000:]
+        raise ValueError(f"QDNAseq/ACE R packages are unavailable: {diagnostic}")
     lines = [line.strip() for line in packages.stdout.splitlines() if line.strip()]
     if len(lines) < 3:
         raise ValueError("could not determine QDNAseq, ACE and DNAcopy versions")
-    return {"Rscript": r_version.stderr.strip() or r_version.stdout.strip(), "QDNAseq": lines[0], "ACE": lines[1], "DNAcopy": lines[2]}
+    r_text = r_version.stderr.strip() or r_version.stdout.strip()
+    return {
+        "Rscript": r_text,
+        "QDNAseq": lines[0],
+        "ACE": lines[1],
+        "DNAcopy": lines[2],
+    }
 
 
 def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
@@ -100,46 +106,47 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
     )
 
 
-def _record_cnv_outputs(ctx: pipeline_runner.RunContext, report: QDNAseqCallReport) -> list[Artifact]:
+def _record_cnv_outputs(
+    ctx: pipeline_runner.RunContext,
+    report: QDNAseqCallReport,
+) -> list[Artifact]:
     artifacts: list[Artifact] = []
     relative_report = ctx.path(CNV_REPORT)
     artifacts.append(
         ctx.envelope.atomic_write_text(relative_report, report.model_dump_json(indent=2) + "\n")
     )
     for name in report.output_files:
-        # Segmented RDS objects are useful local intermediates but are deliberately not part
-        # of the release/resume contract. Everything required for review is JSON/TSV/PNG.
         if name.lower().endswith(".rds"):
             continue
-        relative = f"{CNV_DIR}/{name}"
-        artifacts.append(ctx.envelope.fingerprint(relative))
+        artifacts.append(ctx.envelope.fingerprint(f"{CNV_DIR}/{name}"))
     return artifacts
 
 
 def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
+    del plan
     if not _requested(ctx):
         return StageResult(
             status=ModuleRunStatus.NOT_RUN,
             reason="CNV was not requested in the sample manifest.",
         )
     settings = _settings()
-    output_dir = ctx.envelope.path(CNV_DIR)
     report = run_qdnaseq_ace(
         bam=Path(ctx.manifest.input.path),
         sample_id=ctx.sample_id,
         genome_build=ctx.manifest.assay.genome_build,
         reference_lock=ctx.config.reference_lock,
         policy=settings.policy,
-        output_dir=output_dir,
+        output_dir=ctx.envelope.path(CNV_DIR),
         script=settings.script,
         runner=ctx.runner,
         rscript=settings.rscript,
         threads=ctx.config.threads,
     )
     artifacts = _record_cnv_outputs(ctx, report)
+    bins = ", ".join(str(value) for value in settings.policy.bin_sizes_kbp)
     reason = (
-        f"QDNAseq+ACE completed at {', '.join(str(x) for x in settings.policy.bin_sizes_kbp)} kbp; "
-        f"primary {report.primary_fit.bin_size_kbp} kbp fit: cellularity "
+        f"QDNAseq+ACE completed at {bins} kbp; primary "
+        f"{report.primary_fit.bin_size_kbp} kbp fit: cellularity "
         f"{report.primary_fit.cellularity:.3f}, ploidy {report.primary_fit.ploidy:.3f}; "
         f"{len(report.events)} normalized CNV event(s)."
     )
@@ -178,25 +185,20 @@ def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
 
 
 def _replace_module(
-    modules: Sequence[ModuleOutcome], replacement: ModuleOutcome
+    modules: Sequence[ModuleOutcome],
+    replacement: ModuleOutcome,
 ) -> list[ModuleOutcome]:
     result = [item for item in modules if item.module != replacement.module]
     result.append(replacement)
     return sorted(result, key=lambda item: item.module.value)
 
 
-def _merge_provenance(base: Provenance, cnv: QDNAseqCallReport, cnv_path: Path) -> Provenance:
-    checksums = dict(base.reference_checksums)
-    checksums["qdnaseq_ace_report"] = sha256_file(cnv_path)
-    return base.model_copy(
-        update={
-            "tools": [*base.tools, *cnv.tools],
-            "reference_checksums": checksums,
-        }
-    )
+def _merge_provenance(base: Provenance, cnv: QDNAseqCallReport) -> Provenance:
+    return base.model_copy(update={"tools": [*base.tools, *cnv.tools]})
 
 
 def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
+    del plan
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(pipeline_runner.INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -219,13 +221,13 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
     )
     cnv = _load_cnv(ctx)
     if cnv is not None:
-        cnv_path = ctx.envelope.path(ctx.path(CNV_REPORT))
         outcome = ModuleOutcome(
             module=AnalysisModule.CNV,
             status=cnv.status,
             reason=(
-                f"QDNAseq+ACE multi-bin CNV completed; primary {cnv.primary_fit.bin_size_kbp} kbp, "
-                f"cellularity {cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
+                f"QDNAseq+ACE multi-bin CNV completed; primary "
+                f"{cnv.primary_fit.bin_size_kbp} kbp, cellularity "
+                f"{cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
             ),
             tools=cnv.tools,
         )
@@ -233,12 +235,13 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             update={
                 "events": [*cnv.events, *result.events],
                 "modules": _replace_module(result.modules, outcome),
-                "provenance": _merge_provenance(result.provenance, cnv, cnv_path),
+                "provenance": _merge_provenance(result.provenance, cnv),
                 "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
             }
         )
     artifact = ctx.envelope.atomic_write_text(
-        ctx.path(pipeline_runner.RESULT_JSON), result.model_dump_json(indent=2) + "\n"
+        ctx.path(pipeline_runner.RESULT_JSON),
+        result.model_dump_json(indent=2) + "\n",
     )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
@@ -265,15 +268,17 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         f"<td>{fit.bin_size_kbp}</td><td>{fit.cellularity:.3f}</td>"
         f"<td>{fit.ploidy:.3f}</td><td>{fit.fit_error:.6g}</td>"
         f"<td>{fit.segment_count}</td></tr>"
-        for fit in sorted(cnv.fits, key=lambda item: item.bin_size_kbp)
+        for fit in sorted(cnv.fits, key=lambda value: value.bin_size_kbp)
     )
-    chr_rows = "".join(
+    chromosome_rows = "".join(
         "<tr>"
-        f"<td>{html.escape(item.chromosome)}</td>"
-        f"<td>{item.median_copy_number:.3f}</td><td>{item.rounded_copy_number}</td>"
-        f"<td>{item.agreeing_bins}/{item.contributing_bins}</td>"
-        f"<td>{item.min_copy_number:.3f}–{item.max_copy_number:.3f}</td></tr>"
-        for item in cnv.chromosome_consensus
+        f"<td>{html.escape(chromosome.chromosome)}</td>"
+        f"<td>{chromosome.median_copy_number:.3f}</td>"
+        f"<td>{chromosome.rounded_copy_number}</td>"
+        f"<td>{chromosome.agreeing_bins}/{chromosome.contributing_bins}</td>"
+        f"<td>{chromosome.min_copy_number:.3f}–{chromosome.max_copy_number:.3f}</td>"
+        "</tr>"
+        for chromosome in cnv.chromosome_consensus
     )
     images: list[str] = []
     for label, name in (
@@ -292,45 +297,88 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
     return (
         "<section><h2>Copy-number analysis — QDNAseq + ACE</h2>"
         f"<p><strong>Primary:</strong> {cnv.primary_fit.bin_size_kbp} kbp; "
-        f"cellularity {cnv.primary_fit.cellularity:.3f}; ploidy {cnv.primary_fit.ploidy:.3f}; "
+        f"cellularity {cnv.primary_fit.cellularity:.3f}; "
+        f"ploidy {cnv.primary_fit.ploidy:.3f}; "
         f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
         "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
         "<th>Cellularity</th><th>Ploidy</th><th>Fit error</th><th>Segments</th>"
         f"</tr></thead><tbody>{fit_rows}</tbody></table>"
         "<h3>Chromosome-level consensus</h3><table><thead><tr><th>Chromosome</th>"
         "<th>Median CN</th><th>Rounded CN</th><th>Agreement</th><th>Range</th>"
-        f"</tr></thead><tbody>{chr_rows}</tbody></table>"
+        f"</tr></thead><tbody>{chromosome_rows}</tbody></table>"
         + "".join(images)
         + "</section>"
     )
 
 
-def _enrich_workbook(path: Path, ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -> None:
-    wb = load_workbook(path)
+def _enrich_workbook(
+    path: Path,
+    ctx: pipeline_runner.RunContext,
+    cnv: QDNAseqCallReport,
+) -> None:
+    workbook = load_workbook(path)
     for title in ("CNV Fits", "CNV Consensus", "CNV Segments"):
-        if title in wb.sheetnames:
-            del wb[title]
+        if title in workbook.sheetnames:
+            del workbook[title]
 
-    fits = wb.create_sheet("CNV Fits")
-    fits.append(["bin_size_kbp", "cellularity", "ploidy", "fit_error", "candidate_count", "segment_count"])
-    for item in sorted(cnv.fits, key=lambda x: x.bin_size_kbp):
-        fits.append([item.bin_size_kbp, item.cellularity, item.ploidy, item.fit_error, item.candidate_count, item.segment_count])
+    fits_sheet = workbook.create_sheet("CNV Fits")
+    fits_sheet.append(
+        [
+            "bin_size_kbp",
+            "cellularity",
+            "ploidy",
+            "fit_error",
+            "candidate_count",
+            "segment_count",
+        ]
+    )
+    for fit in sorted(cnv.fits, key=lambda value: value.bin_size_kbp):
+        fits_sheet.append(
+            [
+                fit.bin_size_kbp,
+                fit.cellularity,
+                fit.ploidy,
+                fit.fit_error,
+                fit.candidate_count,
+                fit.segment_count,
+            ]
+        )
 
-    consensus = wb.create_sheet("CNV Consensus")
-    consensus.append(["chromosome", "median_copy_number", "rounded_copy_number", "agreeing_bins", "contributing_bins", "min_copy_number", "max_copy_number"])
-    for item in cnv.chromosome_consensus:
-        consensus.append([item.chromosome, item.median_copy_number, item.rounded_copy_number, item.agreeing_bins, item.contributing_bins, item.min_copy_number, item.max_copy_number])
+    consensus_sheet = workbook.create_sheet("CNV Consensus")
+    consensus_sheet.append(
+        [
+            "chromosome",
+            "median_copy_number",
+            "rounded_copy_number",
+            "agreeing_bins",
+            "contributing_bins",
+            "min_copy_number",
+            "max_copy_number",
+        ]
+    )
+    for chromosome in cnv.chromosome_consensus:
+        consensus_sheet.append(
+            [
+                chromosome.chromosome,
+                chromosome.median_copy_number,
+                chromosome.rounded_copy_number,
+                chromosome.agreeing_bins,
+                chromosome.contributing_bins,
+                chromosome.min_copy_number,
+                chromosome.max_copy_number,
+            ]
+        )
 
-    segments = wb.create_sheet("CNV Segments")
+    segment_sheet = workbook.create_sheet("CNV Segments")
     segment_path = ctx.envelope.path(f"{CNV_DIR}/{cnv.primary_fit.segment_file}")
     with segment_path.open("r", encoding="utf-8") as handle:
-        rows = list(csv_line.rstrip("\n").split("\t") for csv_line in handle)
-    for row in rows:
-        segments.append(row)
-    wb.save(path)
+        for line in handle:
+            segment_sheet.append(line.rstrip("\n").split("\t"))
+    workbook.save(path)
 
 
 def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
+    del plan
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(pipeline_runner.RESULT_JSON)).read_text(encoding="utf-8")
     )
@@ -343,7 +391,10 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
         document = html_path.read_text(encoding="utf-8")
         section = _cnv_html_section(ctx, cnv)
         marker = "<section><h2>Warnings and limitations</h2>"
-        document = document.replace(marker, section + marker, 1)
+        if marker in document:
+            document = document.replace(marker, section + marker, 1)
+        else:
+            document = document.replace("</main>", section + "</main>", 1)
         html_path.write_text(document, encoding="utf-8")
         _enrich_workbook(xlsx_path, ctx, cnv)
     return StageResult(
@@ -360,8 +411,9 @@ def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:
     """Install the live CNV stage into the existing execution graph for this process."""
     global _SETTINGS
     _SETTINGS = settings
-    current = SPEC_BY_STAGE[StageId.CNV]
-    SPEC_BY_STAGE[StageId.CNV] = replace(
+    specs = cast(MutableMapping[StageId, StageSpec], SPEC_BY_STAGE)
+    current = specs[StageId.CNV]
+    specs[StageId.CNV] = replace(
         current,
         title="QDNAseq + ACE copy-number analysis",
         verification=VerificationStatus.UNVERIFIED_ADAPTER,
@@ -372,8 +424,10 @@ def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:
     )
     pipeline_runner.IMPLEMENTATIONS[StageId.CNV] = StageImplementation(_cnv_plan, _cnv_execute)
     pipeline_runner.IMPLEMENTATIONS[StageId.ASSEMBLE] = StageImplementation(
-        _assemble_plan, _assemble_execute
+        _assemble_plan,
+        _assemble_execute,
     )
     pipeline_runner.IMPLEMENTATIONS[StageId.REPORT] = StageImplementation(
-        _report_plan, _report_execute
+        _report_plan,
+        _report_execute,
     )
