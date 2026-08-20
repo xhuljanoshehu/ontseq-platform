@@ -28,32 +28,40 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
+        id: install
         run: python -m pip install -e ".[dev,workflow]"
       - name: Repository safety
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/check_repository_safety.py
       - name: Schemas are current
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/export_schemas.py --check
       - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           ruff check .
           ruff format --check .
       - name: Type check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: mypy src
       - name: Unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m unittest discover -s tests -v
       - name: Validate Snakemake DAGs
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1
           snakemake --snakefile workflow/aligned_bam.smk --dry-run --cores 4
       - name: Generate synthetic report bundle
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m ontseq_platform demo --output-dir results/demo
       - name: Upload synthetic bundle
-        if: matrix.python-version == '3.12'
+        if: ${{ always() && matrix.python-version == '3.12' }}
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-report-bundle
           path: results/demo/
-          if-no-files-found: error
+          if-no-files-found: warn
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
@@ -183,12 +191,15 @@ jobs:
           test -s "$bai"
           samtools quickcheck -v "$bam"
           test "$(samtools view -c -F 4 "$bam")" -eq 24
-          test "$(samtools view -H "$bam" | grep -c '^@RG')" -eq 2
-          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG'
-          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG2'
-          samtools view "$bam" | grep -q 'MM:Z:C+m?'
-          samtools view "$bam" | grep -q 'ML:B:C,220,180'
-          samtools view -f 16 "$bam" | grep -q '^SYNTH_ALIGN_REV_'
+          samtools view -H "$bam" > /tmp/align.header.sam
+          samtools view "$bam" > /tmp/align.records.sam
+          samtools view -f 16 "$bam" > /tmp/align.reverse.sam
+          test "$(grep -c '^@RG' /tmp/align.header.sam)" -eq 2
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG' /tmp/align.records.sam
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG2' /tmp/align.records.sam
+          grep -q 'MM:Z:C+m?' /tmp/align.records.sam
+          grep -q 'ML:B:C,220,180' /tmp/align.records.sam
+          grep -q '^SYNTH_ALIGN_REV_' /tmp/align.reverse.sam
           test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/manifest/intake.json
           test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/qc/cramino.json
           test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/evidence/sv/SYNTHETIC_ALIGN_001.sniffles.json
