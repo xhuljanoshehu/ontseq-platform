@@ -1,0 +1,216 @@
+name: CNV QDNAseq real-tool
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/cnv/**"
+      - "scripts/run_qdnaseq_ace.R"
+      - "configs/cnv/**"
+      - "workflow/envs/cnv_qdnaseq.yaml"
+      - "tests/test_qdnaseq_runtime.py"
+      - ".github/workflows/cnv-qdnaseq.yml"
+  workflow_dispatch:
+
+jobs:
+  qdnaseq-real-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/cnv_qdnaseq.yaml
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Verify the pinned QDNAseq/ACE stack
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          samtools --version | head -1
+          cramino --version
+          sniffles --version
+          Rscript -e 'cat("R=",R.version.string,"\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep=""); cat("DNAcopy=",as.character(packageVersion("DNAcopy")),"\n",sep="")'
+
+      - name: Build a small whole-genome-shaped GRCh37 BAM
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          mkdir -p results/cnv-fixture
+          python - <<'PY'
+          from pathlib import Path
+
+          lengths = {
+              1: 249250621, 2: 243199373, 3: 198022430, 4: 191154276,
+              5: 180915260, 6: 171115067, 7: 159138663, 8: 146364022,
+              9: 141213431, 10: 135534747, 11: 135006516, 12: 133851895,
+              13: 115169878, 14: 107349540, 15: 102531392, 16: 90354753,
+              17: 81195210, 18: 78077248, 19: 59128983, 20: 63025520,
+              21: 48129895, 22: 51304566,
+          }
+          root = Path("results/cnv-fixture")
+          sam = root / "synthetic.hg19.sam"
+          seq = "ACGT" * 25
+          qual = "I" * 100
+          with sam.open("w", encoding="utf-8") as out:
+              out.write("@HD\tVN:1.6\tSO:unsorted\n")
+              for chrom, length in lengths.items():
+                  out.write(f"@SQ\tSN:chr{chrom}\tLN:{length}\n")
+              out.write("@RG\tID:CNV_SYNTH\tSM:CNV_SYNTH\tPL:ONT\n")
+              serial = 0
+              # One synthetic locus every 100 kbp. chr7 has half-depth and chr8
+              # has 1.5x depth; this is intentionally simple, deterministic data.
+              for chrom, length in lengths.items():
+                  copies = 1 if chrom == 7 else 3 if chrom == 8 else 2
+                  for pos in range(50_001, length - 100, 100_000):
+                      for replicate in range(copies):
+                          serial += 1
+                          out.write(
+                              f"CNVREAD_{serial:07d}\t0\tchr{chrom}\t{pos + replicate * 5}\t60\t100M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:CNV_SYNTH\n"
+                          )
+          fai = root / "synthetic.hg19.fai"
+          fai.write_text("".join(f"chr{c}\t{n}\t0\t0\t0\n" for c, n in lengths.items()), encoding="utf-8")
+          PY
+          samtools view -b results/cnv-fixture/synthetic.hg19.sam \
+            | samtools sort -@ 2 -o results/cnv-fixture/synthetic.hg19.bam -
+          samtools index results/cnv-fixture/synthetic.hg19.bam
+          samtools quickcheck -v results/cnv-fixture/synthetic.hg19.bam
+          rm results/cnv-fixture/synthetic.hg19.sam
+
+      - name: Build manifest and locked reference contract
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("results/cnv-fixture").resolve()
+          bam = root / "synthetic.hg19.bam"
+          bai = root / "synthetic.hg19.bam.bai"
+          fai = root / "synthetic.hg19.fai"
+          lengths = []
+          for line in fai.read_text(encoding="utf-8").splitlines():
+              chrom, length, *_ = line.split("\t")
+              lengths.append({"name": chrom, "length": int(length)})
+          lock = {
+              "schema_version": "0.1.0",
+              "reference_id": "synthetic-hg19-cnv",
+              "genome_build": "GRCh37",
+              "contigs": lengths,
+              "allow_extra_contigs": False,
+              "source_fai_sha256": hashlib.sha256(fai.read_bytes()).hexdigest(),
+          }
+          manifest = {
+              "schema_version": "0.1.0",
+              "sample_id": "CNV_SYNTH_001",
+              "run_id": "CI_CNV_001",
+              "input": {
+                  "kind": "aligned_bam",
+                  "path": str(bam),
+                  "index_path": str(bai),
+                  "sha256": hashlib.sha256(bam.read_bytes()).hexdigest(),
+              },
+              "assay": {
+                  "mode": "lcwgs",
+                  "genome_build": "GRCh37",
+                  "reference_id": "synthetic-hg19-cnv",
+              },
+              "analysis": {
+                  "profile": "cnv-real-tool-ci",
+                  "modules": ["qc", "cnv", "report"],
+                  "intent": "somatic",
+                  "parameters": {},
+              },
+              "privacy": {
+                  "pseudonymized": True,
+                  "contains_direct_identifiers": False,
+                  "cloud_upload_approved": False,
+              },
+          }
+          (root / "reference.lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+          (root / "sample.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run the integrated run-envelope with real QDNAseq and ACE
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform.cnv run \
+            results/cnv-fixture/sample.manifest.json \
+            --reference-lock results/cnv-fixture/reference.lock.json \
+            --output-dir results/runs \
+            --run-id CI_CNV_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/cnv-run.log
+          grep -qE '^  cnv[[:space:]]+(COMPLETED|NO_CALL)' /tmp/cnv-run.log
+
+      - name: Verify normalized CNV, plots, workbook and release
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          root=results/runs/CI_CNV_001/CNV_SYNTH_001
+          test -s "$root/evidence/cnv/CNV_SYNTH_001.qdnaseq.json"
+          test -s "$root/evidence/cnv/qdnaseq/CNV_SYNTH_001.qdnaseq-ace.summary.json"
+          test -s "$root/evidence/cnv/qdnaseq/CNV_SYNTH_001.500kbp.copy-number.png"
+          test -s "$root/evidence/cnv/qdnaseq/CNV_SYNTH_001.500kbp.ace-fit.png"
+          test -s "$root/evidence/cnv/qdnaseq/CNV_SYNTH_001.consensus.chromosomes.tsv"
+          test -s "$root/normalized/CNV_SYNTH_001.result.json"
+          test -s "$root/reports/CNV_SYNTH_001.report.html"
+          test -s "$root/reports/CNV_SYNTH_001.results.xlsx"
+          grep -q 'Copy-number analysis — QDNAseq + ACE' "$root/reports/CNV_SYNTH_001.report.html"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from openpyxl import load_workbook
+
+          root = Path("results/runs/CI_CNV_001/CNV_SYNTH_001")
+          result = json.loads((root / "normalized/CNV_SYNTH_001.result.json").read_text(encoding="utf-8"))
+          cnv = next(item for item in result["modules"] if item["module"] == "cnv")
+          assert cnv["status"] in {"COMPLETED", "NO_CALL"}, cnv
+          report = json.loads((root / "evidence/cnv/CNV_SYNTH_001.qdnaseq.json").read_text(encoding="utf-8"))
+          assert [fit["bin_size_kbp"] for fit in report["fits"]] == [100, 500, 1000]
+          assert report["primary_fit"]["bin_size_kbp"] == 500
+          wb = load_workbook(root / "reports/CNV_SYNTH_001.results.xlsx", read_only=True)
+          assert "CNV Fits" in wb.sheetnames
+          assert "CNV Consensus" in wb.sheetnames
+          assert "CNV Segments" in wb.sheetnames
+          PY
+          cd "$root"
+          sha256sum -c release/checksums.sha256
+
+      - name: Re-run unchanged input and prove CNV resume
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform.cnv run \
+            results/cnv-fixture/sample.manifest.json \
+            --reference-lock results/cnv-fixture/reference.lock.json \
+            --output-dir results/runs \
+            --run-id CI_CNV_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/cnv-resume.log
+          grep -qE '^  cnv[[:space:]]+resumed' /tmp/cnv-resume.log
+          cd results/runs/CI_CNV_001/CNV_SYNTH_001
+          sha256sum -c release/checksums.sha256
+
+      - name: Upload compact CNV reviewer artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qdnaseq-real-tool-smoke
+          path: |
+            results/runs/CI_CNV_001/CNV_SYNTH_001/evidence/cnv/CNV_SYNTH_001.qdnaseq.json
+            results/runs/CI_CNV_001/CNV_SYNTH_001/evidence/cnv/qdnaseq/CNV_SYNTH_001.qdnaseq-ace.summary.json
+            results/runs/CI_CNV_001/CNV_SYNTH_001/evidence/cnv/qdnaseq/CNV_SYNTH_001.500kbp.copy-number.png
+            results/runs/CI_CNV_001/CNV_SYNTH_001/evidence/cnv/qdnaseq/CNV_SYNTH_001.500kbp.ace-fit.png
+            results/runs/CI_CNV_001/CNV_SYNTH_001/evidence/cnv/qdnaseq/CNV_SYNTH_001.consensus.chromosomes.tsv
+            results/runs/CI_CNV_001/CNV_SYNTH_001/normalized/CNV_SYNTH_001.result.json
+            results/runs/CI_CNV_001/CNV_SYNTH_001/reports/CNV_SYNTH_001.report.html
+            results/runs/CI_CNV_001/CNV_SYNTH_001/reports/CNV_SYNTH_001.results.xlsx
+            results/runs/CI_CNV_001/CNV_SYNTH_001/provenance/run.json
+            results/runs/CI_CNV_001/CNV_SYNTH_001/release/release.json
+            results/runs/CI_CNV_001/CNV_SYNTH_001/release/checksums.sha256
+          if-no-files-found: warn
