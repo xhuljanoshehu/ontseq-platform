@@ -1,0 +1,40 @@
+schema_version: 0.1.0
+profile_id: dorado_technical_v1
+status: technical_defaults_only
+
+# WARNING
+# This adapter has never been executed against a real Dorado binary, here or in CI.
+# Dorado needs a GPU, downloaded model files and real POD5 signal, none of which exist in
+# the environments available to this repository's tests. Every artifact produced through
+# this profile is marked `unverified_adapter`. Treat the first real run as a test of the
+# adapter, not as a production run.
+
+# Replace with the exact version installed locally. The adapter fails closed on mismatch.
+expected_version: "0.9.0"
+
+# A model name resolves through Dorado's own cache and cannot be checksummed. An absolute
+# path to a downloaded model directory can be, and then `model_sha256` should be set so a
+# partially downloaded or altered model is refused.
+#
+#   ontseq model-lock /path/to/dna_r10.4.1_e8.2_400bps_sup@v5.0.0
+#
+# prints both lines to record here, and exits 2 without offering a checksum when the
+# directory holds empty files or broken links. Record `model` and `model_sha256` together:
+# the checksum belongs to that directory, so a moved or re-downloaded model needs a fresh
+# run of the command rather than the old value copied across.
+model: dna_r10.4.1_e8.2_400bps_sup@v5.0.0
+model_sha256: null
+
+# Requested explicitly: a run basecalled without MM/ML tags cannot support methylation
+# later, and the loss stays invisible until someone tries.
+modified_bases:
+  - 5mCG_5hmCG
+
+device: cuda:all
+minimum_qscore: null
+emit_moves: false
+
+note: >-
+  Technical defaults only. Basecalling accuracy depends on model, chemistry and flow-cell
+  version, none of which is validated here. Duplex basecalling, demultiplexing and adapter
+  trimming are out of scope for this adapter.

@@ -1,0 +1,15 @@
+schema_version: 0.1.0
+profile_id: minimap2_ont_technical_v1
+status: technical_defaults_only
+expected_minimap2_version: "2.28"
+expected_samtools_version: "1.24"
+preset: map-ont
+emit_md_tag: true
+# Soft clipping is mandatory rather than preferred: hard-clipped supplementary alignments
+# discard the clipped sequence that long-read SV callers use to place a breakpoint.
+soft_clip_supplementary: true
+preserve_modified_base_tags: true
+note: >-
+  Technical, reproducibility-locked alignment defaults. These are not validated assay
+  settings, and no alignment quality gate is applied here; the aligned-BAM intake gate is
+  the fail-closed boundary.

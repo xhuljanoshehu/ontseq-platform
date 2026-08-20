@@ -1,0 +1,48 @@
+# Vorlage für einen GridION-/PromethION-Lauf mit Adaptive Sampling, bei dem das Basecalling
+# bereits auf dem Gerät gelaufen ist. Alle Pfade sind Platzhalter.
+#
+# Diese Datei enthält keine echten Proben- oder Patientendaten und darf auch keine
+# bekommen: `scripts/check_repository_safety.py` prüft das bei jedem CI-Lauf.
+#
+# Schritt-für-Schritt: docs/SCHNELLSTART.md
+schema_version: 0.1.0
+
+# Pseudonym. Keine Klarnamen, keine Fallnummern, keine Geburtsdaten.
+sample_id: PROBE_001
+# Frei wählbar; taucht als Verzeichnisname unter --output-dir auf.
+run_id: RUN_001
+
+input:
+  # Das Gerät hat bereits basecallt und aligniert, also steigt die Kette hier ein.
+  # Die POD5-Strecke wird damit nicht gebraucht.
+  kind: aligned_bam
+  path: /pfad/zum/lauf/sample.bam
+  index_path: /pfad/zum/lauf/sample.bam.bai
+
+assay:
+  mode: adaptive_sampling
+  genome_build: GRCh38
+  # Muss zeichengleich mit der reference_id im Reference-Lock sein, sonst bricht die
+  # Eingangsprüfung ab. Genau das verhindert die Auswertung gegen die falsche Referenz.
+  reference_id: UCSC_HG38_CHR_ONLY_2024-11
+  # Bei adaptive_sampling Pflicht: ohne die Angabe, was angereichert wurde, ist eine
+  # Abdeckungszahl nicht interpretierbar.
+  target_bed: /pfad/zum/panel/fusion_panel_with_buffer.bed
+  target_bed_version: "250611"
+
+analysis:
+  profile: adaptive_sampling
+  # cnv ist hier absichtlich nicht aufgeführt: es ist kein Caller verdrahtet, die Stufe
+  # würde NOT_RUN melden. Aufnehmen, sobald einer gewählt ist.
+  modules: [qc, sv, iscn, report]
+  # Ohne Vorgabewert und bewusst so: eine AML-Abklärung fragt nach erworbenen
+  # Veränderungen. Bleibt das Feld leer, meldet jede ClinVar-Annotation ihren
+  # Geltungsbereich als `unknown` — korrekt, aber wertlos.
+  intent: somatic
+  parameters: {}
+
+privacy:
+  pseudonymized: true
+  # true wird vom Kontrakt abgelehnt.
+  contains_direct_identifiers: false
+  cloud_upload_approved: false

@@ -1,91 +1,63 @@
-rule inspect_aligned_bam:
-    """Fail closed on BAM/index/reference incompatibility before scientific analysis."""
+"""One rule, because there is one execution path.
+
+This workflow used to re-implement the pipeline as five Snakemake rules, each invoking a
+per-stage CLI command. That made Snakemake a *second* way to run a sample: it produced flat
+files instead of a run envelope, recorded no per-artifact tool versions, had no release
+bundle, and resumed on file timestamps rather than on content. Two paths mean two
+behaviours, and only one of them was ever proven in CI.
+
+ADR-013 settles this: a scheduler is a caller of ``ontseq run``, not an alternative to it.
+What Snakemake is genuinely good for here — cluster submission, resource declarations,
+fanning many samples out through an executor plugin — is preserved. What it was doing
+badly, namely re-deriving the stage graph, is not.
+
+Resume is deliberately left to the runner rather than expressed as per-stage Snakemake
+outputs. The runner compares content hashes, parameters and tool versions; Snakemake
+compares mtimes, and an mtime comparison would happily accept an artifact produced under
+different parameters.
+"""
+
+
+rule ontseq_run:
+    """Execute the whole pipeline for one sample into a resumable run envelope."""
     input:
         manifest=config["manifest"],
         reference_lock=config["reference_lock"],
+        qc_policy=config["qc_policy"],
+        sniffles_policy=config["sniffles_policy"],
     output:
-        config["outputs"]["intake"],
-    params:
-        samtools=config["tools"]["samtools"],
-    conda:
-        "../envs/aligned_bam.yaml"
-    shell:
-        "PYTHONPATH=src python -m ontseq_platform inspect-bam {input.manifest:q} "
-        "--reference-lock {input.reference_lock:q} --samtools {params.samtools:q} "
-        "--output {output:q}"
-
-
-rule cramino_qc:
-    """Normalize descriptive long-read QC without inventing clinical thresholds."""
-    input:
-        manifest=config["manifest"],
-        intake=config["outputs"]["intake"],
-        policy=config["qc_policy"],
-    output:
-        config["outputs"]["qc"],
-    params:
-        cramino=config["tools"]["cramino"],
-        threads=config["threads"],
-    conda:
-        "../envs/aligned_bam.yaml"
-    shell:
-        "PYTHONPATH=src python -m ontseq_platform qc-cramino {input.manifest:q} "
-        "--policy {input.policy:q} --cramino {params.cramino:q} "
-        "--threads {params.threads} --output {output:q}"
-
-
-rule sniffles2_candidates:
-    """Call and normalize non-reportable Sniffles2 SV candidates."""
-    input:
-        manifest=config["manifest"],
-        intake=config["outputs"]["intake"],
-        policy=config["sniffles_policy"],
-    output:
-        vcf=config["outputs"]["sniffles_vcf"],
-        report=config["outputs"]["sniffles"],
-    params:
-        sniffles=config["tools"]["sniffles"],
-        threads=config["threads"],
-    conda:
-        "../envs/aligned_bam.yaml"
-    shell:
-        "PYTHONPATH=src python -m ontseq_platform call-sniffles {input.manifest:q} "
-        "--intake {input.intake:q} --policy {input.policy:q} "
-        "--sniffles {params.sniffles:q} --threads {params.threads} "
-        "--vcf {output.vcf:q} --output {output.report:q}"
-
-
-rule assemble_aligned_bam_mvp:
-    """Create a result with candidate-only SV evidence and explicit unrun modules."""
-    input:
-        manifest=config["manifest"],
-        intake=config["outputs"]["intake"],
-        qc=config["outputs"]["qc"],
-        sniffles=config["outputs"]["sniffles"],
-    output:
-        config["outputs"]["result"],
-    params:
-        git_commit=config["git_commit"],
-    conda:
-        "../envs/aligned_bam.yaml"
-    shell:
-        "PYTHONPATH=src python -m ontseq_platform assemble-aligned-mvp {input.manifest:q} "
-        "--intake {input.intake:q} --qc {input.qc:q} --sniffles {input.sniffles:q} "
-        "--git-commit {params.git_commit:q} "
-        "--output {output:q}"
-
-
-rule render_aligned_bam_mvp:
-    """Render self-contained reviewer artifacts from the structured result."""
-    input:
-        result=config["outputs"]["result"],
-    output:
-        html=config["outputs"]["html"],
-        xlsx=config["outputs"]["xlsx"],
+        run_report=config["outputs"]["run_report"],
+        release=config["outputs"]["release"],
+        checksums=config["outputs"]["checksums"],
     params:
         output_dir=config["output_dir"],
+        run_id=config["run_id"],
+        threads=config["threads"],
+        git_commit=config["git_commit"],
+        samtools=config["tools"]["samtools"],
+        cramino=config["tools"]["cramino"],
+        sniffles=config["tools"]["sniffles"],
+        minimap2=config["tools"]["minimap2"],
+        # Only needed when the run starts from POD5 or an unaligned BAM; an aligned-BAM
+        # run must not be forced to name a FASTA it will never read.
+        reference_fasta=(
+            f"--reference-fasta {config['reference_fasta']}"
+            if config.get("reference_fasta")
+            else ""
+        ),
     conda:
         "../envs/aligned_bam.yaml"
     shell:
-        "PYTHONPATH=src python -m ontseq_platform render {input.result:q} "
-        "--output-dir {params.output_dir:q}"
+        "PYTHONPATH=src python -m ontseq_platform run {input.manifest:q} "
+        "--reference-lock {input.reference_lock:q} "
+        "--qc-policy {input.qc_policy:q} "
+        "--sniffles-policy {input.sniffles_policy:q} "
+        "--output-dir {params.output_dir:q} "
+        "--run-id {params.run_id:q} "
+        "--threads {params.threads} "
+        "--git-commit {params.git_commit:q} "
+        "--samtools {params.samtools:q} "
+        "--cramino {params.cramino:q} "
+        "--sniffles {params.sniffles:q} "
+        "--minimap2 {params.minimap2:q} "
+        "{params.reference_fasta}"
