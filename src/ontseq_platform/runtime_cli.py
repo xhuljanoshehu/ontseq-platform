@@ -214,17 +214,20 @@ def main() -> None:
                 executables=_executables(args),
                 force=args.force,
             )
-            report, release = run_pipeline(config)
-            for stage in report.stages:
+            run_report, release = run_pipeline(config)
+            for stage in run_report.stages:
                 marker = "resumed" if stage.resumed else stage.status.value
                 print(f"  {stage.stage.value:<16} {marker:<10} {stage.reason}")
-            print(f"verdict: {'PASS' if report.passed else 'FAIL'} - {report.verdict_reason}")
-            if report.unverified_stages:
-                names = ", ".join(item.value for item in report.unverified_stages)
+            print(
+                f"verdict: {'PASS' if run_report.passed else 'FAIL'} - "
+                f"{run_report.verdict_reason}"
+            )
+            if run_report.unverified_stages:
+                names = ", ".join(item.value for item in run_report.unverified_stages)
                 print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
             if release is not None:
                 print(f"release bundle: {len(release.artifacts)} artifact(s), unsigned")
-            if not report.passed:
+            if not run_report.passed:
                 raise SystemExit(2)
 
         elif args.command == "preflight":
@@ -294,14 +297,14 @@ def main() -> None:
                 print(entry.describe())
                 print(f"bound to release bundle {entry.release_sha256}")
             else:
-                report = inspect_review(args.envelope)
+                review_report = inspect_review(args.envelope)
                 if args.as_json:
-                    print(render_review_json(report), end="")
+                    print(render_review_json(review_report), end="")
                 else:
-                    print(render_review_text(report, verbose=args.verbose))
+                    print(render_review_text(review_report, verbose=args.verbose))
                 code = review_exit_code(
-                    report.state,
-                    reviewers=len(report.reviewers),
+                    review_report.state,
+                    reviewers=len(review_report.reviewers),
                     required_reviewers=args.require_reviewers,
                 )
                 if code:
