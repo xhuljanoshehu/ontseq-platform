@@ -245,7 +245,7 @@ def main() -> None:
         elif args.command == "local-smoke":
             qc_policy = load_model(args.qc_policy, QCPolicy)
             sniffles_policy = load_model(args.sniffles_policy, SnifflesPolicy)
-            smoke_report = run_local_smoke(
+            local_smoke_report = run_local_smoke(
                 args.output_dir,
                 qc_policy,
                 sniffles_policy,
@@ -257,12 +257,14 @@ def main() -> None:
                 git_commit=args.git_commit,
             )
             print(args.output_dir / "local-smoke.report.json")
-            print(f"PASS: {smoke_report.sniffles.accepted_record_count} SV candidate(s)")
+            print(
+                f"PASS: {local_smoke_report.sniffles.accepted_record_count} SV candidate(s)"
+            )
         elif args.command == "system-smoke":
             from .cnv.qdnaseq import QDNAseqPolicy
             from .system_smoke import run_system_smoke
 
-            smoke_report = run_system_smoke(
+            system_smoke_report = run_system_smoke(
                 args.output_dir,
                 load_model(args.qc_policy, QCPolicy),
                 load_model(args.sniffles_policy, SnifflesPolicy),
@@ -277,7 +279,7 @@ def main() -> None:
                 git_commit=args.git_commit,
             )
             print(args.output_dir / "system-smoke.report.json")
-            print(f"PASS: {len(smoke_report.checks)} system checks")
+            print(f"PASS: {len(system_smoke_report.checks)} system checks")
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
