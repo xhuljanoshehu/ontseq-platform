@@ -72,9 +72,7 @@ def _report(
         _event("CNV_SYNTH_0001", "chr7", EventType.CHROMOSOME_LOSS, 1.0),
     ]
     if include_gain8:
-        events.append(
-            _event("CNV_SYNTH_0002", "chr8", EventType.CHROMOSOME_GAIN, 3.0)
-        )
+        events.append(_event("CNV_SYNTH_0002", "chr8", EventType.CHROMOSOME_GAIN, 3.0))
     return QDNAseqCallReport(
         sample_id="SYNTH",
         genome_build=GenomeBuild.GRCH37,
@@ -133,22 +131,22 @@ class SystemSmokeTruthTests(unittest.TestCase):
         self.assertTrue(all(item.status == CheckStatus.PASS for item in checks), checks)
 
     def test_missing_chr8_gain_is_detected(self) -> None:
-        checks = {item.name: item for item in cnv_truth_checks(
-            _report(include_gain8=False), self.policy
-        )}
+        checks = {
+            item.name: item for item in cnv_truth_checks(_report(include_gain8=False), self.policy)
+        }
         self.assertEqual(checks["expected_chr8_gain"].status, CheckStatus.FAIL)
         self.assertEqual(checks["expected_chr7_loss"].status, CheckStatus.PASS)
 
     def test_multibin_disagreement_is_detected(self) -> None:
-        checks = {item.name: item for item in cnv_truth_checks(
-            _report(chr8_agreeing_bins=2), self.policy
-        )}
+        checks = {
+            item.name: item for item in cnv_truth_checks(_report(chr8_agreeing_bins=2), self.policy)
+        }
         self.assertEqual(checks["cnv_multibin_consensus"].status, CheckStatus.FAIL)
 
     def test_wrong_primary_bin_is_detected(self) -> None:
-        checks = {item.name: item for item in cnv_truth_checks(
-            _report(primary_bin=100), self.policy
-        )}
+        checks = {
+            item.name: item for item in cnv_truth_checks(_report(primary_bin=100), self.policy)
+        }
         self.assertEqual(checks["qdnaseq_primary_bin"].status, CheckStatus.FAIL)
 
 
