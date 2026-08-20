@@ -128,14 +128,19 @@ jobs:
                 --cramino /opt/ontseq/bin/cramino \
                 --sniffles /opt/ontseq/bin/sniffles \
                 --threads 2
-              test -s /tmp/ontseq-system-smoke/system-smoke.report.json
-              grep -q '"verdict": "PASS"' /tmp/ontseq-system-smoke/system-smoke.report.json
+              report=/tmp/ontseq-system-smoke/system-smoke.report.json
+              test -s "$report"
+              verdict="$(env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq -r .verdict "$report")"
+              test "$verdict" = "PASS"
+              echo "system-smoke verdict: $verdict"
               root=/tmp/ontseq-system-smoke/runs/SYSTEM_CNV_SMOKE_RUN_001/SYSTEM_CNV_SMOKE_001
               test -s "$root/evidence/cnv/SYSTEM_CNV_SMOKE_001.qdnaseq.json"
               test -s "$root/reports/SYSTEM_CNV_SMOKE_001.report.html"
               test -s "$root/reports/SYSTEM_CNV_SMOKE_001.results.xlsx"
+              echo "verifying release checksums independently with GNU sha256sum"
               cd "$root"
               sha256sum -c release/checksums.sha256
+              echo "stock Ubuntu full system smoke: PASS"
             '
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
