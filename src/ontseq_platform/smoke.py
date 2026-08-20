@@ -6,6 +6,7 @@ from .bam_intake import AlignedBamInspector
 from .execution import CommandRunner, SubprocessRunner
 from .io import write_json
 from .models import (
+    AnalysisIntent,
     AnalysisModule,
     AnalysisSpec,
     AssayMode,
@@ -206,6 +207,11 @@ def run_local_smoke(
         analysis=AnalysisSpec(
             profile="synthetic-local-tool-smoke",
             modules=[AnalysisModule.QC, AnalysisModule.SV, AnalysisModule.REPORT],
+            # Stated because the intended use is haematological malignancy, where the
+            # question is somatic. Without it every knowledge-base annotation reports its
+            # scope as unknown, and the fixture would never exercise the case that matters:
+            # a germline classification surfacing under a somatic question.
+            intent=AnalysisIntent.SOMATIC,
         ),
     )
     reference_lock = reference_lock_from_fai(

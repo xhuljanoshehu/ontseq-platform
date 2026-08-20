@@ -1,0 +1,494 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ONTSeq</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --ink:#12181f; --muted:#5b6773; --line:#d9e0e7; --bg:#f4f6f8; --panel:#fff;
+    --accent:#075985; --ok:#0f7b4f; --warn:#b45309; --bad:#b42318; --idle:#8a949e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{background:var(--accent);color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px;letter-spacing:.02em}
+  header p{margin:2px 0 0;opacity:.85;font-size:13px}
+  main{max-width:960px;margin:0 auto;padding:24px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          padding:20px;margin-bottom:18px}
+  h2{margin:0 0 14px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;
+     color:var(--muted)}
+  label{display:block;font-weight:600;margin:14px 0 4px;font-size:13px}
+  input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--line);
+                   border-radius:6px;font:inherit;background:#fff}
+  .row{display:flex;gap:10px;align-items:center}
+  .row input{flex:1}
+  button{font:inherit;padding:9px 16px;border-radius:6px;border:1px solid var(--line);
+         background:#fff;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);
+                 font-weight:600;padding:11px 22px}
+  .choice{display:inline-flex;gap:18px;margin-top:4px}
+  .choice label{font-weight:400;margin:0;display:inline-flex;gap:6px;align-items:center}
+  .browser{border:1px solid var(--line);border-radius:6px;max-height:260px;overflow:auto;
+           margin-top:8px;display:none}
+  .browser.open{display:block}
+  .entry{display:flex;gap:10px;padding:7px 12px;cursor:pointer;border-bottom:1px solid #eef2f5}
+  .entry:hover{background:#f0f6fb}
+  .entry .grow{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  .entry .note{color:var(--warn);font-size:12px}
+  .path{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);
+        padding:7px 12px;background:#f7f9fb;border-bottom:1px solid var(--line)}
+  ul.stages{list-style:none;padding:0;margin:0}
+  ul.stages li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #eef2f5;
+               align-items:baseline}
+  .mark{width:1.4em;text-align:center;font-weight:700}
+  .completed .mark{color:var(--ok)} .no_call .mark{color:var(--accent)}
+  .failed .mark{color:var(--bad)} .not_run .mark{color:var(--idle)}
+  .running .mark{color:var(--warn)}
+  .name{font-weight:600;min-width:9em}
+  .why{color:var(--muted);font-size:13px;flex:1}
+  .legend{margin-top:16px;padding:12px 14px;background:#f7f9fb;border-radius:6px;
+          font-size:13px;color:var(--muted)}
+  .legend b{color:var(--ink)}
+  .banner{background:#fef6e7;border:1px solid #f0d9a8;border-radius:6px;padding:12px 14px;
+          font-size:13px;margin-bottom:18px}
+  .err{background:#fdf0ef;border-color:#f2c9c4;color:#7a1c14}
+  .files a{display:inline-block;margin:4px 10px 4px 0;color:var(--accent)}
+  .hidden{display:none}
+  .drop{border:2px dashed var(--line);border-radius:8px;padding:24px 16px;text-align:center;
+        color:var(--muted);background:#fbfcfd;margin:2px 0 12px;transition:border-color .15s}
+  .drop.hot{border-color:var(--accent);background:#eef6fb;color:var(--accent)}
+  .drop b{display:block;font-size:15px;color:var(--ink);margin-bottom:3px}
+  .drop small{font-size:12.5px;line-height:1.4;display:block}
+  .matches button{display:block;width:100%;text-align:left;margin-bottom:5px;
+                  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  nav.tabs{display:flex;gap:2px;margin:-4px 0 18px}
+  nav.tabs button{border-radius:6px 6px 0 0;border-bottom-color:transparent;
+                  font-weight:600;color:var(--muted)}
+  nav.tabs button.on{background:var(--panel);color:var(--accent);border-color:var(--line);
+                     border-bottom-color:var(--panel)}
+  table.cases{width:100%;border-collapse:collapse}
+  table.cases th{text-align:left;font-size:12px;text-transform:uppercase;
+                 letter-spacing:.06em;color:var(--muted);padding:0 10px 8px 0;
+                 border-bottom:1px solid var(--line)}
+  table.cases td{padding:11px 10px 11px 0;border-bottom:1px solid #eef2f5;
+                 vertical-align:top;font-size:14px}
+  table.cases tr:hover{background:#f7fafc}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.04em;
+       padding:2px 8px;border-radius:3px;text-transform:uppercase}
+  .t-passed{background:#e2f1e8;color:var(--ok)} .t-failed{background:#fdf0ef;color:var(--bad)}
+  .t-accepted{background:#e2f1e8;color:var(--ok)}
+  .t-rejected{background:#fdf0ef;color:var(--bad)}
+  .t-pending{background:#fef6e7;color:var(--warn)}
+  .t-stale{background:#fdf0ef;color:var(--bad)}
+  .t-none{background:#eef2f5;color:var(--idle)}
+  .signoff{margin-top:10px;padding:14px;border:1px solid var(--line);border-radius:6px;
+           background:#f7f9fb}
+  .signoff .row{margin-bottom:8px}
+  .notrun{color:var(--idle);font-size:12.5px}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:8px 0 28px}
+</style>
+
+<header>
+  <h1>ONTSeq</h1>
+  <p>Oxford Nanopore Analysis Platform · nur für Forschungszwecke, kein validierter Befund</p>
+</header>
+
+<main>
+  <div id="notice" class="banner">Verbinde mit der Analyse-Engine …</div>
+
+  <nav class="tabs">
+    <button id="tab-run" class="on">Analyse starten</button>
+    <button id="tab-cases">Befunde &amp; Vidierung</button>
+  </nav>
+
+  <section id="cases-panel" class="hidden">
+    <h2>Befunde</h2>
+    <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">
+      Alle Läufe in diesem Ausgabeverzeichnis — auch die fehlgeschlagenen und die, deren
+      Freigabe verfallen ist. Eine Liste, die nur das Gelungene zeigt, sieht ordentlicher
+      aus und ist weniger wahr.
+    </p>
+    <table class="cases" id="cases"></table>
+  </section>
+
+  <section id="form-panel">
+    <h2>Analyse</h2>
+
+    <div class="drop" id="drop">
+      <b>BAM-Datei hierher ziehen</b>
+      <small>Die Datei bleibt liegen, wo sie ist — es wird nichts kopiert und nichts
+        hochgeladen. Gesucht wird nur ihr Name in den freigegebenen Ordnern.</small>
+    </div>
+    <div class="matches" id="matches"></div>
+
+    <label>BAM-Datei</label>
+    <div class="row">
+      <input type="text" id="bam" placeholder="P:\NANOPORE\...\sample.bam" autocomplete="off">
+      <button type="button" id="browse-btn">Auswählen</button>
+    </div>
+    <div class="browser" id="browser"></div>
+
+    <label for="sample">Sample-ID</label>
+    <input type="text" id="sample" placeholder="PROBE_001" autocomplete="off">
+
+    <label for="run">Run-ID</label>
+    <input type="text" id="run" placeholder="260611_RAD114_AS_PROBE" autocomplete="off">
+
+    <label>Referenz</label>
+    <div class="choice">
+      <label><input type="radio" name="build" value="GRCh38" checked> GRCh38</label>
+      <label><input type="radio" name="build" value="GRCh37"> GRCh37</label>
+    </div>
+
+    <label>Assay</label>
+    <div class="choice">
+      <label><input type="radio" name="assay" value="adaptive_sampling" checked>
+             Adaptive Sampling</label>
+      <label><input type="radio" name="assay" value="lcwgs"> Whole Genome (lcWGS)</label>
+    </div>
+
+    <div id="bed-block">
+      <label for="bed">Target-BED <span style="font-weight:400;color:var(--muted)">
+        — bei Adaptive Sampling erforderlich</span></label>
+      <input type="text" id="bed" placeholder="P:\...\fusion_panel_with_buffer.bed">
+      <label for="bedver">BED-Version</label>
+      <input type="text" id="bedver" placeholder="250611">
+    </div>
+
+    <p style="margin-top:22px"><button class="primary" id="start">Analyse starten</button></p>
+  </section>
+
+  <section id="progress-panel" class="hidden">
+    <h2>Fortschritt</h2>
+    <ul class="stages" id="stages"></ul>
+    <div class="legend">
+      <b>✓ abgeschlossen</b> — gelaufen, Ergebnis liegt vor &nbsp;·&nbsp;
+      <b>◇ kein Nachweis</b> — gelaufen, nichts gefunden: ein biologisch negatives Ergebnis
+      &nbsp;·&nbsp; <b>✕ fehlgeschlagen</b> — versucht, gescheitert &nbsp;·&nbsp;
+      <b>– nicht ausgeführt</b> — <b>gar nicht gelaufen. Das ist kein negativer Befund.</b>
+    </div>
+  </section>
+
+  <section id="result-panel" class="hidden">
+    <h2>Ergebnisse</h2>
+    <p id="verdict"></p>
+    <div class="files" id="files"></div>
+    <div class="legend">Freigabe erfolgt nicht hier, sondern durch Vidierung:
+      <code>ontseq review record …</code>. Bis dahin ist nichts freigegeben.</div>
+  </section>
+</main>
+
+<footer>ONTSeq <span id="version"></span> · Dienst nur auf 127.0.0.1</footer>
+
+<script>
+// The token is substituted by the service when it serves this page, so nobody has to copy
+// it. A copy of this file opened straight from disk therefore cannot drive the service —
+// which is the intended outcome, not a limitation.
+const TOKEN = "__ONTSEQ_TOKEN__";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {"X-ONTSeq-Token": TOKEN, "Content-Type": "application/json",
+              ...(options.headers || {})},
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+
+function notice(text, bad) {
+  const el = $("notice");
+  el.textContent = text;
+  el.className = "banner" + (bad ? " err" : "");
+  el.style.display = text ? "" : "none";
+}
+
+let CONFIG = null;
+
+async function boot() {
+  try {
+    CONFIG = await api("/api/config");
+    $("version").textContent = CONFIG.version;
+    notice("Nicht ausgeführt in dieser Fassung: " + CONFIG.not_wired.join(" · "));
+  } catch (error) {
+    notice("Keine Verbindung zur Analyse-Engine: " + error.message, true);
+  }
+}
+
+// --- server-side file browser ------------------------------------------------------
+// A browser file dialog hands JavaScript only the file name, never the path, so the
+// service lists the directories it was told it may read and the operator picks from those.
+async function browse(path) {
+  const box = $("browser");
+  try {
+    const listing = await api("/api/browse?path=" + encodeURIComponent(path || ""));
+    box.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "path";
+    header.textContent = listing.display;
+    box.appendChild(header);
+    if (listing.parent) box.appendChild(entry("..", listing.parent, true, null, true));
+    for (const item of listing.entries) {
+      box.appendChild(entry(item.name, item.posix, item.directory, item, false));
+    }
+    box.classList.add("open");
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function entry(name, posix, isDir, item, isUp) {
+  const row = document.createElement("div");
+  row.className = "entry";
+  const label = document.createElement("span");
+  label.className = "grow";
+  label.textContent = (isDir ? "📁 " : "🧬 ") + name;
+  row.appendChild(label);
+  if (item && !isDir) {
+    const size = document.createElement("span");
+    size.style.color = "var(--muted)";
+    size.style.fontSize = "12px";
+    size.textContent = (item.size_bytes / 1e9).toFixed(1) + " GB";
+    row.appendChild(size);
+    if (!item.indexed) {
+      const warn = document.createElement("span");
+      warn.className = "note";
+      warn.textContent = "kein .bai";
+      row.appendChild(warn);
+    }
+  }
+  row.onclick = () => {
+    if (isDir || isUp) { browse(posix); return; }
+    $("bam").value = item.display;
+    $("browser").classList.remove("open");
+    if (!$("sample").value) $("sample").value = name.replace(/\.bam$/i, "");
+  };
+  return row;
+}
+
+$("browse-btn").onclick = () => {
+  const box = $("browser");
+  if (box.classList.contains("open")) { box.classList.remove("open"); return; }
+  browse("");
+};
+
+document.querySelectorAll('input[name=assay]').forEach((radio) => {
+  radio.onchange = () => {
+    $("bed-block").style.display = radio.value === "adaptive_sampling" ? "" : "none";
+  };
+});
+
+// --- run -----------------------------------------------------------------------------
+const MARKS = {completed: "✓", no_call: "◇", failed: "✕", not_run: "–", running: "●"};
+const WORDS = {completed: "abgeschlossen", no_call: "kein Nachweis",
+               failed: "fehlgeschlagen", not_run: "nicht ausgeführt"};
+
+function renderStages(stages) {
+  const list = $("stages");
+  list.innerHTML = "";
+  for (const stage of stages) {
+    // The API hands over the contract's own value — COMPLETED, NO_CALL, FAILED, NOT_RUN —
+    // verbatim, so what the page shows can be compared with provenance/run.json without
+    // translating. Lowercasing happens here, at the point of display, and nowhere else.
+    const key = String(stage.status || "").toLowerCase();
+    const li = document.createElement("li");
+    li.className = key;
+    li.innerHTML =
+      `<span class="mark">${MARKS[key] || "?"}</span>` +
+      `<span class="name">${stage.title}</span>` +
+      `<span class="why">${WORDS[key] || stage.status} — ${stage.reason}</span>`;
+    list.appendChild(li);
+  }
+}
+
+async function poll(runId) {
+  const job = await api("/api/runs/" + encodeURIComponent(runId));
+  renderStages(job.stages);
+  if (job.state === "running") { setTimeout(() => poll(runId), 2000); return; }
+
+  $("start").disabled = false;
+  $("result-panel").classList.remove("hidden"); RESULT_SEEN = true;
+  const bad = job.state !== "passed";
+  $("verdict").innerHTML =
+    `<b style="color:var(--${bad ? "bad" : "ok"})">${job.state.toUpperCase()}</b> — ` +
+    job.detail;
+  $("files").innerHTML =
+    "Ergebnisse liegen im Envelope: <code>" + runId + "/" + job.sample_id + "/</code> " +
+    "— <code>reports/</code> (HTML, XLSX), <code>normalized/</code> (JSON), " +
+    "<code>release/</code> (Prüfsummen)";
+}
+
+$("start").onclick = async () => {
+  notice("");
+  $("start").disabled = true;
+  $("progress-panel").classList.remove("hidden"); PROGRESS_SEEN = true;
+  $("result-panel").classList.add("hidden");
+  $("stages").innerHTML = '<li class="running"><span class="mark">●</span>' +
+    '<span class="name">Start</span><span class="why">Lauf wird vorbereitet …</span></li>';
+  try {
+    const job = await api("/api/runs", {method: "POST", body: JSON.stringify({
+      bam: $("bam").value,
+      sample_id: $("sample").value,
+      run_id: $("run").value,
+      genome_build: document.querySelector('input[name=build]:checked').value,
+      assay: document.querySelector('input[name=assay]:checked').value,
+      target_bed: $("bed").value,
+      target_bed_version: $("bedver").value,
+    })});
+    poll(job.run_id);
+  } catch (error) {
+    $("start").disabled = false;
+    $("progress-panel").classList.add("hidden");
+    notice(error.message, true);
+  }
+};
+
+// --- Datei per Ziehen auswählen ------------------------------------------------------
+// Ein Browser gibt hier nur den Dateinamen heraus, nie den Pfad. Genau deshalb wird der
+// Name gesucht statt die Datei übertragen: bei 30 GB landete ein Upload auf derselben
+// Platte, nur Stunden später.
+const drop = $("drop");
+["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => {
+  ev.preventDefault(); drop.classList.add("hot");
+}));
+["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => {
+  ev.preventDefault(); drop.classList.remove("hot");
+}));
+drop.addEventListener("drop", (ev) => {
+  const file = ev.dataTransfer.files && ev.dataTransfer.files[0];
+  if (file) locate(file.name);
+});
+
+async function locate(name) {
+  const box = $("matches");
+  box.innerHTML = "";
+  try {
+    const found = await api("/api/locate?name=" + encodeURIComponent(name));
+    if (!found.matches.length) {
+      notice(found.search_incomplete
+        ? `„${found.name}" nicht gefunden — die Suche wurde vorher abgebrochen, weil zu ` +
+          `viele Verzeichnisse zu durchsuchen waren. Bitte über „Auswählen" gehen.`
+        : `„${found.name}" liegt in keinem freigegebenen Ordner (${found.roots.join(", ")}).`,
+        true);
+      return;
+    }
+    if (found.matches.length === 1) { choose(found.matches[0], found.name); return; }
+    // Zwei Läufe können eine Datei gleichen Namens enthalten. Stillschweigend eine davon
+    // zu nehmen hieße, eine Probe auszuwerten, die niemand ausgewählt hat.
+    notice(`„${found.name}" kommt ${found.matches.length}× vor — bitte auswählen:`);
+    found.matches.forEach((m) => {
+      const b = document.createElement("button");
+      b.textContent = m.display + (m.indexed ? "" : "   ⚠ kein .bai");
+      b.onclick = () => { box.innerHTML = ""; choose(m, found.name); };
+      box.appendChild(b);
+    });
+  } catch (error) { notice(error.message, true); }
+}
+
+function choose(match, name) {
+  if (!match.indexed) {
+    notice(`Zu „${name}" fehlt der Index (.bai). Die Analyse würde abgelehnt.`, true);
+    return;
+  }
+  notice("");
+  $("bam").value = match.display;
+  if (!$("sample").value) $("sample").value = name.replace(/\.bam$/i, "");
+}
+
+// --- Befunde und Vidierung ------------------------------------------------------------
+const REVIEW_WORD = {accepted:"vidiert", rejected:"abgelehnt", pending:"offen",
+                     stale:"verfallen", broken:"Kette beschädigt",
+                     unreadable:"nicht lesbar"};
+
+function tab(which) {
+  const onCases = which === "cases";
+  $("cases-panel").classList.toggle("hidden", !onCases);
+  $("form-panel").classList.toggle("hidden", onCases);
+  $("progress-panel").classList.toggle("hidden", onCases || !PROGRESS_SEEN);
+  $("result-panel").classList.toggle("hidden", onCases || !RESULT_SEEN);
+  $("tab-cases").classList.toggle("on", onCases);
+  $("tab-run").classList.toggle("on", !onCases);
+  if (onCases) loadCases();
+}
+let PROGRESS_SEEN = false, RESULT_SEEN = false;
+$("tab-run").onclick = () => tab("run");
+$("tab-cases").onclick = () => tab("cases");
+
+async function loadCases() {
+  const table = $("cases");
+  try {
+    const data = await api("/api/findings");
+    if (!data.findings.length) {
+      table.innerHTML = '<tr><td style="color:var(--muted)">Noch keine Läufe.</td></tr>';
+      return;
+    }
+    table.innerHTML =
+      "<tr><th>Probe</th><th>Lauf</th><th>Ergebnis</th><th>Freigabe</th><th></th></tr>" +
+      data.findings.map((f, i) => {
+        const rv = f.review || "none";
+        const notRun = f.not_run.length
+          ? `<div class="notrun">nicht ausgeführt: ${f.not_run.join(", ")}</div>` : "";
+        return `<tr>
+          <td><b>${f.sample_id}</b>${notRun}</td>
+          <td style="font-family:ui-monospace,monospace;font-size:12.5px">${f.run_id}</td>
+          <td><span class="tag t-${f.state}">${f.state}</span></td>
+          <td><span class="tag t-${rv === "none" ? "none" : rv}">${
+              REVIEW_WORD[rv] || "keine"}</span>
+              <div class="notrun">${f.review_detail || ""}</div></td>
+          <td><button data-i="${i}" class="sign">Vidieren …</button></td>
+        </tr><tr id="sign-${i}" class="hidden"><td colspan="5"></td></tr>`;
+      }).join("");
+    table.querySelectorAll("button.sign").forEach(b => b.onclick = () =>
+      openSignoff(Number(b.dataset.i), data.findings[Number(b.dataset.i)]));
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function openSignoff(index, finding) {
+  const row = $("sign-" + index);
+  row.classList.toggle("hidden");
+  if (row.classList.contains("hidden")) return;
+  row.firstElementChild.innerHTML = `
+    <div class="signoff">
+      <div class="row"><b>${finding.sample_id}</b> — ${finding.detail}</div>
+      <div class="row">
+        <input type="text" id="who-${index}" placeholder="Name der vidierenden Person"
+               style="max-width:340px">
+      </div>
+      <div class="row">
+        <input type="text" id="note-${index}" placeholder="Begründung (bei Ablehnung nötig)">
+      </div>
+      <div class="row">
+        <button class="primary" style="padding:8px 16px" id="acc-${index}">Freigeben</button>
+        <button id="rej-${index}">Ablehnen</button>
+      </div>
+      <div class="legend" style="margin-top:4px">
+        Der Name wird <b>als Behauptung</b> festgehalten — hier authentifiziert ihn nichts,
+        so wenig wie auf der Kommandozeile. Die Freigabe bindet an die Prüfsumme des
+        Release-Bündels: ändert sich die Datei danach, verfällt sie.
+      </div>
+    </div>`;
+  const send = async (decision) => {
+    const reviewer = $("who-" + index).value.trim();
+    if (!reviewer) { alert("Bitte den Namen eintragen."); return; }
+    try {
+      await api(`/api/review/${encodeURIComponent(finding.run_id)}/` +
+                `${encodeURIComponent(finding.sample_id)}`, {
+        method: "POST",
+        body: JSON.stringify({decision, reviewer, note: $("note-" + index).value}),
+      });
+      loadCases();
+    } catch (error) { notice(error.message, true); }
+  };
+  $("acc-" + index).onclick = () => send("accepted");
+  $("rej-" + index).onclick = () => send("rejected");
+}
+
+boot();
+</script>

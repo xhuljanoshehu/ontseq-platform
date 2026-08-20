@@ -1,5 +1,15 @@
 {
   "$defs": {
+    "AnalysisIntent": {
+      "description": "Whether this analysis is looking for acquired or inherited variation.\n\nLoad-bearing for knowledge-base annotation: ClinVar classifies germline variation under\nACMG rules, and an AML workup asks a somatic question. Pairing the two without saying so\npresents an inherited-disease classification as though it answered a question about a\ntumour.",
+      "enum": [
+        "somatic",
+        "germline",
+        "both"
+      ],
+      "title": "AnalysisIntent",
+      "type": "string"
+    },
     "AnalysisModule": {
       "enum": [
         "qc",
@@ -17,6 +27,17 @@
     "AnalysisSpec": {
       "additionalProperties": false,
       "properties": {
+        "intent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisIntent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "modules": {
           "items": {
             "$ref": "#/$defs/AnalysisModule"
@@ -95,6 +116,140 @@
         "reference_id"
       ],
       "title": "AssaySpec",
+      "type": "object"
+    },
+    "EventAnnotation": {
+      "additionalProperties": false,
+      "description": "A knowledge-base record attached to a finding \u2014 evidence, never a verdict.\n\nCarries the source's assertion verbatim together with the vocabulary it belongs to, so\nClinVar's germline *Pathogenic* cannot be read as a claim about a somatic finding. No\nfield here influences ``reportable`` or ``confidence``, and none may be added that does:\nthat decision needs somatic criteria this repository does not have.",
+      "properties": {
+        "assertion": {
+          "title": "Assertion",
+          "type": "string"
+        },
+        "assertion_vocabulary": {
+          "minLength": 1,
+          "title": "Assertion Vocabulary",
+          "type": "string"
+        },
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Caveats",
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genes",
+          "type": "array"
+        },
+        "match_type": {
+          "enum": [
+            "exact",
+            "record_within_finding",
+            "finding_within_record",
+            "overlap"
+          ],
+          "title": "Match Type",
+          "type": "string"
+        },
+        "reciprocal_overlap": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Reciprocal Overlap",
+          "type": "number"
+        },
+        "record_id": {
+          "minLength": 1,
+          "title": "Record Id",
+          "type": "string"
+        },
+        "record_origin": {
+          "enum": [
+            "germline",
+            "somatic",
+            "unknown"
+          ],
+          "title": "Record Origin",
+          "type": "string"
+        },
+        "record_type": {
+          "minLength": 1,
+          "title": "Record Type",
+          "type": "string"
+        },
+        "review_stars": {
+          "anyOf": [
+            {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Stars"
+        },
+        "review_status": {
+          "default": "",
+          "title": "Review Status",
+          "type": "string"
+        },
+        "scope_alignment": {
+          "enum": [
+            "aligned",
+            "mismatched",
+            "unknown"
+          ],
+          "title": "Scope Alignment",
+          "type": "string"
+        },
+        "scope_note": {
+          "title": "Scope Note",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_release": {
+          "minLength": 1,
+          "title": "Source Release",
+          "type": "string"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_release",
+        "source_sha256",
+        "record_id",
+        "record_type",
+        "assertion",
+        "assertion_vocabulary",
+        "record_origin",
+        "scope_alignment",
+        "scope_note",
+        "match_type",
+        "reciprocal_overlap"
+      ],
+      "title": "EventAnnotation",
       "type": "object"
     },
     "EventType": {
@@ -273,6 +428,13 @@
     "GenomicEvent": {
       "additionalProperties": false,
       "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/EventAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
         "confidence": {
           "default": "unclassified",
           "enum": [

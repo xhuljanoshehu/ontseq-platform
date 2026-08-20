@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "description": "Version-locked alignment configuration.",
+  "properties": {
+    "emit_md_tag": {
+      "default": true,
+      "title": "Emit Md Tag",
+      "type": "boolean"
+    },
+    "expected_minimap2_version": {
+      "default": "2.28",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$",
+      "title": "Expected Minimap2 Version",
+      "type": "string"
+    },
+    "expected_samtools_version": {
+      "default": "1.24",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$",
+      "title": "Expected Samtools Version",
+      "type": "string"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "preserve_modified_base_tags": {
+      "default": true,
+      "title": "Preserve Modified Base Tags",
+      "type": "boolean"
+    },
+    "preset": {
+      "default": "map-ont",
+      "enum": [
+        "map-ont",
+        "lr:hq"
+      ],
+      "title": "Preset",
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "soft_clip_supplementary": {
+      "default": true,
+      "title": "Soft Clip Supplementary",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "AlignmentPolicy",
+  "type": "object"
+}

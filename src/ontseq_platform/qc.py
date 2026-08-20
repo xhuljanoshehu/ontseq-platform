@@ -96,6 +96,17 @@ def evaluate_qc_metrics(
     )
 
 
+def cramino_version(stdout: str) -> str:
+    """Parse a Cramino version from its probe output.
+
+    Public because preflight has to reach the same answer this module will. A preflight
+    that parsed versions differently from the run it precedes could report a tool as
+    identified that the run then cannot identify.
+    """
+    version_line = stdout.splitlines()[0] if stdout else "cramino unknown"
+    return version_line.removeprefix("cramino ").strip()
+
+
 def run_cramino_qc(
     manifest: SampleManifest,
     policy: QCPolicy,
@@ -112,10 +123,7 @@ def run_cramino_qc(
     version_result = command_runner.run([cramino, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
         raise ValueError("Cramino version probe returned a non-zero exit code")
-    version_line = (
-        version_result.stdout.splitlines()[0] if version_result.stdout else "cramino unknown"
-    )
-    version = version_line.removeprefix("cramino ").strip()
+    version = cramino_version(version_result.stdout)
     result = command_runner.run(
         [cramino, "--threads", str(threads), "--format", "json", manifest.input.path],
         timeout_seconds=3600,
