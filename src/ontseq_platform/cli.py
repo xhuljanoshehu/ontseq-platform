@@ -215,7 +215,7 @@ def main() -> None:
             if cramino_report.qc.verdict == Verdict.FAIL:
                 raise SystemExit(2)
         elif args.command == "qc-target-coverage":
-            manifest = load_model(args.manifest, AlignedBamIntakeReport)
+            manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
             coverage_policy = load_model(args.policy, TargetCoveragePolicy)
             coverage_report = run_target_coverage(
