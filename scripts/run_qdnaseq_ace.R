@@ -149,7 +149,9 @@ for (bin_size in bin_sizes) {
     QDNAseq::getBinAnnotations(binSize = bin_size, genome = genome),
     error = function(e) fail(sprintf("cannot load QDNAseq %s/%s-kbp annotations: %s", genome, bin_size, conditionMessage(e)))
   )
-  read_counts <- QDNAseq::binReadCounts(bins, bamfiles = bam, chunkSize = TRUE)
+  # QDNAseq defines chunkSize as an optional integer number of nucleotides. NULL is
+  # the package default and avoids accidentally coercing a logical TRUE to a 1-nt chunk.
+  read_counts <- QDNAseq::binReadCounts(bins, bamfiles = bam, chunkSize = NULL)
   filtered <- QDNAseq::applyFilters(read_counts, residual = TRUE, blacklist = TRUE)
   filtered <- QDNAseq::estimateCorrection(filtered)
   copy_numbers <- QDNAseq::correctBins(filtered)
