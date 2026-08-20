@@ -117,6 +117,8 @@ jobs:
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript --version
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\"QDNAseq\",quietly=TRUE), requireNamespace(\"QDNAseq.hg19\",quietly=TRUE), requireNamespace(\"ACE\",quietly=TRUE))"
+
+              set +e
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq system-smoke \
                 --output-dir /tmp/ontseq-system-smoke \
                 --qc-policy /opt/ontseq/share/ontseq/configs/qc/defaults.yaml \
@@ -128,13 +130,30 @@ jobs:
                 --cramino /opt/ontseq/bin/cramino \
                 --sniffles /opt/ontseq/bin/sniffles \
                 --threads 2
+              smoke_status=$?
+              set -e
+
               report=/tmp/ontseq-system-smoke/system-smoke.report.json
+              root=/tmp/ontseq-system-smoke/runs/SYSTEM_CNV_SMOKE_RUN_001/SYSTEM_CNV_SMOKE_001
+              qdnaseq="$root/evidence/cnv/SYSTEM_CNV_SMOKE_001.qdnaseq.json"
+              if test "$smoke_status" -ne 0; then
+                echo "system-smoke failed with exit code $smoke_status; preserving compact diagnostics" >&2
+                if test -s "$report"; then
+                  echo "--- system-smoke report ---" >&2
+                  env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq . "$report" >&2 || true
+                fi
+                if test -s "$qdnaseq"; then
+                  echo "--- QDNAseq/ACE chr7/chr8 diagnostics ---" >&2
+                  env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq "{status, primary_fit, fits, chromosome_consensus: [.chromosome_consensus[] | select(.chromosome==\"chr7\" or .chromosome==\"chr8\")], events: [.events[] | select(.primary.chromosome==\"chr7\" or .primary.chromosome==\"chr8\")], warnings, limitations}" "$qdnaseq" >&2 || true
+                fi
+                exit "$smoke_status"
+              fi
+
               test -s "$report"
               verdict="$(env PATH="$RUNTIME_PATH" /opt/ontseq/bin/jq -r .verdict "$report")"
               test "$verdict" = "PASS"
               echo "system-smoke verdict: $verdict"
-              root=/tmp/ontseq-system-smoke/runs/SYSTEM_CNV_SMOKE_RUN_001/SYSTEM_CNV_SMOKE_001
-              test -s "$root/evidence/cnv/SYSTEM_CNV_SMOKE_001.qdnaseq.json"
+              test -s "$qdnaseq"
               test -s "$root/reports/SYSTEM_CNV_SMOKE_001.report.html"
               test -s "$root/reports/SYSTEM_CNV_SMOKE_001.results.xlsx"
               echo "verifying release checksums independently with GNU sha256sum"
