@@ -203,18 +203,19 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
         var root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            "ONTSeq", "self-test", DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
         Directory.CreateDirectory(root);
         var rootWsl = PathBridge.WindowsToWsl(root);
-        var args = new List<string> { "local-smoke", "--output-dir", rootWsl };
-        AddBundledPolicies(settings, args, includeCnv: false);
+        var args = new List<string> { "system-smoke", "--output-dir", rootWsl };
+        AddBundledPolicies(settings, args, includeCnv: true);
         var result = await RunWslAsync(
             settings.WslDistribution,
             BackendInvocation(settings, args.ToArray()),
             cancellationToken);
         File.WriteAllText(Path.Combine(root, "self-test.log.txt"), result.StdOut + Environment.NewLine + result.StdErr);
         if (result.ExitCode != 0)
-            throw new InvalidOperationException("ONTSeq Selbsttest ist fehlgeschlagen.\n" + result.StdErr);
+            throw new InvalidOperationException(
+                "ONTSeq Selbsttest ist fehlgeschlagen.\n" + result.StdErr);
         return root;
     }
 
