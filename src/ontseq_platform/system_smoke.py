@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 from pathlib import Path
 from typing import Literal
@@ -23,8 +22,10 @@ from .models import (
     GenomeBuild,
     InputKind,
     InputSpec,
+    ModuleRunStatus,
     PipelineResult,
     QCPolicy,
+    ReferenceLock,
     SampleManifest,
     SnifflesPolicy,
     StrictModel,
@@ -80,12 +81,7 @@ class SystemSmokeReport(StrictModel):
 
 
 def synthetic_cnv_copy_count(chromosome: int) -> int:
-    """Deterministic read-depth truth used by the installed-runtime CNV smoke.
-
-    Baseline autosomes receive two synthetic read starts per 100 kbp. Chromosome 7
-    receives one (half depth; expected CN~1), and chromosome 8 receives three
-    (1.5x depth; expected CN~3).
-    """
+    """Return deterministic synthetic read-depth multiplicity for one chromosome."""
 
     if chromosome not in GRCH37_AUTOSOME_LENGTHS:
         raise ValueError(f"unsupported synthetic chromosome: {chromosome}")
@@ -142,7 +138,7 @@ def _build_cnv_fixture(
     runner: StreamingCommandRunner,
     samtools: str,
     threads: int,
-) -> tuple[Path, Path, SampleManifest, object]:
+) -> tuple[SampleManifest, ReferenceLock]:
     root.mkdir(parents=True, exist_ok=True)
     sam = root / "synthetic.hg19.sam"
     unsorted = root / "synthetic.hg19.unsorted.bam"
@@ -153,11 +149,8 @@ def _build_cnv_fixture(
     manifest_path = root / "sample.manifest.json"
     lock_path = root / "reference.lock.json"
 
-    existing = [
-        path.name
-        for path in (sam, unsorted, staged_bam, bam, bai, fai, manifest_path, lock_path)
-        if path.exists()
-    ]
+    fixture_targets = (sam, unsorted, staged_bam, bam, bai, fai, manifest_path, lock_path)
+    existing = [path.name for path in fixture_targets if path.exists()]
     if existing:
         raise ValueError(
             "Refusing to overwrite existing system-smoke CNV fixture artifacts: "
@@ -179,9 +172,10 @@ def _build_cnv_fixture(
         timeout_seconds=300,
     )
     if converted.returncode != 0:
+        diagnostic = converted.stderr.strip()[-3000:]
         raise ValueError(
             "samtools BAM conversion failed with exit code "
-            f"{converted.returncode}: {converted.stderr.strip()[-3000:]}"
+            f"{converted.returncode}" + (f": {diagnostic}" if diagnostic else "")
         )
     _run_checked(
         runner,
@@ -232,11 +226,11 @@ def _build_cnv_fixture(
     )
     write_json(manifest, manifest_path)
     write_json(reference_lock, lock_path)
-    return bam, bai, manifest, reference_lock
+    return manifest, reference_lock
 
 
 def cnv_truth_checks(report: QDNAseqCallReport, policy: QDNAseqPolicy) -> list[ValidationCheck]:
-    """Validate the deterministic chr7-loss / chr8-gain fixture against normalized output."""
+    """Validate deterministic chr7-loss / chr8-gain truth against normalized output."""
 
     observed_bins = sorted(item.bin_size_kbp for item in report.fits)
     expected_bins = sorted(policy.bin_sizes_kbp)
@@ -252,9 +246,25 @@ def cnv_truth_checks(report: QDNAseqCallReport, policy: QDNAseqPolicy) -> list[V
             details={
                 "expected_bins_kbp": ",".join(str(item) for item in expected_bins),
                 "observed_bins_kbp": ",".join(str(item) for item in observed_bins),
-                "primary_bin_kbp": report.primary_fit.bin_size_kbp,
             },
-        )
+        ),
+        ValidationCheck(
+            name="qdnaseq_primary_bin",
+            status=(
+                CheckStatus.PASS
+                if report.primary_fit.bin_size_kbp == policy.primary_bin_size_kbp
+                else CheckStatus.FAIL
+            ),
+            message=(
+                "The configured primary QDNAseq resolution was retained."
+                if report.primary_fit.bin_size_kbp == policy.primary_bin_size_kbp
+                else "The QDNAseq primary resolution does not match the configured policy."
+            ),
+            details={
+                "expected_primary_bin_kbp": policy.primary_bin_size_kbp,
+                "observed_primary_bin_kbp": report.primary_fit.bin_size_kbp,
+            },
+        ),
     ]
 
     cellularity_ok = all(0.05 <= fit.cellularity <= 1.0 for fit in report.fits)
@@ -353,6 +363,7 @@ def _verify_release_checksums(envelope_root: Path) -> tuple[bool, int]:
     manifest = envelope_root / "release" / "checksums.sha256"
     if not manifest.is_file() or manifest.stat().st_size == 0:
         return False, 0
+    envelope_root = envelope_root.resolve()
     verified = 0
     for raw in manifest.read_text(encoding="utf-8").splitlines():
         if not raw.strip():
@@ -361,12 +372,10 @@ def _verify_release_checksums(envelope_root: Path) -> tuple[bool, int]:
             expected, relative = raw.split(maxsplit=1)
         except ValueError:
             return False, verified
-        relative = relative.strip()
-        target = envelope_root / relative
-        if not target.is_file():
+        target = (envelope_root / relative.strip()).resolve()
+        if not target.is_relative_to(envelope_root) or not target.is_file():
             return False, verified
-        observed = hashlib.sha256(target.read_bytes()).hexdigest()
-        if observed != expected:
+        if sha256_file(target) != expected:
             return False, verified
         verified += 1
     return verified > 0, verified
@@ -388,13 +397,7 @@ def run_system_smoke(
     pipeline_version: str = "UNKNOWN",
     git_commit: str = "SYSTEM_SMOKE",
 ) -> SystemSmokeReport:
-    """Exercise the installed runtime through both local-tool and canonical CNV paths.
-
-    This deliberately combines two independent fixtures:
-    - the existing long-read deletion smoke for samtools/Cramino/Sniffles/reporting;
-    - the proven GRCh37 read-depth fixture for the canonical QDNAseq+ACE CNV stage,
-      integrated HTML/XLSX output, release checksums and content-addressed resume.
-    """
+    """Exercise installed local tools plus the canonical QDNAseq+ACE run path."""
 
     if threads < 1:
         raise ValueError("threads must be at least 1")
@@ -421,7 +424,7 @@ def run_system_smoke(
         git_commit=git_commit,
     )
 
-    _, _, manifest, reference_lock = _build_cnv_fixture(
+    manifest, reference_lock = _build_cnv_fixture(
         output_dir / "cnv-fixture",
         runner=command_runner,
         samtools=samtools,
@@ -456,12 +459,12 @@ def run_system_smoke(
     )
     first_report, first_release = run_pipeline(config, runner=command_runner)
     if not first_report.passed or first_release is None:
-        raise ValueError(
-            "Canonical CNV system-smoke run failed: " + first_report.verdict_reason
-        )
+        raise ValueError("Canonical CNV system-smoke run failed: " + first_report.verdict_reason)
 
     envelope_root = output_base / SYSTEM_SMOKE_RUN_ID / SYSTEM_SMOKE_SAMPLE_ID
-    qdnaseq_path = envelope_root / "evidence" / "cnv" / f"{SYSTEM_SMOKE_SAMPLE_ID}.qdnaseq.json"
+    qdnaseq_path = (
+        envelope_root / "evidence" / "cnv" / f"{SYSTEM_SMOKE_SAMPLE_ID}.qdnaseq.json"
+    )
     result_path = envelope_root / "normalized" / f"{SYSTEM_SMOKE_SAMPLE_ID}.result.json"
     html_path = envelope_root / "reports" / f"{SYSTEM_SMOKE_SAMPLE_ID}.report.html"
     workbook_path = envelope_root / "reports" / f"{SYSTEM_SMOKE_SAMPLE_ID}.results.xlsx"
@@ -469,7 +472,7 @@ def run_system_smoke(
     release_path = envelope_root / "release" / "release.json"
     checksums_path = envelope_root / "release" / "checksums.sha256"
 
-    required_outputs = [
+    required_outputs = (
         qdnaseq_path,
         result_path,
         html_path,
@@ -477,8 +480,12 @@ def run_system_smoke(
         run_report_path,
         release_path,
         checksums_path,
+    )
+    missing_outputs = [
+        str(path.relative_to(envelope_root))
+        for path in required_outputs
+        if not path.is_file() or path.stat().st_size == 0
     ]
-    missing_outputs = [str(path.relative_to(envelope_root)) for path in required_outputs if not path.is_file() or path.stat().st_size == 0]
     if missing_outputs:
         raise ValueError(
             "Canonical system-smoke completed without required outputs: "
@@ -489,18 +496,34 @@ def run_system_smoke(
         qdnaseq_path.read_text(encoding="utf-8")
     )
     normalized = PipelineResult.model_validate_json(result_path.read_text(encoding="utf-8"))
+    first_cnv_stage = next(
+        (item for item in first_report.stages if item.stage == StageId.CNV),
+        None,
+    )
 
     checks: list[ValidationCheck] = [
         ValidationCheck(
             name="sv_qc_local_smoke",
             status=CheckStatus.PASS if local_report.verdict == Verdict.PASS else CheckStatus.FAIL,
-            message="Synthetic long-read intake, Cramino, Sniffles2 and basic report rendering passed.",
+            message=(
+                "Synthetic long-read intake, Cramino, Sniffles2 and basic report rendering passed."
+            ),
             details={"accepted_sv_candidates": local_report.sniffles.accepted_record_count},
         ),
         ValidationCheck(
             name="canonical_cnv_pipeline",
-            status=CheckStatus.PASS,
-            message="The canonical run envelope completed with QDNAseq+ACE registered as the live CNV stage.",
+            status=(
+                CheckStatus.PASS
+                if first_cnv_stage is not None
+                and first_cnv_stage.status == ModuleRunStatus.COMPLETED
+                else CheckStatus.FAIL
+            ),
+            message=(
+                "The canonical run envelope completed the live QDNAseq+ACE CNV stage."
+                if first_cnv_stage is not None
+                and first_cnv_stage.status == ModuleRunStatus.COMPLETED
+                else "The canonical run did not complete the live QDNAseq+ACE CNV stage."
+            ),
             details={"stage_count": len(first_report.stages)},
         ),
     ]
@@ -517,9 +540,11 @@ def run_system_smoke(
     required_sheets = {"CNV Fits", "CNV Consensus", "CNV Segments"}
     workbook_has_cnv = required_sheets.issubset(set(workbook.sheetnames))
     workbook.close()
+    tool_names = {item.name for item in normalized.provenance.tools}
     report_bundle_ok = (
         cnv_module is not None
-        and cnv_module.status.value == "COMPLETED"
+        and cnv_module.status == ModuleRunStatus.COMPLETED
+        and {"QDNAseq", "ACE"}.issubset(tool_names)
         and html_has_cnv
         and workbook_has_cnv
     )
@@ -528,16 +553,18 @@ def run_system_smoke(
             name="integrated_cnv_reporting",
             status=CheckStatus.PASS if report_bundle_ok else CheckStatus.FAIL,
             message=(
-                "Normalized JSON, HTML and Excel all contain the integrated CNV result."
+                "Normalized JSON, provenance, HTML and Excel all contain the integrated CNV result."
                 if report_bundle_ok
-                else "The integrated CNV result is incomplete across JSON, HTML or Excel."
+                else "The integrated CNV result is incomplete across JSON, provenance, HTML or Excel."
             ),
             details={
                 "html_has_cnv": html_has_cnv,
                 "workbook_has_cnv_sheets": workbook_has_cnv,
                 "cnv_module_completed": bool(
-                    cnv_module is not None and cnv_module.status.value == "COMPLETED"
+                    cnv_module is not None and cnv_module.status == ModuleRunStatus.COMPLETED
                 ),
+                "qdnaseq_in_provenance": "QDNAseq" in tool_names,
+                "ace_in_provenance": "ACE" in tool_names,
             },
         )
     )
@@ -557,12 +584,15 @@ def run_system_smoke(
     )
 
     resumed_report, resumed_release = run_pipeline(config, runner=command_runner)
-    cnv_stage = next((item for item in resumed_report.stages if item.stage == StageId.CNV), None)
+    resumed_cnv_stage = next(
+        (item for item in resumed_report.stages if item.stage == StageId.CNV),
+        None,
+    )
     resume_ok = (
         resumed_report.passed
         and resumed_release is not None
-        and cnv_stage is not None
-        and cnv_stage.resumed
+        and resumed_cnv_stage is not None
+        and resumed_cnv_stage.resumed
     )
     checks.append(
         ValidationCheck(
@@ -573,7 +603,7 @@ def run_system_smoke(
                 if resume_ok
                 else "The unchanged CNV stage did not resume as expected."
             ),
-            details={"cnv_resumed": bool(cnv_stage and cnv_stage.resumed)},
+            details={"cnv_resumed": bool(resumed_cnv_stage and resumed_cnv_stage.resumed)},
         )
     )
 
