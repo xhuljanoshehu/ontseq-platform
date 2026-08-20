@@ -60,8 +60,8 @@ collapse_segments <- function(called_template, feature_data) {
   df <- df[keep, , drop = FALSE]
   if (!nrow(df)) return(data.frame())
 
-  # ACE repeats the segment estimate for all bins in that segment. Group consecutive
-  # bins with the same chromosome, call and numerically identical segment estimate.
+  # ACEcall names its purity/ploidy-adjusted absolute segment estimate `segments`.
+  # Group consecutive bins with the same chromosome, call and adjusted estimate.
   seg_key <- round(as.numeric(df$segments), 6)
   call_key <- ifelse(is.na(df$calls), 0, as.numeric(df$calls))
   boundary <- c(
@@ -164,6 +164,12 @@ for (bin_size in bin_sizes) {
   saveRDS(segmented, rds_path)
 
   template <- ACE::objectsampletotemplate(segmented, index = 1)
+  autosomal_segments <- as.numeric(template$segments[!template$chr %in% c("X", "Y")])
+  autosomal_segments <- autosomal_segments[is.finite(autosomal_segments)]
+  if (!length(autosomal_segments)) fail(sprintf("QDNAseq produced no finite autosomal segments for %s kbp", bin_size))
+  normalized_segment_median <- stats::median(autosomal_segments)
+  message(sprintf("QDNAseq normalized segment median: %.6f", normalized_segment_median))
+
   prows <- max(1L, as.integer(round((ploidy_max - ploidy_min) / ploidy_step)))
   model <- ACE::squaremodel(
     template,
@@ -175,7 +181,8 @@ for (bin_size in bin_sizes) {
     penalty = penalty,
     penploidy = 0,
     cellularities = seq(5, 100),
-    highlightminima = TRUE
+    highlightminima = TRUE,
+    standard = 1
   )
   candidates <- model$minimadf
   candidates <- candidates[is.finite(candidates$error), , drop = FALSE]
@@ -183,8 +190,25 @@ for (bin_size in bin_sizes) {
   candidates$distance_to_diploid <- abs(candidates$ploidy - 2)
   candidates <- candidates[order(candidates$error, -candidates$cellularity, candidates$distance_to_diploid), , drop = FALSE]
   chosen <- candidates[1L, , drop = FALSE]
-  cellularity_fraction <- as.numeric(chosen$cellularity[[1L]]) / 100
+
+  # squaremodel() accepts cellularities as percentages (5..100) but stores them in
+  # errordf/minimadf as fractions (0.05..1.00). Do not divide the returned value again.
+  cellularity_fraction <- as.numeric(chosen$cellularity[[1L]])
   chosen_ploidy <- as.numeric(chosen$ploidy[[1L]])
+  if (!is.finite(cellularity_fraction) || cellularity_fraction <= 0 || cellularity_fraction > 1) {
+    fail(sprintf("ACE returned invalid cellularity %.8g for %s kbp", cellularity_fraction, bin_size))
+  }
+  if (!is.finite(chosen_ploidy) || chosen_ploidy <= 0) {
+    fail(sprintf("ACE returned invalid ploidy %.8g for %s kbp", chosen_ploidy, bin_size))
+  }
+  message(
+    sprintf(
+      "ACE selected fit: cellularity=%.3f, ploidy=%.3f, error=%.6g",
+      cellularity_fraction,
+      chosen_ploidy,
+      as.numeric(chosen$error[[1L]])
+    )
+  )
 
   called <- ACE::ACEcall(
     segmented,
@@ -195,6 +219,17 @@ for (bin_size in bin_sizes) {
     plot = TRUE,
     onlyautosomes = TRUE
   )
+  adjusted_segments <- as.numeric(called$calledtemplate$segments)
+  adjusted_segments <- adjusted_segments[is.finite(adjusted_segments)]
+  if (!length(adjusted_segments)) fail(sprintf("ACE returned no finite adjusted segments for %s kbp", bin_size))
+  message(
+    sprintf(
+      "ACE adjusted segment range: %.3f..%.3f",
+      min(adjusted_segments),
+      max(adjusted_segments)
+    )
+  )
+
   fd <- Biobase::fData(segmented)
   segments <- collapse_segments(called$calledtemplate, fd)
   segment_path <- file.path(out_dir, sprintf("%s.%skbp.segments.tsv", sample_id, bin_size))
@@ -218,7 +253,7 @@ for (bin_size in bin_sizes) {
     fit_error = as.numeric(chosen$error[[1L]]),
     candidate_count = nrow(candidates),
     alternatives = lapply(seq_len(nrow(candidate_rows)), function(i) list(
-      cellularity = as.numeric(candidate_rows$cellularity[[i]]) / 100,
+      cellularity = as.numeric(candidate_rows$cellularity[[i]]),
       ploidy = as.numeric(candidate_rows$ploidy[[i]]),
       fit_error = as.numeric(candidate_rows$error[[i]])
     )),
