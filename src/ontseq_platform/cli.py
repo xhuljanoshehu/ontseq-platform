@@ -30,6 +30,7 @@ from .reference import reference_lock_from_fai
 from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
+from .target_coverage import TargetCoveragePolicy, run_target_coverage
 from .workbook import render_workbook
 
 
@@ -89,6 +90,18 @@ def _parser() -> argparse.ArgumentParser:
     cramino_qc.add_argument("--cramino", default="cramino")
     cramino_qc.add_argument("--threads", type=int, default=4)
     cramino_qc.add_argument("--output", type=Path, required=True)
+
+    target_coverage = subparsers.add_parser(
+        "qc-target-coverage",
+        help="Run Mosdepth and normalize Adaptive Sampling target-region coverage",
+    )
+    target_coverage.add_argument("manifest", type=Path)
+    target_coverage.add_argument("--intake", type=Path, required=True)
+    target_coverage.add_argument("--policy", type=Path, required=True)
+    target_coverage.add_argument("--mosdepth", default="mosdepth")
+    target_coverage.add_argument("--threads", type=int, default=4)
+    target_coverage.add_argument("--output-dir", type=Path, required=True)
+    target_coverage.add_argument("--output", type=Path, required=True)
 
     call_sniffles = subparsers.add_parser(
         "call-sniffles", help="Run Sniffles2 and normalize conservative candidate SV evidence"
@@ -182,6 +195,19 @@ def main() -> None:
             print(write_json(cramino_report, args.output))
             if cramino_report.qc.verdict == Verdict.FAIL:
                 raise SystemExit(2)
+        elif args.command == "qc-target-coverage":
+            manifest = load_model(args.manifest, SampleManifest)
+            intake = load_model(args.intake, AlignedBamIntakeReport)
+            coverage_policy = load_model(args.policy, TargetCoveragePolicy)
+            coverage_report = run_target_coverage(
+                manifest,
+                intake,
+                coverage_policy,
+                output_dir=args.output_dir,
+                mosdepth=args.mosdepth,
+                threads=args.threads,
+            )
+            print(write_json(coverage_report, args.output))
         elif args.command == "call-sniffles":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
