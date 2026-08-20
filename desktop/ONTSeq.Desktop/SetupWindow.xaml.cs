@@ -234,10 +234,12 @@ public partial class SetupWindow : Window
         await RunBusyAsync(async token =>
         {
             SelfTestStatusText.Text = "● Läuft…";
-            DetailText.Text = "Erzeuge synthetischen BAM und führe samtools, Cramino, Sniffles2 und Reporting aus…";
+            DetailText.Text =
+                "Systemtest läuft: samtools, Cramino, Sniffles2, QDNAseq/ACE, kanonische Pipeline, HTML/Excel, Release-Checksummen und Resume werden mit deterministischen synthetischen Daten geprüft…";
             var folder = await _launcher.RunSelfTestAsync(_settings, token);
             SelfTestStatusText.Text = "✓ PASS";
-            DetailText.Text = "Engineering-Selbsttest erfolgreich. Ergebnis: " + folder;
+            DetailText.Text =
+                "Vollständiger Engineering-Systemtest erfolgreich. Ergebnis und Prüfnachweise: " + folder;
             if (MessageBox.Show(this, "Selbsttest erfolgreich. Ergebnisordner öffnen?", "ONTSeq", MessageBoxButton.YesNo, MessageBoxImage.Information)
                 == MessageBoxResult.Yes)
             {
