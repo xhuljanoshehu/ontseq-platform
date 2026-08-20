@@ -107,6 +107,11 @@ def cramino_version(stdout: str) -> str:
     return version_line.removeprefix("cramino ").strip()
 
 
+def _stderr_tail(stderr: str, *, limit: int = 4000) -> str:
+    """Return a bounded diagnostic tail without flooding logs on tool failure."""
+    return stderr.strip()[-limit:]
+
+
 def run_cramino_qc(
     manifest: SampleManifest,
     policy: QCPolicy,
@@ -122,14 +127,22 @@ def run_cramino_qc(
     command_runner = runner or SubprocessRunner()
     version_result = command_runner.run([cramino, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
-        raise ValueError("Cramino version probe returned a non-zero exit code")
+        diagnostic = _stderr_tail(version_result.stderr)
+        message = "Cramino version probe returned a non-zero exit code"
+        if diagnostic:
+            message += f": {diagnostic}"
+        raise ValueError(message)
     version = cramino_version(version_result.stdout)
     result = command_runner.run(
         [cramino, "--threads", str(threads), "--format", "json", manifest.input.path],
         timeout_seconds=3600,
     )
     if result.returncode != 0:
-        raise ValueError(f"Cramino failed with exit code {result.returncode}")
+        diagnostic = _stderr_tail(result.stderr)
+        message = f"Cramino failed with exit code {result.returncode}"
+        if diagnostic:
+            message += f": {diagnostic}"
+        raise ValueError(message)
     metrics = parse_cramino_json(result.stdout)
     qc = evaluate_qc_metrics(metrics, policy)
     return CraminoQCReport(
