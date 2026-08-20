@@ -5,12 +5,19 @@ on:
   push:
     branches: [main]
 
+# A newer push supersedes an older run on the same ref. This keeps integration feedback
+# deterministic instead of allowing stale jobs to finish after the code has changed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -50,6 +57,7 @@ jobs:
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v3
@@ -57,12 +65,29 @@ jobs:
           environment-file: workflow/envs/aligned_bam.yaml
           cache-environment: true
           post-cleanup: all
-      - name: Run synthetic BAM through real local tools
+
+      - name: Verify pinned open-source toolchain
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          samtools --version | head -1 | tee /tmp/tool-versions.log
+          minimap2 --version | tee -a /tmp/tool-versions.log
+          cramino --version | tee -a /tmp/tool-versions.log
+          sniffles --version | tee -a /tmp/tool-versions.log
+          mosdepth --version | tee -a /tmp/tool-versions.log
+          grep -q '1\.24' /tmp/tool-versions.log
+          grep -q '2\.28' /tmp/tool-versions.log
+          grep -q '1\.3\.0' /tmp/tool-versions.log
+          grep -q '2\.8\.0' /tmp/tool-versions.log
+          grep -q '0\.3\.14' /tmp/tool-versions.log
+
+      - name: Run synthetic aligned BAM through real local tools
         shell: micromamba-shell {0}
         run: >-
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
+
       - name: Prepare synthetic Adaptive Sampling manifest and ROI BED
         shell: micromamba-shell {0}
         run: |
@@ -86,6 +111,7 @@ jobs:
               encoding="utf-8",
           )
           PY
+
       - name: Run real Mosdepth target coverage QC
         shell: micromamba-shell {0}
         run: >-
@@ -95,7 +121,112 @@ jobs:
           --policy configs/qc/adaptive_target_coverage.technical.yaml
           --output-dir results/local-smoke/target-coverage-runtime
           --output results/local-smoke/synthetic.target-coverage.json
-      - name: Upload synthetic reviewer artifacts (no BAM or VCF)
+
+      - name: Build the synthetic unaligned-BAM alignment fixture
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform align-fixture
+          --output-dir results/align-fixture
+
+      - name: Preflight the unaligned-BAM lane against the locked reference
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/align-fixture/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_001 | tee /tmp/preflight-align.log
+          grep -qE '^\[ok  \] reference\.fai .*matches the lock checksum' /tmp/preflight-align.log
+          if grep -qE '^\[FAIL\]' /tmp/preflight-align.log; then
+            echo "preflight unexpectedly reported a blocking failure" >&2
+            exit 1
+          fi
+
+      - name: Wrong reference fails closed before any run envelope is created
+        shell: micromamba-shell {0}
+        run: |
+          set -uo pipefail
+          PYTHONPATH=src python -m ontseq_platform preflight \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/local-smoke/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_WRONG_REFERENCE > /tmp/preflight-wrong-ref.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/preflight-wrong-ref.log
+          test "$status" -ne 0
+          grep -qE '^\[FAIL\] reference\.fai' /tmp/preflight-wrong-ref.log
+          test ! -e results/runs/CI_ALIGN_WRONG_REFERENCE
+
+      - name: Run unaligned BAM through minimap2, intake, QC, SV, report and release
+        shell: micromamba-shell {0}
+        run: >-
+          PYTHONPATH=src python -m ontseq_platform run
+          results/align-fixture/synthetic.manifest.json
+          --reference-lock results/align-fixture/synthetic.reference-lock.json
+          --reference-fasta results/align-fixture/synthetic.reference.fasta
+          --output-dir results/runs
+          --run-id CI_ALIGN_001
+          --threads 2
+          --git-commit "$GITHUB_SHA"
+
+      - name: Prove the real alignment preserved mapping, read groups and modified-base tags
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          bam=results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/alignment/SYNTHETIC_ALIGN_001.bam
+          bai="$bam.bai"
+          test -s "$bam"
+          test -s "$bai"
+          samtools quickcheck -v "$bam"
+          test "$(samtools view -c -F 4 "$bam")" -eq 24
+          test "$(samtools view -H "$bam" | grep -c '^@RG')" -eq 2
+          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG'
+          samtools view "$bam" | grep -q 'RG:Z:SYNTHETIC_ALIGN_RG2'
+          samtools view "$bam" | grep -q 'MM:Z:C+m?'
+          samtools view "$bam" | grep -q 'ML:B:C,220,180'
+          samtools view -f 16 "$bam" | grep -q '^SYNTH_ALIGN_REV_'
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/manifest/intake.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/qc/cramino.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/evidence/sv/SYNTHETIC_ALIGN_001.sniffles.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/normalized/SYNTHETIC_ALIGN_001.result.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.report.html
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.results.xlsx
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
+
+      - name: Verify the release bundle checksums independently
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
+          sha256sum -c release/checksums.sha256
+
+      - name: Re-run the identical sample and prove content-addressed resume
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/align-fixture/synthetic.manifest.json \
+            --reference-lock results/align-fixture/synthetic.reference-lock.json \
+            --reference-fasta results/align-fixture/synthetic.reference.fasta \
+            --output-dir results/runs \
+            --run-id CI_ALIGN_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/resume-align.log
+          grep -q 'resumed' /tmp/resume-align.log
+          if grep -qE '^\s+[A-Za-z0-9_-]+\s+(COMPLETED|NO_CALL)\s' /tmp/resume-align.log; then
+            echo "at least one completed stage executed again instead of resuming" >&2
+            cat /tmp/resume-align.log >&2
+            exit 1
+          fi
+          cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
+          sha256sum -c release/checksums.sha256
+
+      - name: Upload synthetic reviewer artifacts without BAM or VCF payloads
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -109,4 +240,14 @@ jobs:
             results/local-smoke/synthetic.qc.json
             results/local-smoke/synthetic.sniffles.json
             results/local-smoke/synthetic.target-coverage.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/run.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/alignment.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/manifest/intake.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/qc/cramino.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/evidence/sv/SYNTHETIC_ALIGN_001.sniffles.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/normalized/SYNTHETIC_ALIGN_001.result.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.report.html
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.results.xlsx
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
           if-no-files-found: error
