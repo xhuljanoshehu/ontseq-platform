@@ -114,10 +114,28 @@ class AssaySpec(StrictModel):
         return self
 
 
+class AnalysisIntent(StrEnum):
+    """Whether this analysis is looking for acquired or inherited variation.
+
+    Load-bearing for knowledge-base annotation: ClinVar classifies germline variation under
+    ACMG rules, and an AML workup asks a somatic question. Pairing the two without saying so
+    presents an inherited-disease classification as though it answered a question about a
+    tumour.
+    """
+
+    SOMATIC = "somatic"
+    GERMLINE = "germline"
+    BOTH = "both"
+
+
 class AnalysisSpec(StrictModel):
     profile: str = Field(min_length=1)
     modules: list[AnalysisModule]
     parameters: dict[str, Any] = Field(default_factory=dict)
+    #: What kind of variation this analysis is asking about. Optional and **without a
+    #: default**: guessing would silently decide how every knowledge-base assertion is read.
+    #: Left unset, scope alignment is reported as unknown rather than assumed.
+    intent: AnalysisIntent | None = None
 
 
 class PrivacySpec(StrictModel):
@@ -252,6 +270,74 @@ class Evidence(StrictModel):
     precise: bool | None = None
 
 
+class KnowledgeResourceLock(StrictModel):
+    """The exact knowledge-base release an annotation came from.
+
+    ClinVar republishes weekly. "ClinVar says Pathogenic" without saying *which* ClinVar is
+    not reproducible: the same BAM can yield different reports a month apart with nothing
+    recording why. Locked by checksum, exactly as the reference genome and the cytoband
+    table are.
+    """
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    source_id: str = Field(min_length=1)
+    #: The publisher's own release identifier, e.g. a ClinVar file date.
+    release: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    genome_build: GenomeBuild
+    #: The classification system this source's assertions are written in.
+    assertion_vocabulary: str = Field(min_length=1)
+    #: Records read, records usable, and why the rest were not.
+    records_loaded: int = Field(default=0, ge=0)
+    load_summary: str = ""
+
+
+class EventAnnotation(StrictModel):
+    """A knowledge-base record attached to a finding — evidence, never a verdict.
+
+    Carries the source's assertion verbatim together with the vocabulary it belongs to, so
+    ClinVar's germline *Pathogenic* cannot be read as a claim about a somatic finding. No
+    field here influences ``reportable`` or ``confidence``, and none may be added that does:
+    that decision needs somatic criteria this repository does not have.
+    """
+
+    source_id: str = Field(min_length=1)
+    source_release: str = Field(min_length=1)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    record_id: str = Field(min_length=1)
+    record_type: str = Field(min_length=1)
+    #: The source's classification, in the source's own words.
+    assertion: str
+    #: The rule set ``assertion`` belongs to, e.g. ``acmg_germline``.
+    assertion_vocabulary: str = Field(min_length=1)
+    record_origin: Literal["germline", "somatic", "unknown"]
+    scope_alignment: Literal["aligned", "mismatched", "unknown"]
+    scope_note: str
+    match_type: Literal["exact", "record_within_finding", "finding_within_record", "overlap"]
+    reciprocal_overlap: float = Field(ge=0, le=1)
+    review_status: str = ""
+    #: NCBI's star rating; ``None`` when the review status is not in the known vocabulary.
+    review_stars: int | None = Field(default=None, ge=0, le=4)
+    genes: list[str] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def every_annotation_states_its_limits(self) -> EventAnnotation:
+        """An annotation without its caveats is the failure mode this class exists to stop.
+
+        The caveats carry the sentence saying this is a classification of a database record
+        rather than a finding about the sample. Allowing an empty list would let exactly the
+        reading the design forbids through the one gap left open.
+        """
+        if not self.caveats:
+            raise ValueError(
+                "an annotation must carry its caveats; without them a database "
+                "classification reads as a finding about the sample"
+            )
+        return self
+
+
 class GenomicEvent(StrictModel):
     event_id: str
     event_type: EventType
@@ -264,6 +350,9 @@ class GenomicEvent(StrictModel):
     confidence: Literal["high", "moderate", "low", "unclassified"] = "unclassified"
     reportable: bool = False
     notes: list[str] = Field(default_factory=list)
+    #: Knowledge-base records matching this event. Evidence for a reviewer; deliberately
+    #: without influence on ``confidence`` or ``reportable``.
+    annotations: list[EventAnnotation] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def paired_events_require_secondary_locus(self) -> GenomicEvent:
