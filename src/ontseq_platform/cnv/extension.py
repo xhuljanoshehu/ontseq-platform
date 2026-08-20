@@ -305,9 +305,7 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         f"</tr></thead><tbody>{fit_rows}</tbody></table>"
         "<h3>Chromosome-level consensus</h3><table><thead><tr><th>Chromosome</th>"
         "<th>Median CN</th><th>Rounded CN</th><th>Agreement</th><th>Range</th>"
-        f"</tr></thead><tbody>{chromosome_rows}</tbody></table>"
-        + "".join(images)
-        + "</section>"
+        f"</tr></thead><tbody>{chromosome_rows}</tbody></table>" + "".join(images) + "</section>"
     )
 
 
