@@ -25,7 +25,19 @@ try
     File.WriteAllText(Path.Combine(root, "other.bai"), "BAI");
     AssertEqual(null, BamIndexLocator.Find(bam), "unrelated index");
 
-    Console.WriteLine("BAM index detection tests passed.");
+    AssertEqual(
+        "/mnt/c/Lab/sample.bam",
+        PathBridge.WindowsToWsl(@"C:\Lab\sample.bam"),
+        "drive path translation");
+    AssertEqual(
+        "/mnt/p/Lab FG06/NANOPORE/sample.bam",
+        PathBridge.WindowsToWsl(@"P:\Lab FG06\NANOPORE\sample.bam"),
+        "mapped drive translation");
+    AssertThrows<InvalidOperationException>(
+        () => PathBridge.WindowsToWsl(@"\\server\share\sample.bam"),
+        "UNC refusal");
+
+    Console.WriteLine("Desktop path and BAM index tests passed.");
 }
 finally
 {
@@ -39,4 +51,17 @@ static void AssertEqual(string? expected, string? actual, string scenario)
         throw new InvalidOperationException(
             $"{scenario}: expected '{expected ?? "<null>"}', got '{actual ?? "<null>"}'.");
     }
+}
+
+static void AssertThrows<TException>(Action action, string scenario) where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+    throw new InvalidOperationException($"{scenario}: expected {typeof(TException).Name}.");
 }
