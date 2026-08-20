@@ -261,9 +261,7 @@ def _events_from_primary_segments(
     rows = _read_tsv(path)
     lengths = _contig_lengths(reference_lock)
     events: list[GenomicEvent] = []
-    caller_version = "/".join(
-        item.version for item in tools if item.name in {"QDNAseq", "ACE"}
-    )
+    caller_version = "/".join(item.version for item in tools if item.name in {"QDNAseq", "ACE"})
     baseline = int(round(fit.ploidy))
     serial = 0
     for row in rows:
