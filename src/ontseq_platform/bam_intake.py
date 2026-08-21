@@ -107,7 +107,7 @@ def _check(
 
 def _reference_check(
     header: ParsedBamHeader, reference_lock: ReferenceLock
-) -> tuple[CheckStatus, str, dict[str, int | str | None]]:
+) -> tuple[CheckStatus, str, dict[str, int | str | bool | None]]:
     observed = dict(header.contigs)
     expected = {item.name: item.length for item in reference_lock.contigs}
     missing = [name for name in expected if name not in observed]
@@ -118,7 +118,7 @@ def _reference_check(
     expected_present_order = [name for name in expected if name in observed]
     observed_locked_order = [name for name in observed if name in expected]
     order_mismatch = expected_present_order != observed_locked_order
-    details = {
+    details: dict[str, int | str | bool | None] = {
         "expected_contigs": len(expected),
         "observed_contigs": len(observed),
         "expected_reference_bases": sum(expected.values()),

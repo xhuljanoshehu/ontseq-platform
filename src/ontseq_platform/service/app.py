@@ -71,7 +71,6 @@ from .guard import (
     wsl_to_windows,
 )
 
-
 RUNTIME_GIT_COMMIT = Path(sys.prefix) / "share" / "ontseq" / "git-commit.txt"
 
 PAGE = Path(__file__).with_name("ONTSeq.html")
@@ -212,10 +211,10 @@ def _job_detail(report: Any) -> str:
     """Prefer concrete failed-stage reasons over the graph's generic failure summary."""
 
     if report.passed:
-        return report.verdict_reason
+        return str(report.verdict_reason)
     failures = [record for record in report.stages if record.status.value == "FAILED"]
     if not failures:
-        return report.verdict_reason
+        return str(report.verdict_reason)
     return " | ".join(f"{record.title}: {record.reason}" for record in failures[:3])
 
 

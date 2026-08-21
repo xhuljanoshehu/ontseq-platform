@@ -14,7 +14,6 @@ from ontseq_platform.reference import (
     validate_canonical_reference,
 )
 
-
 GRCH37_LENGTHS = (
     249250621,
     243199373,

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from .models import GenomeBuild, ReferenceContig, ReferenceLock
 
-
 # Nuclear chromosome lengths are stable assembly identifiers.  Requiring all 24 nuclear
 # chromosomes lets the Desktop reject a tiny test or region-only dictionary without making
 # assumptions about optional mitochondrial, decoy, ALT or random contigs.
