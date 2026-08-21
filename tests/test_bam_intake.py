@@ -186,9 +186,7 @@ class BamIntakeTests(unittest.TestCase):
         self.assertIn("explicit extra-contig policy", message)
 
     def test_reordered_sequence_dictionary_fails(self) -> None:
-        header = ParsedBamHeader(
-            "coordinate", (("chr2", 2000), ("chr1", 1000)), 0, 0, 0
-        )
+        header = ParsedBamHeader("coordinate", (("chr2", 2000), ("chr1", 1000)), 0, 0, 0)
 
         status, message, details = _reference_check(header, _lock())
 
@@ -199,9 +197,7 @@ class BamIntakeTests(unittest.TestCase):
     def test_nanorepeat_chr1_fixture_still_fails_against_its_subset_fai(self) -> None:
         """The official fixture kept 86 hs37d5 @SQ lines but bundles only chr1 FASTA."""
         extras = tuple((f"decoy_{number}", 1000 + number) for number in range(85))
-        header = ParsedBamHeader(
-            "coordinate", (("1", 249_250_621), *extras), 1, 1, 2
-        )
+        header = ParsedBamHeader("coordinate", (("1", 249_250_621), *extras), 1, 1, 2)
         chr1_only = ReferenceLock(
             reference_id="GRCh37_CHR1_FIXTURE",
             genome_build=GenomeBuild.GRCH37,
@@ -228,9 +224,7 @@ class BamIntakeTests(unittest.TestCase):
             ],
             source_fai_sha256="2" * 64,
         )
-        header = ParsedBamHeader(
-            "coordinate", (("1", 249_250_621), ("2", 243_199_373)), 1, 1, 2
-        )
+        header = ParsedBamHeader("coordinate", (("1", 249_250_621), ("2", 243_199_373)), 1, 1, 2)
 
         status, _message, _details = _reference_check(header, full_lock)
 
@@ -238,9 +232,7 @@ class BamIntakeTests(unittest.TestCase):
 
     def test_mismatch_diagnostics_do_not_copy_custom_sequence_names(self) -> None:
         sensitive_name = "PATIENT_123_PRIVATE"
-        header = ParsedBamHeader(
-            "coordinate", (("chr1", 1000), (sensitive_name, 20)), 0, 0, 0
-        )
+        header = ParsedBamHeader("coordinate", (("chr1", 1000), (sensitive_name, 20)), 0, 0, 0)
 
         _status, message, details = _reference_check(header, _lock())
 

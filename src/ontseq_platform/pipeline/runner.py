@@ -470,15 +470,10 @@ def _intake_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
     if report.verdict == Verdict.FAIL:
         failed = [item for item in report.checks if item.status.value == "FAIL"]
-        detail = "; ".join(
-            f"{item.name}: {item.message}" for item in failed
-        ) or "unspecified check"
+        detail = "; ".join(f"{item.name}: {item.message}" for item in failed) or "unspecified check"
         return StageResult(
             status=ModuleRunStatus.FAILED,
-            reason=(
-                f"Aligned-BAM intake failed: {detail}. "
-                f"Full details: {INTAKE_REPORT}"
-            ),
+            reason=(f"Aligned-BAM intake failed: {detail}. Full details: {INTAKE_REPORT}"),
             tools=[report.tool] if report.tool else [],
             limitations=[
                 *report.limitations,

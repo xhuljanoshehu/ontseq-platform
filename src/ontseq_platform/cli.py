@@ -210,13 +210,11 @@ def main() -> None:
             print(write_json(lock, args.output))
         elif args.command == "validate-reference":
             lock = load_model(args.path, ReferenceLock)
-            if (
+            if args.expected_genome_build and lock.genome_build != GenomeBuild(
                 args.expected_genome_build
-                and lock.genome_build != GenomeBuild(args.expected_genome_build)
             ):
                 raise ValueError(
-                    f"reference lock is {lock.genome_build.value}, not "
-                    f"{args.expected_genome_build}"
+                    f"reference lock is {lock.genome_build.value}, not {args.expected_genome_build}"
                 )
             naming_style = "not checked"
             if args.require_canonical_assembly:
