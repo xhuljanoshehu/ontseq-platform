@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace ONTSeq.Desktop;
 
@@ -16,6 +18,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         DesktopSettings settings,
         string allowedRootWindows,
         string referenceLockWsl,
+        string expectedGenomeBuild,
         CancellationToken cancellationToken)
     {
         var status = await CheckWslAsync(settings, cancellationToken);
@@ -45,6 +48,14 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 "Bei einem Netzlaufwerk wie P: muss dieses in WSL als drvfs eingebunden sein.\n" +
                 $"Erwarteter WSL-Pfad: {rootWsl}\nReferenz: {referenceLockWsl}\n{check.StdErr}");
         }
+
+        var reference = await CheckReferenceAsync(
+            settings, referenceLockWsl, expectedGenomeBuild, cancellationToken);
+        if (!reference.Ok)
+            throw new InvalidDataException(
+                $"Die gespeicherte {expectedGenomeBuild}-Referenz ist ungültig oder " +
+                "unvollständig. Öffne 'System einrichten' und wähle den vollständigen " +
+                $"FAI-Index der BAM-Referenz.\n{reference.Detail}");
     }
 
     public async Task<(bool Ok, string Detail)> CheckWslAsync(
@@ -75,14 +86,48 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 settings.WslDistribution,
                 BackendInvocation(settings, "--help"),
                 cancellationToken);
-            return result.ExitCode == 0
-                ? (true, $"ONTSeq Backend gefunden: {settings.BackendCommand}")
-                : (false, "ONTSeq Backend ist in WSL nicht einsatzbereit. " + result.StdErr);
+            if (result.ExitCode != 0)
+                return (false, "ONTSeq Backend ist in WSL nicht einsatzbereit. " + result.StdErr);
+
+            var capability = await RunWslAsync(
+                settings.WslDistribution,
+                BackendInvocation(settings, "validate-reference", "--help"),
+                cancellationToken);
+            if (capability.ExitCode != 0)
+                return (
+                    false,
+                    "Die installierte ONTSeq Runtime ist veraltet. Bitte 'Runtime " +
+                    "installieren' ausführen, um sie auf v0.2.2 zu aktualisieren.");
+
+            return (true, $"ONTSeq Backend gefunden: {settings.BackendCommand}");
         }
         catch (Exception error)
         {
             return (false, "ONTSeq Backend fehlt oder kann nicht gestartet werden: " + error.Message);
         }
+    }
+
+    public async Task<(bool Ok, string Detail)> CheckReferenceAsync(
+        DesktopSettings settings,
+        string referenceLockWsl,
+        string expectedGenomeBuild,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunWslAsync(
+            settings.WslDistribution,
+            BackendInvocation(
+                settings,
+                "validate-reference",
+                referenceLockWsl,
+                "--expected-genome-build",
+                expectedGenomeBuild,
+                "--require-canonical-assembly"),
+            cancellationToken);
+        if (result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StdOut))
+            return (true, result.StdOut.Trim());
+
+        var detail = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
+        return (false, detail.Trim());
     }
 
     public async Task<string> InstallBundledRuntimeAsync(
@@ -104,7 +149,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.2.1";
+        var target = home + "/.local/share/ontseq/runtime-v0.2.2";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
@@ -166,32 +211,99 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         if (!File.Exists(faiWindows))
             throw new InvalidOperationException("Der erwartete FAI-Index wurde nicht gefunden: " + faiWindows);
 
+        var faiSha256 = await Sha256FileAsync(faiWindows, cancellationToken);
+        var referenceId = ReferenceIdFor(genomeBuild, faiSha256);
+
         var referenceDirWindows = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ONTSeq", "references");
         Directory.CreateDirectory(referenceDirWindows);
-        var lockWindows = Path.Combine(referenceDirWindows, $"{genomeBuild}.reference-lock.json");
+        var lockWindows = Path.Combine(
+            referenceDirWindows, ReferenceLockFileNameFor(genomeBuild, faiSha256));
+        var temporaryLockWindows =
+            lockWindows + "." + Guid.NewGuid().ToString("N") + ".tmp.json";
         var faiWsl = PathBridge.WindowsToWsl(faiWindows);
         var lockWsl = PathBridge.WindowsToWsl(lockWindows);
-        var referenceId = $"{genomeBuild}_LOCAL_{DateTime.UtcNow:yyyyMMdd}";
+        var temporaryLockWsl = PathBridge.WindowsToWsl(temporaryLockWindows);
 
-        var create = await RunWslAsync(
-            settings.WslDistribution,
-            BackendInvocation(settings,
-                "reference-lock",
-                "--fai", faiWsl,
-                "--reference-id", referenceId,
-                "--genome-build", genomeBuild,
-                "--output", lockWsl),
-            cancellationToken);
-        if (create.ExitCode != 0)
-            throw new InvalidOperationException("Reference-Lock konnte nicht erzeugt werden.\n" + create.StdErr);
-        if (!File.Exists(lockWindows))
-            throw new InvalidOperationException("Reference-Lock wurde nicht am erwarteten Ort geschrieben: " + lockWindows);
+        try
+        {
+            var create = await RunWslAsync(
+                settings.WslDistribution,
+                BackendInvocation(settings,
+                    "reference-lock",
+                    "--fai", faiWsl,
+                    "--reference-id", referenceId,
+                    "--genome-build", genomeBuild,
+                    "--require-canonical-assembly",
+                    "--output", temporaryLockWsl),
+                cancellationToken);
+            if (create.ExitCode != 0)
+                throw new InvalidOperationException(
+                    "Reference-Lock konnte nicht erzeugt werden.\n" + create.StdErr);
+            if (!File.Exists(temporaryLockWindows))
+                throw new InvalidDataException(
+                    "Reference-Lock wurde nicht am erwarteten temporären Ort geschrieben: " +
+                    temporaryLockWindows);
+
+            var validation = await CheckReferenceAsync(
+                settings, temporaryLockWsl, genomeBuild, cancellationToken);
+            if (!validation.Ok)
+                throw new InvalidDataException(
+                    "Der erzeugte Reference-Lock hat die Vollständigkeitsprüfung nicht " +
+                    "bestanden.\n" + validation.Detail);
+
+            PublishReferenceLockFile(temporaryLockWindows, lockWindows, faiSha256);
+        }
+        finally
+        {
+            if (File.Exists(temporaryLockWindows)) File.Delete(temporaryLockWindows);
+        }
 
         settings.ReferenceLocksWsl[genomeBuild] = lockWsl;
         settings.SaveUserSettings();
         return lockWindows;
+    }
+
+    public static string ReferenceIdFor(string genomeBuild, string faiSha256) =>
+        $"{genomeBuild}_LOCAL_{Sha256Prefix(faiSha256)}";
+
+    public static string ReferenceLockFileNameFor(string genomeBuild, string faiSha256) =>
+        $"{genomeBuild}.{Sha256Prefix(faiSha256)}.reference-lock.json";
+
+    public static void PublishReferenceLockFile(
+        string temporaryPath,
+        string finalPath,
+        string expectedFaiSha256)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(temporaryPath));
+        var recordedSha256 = document.RootElement.GetProperty("source_fai_sha256").GetString();
+        if (!string.Equals(recordedSha256, expectedFaiSha256, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                "Der erzeugte Reference-Lock enthält nicht den Fingerabdruck des gewählten FAI.");
+        File.Move(temporaryPath, finalPath, overwrite: true);
+    }
+
+    private static string Sha256Prefix(string value)
+    {
+        if (value.Length != 64 || value.Any(character => !Uri.IsHexDigit(character)))
+            throw new ArgumentException("Ein SHA256-Fingerabdruck mit 64 Hex-Zeichen wird erwartet.", nameof(value));
+        return value[..16].ToLowerInvariant();
+    }
+
+    private static async Task<string> Sha256FileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            1024 * 1024,
+            useAsync: true);
+        return Convert.ToHexString(
+            await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
     }
 
     public async Task<string> RunSelfTestAsync(

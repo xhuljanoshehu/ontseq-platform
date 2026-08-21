@@ -55,6 +55,7 @@ jobs:
           set -euo pipefail
           prefix="$(micromamba run -n ontseq-qdnaseq-cnv python -c 'import sys; print(sys.prefix)')"
           mkdir -p "$prefix/share/ontseq"
+          git rev-parse HEAD > "$prefix/share/ontseq/git-commit.txt"
           cp -a configs "$prefix/share/ontseq/configs"
           mkdir -p "$prefix/share/ontseq/scripts"
           cp scripts/run_qdnaseq_ace.R "$prefix/share/ontseq/scripts/run_qdnaseq_ace.R"
@@ -68,6 +69,7 @@ jobs:
           micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep="")'
           micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--cnv-policy'
           micromamba run -n ontseq-qdnaseq-cnv ontseq system-smoke --help | grep -q -- '--qdnaseq-script'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq validate-reference --help | grep -q -- '--require-canonical-assembly'
       - name: Pack relocatable Linux runtime
         shell: bash -el {0}
         run: |
@@ -90,7 +92,9 @@ jobs:
           test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/scripts/run_qdnaseq_ace.R
+          grep -Eq '^[0-9a-f]{40}$' /tmp/ontseq-packed/share/ontseq/git-commit.txt
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq --help >/dev/null
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq validate-reference --help | grep -q -- '--require-canonical-assembly'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript -e 'stopifnot(requireNamespace("QDNAseq",quietly=TRUE), requireNamespace("QDNAseq.hg19",quietly=TRUE), requireNamespace("ACE",quietly=TRUE))'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq local-smoke \
             --output-dir /tmp/ontseq-packed-smoke \
@@ -204,7 +208,7 @@ jobs:
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.2.1-win-x64-setup-engineering
+          name: ontseq-desktop-v0.2.2-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30

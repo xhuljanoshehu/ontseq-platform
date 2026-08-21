@@ -1,5 +1,21 @@
 # ONTSeq Desktop changelog
 
+## 0.2.2-engineering
+
+- validate a selected GRCh37/GRCh38 FAI against the complete canonical chromosome set before
+  saving it as the active reference
+- derive the dictionary ID and lock filename from the FAI SHA256 fingerprint, preventing a
+  same-day dictionary replacement from reusing stale intake results (the FAI fingerprint does
+  not prove underlying FASTA base identity)
+- revalidate saved locks during setup and display concrete validation failures
+- publish a newly validated lock atomically so a failed or changing FAI cannot overwrite the
+  active lock
+- detect a v0.2.1 backend as outdated and direct the operator to update the bundled Runtime
+- preserve the detailed aligned-BAM intake failure and its `manifest/intake.json` diagnostic
+  artifact in the Desktop job status
+- keep strict BAM/reference dictionary matching; regional BAM fixtures still require the full
+  reference dictionary used for their original alignment
+
 ## 0.1.3-engineering
 
 - support both common BAM index names: `sample.bam.bai` and `sample.bai`

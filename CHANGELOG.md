@@ -7,6 +7,11 @@ validated release.
 
 ### Added
 
+- Canonical GRCh37/GRCh38 reference validation for the Desktop setup boundary.
+- FAI-dictionary-addressed Desktop reference identity and full BAM/index/reference resume
+  signatures.
+- Actionable sequence-dictionary mismatch details retained in failed run artifacts and UI status.
+- Explicit verification of the declared BAM index, without falling back to an unindexed BAM scan.
 - Version-locked Mosdepth target-coverage adapter for Adaptive Sampling aligned-BAM runs.
 - Strict target-BED and Mosdepth output normalization with exact interval reconciliation,
   per-region mean depth and configurable threshold fractions.
@@ -14,7 +19,19 @@ validated release.
 - Documentation that separates the unbuffered analysis ROI BED from operational Adaptive
   Sampling selection regions.
 
+### Changed
+
+- Bumped the execution core to 0.3.1 and embedded the exact Git commit in packed Desktop
+  runtimes for run provenance.
+
 ### Validation impact
+
+The aligned-BAM integrity gate remains strict. The Desktop now refuses partial, mixed-style or
+wrong-build FAI dictionaries when they are configured as a full named GRCh37/GRCh38 reference,
+and a changed BAM index or reference lock invalidates a prior intake resume. This is a dictionary
+compatibility check, not proof that two FASTA files have identical bases. Region-extracted BAMs
+still require the full sequence dictionary of the reference used for alignment; this change does
+not treat sparse regional data as adequate lcWGS evidence.
 
 The Adaptive Sampling path gains new descriptive coverage output. The default `1x`, `10x`, `20x`
 and `30x` thresholds are engineering bins only and do not define assay adequacy, CNV/fusion

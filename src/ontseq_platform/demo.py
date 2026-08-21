@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from . import __version__
 from .iscn import build_iscn_proposal
 from .models import (
     AnalysisModule,
@@ -151,7 +152,7 @@ def build_demo_result() -> PipelineResult:
         events=events,
         iscn=proposal,
         provenance=Provenance(
-            pipeline_version="0.3.0",
+            pipeline_version=__version__,
             git_commit="UNCOMMITTED-DEMO",
             tools=[
                 ToolRecord(name="Cramino", version="demo"),

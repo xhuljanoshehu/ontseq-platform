@@ -2,7 +2,7 @@
 
 Windows operator surface for the ONTSeq execution core. The desktop app does not reimplement bioinformatics; it launches the bundled Linux runtime through WSL2, talks to the loopback service, and opens the same persisted HTML/XLSX/result artifacts produced by the canonical backend.
 
-## v0.2.1 user path
+## v0.2.2 user path
 
 1. Start `ONTSeq.Desktop.exe` and open **System einrichten** on first use.
 2. Install the bundled Linux runtime into WSL. The bundle contains Python, R, samtools, Cramino, Sniffles2, Mosdepth, minimap2, QDNAseq, QDNAseq.hg19, ACE and the ONTSeq package/resources.
@@ -17,6 +17,18 @@ Windows operator surface for the ONTSeq execution core. The desktop app does not
 11. It starts the canonical `ontseq serve` backend, submits the run, polls progress, and enables the HTML, XLSX and result-folder buttons when outputs are present.
 
 The UI keeps the backend's distinct stage outcomes (`COMPLETED`, `NO_CALL`, `FAILED`, `NOT_RUN`) instead of flattening them into done/pending.
+
+The Desktop accepts a file as named GRCh37/GRCh38 only when all canonical nuclear chromosomes
+(`1`-`22`, `X`, `Y`) occur with the assembly's standard lengths in one consistent naming style.
+Optional mitochondrial, decoy, ALT and random contigs remain permitted, but a partial,
+mixed-style or wrong-build FAI dictionary cannot be presented as a complete named reference.
+Setup shows build, contig count, total reference bases and the FAI-dictionary-addressed reference
+ID for every valid lock. This establishes sequence-dictionary compatibility; an FAI does not
+cryptographically prove the underlying FASTA bases are identical.
+
+Region-extracted BAMs remain compatible when their header retains the complete dictionary of the
+original alignment reference. A BAM with a full hs37d5 header must use the full hs37d5 lock; a
+bundled chromosome-only analysis FASTA is not the reference that originally produced that BAM.
 
 ### Full installed-runtime self-test
 
@@ -64,7 +76,7 @@ dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release -r win-x6
 
 `desktop-ci.yml` builds a relocatable Linux runtime from the pinned QDNAseq environment, proves the packed environment after relocation, then boots it inside stock Ubuntu 24.04 without host Python or R and executes the full `system-smoke`. Only after that passes is the Windows WPF executable published and bundled with the exact tested Linux runtime.
 
-## Deliberate v0.2.1 limitation: cancellation
+## Deliberate v0.2.2 limitation: cancellation
 
 The **Abbrechen** control remains disabled. A backend cancellation contract must first guarantee that an interrupted external tool cannot leave a stage looking complete. Closing a progress view is not treated as cancellation.
 

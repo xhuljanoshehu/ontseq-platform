@@ -136,7 +136,12 @@ public partial class MainWindow : Window
 
             BackendStateText.Text = "WSL, Backend und Referenz werden geprüft…";
             DetailText.Text = "Vorprüfung: WSL2, ONTSeq-Runtime, BAM-Speicher, Ausgabeverzeichnis und Reference-Lock.";
-            await _launcher.VerifyPrerequisitesAsync(_settings, allowedRoot, referenceLock, cancellationToken);
+            await _launcher.VerifyPrerequisitesAsync(
+                _settings,
+                allowedRoot,
+                referenceLock,
+                genomeBuild,
+                cancellationToken);
 
             BackendStateText.Text = "Backend startet…";
             _launcher.Start(_settings, allowedRoot, referenceLock);

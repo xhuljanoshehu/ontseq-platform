@@ -5,12 +5,18 @@ import unittest
 from collections.abc import Sequence
 from pathlib import Path
 
-from ontseq_platform.bam_intake import AlignedBamInspector, parse_sam_header
+from ontseq_platform.bam_intake import (
+    AlignedBamInspector,
+    ParsedBamHeader,
+    _reference_check,
+    parse_sam_header,
+)
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import (
     AnalysisSpec,
     AssayMode,
     AssaySpec,
+    CheckStatus,
     GenomeBuild,
     InputKind,
     InputSpec,
@@ -32,8 +38,12 @@ HEADER = "\n".join(
 
 
 class FakeSamtoolsRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
         normalized = tuple(argv)
+        self.calls.append(normalized)
         if normalized[1:] == ("--version",):
             return CommandResult(normalized, 0, "samtools 1.24\n", "")
         if normalized[1:3] == ("quickcheck", "-v"):
@@ -97,7 +107,8 @@ class BamIntakeTests(unittest.TestCase):
             bam.write_bytes(b"synthetic-not-a-real-bam")
             index.write_bytes(b"synthetic-not-a-real-index")
 
-            report = AlignedBamInspector(runner=FakeSamtoolsRunner()).inspect(
+            runner = FakeSamtoolsRunner()
+            report = AlignedBamInspector(runner=runner).inspect(
                 _manifest(bam, index), _lock(), include_checksums=True
             )
 
@@ -107,6 +118,9 @@ class BamIntakeTests(unittest.TestCase):
         self.assertIsNotNone(report.input_fingerprint.sha256)
         self.assertNotIn("SECRET_INTERNAL_NAME", report.model_dump_json())
         self.assertNotIn("SECRET_OPERATOR_VALUE", report.model_dump_json())
+        idxstats_call = next(call for call in runner.calls if call[1] == "idxstats")
+        self.assertEqual(idxstats_call[1:3], ("idxstats", "-X"))
+        self.assertEqual(idxstats_call[-2:], (str(bam), str(index)))
 
     def test_reference_length_mismatch_fails_intake(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -126,6 +140,113 @@ class BamIntakeTests(unittest.TestCase):
                 for check in report.checks
             )
         )
+
+    def test_exact_sequence_dictionary_passes(self) -> None:
+        status, message, details = _reference_check(parse_sam_header(HEADER), _lock())
+
+        self.assertEqual(status, CheckStatus.PASS)
+        self.assertIn("matches", message)
+        self.assertEqual(details["extra_contigs"], 0)
+
+    def test_missing_locked_contig_fails_with_actionable_counts(self) -> None:
+        header = ParsedBamHeader("coordinate", (("chr1", 1000),), 0, 0, 0)
+
+        status, message, details = _reference_check(header, _lock())
+
+        self.assertEqual(status, CheckStatus.FAIL)
+        self.assertEqual(details["missing_contigs"], 1)
+        self.assertEqual(details["expected_reference_bases"], 3000)
+        self.assertEqual(details["observed_reference_bases"], 1000)
+        self.assertEqual(
+            message,
+            "Reference dictionary mismatch: expected 2, observed 1; "
+            "1 missing, 0 length mismatches, 0 extra contigs",
+        )
+
+    def test_extra_bam_contig_fails_under_strict_policy(self) -> None:
+        header = ParsedBamHeader(
+            "coordinate", (("chr1", 1000), ("chr2", 2000), ("chr3", 3000)), 0, 0, 0
+        )
+
+        status, _message, details = _reference_check(header, _lock())
+
+        self.assertEqual(status, CheckStatus.FAIL)
+        self.assertEqual(details["extra_contigs"], 1)
+        self.assertEqual(details["observed_reference_bases"], 6000)
+
+    def test_extra_bam_contig_warns_only_under_explicit_policy(self) -> None:
+        header = ParsedBamHeader(
+            "coordinate", (("chr1", 1000), ("chr2", 2000), ("chr3", 3000)), 0, 0, 0
+        )
+        permissive_lock = _lock().model_copy(update={"allow_extra_contigs": True})
+
+        status, message, _details = _reference_check(header, permissive_lock)
+
+        self.assertEqual(status, CheckStatus.WARN)
+        self.assertIn("explicit extra-contig policy", message)
+
+    def test_reordered_sequence_dictionary_fails(self) -> None:
+        header = ParsedBamHeader(
+            "coordinate", (("chr2", 2000), ("chr1", 1000)), 0, 0, 0
+        )
+
+        status, message, details = _reference_check(header, _lock())
+
+        self.assertEqual(status, CheckStatus.FAIL)
+        self.assertTrue(details["contig_order_mismatch"])
+        self.assertIn("contig order differs", message)
+
+    def test_nanorepeat_chr1_fixture_still_fails_against_its_subset_fai(self) -> None:
+        """The official fixture kept 86 hs37d5 @SQ lines but bundles only chr1 FASTA."""
+        extras = tuple((f"decoy_{number}", 1000 + number) for number in range(85))
+        header = ParsedBamHeader(
+            "coordinate", (("1", 249_250_621), *extras), 1, 1, 2
+        )
+        chr1_only = ReferenceLock(
+            reference_id="GRCh37_CHR1_FIXTURE",
+            genome_build=GenomeBuild.GRCH37,
+            contigs=[ReferenceContig(name="1", length=249_250_621)],
+            source_fai_sha256="1" * 64,
+        )
+
+        status, message, details = _reference_check(header, chr1_only)
+
+        self.assertEqual(status, CheckStatus.FAIL)
+        self.assertEqual(details["expected_contigs"], 1)
+        self.assertEqual(details["observed_contigs"], 86)
+        self.assertEqual(details["extra_contigs"], 85)
+        self.assertIn("85 extra contigs", message)
+
+    def test_region_extraction_passes_when_full_alignment_dictionary_is_locked(self) -> None:
+        """Read sparsity does not matter; compatibility is defined by the full BAM header."""
+        full_lock = ReferenceLock(
+            reference_id="FULL_REFERENCE",
+            genome_build=GenomeBuild.GRCH37,
+            contigs=[
+                ReferenceContig(name="1", length=249_250_621),
+                ReferenceContig(name="2", length=243_199_373),
+            ],
+            source_fai_sha256="2" * 64,
+        )
+        header = ParsedBamHeader(
+            "coordinate", (("1", 249_250_621), ("2", 243_199_373)), 1, 1, 2
+        )
+
+        status, _message, _details = _reference_check(header, full_lock)
+
+        self.assertEqual(status, CheckStatus.PASS)
+
+    def test_mismatch_diagnostics_do_not_copy_custom_sequence_names(self) -> None:
+        sensitive_name = "PATIENT_123_PRIVATE"
+        header = ParsedBamHeader(
+            "coordinate", (("chr1", 1000), (sensitive_name, 20)), 0, 0, 0
+        )
+
+        _status, message, details = _reference_check(header, _lock())
+
+        persisted = f"{message} {details}"
+        self.assertNotIn(sensitive_name, persisted)
+        self.assertIn("observed_dictionary_sha256", details)
 
 
 if __name__ == "__main__":

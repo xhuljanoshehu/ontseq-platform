@@ -35,6 +35,7 @@ from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
     AlignedBamIntakeReport,
+    CheckStatus,
     CraminoQCReport,
     InputKind,
     InputSpec,
@@ -45,10 +46,12 @@ from ..models import (
     SnifflesCallReport,
     SnifflesPolicy,
     ToolRecord,
+    ValidationCheck,
     Verdict,
 )
 from ..mvp import assemble_aligned_bam_mvp
 from ..qc import run_cramino_qc
+from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
 from ..sniffles import run_sniffles
 from ..workbook import render_workbook
@@ -205,11 +208,26 @@ def _probe(
     return match.group(1)
 
 
-def _external_fingerprint(path: Path) -> tuple[str, str]:
-    """Fingerprint an input from outside the envelope by name and content."""
+def _stable_digest(path: Path) -> tuple[str, bool]:
+    """Hash a regular file and report whether its size/mtime stayed fixed while reading."""
+
     if not path.is_file():
-        raise StageFailure(f"required input is missing: {path.name}")
-    return (path.name, sha256_file(path))
+        raise StageFailure("required external input is missing")
+    before = path.stat()
+    digest = sha256_file(path)
+    after = path.stat()
+    stable = (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns)
+    return digest, stable
+
+
+def _external_fingerprint(path: Path, *, label: str | None = None) -> tuple[str, str]:
+    """Fingerprint an input from outside the envelope by name and content."""
+    digest, stable = _stable_digest(path)
+    if not stable:
+        raise StageFailure(
+            f"{label or 'required external input'} changed while it was being fingerprinted"
+        )
+    return (label or path.name, digest)
 
 
 # --------------------------------------------------------------------------------------
@@ -369,26 +387,103 @@ def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 def _intake_plan(ctx: RunContext) -> StagePlan:
     samtools = ctx.config.executable("samtools")
+    reference = ctx.config.reference_lock
+    index_path = ctx.manifest.input.index_path
+    if index_path is None:
+        raise StageFailure("aligned-BAM intake requires a BAM index")
     return StagePlan(
-        parameters={"reference_id": ctx.config.reference_lock.reference_id},
+        parameters={
+            "manifest_reference_id": ctx.manifest.assay.reference_id,
+            "manifest_genome_build": ctx.manifest.assay.genome_build.value,
+            "manifest_input_sha256": ctx.manifest.input.sha256,
+            "bam_extension": Path(ctx.manifest.input.path).suffix.lower(),
+            "reference_id": reference.reference_id,
+            "reference_genome_build": reference.genome_build.value,
+            "reference_source_fai_sha256": reference.source_fai_sha256,
+            "reference_dictionary_sha256": contig_signature(
+                (item.name, item.length) for item in reference.contigs
+            ),
+            "reference_allow_extra_contigs": reference.allow_extra_contigs,
+            "reference_lock_sha256": reference_lock_signature(reference),
+        },
         tool_versions={
             "samtools": _probe(ctx.runner, samtools, [samtools, "--version"], tool="samtools")
         },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        external_inputs=(
+            _external_fingerprint(Path(ctx.manifest.input.path), label="aligned_bam"),
+            _external_fingerprint(Path(index_path), label="bam_index"),
+        ),
     )
 
 
 def _intake_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     report = AlignedBamInspector(
         runner=ctx.runner, samtools=ctx.config.executable("samtools")
-    ).inspect(ctx.manifest, ctx.config.reference_lock, include_checksums=True)
+    ).inspect(ctx.manifest, ctx.config.reference_lock, include_checksums=False)
+
+    planned = dict(plan.external_inputs)
+
+    def final_digest(path: Path) -> tuple[str | None, bool]:
+        try:
+            digest, stable = _stable_digest(path)
+        except (OSError, StageFailure):
+            return None, False
+        return digest, stable
+
+    index_path = ctx.manifest.input.index_path
+    assert index_path is not None
+    bam_digest, bam_stable = final_digest(Path(ctx.manifest.input.path))
+    index_digest, index_stable = final_digest(Path(index_path))
+    bam_matches_plan = bam_stable and bam_digest == planned.get("aligned_bam")
+    index_matches_plan = index_stable and index_digest == planned.get("bam_index")
+    inputs_stable = bam_matches_plan and index_matches_plan
+
+    input_fingerprint = report.input_fingerprint
+    if input_fingerprint is not None and bam_digest is not None:
+        input_fingerprint = input_fingerprint.model_copy(update={"sha256": bam_digest})
+    index_fingerprint = report.index_fingerprint
+    if index_fingerprint is not None and index_digest is not None:
+        index_fingerprint = index_fingerprint.model_copy(update={"sha256": index_digest})
+    stability_check = ValidationCheck(
+        name="input_stability",
+        status=CheckStatus.PASS if inputs_stable else CheckStatus.FAIL,
+        message=(
+            "BAM and index stayed identical to the planned inputs"
+            if inputs_stable
+            else "BAM or index changed between intake planning and verification"
+        ),
+        details={
+            "bam_matches_plan": bam_matches_plan,
+            "index_matches_plan": index_matches_plan,
+        },
+    )
+    report = report.model_copy(
+        update={
+            "input_fingerprint": input_fingerprint,
+            "index_fingerprint": index_fingerprint,
+            "checks": [*report.checks, stability_check],
+            "verdict": report.verdict if inputs_stable else Verdict.FAIL,
+        }
+    )
     artifact = ctx.envelope.atomic_write_text(
         INTAKE_REPORT, report.model_dump_json(indent=2) + "\n"
     )
     if report.verdict == Verdict.FAIL:
-        failed = [item.name for item in report.checks if item.status.value == "FAIL"]
-        raise StageFailure(
-            "aligned-BAM intake gate failed: " + ", ".join(failed or ["unspecified check"])
+        failed = [item for item in report.checks if item.status.value == "FAIL"]
+        detail = "; ".join(
+            f"{item.name}: {item.message}" for item in failed
+        ) or "unspecified check"
+        return StageResult(
+            status=ModuleRunStatus.FAILED,
+            reason=(
+                f"Aligned-BAM intake failed: {detail}. "
+                f"Full details: {INTAKE_REPORT}"
+            ),
+            tools=[report.tool] if report.tool else [],
+            limitations=[
+                *report.limitations,
+                f"Failure diagnostic: {INTAKE_REPORT} sha256:{artifact.sha256}",
+            ],
         )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
@@ -831,7 +926,11 @@ def _execute_stage(
     signature = stage_signature(
         stage=stage.value,
         upstream=context.upstream(stage, kind),
-        parameters=plan.parameters,
+        parameters={
+            **plan.parameters,
+            "_runner_pipeline_version": context.config.pipeline_version,
+            "_runner_git_commit": context.config.git_commit,
+        },
         tool_versions=plan.tool_versions,
         external_inputs=plan.external_inputs,
     )

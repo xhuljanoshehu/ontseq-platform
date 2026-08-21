@@ -42,9 +42,12 @@ from ontseq_platform.pipeline.runner import (
     StageImplementation,
     StagePlan,
     StageResult,
+    _execute_stage,
+    _intake_execute,
+    _intake_plan,
     run_pipeline,
 )
-from ontseq_platform.pipeline.stages import StageId
+from ontseq_platform.pipeline.stages import InputKindName, StageId
 
 
 class _NullRunner:
@@ -57,6 +60,32 @@ class _NullRunner:
         self, argv: Sequence[str], output_path: Path, *, timeout_seconds: int = 300
     ) -> CommandResult:
         raise AssertionError(f"no fake stage should execute a command: {list(argv)}")
+
+
+class _IntakeRunner:
+    """Minimal samtools behaviour for intake-plan and failed-artifact tests."""
+
+    def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
+        normalized = tuple(argv)
+        if normalized[1:] == ("--version",):
+            return CommandResult(normalized, 0, "samtools 1.24\n", "")
+        if normalized[1:3] == ("quickcheck", "-v"):
+            return CommandResult(normalized, 0, "", "")
+        if normalized[1:3] == ("view", "-H"):
+            return CommandResult(
+                normalized,
+                0,
+                "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n",
+                "",
+            )
+        if normalized[1] == "idxstats":
+            return CommandResult(normalized, 0, "chr1\t1000\t10\t0\n*\t0\t0\t0\n", "")
+        raise AssertionError(f"unexpected intake command: {list(argv)}")
+
+    def run_to_file(
+        self, argv: Sequence[str], output_path: Path, *, timeout_seconds: int = 300
+    ) -> CommandResult:
+        raise AssertionError(f"intake should not stream output: {list(argv)}")
 
 
 class _FakeStage:
@@ -317,6 +346,20 @@ class ResumeTests(RunnerCase):
         for record in report.stages:
             self.assertFalse(record.resumed, f"{record.stage} resumed under --force")
 
+    def test_pipeline_version_change_invalidates_stage_resume(self) -> None:
+        self._run()
+
+        report, _ = self._run(pipeline_version="0.0.1-test")
+
+        self.assertFalse(report.record_for(StageId.INTAKE).resumed)
+
+    def test_git_commit_change_invalidates_stage_resume(self) -> None:
+        self._run()
+
+        report, _ = self._run(git_commit="1" * 40)
+
+        self.assertFalse(report.record_for(StageId.INTAKE).resumed)
+
     def test_a_no_call_stage_resumes_like_a_completed_one(self) -> None:
         """A caller that looked and declined has concluded; re-running it changes nothing."""
         self.stages[StageId.SV].status = ModuleRunStatus.NO_CALL
@@ -351,6 +394,137 @@ class ResumeTests(RunnerCase):
         self.assertIsNotNone(bundle)
         self.assertTrue(report.record_for(StageId.INTAKE).resumed)
         self.assertFalse(report.record_for(StageId.QC).resumed)
+
+
+class IntakeResumeIdentityTests(RunnerCase):
+    def _context(
+        self, reference_lock: ReferenceLock | None = None
+    ) -> tuple[RunContext, Path, Path]:
+        bam = self.base / "input.bam"
+        bai = self.base / "input.bam.bai"
+        bam.write_bytes(b"BAM-v1")
+        bai.write_bytes(b"BAI-v1")
+        manifest = _manifest().model_copy(
+            update={
+                "input": InputSpec(
+                    kind=InputKind.ALIGNED_BAM,
+                    path=str(bam),
+                    index_path=str(bai),
+                )
+            }
+        )
+        config = self._config(
+            manifest=manifest,
+            reference_lock=reference_lock or _reference_lock(),
+        )
+        envelope = RunEnvelope.create(
+            self.base / "intake-envelope", run_id="R1", sample_id=manifest.sample_id
+        )
+        return RunContext(config, envelope, _IntakeRunner(), manifest), bam, bai
+
+    def test_changing_only_the_bam_index_changes_the_intake_signature(self) -> None:
+        context, _bam, bai = self._context()
+        before = _intake_plan(context)
+
+        bai.write_bytes(b"BAI-v2")
+        after = _intake_plan(context)
+
+        self.assertNotEqual(before.external_inputs, after.external_inputs)
+        self.assertEqual(
+            [label for label, _digest in after.external_inputs],
+            ["aligned_bam", "bam_index"],
+        )
+
+    def test_replacing_same_id_reference_lock_changes_intake_parameters(self) -> None:
+        context, _bam, _bai = self._context()
+        before = _intake_plan(context)
+        replacement = context.config.reference_lock.model_copy(
+            update={
+                "contigs": [ReferenceContig(name="chr1", length=999)],
+                "source_fai_sha256": "b" * 64,
+            }
+        )
+        context.config.reference_lock = replacement
+
+        after = _intake_plan(context)
+
+        self.assertNotEqual(
+            before.parameters["reference_lock_sha256"],
+            after.parameters["reference_lock_sha256"],
+        )
+        self.assertNotEqual(
+            before.parameters["reference_dictionary_sha256"],
+            after.parameters["reference_dictionary_sha256"],
+        )
+
+    def test_manifest_claims_and_bam_suffix_are_signed(self) -> None:
+        context, bam, _bai = self._context()
+        original_manifest = context.manifest
+        plan = _intake_plan(context)
+
+        self.assertEqual(plan.parameters["manifest_reference_id"], "FAKE_REFERENCE_V1")
+        self.assertEqual(plan.parameters["manifest_genome_build"], "GRCh38")
+        self.assertIsNone(plan.parameters["manifest_input_sha256"])
+        self.assertEqual(plan.parameters["bam_extension"], ".bam")
+
+        changed_input = context.manifest.input.model_copy(update={"sha256": "c" * 64})
+        context.manifest = context.manifest.model_copy(update={"input": changed_input})
+        self.assertNotEqual(plan.parameters, _intake_plan(context).parameters)
+
+        changed_assay = original_manifest.assay.model_copy(
+            update={"reference_id": "OTHER_REFERENCE"}
+        )
+        context.manifest = original_manifest.model_copy(update={"assay": changed_assay})
+        self.assertNotEqual(plan.parameters, _intake_plan(context).parameters)
+
+        changed_assay = original_manifest.assay.model_copy(
+            update={"genome_build": GenomeBuild.GRCH37}
+        )
+        context.manifest = original_manifest.model_copy(update={"assay": changed_assay})
+        self.assertNotEqual(plan.parameters, _intake_plan(context).parameters)
+
+        renamed = bam.with_suffix(".dat")
+        renamed.write_bytes(bam.read_bytes())
+        changed_input = original_manifest.input.model_copy(update={"path": str(renamed)})
+        context.manifest = original_manifest.model_copy(update={"input": changed_input})
+        self.assertNotEqual(plan.parameters, _intake_plan(context).parameters)
+
+    def test_input_change_between_plan_and_execution_fails_intake(self) -> None:
+        context, bam, _bai = self._context()
+        plan = _intake_plan(context)
+        bam.write_bytes(b"BAM-v2")
+
+        result = _intake_execute(context, plan)
+
+        self.assertEqual(result.status, ModuleRunStatus.FAILED)
+        self.assertIn("input_stability", result.reason)
+        self.assertIn("changed between intake planning", result.reason)
+
+    def test_failed_intake_keeps_the_diagnostic_json_as_an_artifact(self) -> None:
+        mismatched = _reference_lock().model_copy(
+            update={"contigs": [ReferenceContig(name="chr1", length=999)]}
+        )
+        context, _bam, _bai = self._context(mismatched)
+
+        record = _execute_stage(
+            StageId.INTAKE,
+            context,
+            InputKindName.ALIGNED_BAM,
+            outcomes={},
+            previous=None,
+        )
+
+        self.assertEqual(record.status, ModuleRunStatus.FAILED)
+        self.assertEqual(record.outputs, [])
+        self.assertTrue(context.envelope.path("manifest/intake.json").is_file())
+        self.assertIn("1 length mismatches", record.reason)
+        self.assertIn("manifest/intake.json", record.reason)
+        self.assertTrue(
+            any(
+                limitation.startswith("Failure diagnostic: manifest/intake.json sha256:")
+                for limitation in record.limitations
+            )
+        )
 
 
 class LockingTests(RunnerCase):
@@ -451,7 +625,10 @@ class AlignSettleTests(unittest.TestCase):
     def test_the_manifest_is_repointed_at_the_aligned_bam(self) -> None:
         self.settle(self.context, self.outputs)
         self.assertEqual(self.context.manifest.input.kind, InputKind.ALIGNED_BAM)
-        self.assertTrue(self.context.manifest.input.path.endswith("alignment/FAKE_RUNNER_001.bam"))
+        self.assertEqual(
+            Path(self.context.manifest.input.path).parts[-2:],
+            ("alignment", "FAKE_RUNNER_001.bam"),
+        )
         self.assertEqual(
             self.context.manifest.input.index_path, f"{self.context.manifest.input.path}.bai"
         )

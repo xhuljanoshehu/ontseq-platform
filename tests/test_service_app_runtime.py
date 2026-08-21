@@ -5,9 +5,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from ontseq_platform.models import AnalysisModule
-from ontseq_platform.service.app import _build_manifest, _read_chunked_body
+from ontseq_platform.service.app import (
+    _build_manifest,
+    _job_detail,
+    _read_chunked_body,
+    _runtime_git_commit,
+)
 from ontseq_platform.service.guard import GuardError
 
 
@@ -103,6 +110,42 @@ class ChunkedRequestTests(unittest.TestCase):
     def test_invalid_chunk_size_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "chunk size"):
             _read_chunked_body(io.BytesIO(b"XYZ\r\nabc\r\n0\r\n\r\n"))
+
+
+class JobDetailTests(unittest.TestCase):
+    def test_failed_stage_reason_is_shown_instead_of_generic_verdict(self) -> None:
+        report = SimpleNamespace(
+            passed=False,
+            verdict_reason="One or more required stages failed.",
+            stages=[
+                SimpleNamespace(
+                    status=SimpleNamespace(value="FAILED"),
+                    title="Aligned BAM intake",
+                    reason="sequence_dictionary: 85 extra contigs",
+                )
+            ],
+        )
+
+        detail = _job_detail(report)
+
+        self.assertEqual(
+            detail,
+            "Aligned BAM intake: sequence_dictionary: 85 extra contigs",
+        )
+
+    def test_packed_runtime_commit_is_used_for_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            build_info = Path(temporary) / "git-commit.txt"
+            build_info.write_bytes(("a" * 40 + "\n").encode())
+            with mock.patch("ontseq_platform.service.app.RUNTIME_GIT_COMMIT", build_info):
+                self.assertEqual(_runtime_git_commit(), "a" * 40)
+
+    def test_invalid_runtime_commit_is_reported_as_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            build_info = Path(temporary) / "git-commit.txt"
+            build_info.write_bytes(b"not-a-commit\n")
+            with mock.patch("ontseq_platform.service.app.RUNTIME_GIT_COMMIT", build_info):
+                self.assertEqual(_runtime_git_commit(), "UNKNOWN")
 
 
 if __name__ == "__main__":

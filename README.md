@@ -133,6 +133,6 @@ system. See [Data security](docs/DATA_SECURITY.md).
 
 ## Project status and license
 
-Version `0.3.0` is a testable research foundation, not a finished diagnostic pipeline.
+Version `0.3.1` is a testable research foundation, not a finished diagnostic pipeline.
 No open-source license has been assigned. Keep the repository private until intellectual
 property, institutional governance and intended medical-device use have been reviewed.
