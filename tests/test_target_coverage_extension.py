@@ -231,9 +231,7 @@ class TargetCoverageExtensionTests(unittest.TestCase):
         self.assertTrue(artifact.exportable)
         self.assertIn("descriptive only", result.reason)
         self.assertIn("not assay-adequacy", result.reason)
-        normalized = ctx.envelope.path(ctx.path(TARGET_COVERAGE_REPORT)).read_text(
-            encoding="utf-8"
-        )
+        normalized = ctx.envelope.path(ctx.path(TARGET_COVERAGE_REPORT)).read_text(encoding="utf-8")
         self.assertNotIn(str(self.bam), normalized)
         self.assertNotIn(str(self.bed), normalized)
         called_output_dir = run_mock.call_args.kwargs["output_dir"]
