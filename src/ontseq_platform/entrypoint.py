@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 
-
 _EXECUTION_COMMANDS = frozenset({"run", "serve", "watch"})
 
 
