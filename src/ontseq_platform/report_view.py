@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .models import (
-    EventAnnotation,
     Evidence,
+    EventAnnotation,
     GenomicEvent,
     ModuleOutcome,
     ModuleRunStatus,
@@ -177,7 +177,9 @@ def _annotation_view(item: EventAnnotation) -> AnnotationView:
 def _event_view(event: GenomicEvent) -> EventView:
     reportability_text = "false"
     if event.reportable:
-        reportability_text = "true — pipeline flag only; this RUO report is not clinically validated"
+        reportability_text = (
+            "true — pipeline flag only; this RUO report is not clinically validated"
+        )
     return EventView(
         event_id=event.event_id,
         event_type=event.event_type.value,
