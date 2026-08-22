@@ -86,7 +86,9 @@ class ReportSemanticTests(unittest.TestCase):
 
     def test_warning_content_is_html_escaped_and_deduplicated(self) -> None:
         result = build_demo_result()
-        result.warnings.extend(["<script>alert(1)</script>", "duplicate warning", "duplicate warning"])
+        result.warnings.extend(
+            ["<script>alert(1)</script>", "duplicate warning", "duplicate warning"]
+        )
         view = build_report_view(result)
         self.assertEqual(view.warnings.count("duplicate warning"), 1)
         with tempfile.TemporaryDirectory() as temporary:
