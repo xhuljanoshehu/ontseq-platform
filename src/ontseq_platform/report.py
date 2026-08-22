@@ -1,707 +1,438 @@
-# ruff: noqa: E501
-
 from __future__ import annotations
 
 import html
 import json
 from pathlib import Path
 
-from .models import (
-    AnalysisModule,
-    GenomicEvent,
-    ISCNProposalStatus,
-    PipelineResult,
-    ResolvedResourceContext,
-)
-from .reporting import (
-    caller_count,
-    fusion_assessment,
-    fusion_review_events,
-    gene_pair_label,
-    is_structural_variant,
-    key_findings,
-    maximum_support,
-    pathology_label,
-    release_state,
-    review_priority,
-)
-from .sv_evidence import sv_review_queue
-from .target_coverage import TargetCoverageReport
+from .models import PipelineResult
+from .report_view import AnnotationView, EventView, ReportView, build_report_view
 
 
 def _cell(value: object) -> str:
     return html.escape("" if value is None else str(value))
 
 
-def _event_evidence(event: GenomicEvent) -> str:
-    return ", ".join(
-        f"{item.caller} {item.caller_version} "
-        f"(support={item.support_reads}, vaf={item.variant_allele_fraction})"
-        for item in event.evidence
-    )
+def _optional(value: object | None) -> str:
+    return "not available" if value is None else _cell(value)
 
 
-def _caller_support(event: GenomicEvent) -> str:
-    return ", ".join(
-        f"{item.caller}={item.support_reads if item.support_reads is not None else 'n/a'}"
-        for item in event.evidence
-    )
+def _fraction(value: float | None) -> str:
+    if value is None:
+        return "not available"
+    return f"{value * 100:.1f}%"
 
 
-def _cytobands(event: GenomicEvent) -> str:
-    bands = [event.primary.cytoband_start]
-    if event.secondary is not None:
-        bands.append(event.secondary.cytoband_start)
-    return " ↔ ".join(band or "unannotated" for band in bands)
+def _metric_name(name: str) -> str:
+    return name.replace("_", " ").strip().title()
 
 
-def _local_coverage(event: GenomicEvent) -> str:
-    if not event.breakpoint_mean_depths:
-        return "not measured"
-    return " / ".join(
-        "n/a" if depth is None else f"{depth:.1f}×" for depth in event.breakpoint_mean_depths
-    )
-
-
-def _event_loci(event: GenomicEvent) -> tuple[str, str]:
-    primary = f"{event.primary.chromosome}:{event.primary.start:,}-{event.primary.end:,}"
-    secondary = (
-        ""
-        if event.secondary is None
-        else f"{event.secondary.chromosome}:{event.secondary.start:,}-{event.secondary.end:,}"
-    )
-    return primary, secondary
-
-
-def _breakpoint_transcript_context(event: GenomicEvent) -> str:
-    parts: list[str] = []
-    for annotation in event.breakpoint_annotations:
-        preferred = next((item for item in annotation.transcripts if item.preferred), None)
-        if preferred is None and annotation.transcripts:
-            preferred = annotation.transcripts[0]
-        if preferred is None:
-            parts.append(f"{annotation.label}: unannotated")
-            continue
-        location = str(preferred.region)
-        if preferred.exon_number is not None:
-            location += f" {preferred.exon_number}"
-        elif preferred.intron_number is not None:
-            location += f" {preferred.intron_number}"
-        phase = "" if preferred.cds_phase is None else f", CDS phase {preferred.cds_phase}"
-        parts.append(
-            f"{annotation.label}: {preferred.gene_name}/{preferred.transcript_id} "
-            f"({location}{phase})"
-        )
-    return "; ".join(parts) or "not annotated"
-
-
-def _fusion_context(event: GenomicEvent) -> str:
-    evidence = event.fusion_evidence
-    if evidence is None:
-        return "n/a"
-    return f"orientation={evidence.orientation or 'unknown'}; frame={evidence.frame_status}"
-
-
-def _reference_methods(result: PipelineResult) -> tuple[str, str]:
-    context = result.reference_context
-    if not isinstance(context, ResolvedResourceContext):
-        return "<tr><td>Reference context</td><td>legacy_unspecified</td></tr>", ""
-    releases = context.resource_releases
-    rows = [
-        ("Genome assembly", releases.get("reference.genome_fasta", context.genome_build.value)),
-        ("ReferenceBundle", f"{context.reference_bundle_id} ({context.reference_bundle_version})"),
-        ("BAM dictionary contract", context.reference_dictionary_contract.value),
-        ("GENCODE", releases.get("reference.gencode_gtf", "unspecified")),
-        ("MANE", releases.get("reference.mane_gff3", "unspecified")),
-        ("Cytobands", releases.get("reference.cytobands", "unspecified")),
-        (
-            "PanelBundle",
-            f"{context.panel_bundle_id} ({context.panel_bundle_version})"
-            if context.panel_bundle_id is not None
-            else "NOT_APPLICABLE",
-        ),
-        ("KnowledgeBundle", f"{context.knowledge_bundle_id} ({context.knowledge_bundle_version})"),
-    ]
-    table_rows = "".join(
-        f"<tr><td>{_cell(name)}</td><td>{_cell(value)}</td></tr>" for name, value in rows
-    )
-    checksum_rows = "".join(
-        f"<tr><td>{_cell(name)}</td><td><code>{_cell(checksum)}</code></td></tr>"
-        for name, checksum in sorted(context.resource_checksums.items())
-    )
-    return table_rows, checksum_rows
-
-
-def _panel_resolution_methods(result: PipelineResult) -> str:
-    context = result.reference_context
-    if not isinstance(context, ResolvedResourceContext) or context.panel_bundle_id is None:
-        return ""
-    summary = context.panel_resolution
-    rows: list[tuple[str, object]]
-    if summary is None:
-        rows = [("Panel resolution", "Not recorded in this legacy result")]
-    elif summary.mapping_status == "native_build_not_required":
-        rows = [
-            ("Coordinate state", "Native build; coordinate mapping not required"),
-            ("Panel build", summary.target_genome_build.value),
-            ("Selection intervals", summary.selection_interval_count),
-            ("Native analysis ROI intervals", summary.analysis_roi_interval_count),
-            (
-                "Unresolved/review panel labels",
-                ", ".join(summary.unresolved_target_labels) or "No labels recorded",
-            ),
-        ]
-    else:
-        rows = [
-            ("Coordinate state", summary.mapping_status),
-            ("Mapping ID", summary.mapping_id),
-            (
-                "Source panel",
-                f"{summary.source_panel_bundle_id}:{summary.source_panel_resource_id}",
-            ),
-            (
-                "Build mapping",
-                f"{summary.source_genome_build.value} to {summary.target_genome_build.value}",
-            ),
-            ("Mapping method", f"{summary.mapping_tool} ({summary.mapping_method})"),
-            (
-                "Forward-mapped intervals",
-                f"{summary.mapped_interval_count} of {summary.source_interval_count}",
-            ),
-            ("Final selection intervals", summary.selection_interval_count),
-            ("Native analysis ROI intervals", summary.analysis_roi_interval_count),
-            (
-                "Forward-unmapped panel labels",
-                ", ".join(summary.unmapped_target_labels) or "No labels recorded",
-            ),
-            (
-                "Reciprocal-exact intervals",
-                f"{summary.reciprocal_exact_interval_count} of "
-                f"{summary.roundtrip_mapped_interval_count} roundtrip-mapped",
-            ),
-            (
-                "Roundtrip review-required labels",
-                ", ".join(summary.roundtrip_review_required_target_labels) or "No labels recorded",
-            ),
-            (
-                "Unresolved/review panel labels",
-                ", ".join(summary.unresolved_target_labels) or "No labels recorded",
-            ),
-            ("Runtime coordinate mapping", "PROHIBITED"),
-        ]
-    table_rows = "".join(
-        f"<tr><td>{_cell(name)}</td><td>{_cell(value)}</td></tr>" for name, value in rows
-    )
-    return (
-        "<h3>Panel coordinate resolution</h3>"
-        "<div class='notice warn'><strong>Research-use panel provenance:</strong> Coordinate "
-        "mapping records how the panel design was resolved; mapped does not mean analytically "
-        "validated. Unmapped and unresolved/review-required panel targets are not negative "
-        "findings for this sample.</div>"
-        "<div class='table-wrap'><table><thead><tr><th>Panel field</th><th>Value</th></tr>"
-        f"</thead><tbody>{table_rows}</tbody></table></div>"
-    )
-
-
-def _status_pill(value: str, *, css_class: str = "neutral") -> str:
-    return f"<span class='pill {css_class}'>{_cell(value)}</span>"
-
-
-def _key_finding_row(event: GenomicEvent) -> str:
-    primary, secondary = _event_loci(event)
-    priority = review_priority(event)
-    priority_class = "critical" if priority == "HEMATOLOGY_REVIEW" else "review"
-    confidence_class = "good" if event.confidence == "high" else "warn"
-    return (
-        f"<tr class='{priority_class}'>"
-        f"<td>{_status_pill(priority, css_class=priority_class)}</td>"
-        f"<td><strong>{_cell(gene_pair_label(event))}</strong><br>"
-        f"<span class='muted'>{_cell(event.event_id)}</span></td>"
-        f"<td>{_cell(event.event_type.value)}</td>"
-        f"<td>{_cell(primary)}<br>{_cell(secondary)}</td>"
-        f"<td>{_cell(_cytobands(event))}</td>"
-        f"<td>{_status_pill(event.confidence, css_class=confidence_class)}</td>"
-        f"<td>{caller_count(event)} caller(s); max support {maximum_support(event)}<br>"
-        f"<span class='muted'>{_cell(_caller_support(event))}</span></td>"
-        f"<td>{_cell(_local_coverage(event))}</td>"
-        f"<td>{_cell(pathology_label(event))}</td>"
-        f"<td>{_cell(fusion_assessment(event))}</td>"
-        f"<td>{_status_pill(release_state(event), css_class='locked')}</td>"
-        "</tr>"
-    )
-
-
-def _fusion_row(event: GenomicEvent) -> str:
-    primary, secondary = _event_loci(event)
-    return (
-        "<tr>"
-        f"<td><strong>{_cell(gene_pair_label(event))}</strong><br>"
-        f"<span class='muted'>{_cell(event.event_id)}</span></td>"
-        f"<td>{_cell(primary)}<br>{_cell(secondary)}</td>"
-        f"<td>{_cell(_cytobands(event))}</td>"
-        f"<td>{_cell(_caller_support(event))}</td>"
-        f"<td>{_cell(_local_coverage(event))}</td>"
-        f"<td>{_cell(event.observability.value)}</td>"
-        f"<td>{_cell(_breakpoint_transcript_context(event))}</td>"
-        f"<td>{_cell(_fusion_context(event))}</td>"
-        f"<td>{_cell(event.known_rearrangement or 'no knowledge match')}</td>"
-        f"<td>{_cell(pathology_label(event))}</td>"
-        f"<td>{_cell(fusion_assessment(event))}</td>"
-        f"<td>{_cell(event.confidence)}</td>"
-        f"<td>{_cell(release_state(event))}</td>"
-        "</tr>"
-    )
-
-
-def _review_event_row(event: GenomicEvent) -> str:
-    primary, secondary = _event_loci(event)
-    return (
-        "<tr>"
-        f"<td>{_cell(event.event_id)}</td><td>{_cell(event.event_type.value)}</td>"
-        f"<td>{_cell(gene_pair_label(event))}</td>"
-        f"<td>{_cell(primary)}</td><td>{_cell(secondary)}</td>"
-        f"<td>{_cell(_cytobands(event))}</td><td>{_cell(_caller_support(event))}</td>"
-        f"<td>{_cell(_local_coverage(event))}</td><td>{_cell(event.observability.value)}</td>"
-        f"<td>{_cell(', '.join(event.technical_flags))}</td>"
-        f"<td>{_cell(event.known_rearrangement or '')}</td>"
-        f"<td>{_cell(pathology_label(event))}</td>"
-        f"<td>{_cell(fusion_assessment(event))}</td>"
-        f"<td><strong>{_cell(event.confidence)}</strong></td>"
-        f"<td>{_cell(release_state(event))}</td></tr>"
-    )
-
-
-def _full_event_row(event: GenomicEvent) -> str:
-    primary, secondary = _event_loci(event)
-    return (
-        "<tr>"
-        f"<td>{_cell(event.event_id)}</td><td>{_cell(event.event_type.value)}</td>"
-        f"<td>{_cell(event.length_bp)}</td><td>{_cell(primary)}</td><td>{_cell(secondary)}</td>"
-        f"<td>{_cell(gene_pair_label(event))}</td><td>{_cell(event.confidence)}</td>"
-        f"<td>{_cell(review_priority(event))}</td><td>{_cell(release_state(event))}</td>"
-        f"<td>{_cell(event.validation_status.value)}</td><td>{_cell(event.observability.value)}</td>"
-        f"<td>{_cell(', '.join(event.technical_flags))}</td>"
-        f"<td>{_cell(event.known_rearrangement or '')}</td>"
-        f"<td>{_cell(pathology_label(event))}</td>"
-        f"<td>{_cell(fusion_assessment(event))}</td><td>{_cell(_event_evidence(event))}</td></tr>"
-    )
-
-
-def _coverage_section(
-    target: TargetCoverageReport | None,
-    selection: TargetCoverageReport | None,
-) -> str:
-    if target is None:
+def _alerts(view: ReportView) -> str:
+    if not view.alerts:
         return (
-            "<section id='coverage'><div class='section-heading'><div><span class='eyebrow'>Assay</span>"
-            "<h2>Adaptive-sampling target coverage</h2></div></div>"
-            "<div class='notice warn'>No target-coverage sidecar was supplied to the renderer. "
-            "Coverage is not assessed in this report.</div></section>"
+            "<p class='muted'>No FAILED, NO_CALL, QC WARN or QC FAIL alert was derived from "
+            "this result contract. This is not a validation or biological-negative claim.</p>"
         )
-    metrics = target.summary_metrics
-    low_regions = sorted(target.regions, key=lambda item: item.mean_depth)[:10]
-    low_rows = "".join(
-        "<tr>"
-        f"<td>{_cell(region.region_id)}</td><td>{_cell(region.chromosome)}</td>"
-        f"<td>{region.mean_depth:.2f}×</td>"
-        f"<td>{100 * region.fraction_at_threshold.get('20x', 0):.1f}%</td>"
-        f"<td>{100 * region.fraction_at_threshold.get('30x', 0):.1f}%</td></tr>"
-        for region in low_regions
+    return "".join(
+        "<div class='alert alert-{level}'><strong>{title}</strong><p>{detail}</p></div>".format(
+            level=_cell(item.level),
+            title=_cell(item.title),
+            detail=_cell(item.detail),
+        )
+        for item in view.alerts
     )
-    selection_mean = (
-        selection.summary_metrics.get("interval_weighted_mean_depth") if selection else None
+
+
+def _module_strip(view: ReportView) -> str:
+    if not view.modules:
+        return "<p class='muted'>No module outcomes were recorded.</p>"
+    return "".join(
+        "<div class='module-state {css}'><span>{name}</span><strong>{status}</strong></div>".format(
+            css=_cell(item.css_class),
+            name=_cell(item.name),
+            status=_cell(item.status.value),
+        )
+        for item in view.modules
     )
-    selection_mean_text = "n/a" if selection_mean is None else f"{float(selection_mean):.1f}×"
+
+
+def _module_rows(view: ReportView) -> str:
+    if not view.modules:
+        return "<tr><td colspan='4'>No module outcomes were recorded.</td></tr>"
+    return "".join(
+        "<tr><td>{name}</td><td><span class='state-label {css}'>{status}</span></td>"
+        "<td>{reason}</td><td>{meaning}</td></tr>".format(
+            name=_cell(item.name),
+            css=_cell(item.css_class),
+            status=_cell(item.status.value),
+            reason=_cell(item.reason) or "not recorded",
+            meaning=_cell(item.meaning),
+        )
+        for item in view.modules
+    )
+
+
+def _qc_rows(view: ReportView) -> str:
+    if not view.qc_metrics:
+        return "<tr><td colspan='2'>No normalized QC metrics were recorded.</td></tr>"
+    return "".join(
+        f"<tr><td>{_cell(_metric_name(key))}</td><td>{_optional(value)}</td></tr>"
+        for key, value in view.qc_metrics
+    )
+
+
+def _failed_gates(view: ReportView) -> str:
+    if not view.qc_failed_gates:
+        return (
+            "<p class='muted'>No failed QC gates were recorded. Metric-specific adequacy must "
+            "not be inferred unless the governing QC policy is validated.</p>"
+        )
+    items = "".join(f"<li>{_cell(item)}</li>" for item in view.qc_failed_gates)
+    return f"<div class='gate-failure'><strong>Failed QC gates</strong><ul>{items}</ul></div>"
+
+
+def _annotation_table(annotations: tuple[AnnotationView, ...]) -> str:
+    if not annotations:
+        return "<p class='muted'>No knowledge-resource annotations were attached.</p>"
+    rows = []
+    for item in annotations:
+        caveats = "; ".join(item.caveats)
+        rows.append(
+            "<tr>"
+            f"<td>{_cell(item.source_id)} {_cell(item.source_release)}</td>"
+            f"<td>{_cell(item.record_id)}</td>"
+            f"<td>{_cell(item.assertion)}</td>"
+            f"<td>{_cell(item.assertion_vocabulary)}</td>"
+            f"<td>{_cell(item.record_origin)}</td>"
+            f"<td>{_cell(item.scope_alignment)}</td>"
+            f"<td>{_cell(item.scope_note)}</td>"
+            f"<td>{_cell(caveats)}</td>"
+            "</tr>"
+        )
+    return (
+        "<div class='table-wrap'><table><caption>Knowledge-resource evidence</caption>"
+        "<thead><tr><th>Source</th><th>Record</th><th>Assertion</th><th>Vocabulary</th>"
+        "<th>Origin</th><th>Scope</th><th>Scope note</th><th>Caveats</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
+def _evidence_table(event: EventView) -> str:
+    if not event.evidence:
+        return (
+            "<p class='muted'>No normalized caller evidence was attached to this event. "
+            "Do not infer missing evidence values.</p>"
+        )
+    rows = []
+    for item in event.evidence:
+        filters = ", ".join(item.filters) if item.filters else "none recorded"
+        rows.append(
+            "<tr>"
+            f"<td>{_cell(item.caller)}</td>"
+            f"<td>{_cell(item.caller_version)}</td>"
+            f"<td>{_optional(item.support_reads)}</td>"
+            f"<td>{_optional(item.local_coverage)}</td>"
+            f"<td>{_fraction(item.variant_allele_fraction)}</td>"
+            f"<td>{_optional(item.quality)}</td>"
+            f"<td>{_optional(item.supporting_read_strands)}</td>"
+            f"<td>{_optional(item.precise)}</td>"
+            f"<td>{_cell(filters)}</td>"
+            "</tr>"
+        )
+    return (
+        "<div class='table-wrap'><table><caption>Normalized caller evidence</caption>"
+        "<thead><tr><th>Caller</th><th>Version</th><th>Support reads</th>"
+        "<th>Local coverage</th><th>VAF</th><th>Quality</th><th>Strands</th>"
+        "<th>Precise</th><th>Filters</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
+def _event_boundary(event: EventView) -> str:
+    text = (
+        "Pipeline event label and confidence are analytical metadata, not a clinical "
+        "classification. Review caller evidence, observability, validation status and source "
+        "provenance separately."
+    )
+    if event.event_type == "fusion":
+        text += (
+            " A fusion event label alone does not establish an expressed, in-frame or functional "
+            "fusion transcript."
+        )
+    return text
+
+
+def _event_card(event: EventView) -> str:
+    genes = ", ".join(event.genes) if event.genes else "not available"
+    notes = "".join(f"<li>{_cell(item)}</li>" for item in event.notes)
+    notes_block = f"<ul>{notes}</ul>" if notes else "<p class='muted'>No event notes recorded.</p>"
     return f"""
-    <section id="coverage">
-      <div class="section-heading"><div><span class="eyebrow">Assay</span>
-        <h2>Adaptive-sampling target coverage</h2></div>
-        <span class="pill neutral">{_cell(target.target_bed_role.value)}</span></div>
-      <div class="grid metrics">
-        <div class="card"><span>Targets assessed</span><strong>{_cell(metrics.get("region_count"))}</strong></div>
-        <div class="card"><span>Target-weighted mean</span><strong>{float(metrics.get("interval_weighted_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Median target mean</span><strong>{float(metrics.get("median_region_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Least-covered target</span><strong>{float(metrics.get("minimum_region_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Target bases ≥20×</span><strong>{100 * float(metrics.get("interval_bases_at_20x_fraction", 0)):.1f}%</strong></div>
-        <div class="card"><span>Buffered selection mean</span><strong>{selection_mean_text}</strong></div>
+    <article class="event-card" id="event-{_cell(event.event_id)}">
+      <div class="event-heading">
+        <div>
+          <span class="eyebrow">Normalized genomic event</span>
+          <h3>{_cell(event.event_id)} · {_cell(event.event_type)}</h3>
+        </div>
+        <span class="reportability">reportable: {_cell(event.reportability_text)}</span>
       </div>
-      <p class="muted">Coverage values are descriptive technical evidence. The table lists the ten
-      least-covered analysis targets; low coverage is not a biological negative result.</p>
-      <div class="table-wrap"><table><thead><tr><th>Target</th><th>Chromosome</th>
-      <th>Mean depth</th><th>Bases ≥20×</th><th>Bases ≥30×</th></tr></thead>
-      <tbody>{low_rows}</tbody></table></div>
-    </section>"""
+      <dl class="event-grid">
+        <div><dt>Locus 1</dt><dd>{_cell(event.primary_locus)}</dd></div>
+        <div><dt>Locus 2</dt><dd>{_optional(event.secondary_locus)}</dd></div>
+        <div><dt>Cytoband</dt><dd>{_optional(event.cytobands)}</dd></div>
+        <div><dt>Length</dt><dd>{_optional(event.length_bp)} bp</dd></div>
+        <div><dt>Copy number</dt><dd>{_optional(event.copy_number)}</dd></div>
+        <div><dt>Genes</dt><dd>{_cell(genes)}</dd></div>
+        <div><dt>Pipeline confidence</dt><dd>{_cell(event.confidence)}</dd></div>
+        <div><dt>Evidence records</dt><dd>{len(event.evidence)}</dd></div>
+      </dl>
+      <div class="boundary"><strong>Interpretation boundary.</strong>
+        {_cell(_event_boundary(event))}</div>
+      {_evidence_table(event)}
+      <h4>Event notes</h4>{notes_block}
+      <h4>Knowledge-resource annotations</h4>{_annotation_table(event.annotations)}
+    </article>
+    """
 
 
-def _module_status(result: PipelineResult, module: AnalysisModule) -> str:
-    outcome = next((item for item in result.modules if item.module == module), None)
-    return outcome.status.value if outcome is not None else "NOT_RECORDED"
-
-
-def render_html(
-    result: PipelineResult,
-    output_path: Path,
-    *,
-    target_coverage: TargetCoverageReport | None = None,
-    selection_coverage: TargetCoverageReport | None = None,
-) -> Path:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    structural_events = [event for event in result.events if is_structural_variant(event)]
-    finding_events = key_findings(structural_events)
-    fusion_events = fusion_review_events(structural_events)
-    review_events = sv_review_queue(structural_events, limit=max(1, len(structural_events)))
-    review_ids = {event.event_id for event in review_events}
-    finding_ids = {event.event_id for event in finding_events}
-    background_events = [
-        event
-        for event in structural_events
-        if event.event_id not in review_ids and event.event_id not in finding_ids
-    ][:200]
-    html_event_ids = review_ids | finding_ids | {event.event_id for event in background_events}
-    html_events = [event for event in structural_events if event.event_id in html_event_ids]
-
-    finding_rows = "".join(_key_finding_row(event) for event in finding_events) or (
-        "<tr><td colspan='11'>No hematology knowledge match or high/moderate fusion-evidence "
-        "candidate was identified. This is not a biological negative result.</td></tr>"
-    )
-    fusion_rows = "".join(_fusion_row(event) for event in fusion_events) or (
-        "<tr><td colspan='13'>No annotated fusion/rearrangement candidate was available for "
-        "assessment. This is not a biological negative result.</td></tr>"
-    )
-    review_rows = "".join(_review_event_row(event) for event in review_events) or (
-        "<tr><td colspan='15'>No high/moderate technical-priority SV candidate was identified. "
-        "This is not a biological negative result.</td></tr>"
-    )
-    event_rows = "".join(_full_event_row(event) for event in html_events) or (
-        "<tr><td colspan='16'>No structural-variant event was produced. Review module status; "
-        "this is not a biological negative result.</td></tr>"
-    )
-
-    preferred_metrics = [
-        "number_of_reads",
-        "aligned_percent",
-        "total_yield_gb",
-        "mean_coverage_x",
-        "n50_bp",
-        "median_length_bp",
-    ]
-    metric_cards = "".join(
-        f"<div class='card'><span>{_cell(key.replace('_', ' ').title())}</span>"
-        f"<strong>{_cell(result.qc.metrics[key])}</strong></div>"
-        for key in preferred_metrics
-        if key in result.qc.metrics
-    )
-    confidence_counts = {
-        confidence: sum(event.confidence == confidence for event in structural_events)
-        for confidence in ("high", "moderate", "low", "unclassified")
-    }
-    raw_sv_count = sum(max(1, len(event.source_event_ids)) for event in structural_events)
-    warnings = "".join(
-        f"<li>{_cell(item)}</li>"
-        for item in result.warnings + result.qc.warnings + result.iscn.warnings
-    )
-    module_rows = (
-        "".join(
-            f"<tr><td>{_cell(module.module.value)}</td><td>{_cell(module.status.value)}</td>"
-            f"<td>{_cell(module.reason)}</td></tr>"
-            for module in result.modules
+def _events(view: ReportView) -> str:
+    if not view.events:
+        return (
+            "<div class='empty-state'><strong>No normalized events were produced.</strong>"
+            "<p>Review module status and observability. This is not a biological negative "
+            "result.</p></div>"
         )
-        or "<tr><td colspan='3'>No module outcomes were recorded.</td></tr>"
-    )
-    tool_rows = "".join(
+    return "".join(_event_card(item) for item in view.events)
+
+
+def _warnings(view: ReportView) -> str:
+    if not view.warnings:
+        return (
+            "<p class='muted'>No warning strings were recorded in this result contract. "
+            "This does not establish assay adequacy or absence of limitations.</p>"
+        )
+    return "".join(f"<li>{_cell(item)}</li>" for item in view.warnings)
+
+
+def _tool_rows(result: PipelineResult) -> str:
+    if not result.provenance.tools:
+        return "<tr><td colspan='3'>No tool provenance was recorded.</td></tr>"
+    return "".join(
         f"<tr><td>{_cell(tool.name)}</td><td>{_cell(tool.version)}</td>"
         f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
         for tool in result.provenance.tools
     )
-    reference_rows, checksum_rows = _reference_methods(result)
-    panel_resolution_methods = _panel_resolution_methods(result)
-    adaptive_warning = (
-        "<div class='notice warn'><strong>Adaptive-sampling CNV caution:</strong> genome-wide "
-        "read depth is enrichment-biased. CNV output is exploratory until an assay-matched "
-        "normalization and benchmark are available.</div>"
-        if result.manifest.assay.mode.value == "adaptive_sampling"
-        and any(event.copy_number is not None for event in result.events)
-        else ""
+
+
+def _checksum_rows(view: ReportView) -> str:
+    if not view.reference_checksums:
+        return "<tr><td colspan='2'>No reference checksums were recorded.</td></tr>"
+    return "".join(
+        f"<tr><td>{_cell(name)}</td><td><code>{_cell(value)}</code></td></tr>"
+        for name, value in view.reference_checksums
     )
-    iscn_notation = (
-        result.iscn.notation
-        or {
-            ISCNProposalStatus.LEGACY_UNSPECIFIED: "Legacy result — assessment state unspecified",
-            ISCNProposalStatus.NOT_REQUESTED: "ISCN proposal generation not requested",
-            ISCNProposalStatus.NOT_ASSESSED: "ISCN proposal not assessed — see blockers",
-            ISCNProposalStatus.NO_RENDERABLE_CANDIDATE: (
-                "Assessment completed — no supported renderable event fragment"
-            ),
-            ISCNProposalStatus.PARTIAL_EVENT_LEVEL: "Invalid partial proposal state",
-        }[result.iscn.proposal_status]
-    )
-    iscn_build = (
-        result.iscn.genome_build.value
-        if result.iscn.genome_build is not None
-        else "legacy_unspecified"
-    )
-    iscn_selection = (
-        result.iscn.selection_policy.value
-        if result.iscn.selection_policy is not None
-        else "legacy_unspecified"
-    )
-    iscn_fragment_rows = (
-        "".join(
-            "<tr>"
-            f"<td>{_cell(fragment.event_id)}</td><td><code>{_cell(fragment.fragment)}</code></td>"
-            f"<td>{_cell(fragment.event_type.value)}</td><td>{_cell(fragment.confidence)}</td>"
-            f"<td>{_cell('REPORTABLE' if fragment.reportable else 'BENCHMARK_REQUIRED')}</td>"
-            f"<td>{_cell(fragment.selection_reason)}</td></tr>"
-            for fragment in result.iscn.event_fragments
-        )
-        or f"<tr><td colspan='6'>{_cell(iscn_notation)}</td></tr>"
-    )
-    iscn_disposition_rows = (
-        "".join(
-            "<tr>"
-            f"<td>{_cell(item.event_id)}</td><td>{_cell(item.outcome.value)}</td>"
-            f"<td>{_cell(item.reason_code)}</td><td>{_cell(item.detail)}</td></tr>"
-            for item in result.iscn.event_dispositions
-        )
-        or "<tr><td colspan='4'>No structured event dispositions were recorded (legacy result).</td></tr>"
-    )
-    adjacent_iscn_warnings = "".join(f"<li>{_cell(item)}</li>" for item in result.iscn.warnings)
-    iscn_resource = result.iscn.resource_provenance
-    iscn_resource_rows = (
-        "<tr><td>Reference bundle</td>"
-        f"<td>{_cell(iscn_resource.reference_bundle_id)} {_cell(iscn_resource.reference_bundle_version)}</td></tr>"
-        "<tr><td>BAM dictionary contract</td>"
-        f"<td>{_cell(iscn_resource.reference_dictionary_contract.value)}</td></tr>"
-        "<tr><td>Reference lock SHA256</td>"
-        f"<td><code>{_cell(iscn_resource.reference_lock_sha256)}</code></td></tr>"
-        "<tr><td>Annotation cache SHA256</td>"
-        f"<td><code>{_cell(iscn_resource.annotation_cache_sha256)}</code></td></tr>"
-        "<tr><td>Cytobands</td>"
-        f"<td>{_cell(iscn_resource.cytoband_release)} · <code>{_cell(iscn_resource.cytoband_sha256)}</code></td></tr>"
-        if iscn_resource is not None
-        else "<tr><td colspan='2'>No checksum-pinned ISCN resource provenance was available.</td></tr>"
-    )
-    iscn_policy_rows = (
-        "".join(
-            f"<tr><td>{_cell(name)}</td><td>{_cell(value)}</td></tr>"
-            for name, value in sorted(result.iscn.policy_parameters.items())
-        )
-        or "<tr><td colspan='2'>No structured policy parameters were recorded.</td></tr>"
-    )
-    iscn_assumptions = (
-        "".join(f"<li>{_cell(item)}</li>" for item in result.iscn.technical_assumptions)
-        or "<li>No technical assumptions were recorded (legacy result).</li>"
-    )
-    iscn_blocker_rows = (
-        "".join(
-            f"<tr><td>{_cell(item.reason_code)}</td><td>{_cell(item.detail)}</td></tr>"
-            for item in result.iscn.assessment_blockers
-        )
-        or "<tr><td colspan='2'>No assessment blocker was recorded.</td></tr>"
-    )
+
+
+def render_html(result: PipelineResult, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    view = build_report_view(result)
+    target_design = view.target_bed_version or "not applicable / not recorded"
     document = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ONTSeq report - {_cell(result.manifest.sample_id)}</title>
+  <title>ONTSeq report - {_cell(view.sample_id)}</title>
   <style>
-    :root {{ color-scheme:light; --ink:#10233f; --muted:#62718a; --line:#d9e2ec;
-      --brand:#0b557a; --brand-dark:#08374f; --soft:#eef6fa; --page:#f3f6f9;
-      --critical:#9f1239; --critical-bg:#fff1f2; --review:#9a4d0a; --review-bg:#fff7ed;
-      --good:#166534; --good-bg:#ecfdf3; --locked:#475569; --locked-bg:#f1f5f9; }}
+    :root {{
+      color-scheme: light;
+      --ink:#172033; --muted:#5e687a; --line:#d9dee7; --panel:#ffffff;
+      --canvas:#f3f5f8; --accent:#174a6e; --accent-soft:#eaf2f7;
+      --critical:#8f1d1d; --critical-soft:#fff0f0; --warning:#8a4b08;
+      --warning-soft:#fff7e8; --info:#36566f; --info-soft:#eef5f9;
+      --ok:#245c45; --ok-soft:#edf7f1; --neutral:#586174; --neutral-soft:#f0f2f5;
+    }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font:15px/1.5 Inter,Segoe UI,system-ui,sans-serif; color:var(--ink);
-      background:var(--page); }}
-    .banner {{ background:#7f1d1d; color:white; padding:9px 18px; text-align:center;
-      font-weight:750; letter-spacing:.045em; font-size:13px; }}
-    main {{ max-width:1440px; margin:0 auto; padding:28px clamp(16px,3vw,42px) 64px; }}
-    header {{ background:linear-gradient(125deg,var(--brand-dark),var(--brand)); color:white;
-      padding:30px clamp(24px,4vw,48px); border-radius:22px; box-shadow:0 14px 40px #08374f24; }}
-    header h1 {{ margin:0 0 8px; font-size:clamp(30px,4vw,48px); letter-spacing:-.035em; }}
-    header p {{ margin:0; opacity:.88; }}
-    nav {{ position:sticky; top:0; z-index:5; display:flex; gap:8px; overflow-x:auto;
-      padding:12px 2px; background:#f3f6f9f2; backdrop-filter:blur(8px); }}
-    nav a {{ color:var(--brand-dark); text-decoration:none; background:white; border:1px solid var(--line);
-      border-radius:999px; padding:7px 12px; white-space:nowrap; font-size:13px; font-weight:650; }}
-    section {{ margin-top:18px; background:white; border:1px solid var(--line); border-radius:18px;
-      padding:clamp(18px,2.5vw,30px); box-shadow:0 5px 20px #0f172a08; }}
-    .section-heading {{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
-      margin-bottom:16px; }}
-    h2 {{ margin:0; font-size:clamp(23px,2.4vw,32px); letter-spacing:-.025em; }}
-    h3 {{ margin:24px 0 10px; }}
-    .eyebrow {{ color:var(--brand); text-transform:uppercase; font-size:12px; letter-spacing:.12em;
-      font-weight:800; }}
-    .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px;
-      margin:18px 0; }}
-    .card {{ background:white; border:1px solid var(--line); border-radius:14px; padding:16px; }}
-    .metrics .card {{ background:linear-gradient(180deg,#fff,var(--soft)); }}
-    .card span {{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase;
-      letter-spacing:.06em; }}
-    .card strong {{ display:block; font-size:25px; line-height:1.2; margin-top:7px;
-      overflow-wrap:anywhere; }}
-    .notice {{ border-radius:12px; padding:13px 15px; margin:14px 0; border:1px solid var(--line); }}
-    .notice.info {{ background:var(--soft); color:var(--brand-dark); }}
-    .notice.warn {{ background:var(--review-bg); color:#7c2d12; border-color:#fed7aa; }}
-    .muted {{ color:var(--muted); font-size:13px; }}
-    .pill {{ display:inline-flex; border-radius:999px; padding:4px 9px; font-size:11px;
-      font-weight:800; letter-spacing:.035em; white-space:nowrap; }}
-    .pill.critical {{ color:var(--critical); background:var(--critical-bg); }}
-    .pill.review,.pill.warn {{ color:var(--review); background:var(--review-bg); }}
-    .pill.good {{ color:var(--good); background:var(--good-bg); }}
-    .pill.locked,.pill.neutral {{ color:var(--locked); background:var(--locked-bg); }}
-    .table-wrap {{ overflow:auto; border:1px solid var(--line); border-radius:12px; }}
-    table {{ width:100%; border-collapse:separate; border-spacing:0; min-width:880px; }}
-    th,td {{ padding:11px 12px; border-bottom:1px solid var(--line); text-align:left;
+    body {{ margin:0; font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif; color:var(--ink);
+      background:var(--canvas); }}
+    .ruo {{ position:sticky; top:0; z-index:20; background:#731c1c; color:white;
+      padding:9px 20px; text-align:center; font-weight:800; letter-spacing:.05em; }}
+    .shell {{ max-width:1460px; margin:0 auto; padding:24px; }}
+    .masthead {{ background:var(--panel); border:1px solid var(--line); border-radius:14px;
+      padding:24px; }}
+    .masthead h1 {{ margin:0 0 6px; font-size:28px; }}
+    .eyebrow {{ color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.08em;
+      text-transform:uppercase; }}
+    .identity {{ display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px;
+      margin-top:20px; }}
+    .identity div {{ border-top:2px solid var(--line); padding-top:8px; min-width:0; }}
+    .identity span {{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase; }}
+    .identity strong {{ display:block; margin-top:3px; overflow-wrap:anywhere; }}
+    .layout {{ display:grid; grid-template-columns:220px minmax(0,1fr); gap:18px; margin-top:18px; }}
+    nav {{ align-self:start; position:sticky; top:58px; background:var(--panel);
+      border:1px solid var(--line); border-radius:12px; padding:10px; }}
+    nav a {{ display:block; padding:9px 10px; border-radius:8px; color:var(--ink);
+      text-decoration:none; }}
+    nav a:hover, nav a:focus-visible {{ background:var(--accent-soft); outline:none; }}
+    main {{ min-width:0; }}
+    section {{ background:var(--panel); border:1px solid var(--line); border-radius:12px;
+      padding:20px; margin-bottom:16px; }}
+    h2 {{ margin:0 0 14px; font-size:20px; }}
+    h3 {{ margin:2px 0 0; font-size:17px; }}
+    h4 {{ margin:18px 0 8px; font-size:14px; }}
+    p {{ margin:6px 0; }}
+    .muted {{ color:var(--muted); }}
+    .module-strip {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(125px,1fr));
+      gap:8px; margin-top:12px; }}
+    .module-state {{ border:1px solid var(--line); border-left-width:5px; border-radius:9px;
+      padding:10px; }}
+    .module-state span {{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase; }}
+    .module-state strong {{ display:block; margin-top:3px; }}
+    .state-completed {{ border-left-color:var(--ok); background:var(--ok-soft); }}
+    .state-no-call {{ border-left-color:var(--warning); background:var(--warning-soft); }}
+    .state-failed {{ border-left-color:var(--critical); background:var(--critical-soft); }}
+    .state-not-run {{ border-left-color:var(--neutral); background:var(--neutral-soft); }}
+    .state-label {{ display:inline-block; padding:3px 7px; border-radius:999px;
+      border:1px solid currentColor; font-size:11px; font-weight:800; }}
+    .alert {{ border-left:5px solid; padding:12px 14px; margin:10px 0; border-radius:8px; }}
+    .alert-critical {{ color:var(--critical); background:var(--critical-soft); }}
+    .alert-warning {{ color:var(--warning); background:var(--warning-soft); }}
+    .alert-info {{ color:var(--info); background:var(--info-soft); }}
+    .table-wrap {{ overflow-x:auto; margin-top:10px; }}
+    table {{ width:100%; border-collapse:collapse; min-width:620px; }}
+    caption {{ text-align:left; font-weight:800; margin:0 0 8px; }}
+    th,td {{ padding:9px 10px; border-bottom:1px solid var(--line); text-align:left;
       vertical-align:top; }}
-    th {{ position:sticky; top:0; background:var(--soft); font-size:12px; text-transform:uppercase;
-      letter-spacing:.04em; z-index:1; }}
-    tbody tr:last-child td {{ border-bottom:0; }} tbody tr:hover {{ background:#f8fbfd; }}
-    tr.critical {{ box-shadow:inset 4px 0 var(--critical); }}
-    tr.review {{ box-shadow:inset 4px 0 #f59e0b; }}
-    .table-filter {{ width:min(480px,100%); padding:10px 12px; border:1px solid var(--line);
-      border-radius:9px; margin:0 0 12px; font:inherit; }}
-    details {{ margin-top:12px; }} details>summary {{ cursor:pointer; font-weight:750; color:var(--brand); }}
-    code {{ font-size:12px; overflow-wrap:anywhere; }}
-    .iscn {{ font:700 18px ui-monospace,monospace; color:var(--brand); overflow-wrap:anywhere; }}
-    ul {{ padding-left:22px; }} li+li {{ margin-top:7px; }}
-    @media (max-width:720px) {{ main {{ padding-inline:12px; }} header {{ border-radius:16px; }}
-      section {{ padding:16px; border-radius:14px; }} .section-heading {{ display:block; }} }}
+    th {{ background:#f7f8fa; font-size:12px; }}
+    code {{ font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }}
+    .event-card {{ border:1px solid var(--line); border-radius:11px; padding:16px;
+      margin:14px 0; background:#fcfcfd; }}
+    .event-heading {{ display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }}
+    .reportability {{ max-width:360px; border:1px solid var(--line); border-radius:8px;
+      padding:7px 9px; font-size:12px; font-weight:700; background:white; }}
+    .event-grid {{ display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px;
+      margin:14px 0; }}
+    .event-grid div {{ border-top:1px solid var(--line); padding-top:7px; min-width:0; }}
+    dt {{ color:var(--muted); font-size:11px; text-transform:uppercase; }}
+    dd {{ margin:2px 0 0; overflow-wrap:anywhere; }}
+    .boundary {{ background:var(--info-soft); border-left:4px solid var(--info); padding:10px 12px;
+      border-radius:7px; }}
+    .gate-failure {{ background:var(--critical-soft); color:var(--critical); border-radius:8px;
+      padding:10px 12px; margin-top:10px; }}
+    .iscn {{ font:700 19px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;
+      color:var(--accent); overflow-wrap:anywhere; }}
+    .empty-state {{ background:var(--info-soft); border:1px solid #bfd1dd; border-radius:8px;
+      padding:14px; }}
+    footer {{ color:var(--muted); font-size:12px; padding:4px 2px 24px; }}
+    @media (max-width:1000px) {{
+      .identity {{ grid-template-columns:repeat(3,minmax(120px,1fr)); }}
+      .layout {{ grid-template-columns:1fr; }}
+      nav {{ position:static; display:flex; overflow-x:auto; gap:4px; }}
+      nav a {{ white-space:nowrap; }}
+      .event-grid {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }}
+    }}
+    @media (max-width:620px) {{
+      .shell {{ padding:12px; }} .masthead {{ padding:17px; }}
+      .identity {{ grid-template-columns:1fr 1fr; }}
+      .event-heading {{ display:block; }} .reportability {{ margin-top:9px; max-width:none; }}
+      .event-grid {{ grid-template-columns:1fr; }} section {{ padding:15px; }}
+    }}
+    @media print {{
+      body {{ background:white; }} .ruo {{ position:static; }} nav {{ display:none; }}
+      .layout {{ display:block; }} section,.masthead,.event-card {{ break-inside:avoid; box-shadow:none; }}
+    }}
   </style>
 </head>
 <body>
-  <div class="banner">RESEARCH USE ONLY · NOT CLINICALLY VALIDATED · EXPERT REVIEW REQUIRED</div>
-  <main>
-    <header><span class="eyebrow" style="color:#bae6fd">ONTSeq single-sample report</span>
-      <h1>{_cell(result.manifest.sample_id)}</h1>
-      <p>Run {_cell(result.manifest.run_id)} · {_cell(result.manifest.assay.mode.value)} ·
-      {_cell(result.manifest.assay.genome_build.value)} · pipeline {_cell(result.provenance.pipeline_version)}</p>
-    </header>
-    <nav aria-label="Report sections"><a href="#overview">Overview</a><a href="#findings">Key findings</a>
-      <a href="#coverage">Target coverage</a><a href="#fusions">Fusion assessment</a>
-      <a href="#sv-review">SV review</a><a href="#iscn">ISCN proposal</a><a href="#methods">Methods</a></nav>
-    <section id="overview"><div class="section-heading"><div><span class="eyebrow">Run overview</span>
-      <h2>What needs attention</h2></div>{_status_pill(result.release_status.value, css_class="locked")}</div>
-      <div class="grid metrics"><div class="card"><span>QC verdict</span><strong>{_cell(result.qc.verdict.value)}</strong></div>
-        <div class="card"><span>Fusion assessment</span><strong>{_cell(_module_status(result, AnalysisModule.FUSION))}</strong></div>
-        <div class="card"><span>Key findings</span><strong>{len(finding_events)}</strong></div>
-        <div class="card"><span>Technical SV review</span><strong>{len(review_events)}</strong></div>
-        <div class="card"><span>All normalized SV</span><strong>{len(structural_events)}</strong></div></div>
-      <div class="notice info"><strong>Release state:</strong> BENCHMARK_REQUIRED means that the
-      pipeline produced reviewable evidence but no assay-specific analytical release gate has been
-      satisfied. It does not mean irrelevant, negative, or absent.</div>{adaptive_warning}</section>
-    <section id="findings"><div class="section-heading"><div><span class="eyebrow">Prioritized evidence</span>
-        <h2>Key findings for expert review</h2></div><span class="pill neutral">{len(finding_events)} shown</span></div>
-      <p class="muted">Knowledge matches and technically high/moderate fusion-evidence candidates.
-      Gene-pair matching is order independent. These are candidates, not confirmed fusions.
-      Pathology labels are source-database associations, not diagnoses for this sample.</p>
-      <div class="table-wrap"><table><thead><tr><th>Review priority</th><th>Finding</th><th>Type</th>
-      <th>Loci</th><th>Cytobands</th><th>Technical confidence</th><th>Evidence</th>
-      <th>Breakpoint coverage</th><th>Associated pathologies</th><th>Fusion assessment</th><th>Release state</th></tr></thead>
-      <tbody>{finding_rows}</tbody></table></div></section>
-    {_coverage_section(target_coverage, selection_coverage)}
-    <!-- ONTSEQ_CNV_SECTION -->
-    <section id="fusions"><div class="section-heading"><div><span class="eyebrow">Breakpoint interpretation</span>
-        <h2>Fusion and rearrangement assessment</h2></div><span class="pill neutral">{len(fusion_events)} candidates</span></div>
-      <div class="notice info">BREAKPOINT_EVIDENCE means both breakpoints were gene/transcript
-      annotated. KNOWLEDGE_MATCH_CANDIDATE additionally matched a locked hematology pattern.
-      Neither state asserts a productive transcript or clinical reportability. Associated
-      pathology names and DOIDs describe the source record, not the sample.</div>
-      <input class="table-filter" data-table="fusion-events" placeholder="Filter gene, locus, band, status…">
-      <div class="table-wrap"><table><thead><tr><th>Gene pair</th><th>Loci</th><th>Cytobands</th>
-      <th>Caller support</th><th>Coverage</th><th>Observability</th><th>Transcript context</th>
-      <th>Orientation/frame</th><th>Knowledge match</th><th>Associated pathologies</th><th>Assessment</th><th>Confidence</th>
-      <th>Release state</th></tr></thead><tbody id="fusion-events">{fusion_rows}</tbody></table></div></section>
-    <section id="sv-review"><div class="section-heading"><div><span class="eyebrow">Technical evidence</span>
-        <h2>SV review queue</h2></div><span class="pill neutral">{len(review_events)} high/moderate</span></div>
-      <div class="grid metrics"><div class="card"><span>Normalized caller records</span><strong>{raw_sv_count}</strong></div>
-        <div class="card"><span>Consolidated SV</span><strong>{len(structural_events)}</strong></div>
-        <div class="card"><span>High</span><strong>{confidence_counts["high"]}</strong></div>
-        <div class="card"><span>Moderate</span><strong>{confidence_counts["moderate"]}</strong></div>
-        <div class="card"><span>Low/background</span><strong>{confidence_counts["low"]}</strong></div></div>
-      <p class="muted">Technical confidence measures caller evidence, not clinical relevance.
-      Tumor-only data without a matched normal or population/PON filter can retain germline and
-      recurrent technical background.</p>
-      <input class="table-filter" data-table="priority-events" placeholder="Filter review queue…">
-      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Type</th><th>Gene pair</th>
-      <th>Locus 1</th><th>Locus 2</th><th>Cytobands</th><th>Caller support</th><th>Coverage</th>
-      <th>Observability</th><th>Context flags</th><th>Knowledge match</th><th>Associated pathologies</th><th>Fusion assessment</th>
-      <th>Confidence</th><th>Release state</th></tr></thead>
-      <tbody id="priority-events">{review_rows}</tbody></table></div>
-      <details><summary>Technical appendix — {len(html_events)} of {len(structural_events)} SV shown in HTML</summary>
-        <p class="muted">JSON and XLSX retain every normalized event. HTML includes every key/review
-        event plus at most 200 background calls to keep the report usable.</p>
-        <input class="table-filter" data-table="all-events" placeholder="Filter technical appendix…">
-        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Type</th><th>Length</th>
-        <th>Locus 1</th><th>Locus 2</th><th>Gene pair</th><th>Confidence</th><th>Review priority</th>
-        <th>Release state</th><th>Validation status</th><th>Observability</th><th>Context flags</th>
-        <th>Knowledge match</th><th>Associated pathologies</th><th>Fusion assessment</th><th>Evidence</th></tr></thead>
-        <tbody id="all-events">{event_rows}</tbody></table></div></details></section>
-    <section><div class="section-heading"><div><span class="eyebrow">Pipeline state</span>
-      <h2>Module status</h2></div></div><div class="table-wrap"><table><thead><tr><th>Module</th>
-      <th>Status</th><th>Reason</th></tr></thead><tbody>{module_rows}</tbody></table></div></section>
-    <section id="iscn"><div class="section-heading"><div><span class="eyebrow">Nomenclature</span>
-      <h2>Technical ISCN proposal — expert review required</h2></div>
-      {_status_pill(result.iscn.proposal_status.value, css_class="warn")}</div>
-      <div class="notice warn"><strong>Technischer ISCN-Vorschlag; nicht klinisch validiert;
-      fachzytogenetisch zu prüfen.</strong> This is an event-level working proposal, not a
-      complete karyotype and not a clinical release. Chromosome count, sex-chromosome complement,
-      clonality, phase, derivative structure and normality are not inferred.</div>
-      <div class="iscn">{_cell(iscn_notation)}</div>
-      <div class="grid metrics">
-        <div class="card"><span>Proposal status</span><strong>{_cell(result.iscn.proposal_status.value)}</strong></div>
-        <div class="card"><span>Genome build</span><strong>{_cell(iscn_build)}</strong></div>
-        <div class="card"><span>Baseline</span><strong>NOT ASSESSED</strong></div>
-        <div class="card"><span>Source events</span><strong>{len(result.iscn.source_event_ids)}</strong></div>
+  <div class="ruo">RESEARCH USE ONLY · NOT CLINICALLY VALIDATED</div>
+  <div class="shell">
+    <header class="masthead">
+      <span class="eyebrow">ONTSeq evidence report</span>
+      <h1>Single-sample analytical review</h1>
+      <p class="muted">Evidence, execution state and provenance are shown separately from
+        interpretation. Missing or non-executed analyses are never displayed as negatives.</p>
+      <div class="identity">
+        <div><span>Sample</span><strong>{_cell(view.sample_id)}</strong></div>
+        <div><span>Run</span><strong>{_cell(view.run_id)}</strong></div>
+        <div><span>Assay</span><strong>{_cell(view.assay_mode)}</strong></div>
+        <div><span>Genome build</span><strong>{_cell(view.genome_build)}</strong></div>
+        <div><span>Reference</span><strong>{_cell(view.reference_id)}</strong></div>
+        <div><span>Release state</span><strong>{_cell(view.release_status)}</strong></div>
       </div>
-      <p class="muted">{_cell(result.iscn.standard_edition)} · {_cell(result.iscn.conformance_profile)} ·
-      {_cell(iscn_selection)} · {_cell(result.iscn.review_status.value)}</p>
-      <h3>Rendered event fragments</h3>
-      <div class="table-wrap"><table><thead><tr><th>Source event</th><th>Fragment</th><th>Type</th>
-      <th>Technical confidence</th><th>Release state</th><th>Selection basis</th></tr></thead>
-      <tbody>{iscn_fragment_rows}</tbody></table></div>
-      <details><summary>Event disposition and unsupported constructs</summary>
-        <div class="table-wrap"><table><thead><tr><th>Event</th><th>Disposition</th>
-        <th>Reason code</th><th>Detail</th></tr></thead><tbody>{iscn_disposition_rows}</tbody></table></div>
-      </details>
-      <details><summary>Build/resource provenance and technical assumptions</summary>
-        <div class="table-wrap"><table><thead><tr><th>Resource</th><th>Value</th></tr></thead>
-        <tbody>{iscn_resource_rows}</tbody></table></div>
-        <h3>Versioned policy parameters</h3>
-        <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Value</th></tr></thead>
-        <tbody>{iscn_policy_rows}</tbody></table></div>
-        <h3>Technical assumptions</h3><ul>{iscn_assumptions}</ul>
-      </details>
-      <details><summary>Fail-closed assessment blockers</summary>
-        <div class="table-wrap"><table><thead><tr><th>Reason code</th><th>Detail</th></tr></thead>
-        <tbody>{iscn_blocker_rows}</tbody></table></div>
-      </details>
-      <h3>Warnings beside the proposal</h3><ul>{adjacent_iscn_warnings}</ul>
-    </section>
-    <section><div class="section-heading"><div><span class="eyebrow">Read metrics</span>
-      <h2>Quality control</h2></div></div><div class="grid metrics">{metric_cards}</div></section>
-    <section><div class="section-heading"><div><span class="eyebrow">Limitations</span>
-      <h2>Warnings and limitations</h2></div></div><ul>{warnings}</ul></section>
-    <section id="methods"><div class="section-heading"><div><span class="eyebrow">Provenance</span>
-      <h2>Methods and versions</h2></div></div>
-      <h3>Reference resources</h3><div class="table-wrap"><table><thead><tr><th>Resource</th>
-      <th>Release</th></tr></thead><tbody>{reference_rows}</tbody></table></div>
-      {panel_resolution_methods}
-      <h3>Tools</h3><div class="table-wrap"><table><thead><tr><th>Tool</th><th>Version</th>
-      <th>Parameters</th></tr></thead><tbody>{tool_rows}</tbody></table></div>
-      <details><summary>Resource SHA256 provenance</summary><div class="table-wrap"><table><thead><tr>
-      <th>Resource</th><th>SHA256</th></tr></thead><tbody>{checksum_rows}</tbody></table></div></details></section>
-  </main>
-  <script>
-    for (const input of document.querySelectorAll("input[data-table]")) {{
-      input.addEventListener("input", () => {{
-        const query = input.value.toLowerCase();
-        const body = document.getElementById(input.dataset.table);
-        if (!body) return;
-        for (const row of body.rows) row.hidden = !row.textContent.toLowerCase().includes(query);
-      }});
-    }}
-  </script>
+    </header>
+    <div class="layout">
+      <nav aria-label="Report sections">
+        <a href="#overview">Overview</a><a href="#modules">Module status</a>
+        <a href="#qc">Quality</a><a href="#events">Events</a>
+        <a href="#iscn">ISCN proposal</a><a href="#warnings">Warnings</a>
+        <a href="#provenance">Provenance</a>
+      </nav>
+      <main>
+        <section id="overview">
+          <h2>1 · Review overview</h2>
+          <div class="identity">
+            <div><span>QC verdict</span><strong>{_cell(view.qc_verdict)}</strong></div>
+            <div><span>Events</span><strong>{len(view.events)}</strong></div>
+            <div><span>Analysis profile</span><strong>{_cell(view.analysis_profile)}</strong></div>
+            <div><span>Analysis intent</span><strong>{_cell(view.analysis_intent)}</strong></div>
+            <div><span>Target design version</span><strong>{_cell(target_design)}</strong></div>
+            <div><span>Pipeline</span><strong>{_cell(view.pipeline_version)}</strong></div>
+          </div>
+          <h3>Execution-state strip</h3><div class="module-strip">{_module_strip(view)}</div>
+          <h3 style="margin-top:18px">Interpretation blockers and warnings</h3>{_alerts(view)}
+        </section>
+        <section id="modules">
+          <h2>2 · Module execution status</h2>
+          <p class="muted">Status is an execution statement, not a biological conclusion.</p>
+          <div class="table-wrap"><table><caption>Module outcomes</caption>
+            <thead><tr><th>Module</th><th>Status</th><th>Recorded reason</th>
+              <th>Meaning</th></tr></thead><tbody>{_module_rows(view)}</tbody></table></div>
+        </section>
+        <section id="qc">
+          <h2>3 · Quality and assay context</h2>
+          <p><strong>QC verdict:</strong> {_cell(view.qc_verdict)}</p>
+          <p class="muted">Normalized metrics are descriptive unless a validated QC policy
+            explicitly defines an adequacy threshold.</p>
+          <div class="table-wrap"><table><caption>Normalized QC metrics</caption>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>{_qc_rows(view)}</tbody></table></div>{_failed_gates(view)}
+        </section>
+        <section id="events">
+          <h2>4 · Genomic events and evidence</h2>
+          <p class="muted">Each normalized event is displayed with caller evidence and an
+            explicit interpretation boundary. Missing values remain “not available”.</p>
+          {_events(view)}
+        </section>
+        <section id="iscn">
+          <h2>5 · ISCN proposal</h2>
+          <p class="muted">This is a proposal generated by an unvalidated conformance subset and
+            requires expert review. It is not a released cytogenetic result.</p>
+          <div class="iscn">{_cell(result.iscn.notation)}</div>
+          <div class="identity">
+            <div><span>Edition</span><strong>{_cell(result.iscn.standard_edition)}</strong></div>
+            <div><span>Conformance</span><strong>{_cell(result.iscn.conformance_profile)}</strong></div>
+            <div><span>Review status</span><strong>{_cell(result.iscn.review_status.value)}</strong></div>
+          </div>
+        </section>
+        <section id="warnings">
+          <h2>6 · Warnings and limitations</h2><ul>{_warnings(view)}</ul>
+        </section>
+        <section id="provenance">
+          <h2>7 · Methods and provenance</h2>
+          <div class="identity">
+            <div><span>Pipeline version</span><strong>{_cell(view.pipeline_version)}</strong></div>
+            <div><span>Git commit</span><strong>{_cell(view.git_commit)}</strong></div>
+            <div><span>Generated</span><strong>{_cell(view.created_at)}</strong></div>
+          </div>
+          <div class="table-wrap"><table><caption>Tools and parameters</caption>
+            <thead><tr><th>Tool</th><th>Version</th><th>Parameters</th></tr></thead>
+            <tbody>{_tool_rows(result)}</tbody></table></div>
+          <div class="table-wrap"><table><caption>Reference checksums</caption>
+            <thead><tr><th>Resource</th><th>Checksum / lock value</th></tr></thead>
+            <tbody>{_checksum_rows(view)}</tbody></table></div>
+        </section>
+        <footer>ONTSeq portable report · offline/self-contained presentation · RUO.</footer>
+      </main>
+    </div>
+  </div>
 </body>
 </html>
 """
