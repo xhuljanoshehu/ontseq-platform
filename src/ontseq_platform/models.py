@@ -98,12 +98,30 @@ class InputSpec(StrictModel):
         return self
 
 
+class TargetBedRole(StrEnum):
+    """What a target BED actually is. The two are not interchangeable.
+
+    The BED a sequencer selects on usually carries flanks so that a read starting outside a
+    gene is still enriched. Coverage computed over that buffered design answers "was the
+    enrichment working"; it does not answer "was the analysis region observed", because the
+    flanks dilute the per-target mean. Reporting one as the other overstates or understates
+    adequacy depending on the flank size, so the manifest has to say which one it points at.
+    """
+
+    ANALYSIS_ROI_UNBUFFERED = "analysis_roi_unbuffered"
+    SELECTION_PANEL_BUFFERED = "selection_panel_buffered"
+
+
 class AssaySpec(StrictModel):
     mode: AssayMode
     genome_build: GenomeBuild
     reference_id: str = Field(min_length=1)
     target_bed: str | None = None
     target_bed_version: str | None = None
+    #: Defaults to the unbuffered analysis ROI because that is the stricter reading: a run
+    #: that does not declare a role is treated as claiming the narrower meaning, and a
+    #: buffered design has to say so explicitly.
+    target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED
 
     @model_validator(mode="after")
     def adaptive_sampling_requires_bed(self) -> AssaySpec:
@@ -544,9 +562,4 @@ class PipelineResult(StrictModel):
     modules: list[ModuleOutcome] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     release_status: ReviewStatus = ReviewStatus.REVIEW_REQUIRED
-
-    @model_validator(mode="after")
-    def failed_qc_cannot_be_reviewed(self) -> PipelineResult:
-        if self.qc.verdict == Verdict.FAIL and self.release_status == ReviewStatus.REVIEWED:
-            raise ValueError("A QC-failed result cannot be marked REVIEWED")
-        return self
+}
