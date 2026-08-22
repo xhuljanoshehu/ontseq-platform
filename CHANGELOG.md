@@ -3,10 +3,33 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
-## Unreleased
+## 0.3.4 - 2026-08-22
 
 ### Added
 
+- Per-run component selection: a `RunComponents` document names the provider and the exact
+  tool version for each stage that runs an external program. The version is checked against
+  the tool's own probe before the stage executes, and a mismatch fails that stage naming
+  both versions. Deselected stages are recorded as `NOT_RUN` with the selection named.
+- `configs/components/default.yaml` and `configs/components/legacy_sniffles_2.4.yaml`, plus
+  a Sniffles 2.4.0 policy, so the structural-variant component of the historical pipeline
+  can be reproduced for comparison without editing code.
+- Target coverage is wired into the canonical runner as `StageId.TARGET_COVERAGE`. An
+  adaptive-sampling run without a target-coverage policy now fails closed instead of
+  recording the assay's central QC as absent; a non-adaptive run records that the stage does
+  not apply, which is a scope statement rather than a coverage result.
+- `AssaySpec.target_bed_role`, distinguishing an unbuffered analysis ROI from a buffered
+  selection panel, and carried into the target-coverage report and its limitations.
+- First non-synthetic target design: a 111-target, 17.03 Mb buffered GRCh38 panel under
+  `configs/panels/`, with a lock file, a reproducible generator script and de-identified
+  per-target coverage expectations. Provenance and open questions in
+  `docs/PANEL_PROVENANCE.md`.
+- CI proves per-target coverage end to end inside a run envelope, proves an lcWGS run
+  reports the stage as out of scope, and proves a component pinned to an uninstalled version
+  fails closed.
+- `docs/COMPONENT_SELECTION.md` and `docs/LEGACY_COMPARISON.md`, the latter mapping the
+  historical pipeline's outputs onto this one and proposing MOLM13 as the first positive
+  control.
 - Version-locked Mosdepth target-coverage adapter for Adaptive Sampling aligned-BAM runs.
 - Strict target-BED and Mosdepth output normalization with exact interval reconciliation,
   per-region mean depth and configurable threshold fractions.
@@ -14,12 +37,23 @@ validated release.
 - Documentation that separates the unbuffered analysis ROI BED from operational Adaptive
   Sampling selection regions.
 
+### Changed
+
+- `ontseq` with no command lists both command groups. Execution commands were previously
+  invisible to `--help`.
+
 ### Validation impact
 
-The Adaptive Sampling path gains new descriptive coverage output. The default `1x`, `10x`, `20x`
-and `30x` thresholds are engineering bins only and do not define assay adequacy, CNV/fusion
-reportability, biological negativity or a clinical no-call. The target design and thresholds require
-pre-specified validation on the locked local panel before any promotion.
+Adaptive-sampling runs now produce per-target coverage as part of the canonical run rather
+than only through a separate command. The default `1x`, `10x`, `20x` and `30x` thresholds
+remain engineering bins only and do not define assay adequacy, CNV or fusion reportability,
+biological negativity or a clinical no-call.
+
+The coverage expectations table is a sanity reference derived from historical runs; it is
+not an adequacy gate, not a reportability threshold and not a no-call definition. The panel
+is `derived_unconfirmed`: it is reconstructed from laboratory coverage tables rather than
+copied from the selection file used at sequencing time, and one target label contradicts its
+coordinates.
 
 ## 0.3.0 - 2026-08-14
 
