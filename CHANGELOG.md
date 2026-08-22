@@ -13,6 +13,12 @@ validated release.
 - Dedicated technical policy for target coverage and a synthetic real-tool CI path.
 - Documentation that separates the unbuffered analysis ROI BED from operational Adaptive
   Sampling selection regions.
+- End-to-end runtime wiring for the pre-existing `target_coverage` stage on Adaptive Sampling
+  runs. The stage fingerprints both the aligned BAM and target BED for content-addressed resume,
+  keeps raw Mosdepth files under non-exportable `work/`, and exports only the normalized
+  observability JSON under `qc/`.
+- Regression tests that keep lcWGS target coverage explicitly `NOT_RUN`, fail early on a Mosdepth
+  version mismatch, and verify the normalized observability artifact does not expose source paths.
 
 ### Validation impact
 
@@ -20,6 +26,13 @@ The Adaptive Sampling path gains new descriptive coverage output. The default `1
 and `30x` thresholds are engineering bins only and do not define assay adequacy, CNV/fusion
 reportability, biological negativity or a clinical no-call. The target design and thresholds require
 pre-specified validation on the locked local panel before any promotion.
+
+The runtime now executes this descriptive observability stage automatically for Adaptive Sampling
+runs and records failure explicitly if the target design, locked Mosdepth version, aligned BAM, or
+normalization contract is unavailable. This improves traceability but does not alter CNV, SV,
+fusion, ISCN, confidence or reportability logic. The normalized target-coverage sidecar is not yet a
+field in `PipelineResult`; integration into the reviewer report remains a separate schema-migration
+step so presentation cannot silently invent an observability conclusion.
 
 ## 0.3.0 - 2026-08-14
 
