@@ -562,4 +562,9 @@ class PipelineResult(StrictModel):
     modules: list[ModuleOutcome] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     release_status: ReviewStatus = ReviewStatus.REVIEW_REQUIRED
-}
+
+    @model_validator(mode="after")
+    def failed_qc_cannot_be_reviewed(self) -> PipelineResult:
+        if self.qc.verdict == Verdict.FAIL and self.release_status == ReviewStatus.REVIEWED:
+            raise ValueError("A QC-failed result cannot be marked REVIEWED")
+        return self
