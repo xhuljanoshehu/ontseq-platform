@@ -4,15 +4,14 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .models import (
-    Evidence,
     EventAnnotation,
+    Evidence,
     GenomicEvent,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Verdict,
 )
-
 
 AlertLevel = Literal["critical", "warning", "info"]
 
