@@ -196,7 +196,10 @@ class TargetCoverageExtensionTests(unittest.TestCase):
         self.assertEqual(plan.tool_versions, {"mosdepth": "0.3.14"})
         self.assertEqual(plan.parameters["target_bed_role"], "analysis_roi_unbuffered")
         self.assertEqual(plan.parameters["thresholds"], [1, 10, 20, 30])
-        self.assertEqual({name for name, _digest in plan.external_inputs}, {"targets.bed", "sample.bam"})
+        self.assertEqual(
+            {name for name, _digest in plan.external_inputs},
+            {"targets.bed", "sample.bam"},
+        )
         self.assertEqual(runner.calls, [("mosdepth", "--version")])
 
     def test_version_mismatch_fails_before_analysis(self) -> None:
