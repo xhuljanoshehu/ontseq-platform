@@ -161,6 +161,19 @@ def validate(targets: list[Target]) -> list[str]:
     return problems
 
 
+def output_label(target: Target) -> str:
+    """The label written to every derivative, so an unresolved row cannot look confirmed.
+
+    A row listed in OPEN_QUESTIONS keeps its interval but is renamed, because a downstream
+    reader who sees the bare gene symbol has no way to know the source contradicts itself.
+    Both the BED and the coverage expectations use this, so regenerating cannot produce two
+    derivatives that disagree about the same target.
+    """
+    if target.gene in OPEN_QUESTIONS:
+        return f"{target.gene}_REVIEW_REQUIRED"
+    return target.gene
+
+
 def write_bed(path: Path, targets: list[Target], *, panel_version: str) -> None:
     ordered = sorted(
         targets,
@@ -178,9 +191,7 @@ def write_bed(path: Path, targets: list[Target], *, panel_version: str) -> None:
         "# not be used where an unbuffered analysis ROI is required.",
     ]
     for target in ordered:
-        name = target.gene
-        if target.gene in OPEN_QUESTIONS:
-            name = f"{target.gene}_REVIEW_REQUIRED"
+        name = output_label(target)
         lines.append(f"{target.chromosome}\t{target.start}\t{target.end}\t{name}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -207,7 +218,10 @@ def write_lock(
         "bed": {
             "path": str(bed_path.as_posix()),
             "sha256": sha256_file(bed_path),
+            "target_type": "target_intervals",
             "target_count": len(targets),
+            "unique_target_labels": len({target.gene for target in targets}),
+            "validated_gene_count": None,
             "interval_bases": sum(target.length for target in targets),
             "chromosomes": chromosomes,
         },
@@ -226,6 +240,16 @@ def write_lock(
             "That this file is byte-identical to the panel the sequencer selected on.",
             "That the coordinate convention is 0-based half-open rather than 1-based inclusive.",
             "Any coverage, reportability or no-call threshold for this design.",
+            "That the labels correspond to independently validated genes; they are reproduced "
+            "from the laboratory source and were not curated here.",
+        ],
+        "promotion_blockers": [
+            "The original fusion_panel_with_buffer.bed has not been obtained and byte-compared.",
+            "The coordinate convention is unconfirmed, so interval edges may be off by one base.",
+            *(
+                f"The {gene}_REVIEW_REQUIRED label/coordinate contradiction is unresolved."
+                for gene in sorted(OPEN_QUESTIONS)
+            ),
         ],
     }
     path.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -239,6 +263,8 @@ def write_expectations(
         "# DESCRIPTIVE ONLY. These are not adequacy gates, not reportability thresholds and",
         "# not a no-call definition. Run labels are deliberately reduced to a count so that",
         "# no sample can be identified from this file.",
+        "# Labels ending in _REVIEW_REQUIRED carry an unresolved contradiction in the source",
+        "# and must not be read as a confirmed target for that gene.",
         f"# genome_build=GRCh38 panel_version={panel_version}",
         "gene\tchromosome\tstart\tend\tlength\truns\tmin_mean_depth\tmedian_mean_depth\tmax_mean_depth",
     ]
@@ -250,7 +276,7 @@ def write_expectations(
         lines.append(
             "\t".join(
                 [
-                    target.gene,
+                    output_label(target),
                     target.chromosome,
                     str(target.start),
                     str(target.end),
