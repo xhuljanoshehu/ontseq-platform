@@ -12,9 +12,7 @@ LOCKED: list[tuple[str, int]] = [
 ]
 
 
-def _lock(
-    contigs: list[tuple[str, int]], *, allow_extra_contigs: bool = False
-) -> ReferenceLock:
+def _lock(contigs: list[tuple[str, int]], *, allow_extra_contigs: bool = False) -> ReferenceLock:
     return ReferenceLock(
         reference_id="synthetic-three-contig",
         genome_build=GenomeBuild.GRCH38,
