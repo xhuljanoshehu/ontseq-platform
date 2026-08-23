@@ -67,11 +67,11 @@ public partial class SetupWindow : Window
             return;
         }
 
-        var check = await WslServiceLauncher.RunWslAsync(
-            _settings.WslDistribution, ["sh", "-lc", $"test -f {ShellQuote(referenceLock)}"], token);
-        target.Text = check.ExitCode == 0
-            ? $"✓ Konfiguriert: {referenceLock}"
-            : $"✕ Konfiguriert, aber in WSL nicht auffindbar: {referenceLock}";
+        var check = await _launcher.CheckReferenceAsync(
+            _settings, referenceLock, build, token);
+        target.Text = Prefix(check.Ok) + (string.IsNullOrWhiteSpace(check.Detail)
+            ? $"Reference-Lock konnte nicht geprüft werden: {referenceLock}"
+            : check.Detail);
     }
 
     private async Task RefreshAdaptiveBedAsync(CancellationToken token)
