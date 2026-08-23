@@ -26,7 +26,7 @@ from .models import (
 )
 from .mvp import assemble_aligned_bam_mvp
 from .qc import run_cramino_qc
-from .reference import reference_lock_from_fai
+from .reference import reference_lock_from_fai, validate_canonical_reference
 from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
@@ -71,7 +71,21 @@ def _parser() -> argparse.ArgumentParser:
         "--genome-build", choices=[item.value for item in GenomeBuild], required=True
     )
     reference_lock.add_argument("--allow-extra-contigs", action="store_true")
+    reference_lock.add_argument(
+        "--require-canonical-assembly",
+        action="store_true",
+        help="Require complete canonical chromosomes 1-22, X and Y for the named build",
+    )
     reference_lock.add_argument("--output", type=Path, required=True)
+
+    validate_reference = subparsers.add_parser(
+        "validate-reference", help="Validate and summarize an existing reference lock"
+    )
+    validate_reference.add_argument("path", type=Path)
+    validate_reference.add_argument(
+        "--expected-genome-build", choices=[item.value for item in GenomeBuild]
+    )
+    validate_reference.add_argument("--require-canonical-assembly", action="store_true")
 
     inspect_bam = subparsers.add_parser(
         "inspect-bam", help="Run the aligned-BAM integrity and reference gate"
@@ -191,8 +205,28 @@ def main() -> None:
                 reference_id=args.reference_id,
                 genome_build=GenomeBuild(args.genome_build),
                 allow_extra_contigs=args.allow_extra_contigs,
+                require_canonical_assembly=args.require_canonical_assembly,
             )
             print(write_json(lock, args.output))
+        elif args.command == "validate-reference":
+            lock = load_model(args.path, ReferenceLock)
+            if args.expected_genome_build and lock.genome_build != GenomeBuild(
+                args.expected_genome_build
+            ):
+                raise ValueError(
+                    f"reference lock is {lock.genome_build.value}, not {args.expected_genome_build}"
+                )
+            naming_style = "not checked"
+            if args.require_canonical_assembly:
+                summary = validate_canonical_reference(
+                    ((item.name, item.length) for item in lock.contigs), lock.genome_build
+                )
+                naming_style = summary.naming_style
+            total_bases = sum(item.length for item in lock.contigs)
+            print(
+                f"{lock.genome_build.value} \u00b7 {len(lock.contigs)} contigs \u00b7 "
+                f"{total_bases} bp \u00b7 {lock.reference_id} \u00b7 {naming_style}"
+            )
         elif args.command == "inspect-bam":
             manifest = load_model(args.manifest, SampleManifest)
             lock = load_model(args.reference_lock, ReferenceLock)
