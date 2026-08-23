@@ -2,6 +2,8 @@
 # DESCRIPTIVE ONLY. These are not adequacy gates, not reportability thresholds and
 # not a no-call definition. Run labels are deliberately reduced to a count so that
 # no sample can be identified from this file.
+# Labels ending in _REVIEW_REQUIRED carry an unresolved contradiction in the source
+# and must not be read as a confirmed target for that gene.
 # genome_build=GRCh38 panel_version=AS_FUSION_PANEL_V1_UNCONFIRMED
 gene	chromosome	start	end	length	runs	min_mean_depth	median_mean_depth	max_mean_depth
 ABI1	chr10	26736596	26871088	134492	9	19.35	28.24	57.85
@@ -61,7 +63,7 @@ GPR128	chr17	64562829	64583081	20252	9	14.28	25.53	45.65
 HOXA9	chr7	27152438	27175538	23100	9	7.21	32.78	119.72
 HOXC11	chr12	53963126	53987644	24518	9	8.11	32.98	67.57
 HOXC13	chr12	53928831	53956545	27714	9	10.14	32.56	59.43
-IGH	chr5	143396959	143417420	20461	9	15.16	20.95	54.24
+IGH_REVIEW_REQUIRED	chr5	143396959	143417420	20461	9	15.16	20.95	54.24
 ITSN1	chr21	33632501	33909862	277361	9	18.71	34.28	69.48
 KAT6A	chr8	41919479	42061988	142509	9	19.52	28.88	57.54
 KMT2A	chr11	118426492	118536832	110340	9	17.47	30.11	58.04
