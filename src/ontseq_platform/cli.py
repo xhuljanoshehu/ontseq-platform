@@ -10,10 +10,12 @@ from .annotation import annotate_result, load_clinvar
 from .annotation import describe as describe_annotation
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
+from .cnv.adapters import call_set_from_qdnaseq_report
 from .cnv.cytobands import load_cytoband_file
 from .cnv.demo import summarize_comparison, summarize_demo, write_demo_benchmark
 from .cnv.evaluate import evaluate_case
-from .cnv.models import CnvBenchmarkCase, CnvEvaluationReport
+from .cnv.models import CnvBenchmarkCase, CnvDataBasis, CnvEvaluationReport
+from .cnv.qdnaseq import QDNAseqCallReport
 from .cnv.strata import aggregate, paired_detection_comparison
 from .cnv.truth import truth_from_karyotype
 from .demo import build_demo_result
@@ -205,6 +207,39 @@ def _parser() -> argparse.ArgumentParser:
     cnv_evaluate.add_argument("--evaluation-id")
     cnv_evaluate.add_argument("--output", type=Path, required=True)
 
+    cnv_from_qdnaseq = subparsers.add_parser(
+        "cnv-callset-from-qdnaseq",
+        help="Normalize a QDNAseq/ACE run into a scoreable, non-reportable CNV call set",
+    )
+    cnv_from_qdnaseq.add_argument("report", type=Path, help="A run's *.qdnaseq.json report")
+    cnv_from_qdnaseq.add_argument("--call-set-id", required=True)
+    cnv_from_qdnaseq.add_argument(
+        "--data-basis",
+        required=True,
+        choices=[item.value for item in CnvDataBasis],
+        help="Which read population the estimate came from. Stated, never inferred: an "
+        "adaptive-sampling run holds two populations whose depth behaviour differs",
+    )
+    cnv_from_qdnaseq.add_argument(
+        "--segment-dir",
+        type=Path,
+        help="Directory holding the run's segment tables. Defaults to the qdnaseq/ "
+        "directory beside the report",
+    )
+    cnv_from_qdnaseq.add_argument(
+        "--reference-lock",
+        type=Path,
+        help="Contig lengths, so everything the segmentation does not cover is declared a "
+        "no-call instead of being scored as agreement",
+    )
+    cnv_from_qdnaseq.add_argument(
+        "--bin-size-kbp",
+        type=int,
+        help="Score this resolution instead of the run's primary fit",
+    )
+    cnv_from_qdnaseq.add_argument("--mean-coverage-x", type=float)
+    cnv_from_qdnaseq.add_argument("--output", type=Path, required=True)
+
     cnv_aggregate = subparsers.add_parser(
         "cnv-aggregate",
         help="Pool CNV evaluations of one method into a stratified benchmark summary",
@@ -392,6 +427,35 @@ def main() -> None:
             print(
                 write_json(evaluate_case(cnv_case, evaluation_id=args.evaluation_id), args.output)
             )
+        elif args.command == "cnv-callset-from-qdnaseq":
+            qdnaseq_report = load_model(args.report, QDNAseqCallReport)
+            segment_dir = args.segment_dir or args.report.parent / "qdnaseq"
+            contig_lengths = None
+            if args.reference_lock:
+                contig_lengths = {
+                    contig.name: contig.length
+                    for contig in load_model(args.reference_lock, ReferenceLock).contigs
+                }
+            qdnaseq_call_set = call_set_from_qdnaseq_report(
+                qdnaseq_report,
+                call_set_id=args.call_set_id,
+                data_basis=CnvDataBasis(args.data_basis),
+                output_dir=segment_dir,
+                contig_lengths=contig_lengths,
+                bin_size_kbp=args.bin_size_kbp,
+                mean_coverage_x=args.mean_coverage_x,
+            )
+            print(write_json(qdnaseq_call_set, args.output))
+            print(
+                f"{qdnaseq_call_set.method_version}: {len(qdnaseq_call_set.segments)} segment(s), "
+                f"{len(qdnaseq_call_set.no_call_regions)} declared no-call region(s), "
+                f"status {qdnaseq_call_set.status.value}"
+            )
+            if contig_lengths is None:
+                print(
+                    "NOTE no reference lock was supplied, so uncovered regions are not "
+                    "declared. Score against a mask that excludes them."
+                )
         elif args.command == "cnv-aggregate":
             evaluations = [load_model(path, CnvEvaluationReport) for path in args.reports]
             summary = aggregate(

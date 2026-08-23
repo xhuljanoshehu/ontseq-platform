@@ -222,6 +222,78 @@ jobs:
           cd results/runs/CI_CNV_001/CNV_SYNTH_001
           sha256sum -c release/checksums.sha256
 
+      - name: Score the real QDNAseq run through the CNV benchmark contract
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          root=results/runs/CI_CNV_001/CNV_SYNTH_001
+          PYTHONPATH=src python -m ontseq_platform cnv-callset-from-qdnaseq \
+            "$root/evidence/cnv/CNV_SYNTH_001.qdnaseq.json" \
+            --call-set-id CI_QDNASEQ_500KBP \
+            --data-basis low_coverage_wgs \
+            --reference-lock results/cnv-fixture/reference.lock.json \
+            --output results/cnv-callset/qdnaseq.callset.json | tee /tmp/cnv-callset.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          call_set = json.loads(
+              Path("results/cnv-callset/qdnaseq.callset.json").read_text(encoding="utf-8")
+          )
+          lock = json.loads(
+              Path("results/cnv-fixture/reference.lock.json").read_text(encoding="utf-8")
+          )
+          lengths = {
+              contig["name"].removeprefix("chr"): contig["length"] for contig in lock["contigs"]
+          }
+
+          # Routing the runtime lane through this contract is only worth anything if the
+          # contract's guarantees then apply to it. Assert them rather than trust them.
+          assert call_set["reportable"] is False, "a call set must never be reportable"
+          assert call_set["research_only"] is True
+          assert call_set["method"] == "QDNAseq+ACE", call_set["method"]
+          assert call_set["method_version"].startswith("QDNAseq "), call_set["method_version"]
+          assert "+ACE " in call_set["method_version"], call_set["method_version"]
+          assert call_set["data_basis"] == "low_coverage_wgs"
+          assert call_set["segments"], "the real run produced no scoreable segments"
+          assert call_set["estimated_ploidy"] is not None
+          assert call_set["estimated_tumor_fraction"] is not None
+
+          # The property that makes a denominator auditable: on every contig the reference
+          # lock declares, what was called and what was declined together account for the
+          # whole contig, and never for the same base twice. A gap here would be a base
+          # scored as agreement with a truth set that nothing actually looked at.
+          spans: dict[str, list[tuple[int, int, str]]] = {}
+          for segment in call_set["segments"]:
+              spans.setdefault(segment["contig"], []).append(
+                  (segment["start"], segment["end"], "call")
+              )
+          for region in call_set["no_call_regions"]:
+              spans.setdefault(region["contig"], []).append(
+                  (region["start"], region["end"], "no-call")
+              )
+          for contig, length in sorted(lengths.items()):
+              items = sorted(spans.get(contig, []))
+              covered = 0
+              previous_end = 0
+              for start, end, kind in items:
+                  assert start >= previous_end, (
+                      f"{contig}: {kind} [{start},{end}) overlaps the span ending at "
+                      f"{previous_end}"
+                  )
+                  covered += end - start
+                  previous_end = end
+              assert covered == length, (
+                  f"{contig}: calls and declared no-calls cover {covered} of {length} bases"
+              )
+
+          print(
+              f"{call_set['method_version']}: {len(call_set['segments'])} segment(s), "
+              f"{len(call_set['no_call_regions'])} declared no-call region(s), "
+              f"{len(lengths)} contig(s) reconciled exactly"
+          )
+          PY
+
       - name: Upload compact CNV reviewer artifacts
         if: always()
         uses: actions/upload-artifact@v4

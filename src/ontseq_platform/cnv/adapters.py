@@ -11,11 +11,19 @@ pipeline keeps producing plausible-looking results. A loud failure on an unrecog
 header is strictly preferable.
 
 Adding a method therefore usually means adding a :class:`ColumnMapping`, not writing a
-parser. The mappings below cover the generic IGV ``SEG`` interchange format and ichorCNA.
-Mappings for Spectre and QDNAseq/ACE are intentionally **not** shipped as verified
-defaults, because their exact column layouts were not confirmed against the upstream
-sources while this module was written; see ``docs/CNV_BENCHMARKING.md``. Supply a mapping
-explicitly and record it in provenance.
+parser. The mappings below cover the generic IGV ``SEG`` interchange format, ichorCNA and
+the QDNAseq/ACE lane this repository runs.
+
+The QDNAseq/ACE mapping is a narrower claim than the other two. It is not a mapping for
+"QDNAseq output" in general: it describes the table written by ``scripts/run_qdnaseq_ace.R``
+in this repository, whose columns are chosen there rather than by the upstream package. It
+is shipped because that layout is ours and is checksummed into every run's provenance —
+which was exactly what could not be said when this module was first written. Output from a
+differently configured QDNAseq or ACE installation still needs its own mapping, supplied
+explicitly and recorded in provenance.
+
+A mapping for Spectre is still deliberately absent for the original reason: its column
+layout was not confirmed against the upstream source. See ``docs/CNV_BENCHMARKING.md``.
 
 None of these adapters executes a tool. Execution belongs behind the repository's
 existing adapter boundary with version pinning and argument-vector invocation, as done
@@ -27,15 +35,17 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..models import GenomeBuild, ModuleRunStatus, ToolRecord
-from .intervals import canonical_contig
+from .intervals import canonical_contig, subtract
 from .models import (
     CnvCallSet,
     CnvDataBasis,
     CnvSegment,
     GenomicRegion,
 )
+from .qdnaseq import QDNAseqCallReport
 from .states import CopyNumberState, state_from_copy_number
 
 CANONICAL_CONTIGS = {str(index) for index in range(1, 23)} | {"X", "Y"}
@@ -101,6 +111,24 @@ ICHORCNA_MAPPING = ColumnMapping(
         "AMP": CopyNumberState.HIGH_AMPLIFICATION,
         "HLAMP": CopyNumberState.HIGH_AMPLIFICATION,
     },
+)
+
+
+#: The segment table written by ``scripts/run_qdnaseq_ace.R`` in this repository.
+#:
+#: ``absolute_copy_number`` is ACE's purity- and ploidy-adjusted estimate, taken as the
+#: primary quantity rather than ``call``: ``call`` is a rounded band and rounding is the
+#: step at which a shallow gain and a neutral region become indistinguishable. The
+#: quantitative column keeps that distinction available to the scorer.
+#:
+#: Coordinates are one-based inclusive, because they come from QDNAseq bin annotations.
+QDNASEQ_ACE_MAPPING = ColumnMapping(
+    contig="chromosome",
+    start="start",
+    end="end",
+    copy_number="absolute_copy_number",
+    supporting_bins="bin_count",
+    one_based_start=True,
 )
 
 
@@ -324,6 +352,156 @@ def call_set_from_segment_table(
             "Normalized from a third-party segment table. No claim is made about the "
             "upstream tool's correctness, parameters or suitability for this assay.",
             "The call set is research-only and not reportable.",
+            *extra_limitations,
+        ],
+    )
+
+
+def qdnaseq_method_version(tools: Sequence[ToolRecord]) -> str:
+    """Compose a method version from the tool records the runtime lane already recorded.
+
+    Both packages are named because either one moving changes the answer: QDNAseq decides
+    the bins and the correction, ACE decides the purity/ploidy fit the absolute copy
+    numbers are expressed in. A benchmark result attributed to "QDNAseq" alone could not be
+    reproduced from that label.
+    """
+    versions = {record.name: record.version for record in tools}
+    missing = [name for name in ("QDNAseq", "ACE") if name not in versions]
+    if missing:
+        raise SegmentParseError(
+            "cannot attribute a QDNAseq/ACE call set without both tool versions; "
+            f"missing {', '.join(missing)}"
+        )
+    return f"QDNAseq {versions['QDNAseq']}+ACE {versions['ACE']}"
+
+
+def _uncovered_regions(
+    segments: Sequence[CnvSegment],
+    contig_lengths: Mapping[str, int],
+) -> list[GenomicRegion]:
+    """Every canonical base the segment table does not speak about, as explicit no-calls.
+
+    QDNAseq drops bins it cannot correct, and the runner keeps only the autosomes. Both are
+    real limits on where the method can answer at all, and both are invisible in a segment
+    table — the rows that would have said so are simply absent. Turning the gaps into
+    declared no-call regions is what keeps them out of the denominator instead of being
+    scored as agreement with whatever the truth set happens to assert there.
+    """
+    covered: dict[str, list[tuple[int, int]]] = {}
+    for segment in segments:
+        covered.setdefault(canonical_contig(segment.contig), []).append(
+            (segment.start, segment.end)
+        )
+    regions: list[GenomicRegion] = []
+    for contig, length in sorted(contig_lengths.items()):
+        canonical = canonical_contig(contig)
+        if canonical not in CANONICAL_CONTIGS or length <= 0:
+            continue
+        for start, end in subtract([(0, length)], covered.get(canonical, [])):
+            regions.append(
+                GenomicRegion(
+                    contig=canonical,
+                    start=start,
+                    end=end,
+                    label="not covered by the QDNAseq segmentation",
+                )
+            )
+    return regions
+
+
+def call_set_from_qdnaseq_report(
+    report: QDNAseqCallReport,
+    *,
+    call_set_id: str,
+    data_basis: CnvDataBasis,
+    output_dir: Path,
+    contig_lengths: Mapping[str, int] | None = None,
+    bin_size_kbp: int | None = None,
+    mean_coverage_x: float | None = None,
+    extra_limitations: Sequence[str] = (),
+) -> CnvCallSet:
+    """Normalize one QDNAseq/ACE run into the benchmark's call-set contract.
+
+    This is the seam the CNV direction asked for: the runtime lane is measured *through*
+    the existing benchmark architecture rather than being promoted alongside it. Nothing
+    here selects QDNAseq, marks it preferred or makes it reportable — ``CnvCallSet`` fixes
+    ``reportable`` to ``False`` and no argument can change that. What the function produces
+    is a scoreable object with its provenance attached.
+
+    ``data_basis`` has no default on purpose. An adaptive-sampling run yields two read
+    populations whose depth behaviour is not comparable, and a run that pooled them is a
+    third thing again; guessing which one a report came from would silently place it in the
+    wrong benchmark stratum. The caller knows, so the caller states it.
+    """
+    fit = report.primary_fit
+    if bin_size_kbp is not None:
+        matching = [item for item in report.fits if item.bin_size_kbp == bin_size_kbp]
+        if not matching:
+            available = ", ".join(str(item.bin_size_kbp) for item in report.fits)
+            raise SegmentParseError(
+                f"no QDNAseq fit at {bin_size_kbp} kbp in this report; available: {available}"
+            )
+        fit = matching[0]
+
+    segment_path = Path(output_dir) / fit.segment_file
+    if not segment_path.is_file():
+        raise SegmentParseError(f"QDNAseq segment table not found: {segment_path}")
+    lines = segment_path.read_text(encoding="utf-8").splitlines()
+    segments, warnings = parse_segment_table(lines, QDNASEQ_ACE_MAPPING)
+
+    no_call_regions = _uncovered_regions(segments, contig_lengths) if contig_lengths else []
+    if contig_lengths is None:
+        warnings.append(
+            "No contig lengths were supplied, so the regions this segmentation does not "
+            "cover — dropped bins and the sex chromosomes the runner excludes — could not "
+            "be declared as no-calls. Score against a mask that excludes them explicitly."
+        )
+
+    # A full-partition segmenter that produced nothing did not look; it is not a negative.
+    status = ModuleRunStatus.COMPLETED if segments else ModuleRunStatus.NO_CALL
+
+    return CnvCallSet(
+        call_set_id=call_set_id,
+        sample_id=report.sample_id,
+        genome_build=report.genome_build,
+        method="QDNAseq+ACE",
+        method_version=qdnaseq_method_version(report.tools),
+        data_basis=data_basis,
+        # QDNAseq emits a segment for every bin it kept, neutral ones included, so silence
+        # inside a covered region asserts neutrality rather than absence of information.
+        # Everything it could not cover is named above instead of being left to inference.
+        background_state=CopyNumberState.NEUTRAL,
+        status=status,
+        segments=segments,
+        no_call_regions=no_call_regions,
+        bin_size_bp=fit.bin_size_kbp * 1000,
+        estimated_tumor_fraction=fit.cellularity,
+        estimated_ploidy=fit.ploidy,
+        mean_coverage_x=mean_coverage_x,
+        tool=ToolRecord(
+            name="QDNAseq+ACE",
+            version=qdnaseq_method_version(report.tools),
+            parameters={
+                "bin_size_kbp": fit.bin_size_kbp,
+                "fit_error": fit.fit_error,
+                "candidate_count": fit.candidate_count,
+                "segment_file": fit.segment_file,
+                "primary_fit_bin_size_kbp": report.primary_fit.bin_size_kbp,
+                "available_bin_sizes_kbp": [item.bin_size_kbp for item in report.fits],
+            },
+        ),
+        warnings=[*warnings, *report.warnings],
+        limitations=[
+            "Normalized from this repository's QDNAseq/ACE runner. The call set is "
+            "research-only and not reportable.",
+            "Copy numbers are ACE's purity- and ploidy-adjusted estimates. They depend on "
+            "the fit ACE selected, and a different penalty or ploidy grid would move them.",
+            "The bin size, ACE penalty and ploidy grid used are engineering parameters "
+            "carried from the run's policy. None of them is a validated threshold, and a "
+            "benchmark result does not turn one into one.",
+            "Only one fit is scored here. A report holding several resolutions is several "
+            "candidate methods, not one method measured several ways.",
+            *report.limitations,
             *extra_limitations,
         ],
     )

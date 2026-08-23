@@ -12,11 +12,20 @@ ploidy_step: 0.05
 minimum_segment_bins: 1
 whole_chromosome_fraction: 0.90
 timeout_seconds: 7200
-expected_qdnaseq_version: null
-expected_ace_version: null
+# Pinned to the versions workflow/envs/cnv_qdnaseq.yaml installs. The adapter compares
+# these against what R actually reports before the stage runs, and fails that stage naming
+# both versions. Leaving them null let any installed build produce numbers under this
+# profile's name, which is the one thing a technical policy exists to prevent.
+expected_qdnaseq_version: 1.42.0
+expected_ace_version: 1.24.0
 note: >-
   Experimental robust CNV profile. QDNAseq is run independently at 100, 500 and
-  1000 kbp. ACE squaremodel searches purity and ploidy automatically; the 0.6
-  low-cellularity penalty is carried forward from the Lea Evers ONTseq evaluation.
-  Segment-level calls use 500 kbp as the primary view while chromosome-level
-  agreement is retained across all three resolutions.
+  1000 kbp. ACE squaremodel searches purity and ploidy automatically. Segment-level
+  calls use 500 kbp as the primary view while chromosome-level agreement is retained
+  across all three resolutions. The 0.6 low-cellularity penalty is carried forward
+  from the Lea Evers ONTseq evaluation and is an UNVALIDATED historical reference
+  point, not a value this project has measured: it is a starting position for
+  comparison, and it must not be read as a validated setting merely because it is the
+  configured default. Neither this penalty nor the primary bin size makes any output
+  of this profile reportable; selecting a CNV method still requires cohort data this
+  repository does not have.

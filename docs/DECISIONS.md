@@ -469,3 +469,49 @@ and a count cannot be misread as a classification of the finding.
 criteria are encoded. `assertion_vocabulary` then carries more than one value and the
 alignment check becomes genuinely useful in both directions, rather than mostly reporting
 that a germline source was consulted for a somatic question.
+
+## ADR-023: The runtime CNV lane is measured through the benchmark contract, not beside it
+
+**Decision:** QDNAseq + ACE is the primary CNV candidate for lcWGS and Adaptive Sampling, and
+it reaches the benchmark subsystem the same way any other candidate does — normalized into a
+`CnvCallSet` by `call_set_from_qdnaseq_report()` and scored over the same evaluable-genome
+mask. It is not given a private evaluation path, and the historical Lea adapter is not
+promoted into the runtime in its place.
+
+**Why not promote the historical adapter directly.** It has the strongest claim to
+familiarity in the laboratory and the weakest claim to comparability: its numbers were
+produced by a pipeline whose parameters, reference and tool versions are not recorded in a
+form anything here can reproduce. Promoting it would import that gap into the runtime and
+make the first "validated" lane the one whose provenance is least recoverable. Keeping it as
+a comparator preserves what it is genuinely good for — telling us whether the new lane agrees
+with what the laboratory has been reporting — without letting it decide anything.
+
+**Why through the benchmark rather than beside it.** A candidate scored by its own harness is
+scored on its own terms. The comparisons that eventually matter — QDNAseq against the
+baseline control, against Spectre, against the historical values — are only meaningful if the
+same mask, the same exclusion vocabulary and the same denominator apply to all of them. One
+seam, so a method cannot look better by being measured differently.
+
+**What is stated rather than inferred.** `data_basis` has no default. An adaptive-sampling run
+holds an on-target population that is deeply and non-uniformly enriched and an off-target
+population that may or may not behave like a shallow whole genome; pooling them is a third
+case again. Placing a report in the wrong stratum because the code guessed would corrupt the
+comparison silently, so the caller states it.
+
+**What the mask absorbs.** QDNAseq drops bins it cannot correct and the runner segments only
+chr1–22. Neither limit appears in a segment table — the rows that would say so are simply
+absent — so every uncovered base is emitted as a declared no-call. Calls and declared
+no-calls together account for each contig exactly, which is what makes the denominator
+auditable; CI asserts that reconciliation on a real QDNAseq run rather than assuming it.
+
+**What this does not decide.** Not reportability: `CnvCallSet` fixes `reportable` to `False`
+and no argument changes it. Not a preferred runtime default beyond the current engineering
+one — Spectre remains a legitimate benchmark comparator. And not the parameters: the bin
+size, the ACE penalty of 0.6 and the ploidy grid arrive from the run's policy as engineering
+values carried from the Lea evaluation. They are configured defaults, not measured ones, and
+the policy file says so in as many words so that being the default cannot quietly become
+being validated.
+
+**Revisit when:** a real cohort with orthogonal characterization exists. Method selection is
+that decision, and nothing before it — a good score on synthetic data included — is that
+decision being made.

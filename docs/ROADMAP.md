@@ -34,7 +34,8 @@
 - [x] ISCN karyotype to CNV truth conversion against a versioned cytoband resource
 - [ ] Lock a real cytoband resource per genome build with checksum and provenance
 - [ ] Add purity/ploidy estimation so detection is not limited by a fixed rounding band
-- [ ] Add version-pinned Spectre, ichorCNA and QDNAseq/ACE execution adapters
+- [x] Score the runtime QDNAseq/ACE lane through the CNV benchmark contract
+- [ ] Add version-pinned Spectre and ichorCNA execution adapters
 - [ ] Establish whether adaptive-sampling off-target reads support depth-based CNV locally
 - [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort

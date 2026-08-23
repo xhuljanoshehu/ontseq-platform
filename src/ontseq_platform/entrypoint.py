@@ -31,6 +31,7 @@ _SCIENTIFIC_COMMANDS = (
     ("benchmark", "Score a benchmark case"),
     ("assemble-aligned-mvp", "Assemble a result from existing adapter outputs"),
     ("annotate", "Attach knowledge-base records to a result's events"),
+    ("cnv-callset-from-qdnaseq", "Normalize a QDNAseq/ACE run into a CNV call set"),
     ("cnv-evaluate", "Score a CNV call set against a truth set"),
     ("cnv-aggregate", "Pool CNV evaluations into a stratified summary"),
     ("cnv-compare-methods", "Compare two CNV methods on shared truth events"),

@@ -87,6 +87,21 @@ separately through #17 through #21 and is not repeated here.
 - ADR-021 and ADR-022.
 - CI runs the synthetic CNV benchmark end to end, compares two baseline configurations
   pairwise through the CLI, and converts a synthetic ISCN karyotype into a truth set.
+- The runtime QDNAseq/ACE lane is wired **through** the benchmark architecture rather than
+  promoted beside it. `QDNASEQ_ACE_MAPPING` describes the table this repository's runner
+  writes — a narrower claim than a mapping for QDNAseq in general, and shippable only
+  because that layout is ours and checksummed into every run's provenance.
+  `call_set_from_qdnaseq_report()` and `ontseq cnv-callset-from-qdnaseq` turn one run's
+  report into the same `CnvCallSet` contract every other candidate is scored under.
+  `data_basis` is a required argument with no default, because an adaptive-sampling run
+  holds two read populations whose depth behaviour is not comparable and a pooled run is a
+  third case. Given contig lengths, every base the segmentation does not cover — dropped
+  bins, and the sex chromosomes the runner excludes — is emitted as a declared no-call
+  rather than being scored as agreement with whatever the truth set asserts there. The
+  method version names both packages, since ACE decides the fit the copy numbers are
+  expressed in. Nothing here selects or promotes QDNAseq: `CnvCallSet` fixes `reportable`
+  to `False`, and the bin size, ACE penalty and ploidy grid are recorded as the engineering
+  parameters they are. A Spectre mapping is still deliberately not shipped.
 
 ### Changed
 

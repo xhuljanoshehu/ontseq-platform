@@ -2,22 +2,38 @@ from __future__ import annotations
 
 import unittest
 
+import tempfile
+from pathlib import Path
+
 from ontseq_platform.cnv.adapters import (
     ICHORCNA_MAPPING,
+    QDNASEQ_ACE_MAPPING,
     SEG_MAPPING,
     ColumnMapping,
     SegmentParseError,
+    call_set_from_qdnaseq_report,
     call_set_from_segment_table,
     parse_segment_table,
+    qdnaseq_method_version,
 )
 from ontseq_platform.cnv.models import CnvDataBasis
+from ontseq_platform.cnv.qdnaseq import CnvFit, QDNAseqCallReport
 from ontseq_platform.cnv.states import CopyNumberState
-from ontseq_platform.models import GenomeBuild, ModuleRunStatus
+from ontseq_platform.models import GenomeBuild, ModuleRunStatus, ToolRecord
 
 SEG_TABLE = [
     "ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean",
     "S1\tchr5\t70000001\t160000000\t900\t-1.0",
     "S1\tchr8\t1\t145138636\t1450\t0.585",
+]
+
+# The layout scripts/run_qdnaseq_ace.R writes: one-based inclusive, ACE-adjusted
+# absolute copy number, and one row per collapsed run of bins.
+QDNASEQ_TABLE = [
+    "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall\tqnorm_log10",
+    "chr7\t1\t60000000\t120\t1.04\t1\t-0.42",
+    "chr7\t60000001\t159345973\t199\t2.02\t2\t0.01",
+    "chr8\t1\t145138636\t290\t3.11\t3\t0.36",
 ]
 
 ICHOR_TABLE = [
@@ -163,6 +179,225 @@ class CallSetTests(unittest.TestCase):
         )
         self.assertEqual(call_set.status, ModuleRunStatus.NO_CALL)
         self.assertEqual(call_set.segments, [])
+
+
+def _fit(bin_size_kbp: int, *, segment_file: str) -> CnvFit:
+    return CnvFit(
+        bin_size_kbp=bin_size_kbp,
+        cellularity=0.62,
+        ploidy=2.1,
+        fit_error=0.031,
+        candidate_count=4,
+        segment_count=3,
+        segment_file=segment_file,
+        chromosome_file=f"S.{bin_size_kbp}kbp.chromosomes.tsv",
+        fit_plot=f"S.{bin_size_kbp}kbp.fit.png",
+        copy_number_plot=f"S.{bin_size_kbp}kbp.cn.png",
+        rds_file=f"S.{bin_size_kbp}kbp.segmented.rds",
+    )
+
+
+def _report(**overrides: object) -> QDNAseqCallReport:
+    primary = _fit(500, segment_file="S.500kbp.segments.tsv")
+    defaults: dict[str, object] = {
+        "sample_id": "SYNTHETIC_AML_001",
+        "genome_build": GenomeBuild.GRCH38,
+        "status": ModuleRunStatus.COMPLETED,
+        "primary_fit": primary,
+        "fits": [primary, _fit(1000, segment_file="S.1000kbp.segments.tsv")],
+        "chromosome_consensus": [],
+        "events": [],
+        "tools": [
+            ToolRecord(name="QDNAseq", version="1.38.0"),
+            ToolRecord(name="ACE", version="1.20.0"),
+            ToolRecord(name="R", version="4.4.1"),
+        ],
+        "output_files": ["S.500kbp.segments.tsv"],
+    }
+    defaults.update(overrides)
+    return QDNAseqCallReport(**defaults)  # type: ignore[arg-type]
+
+
+class QDNAseqMappingTests(unittest.TestCase):
+    def test_one_based_start_is_converted_to_half_open(self) -> None:
+        segments, _ = parse_segment_table(QDNASEQ_TABLE, QDNASEQ_ACE_MAPPING)
+        self.assertEqual(segments[0].start, 0)
+        self.assertEqual(segments[0].end, 60_000_000)
+        self.assertEqual(segments[1].start, 60_000_000)
+
+    def test_absolute_copy_number_drives_the_state_not_the_rounded_call(self) -> None:
+        segments, _ = parse_segment_table(QDNASEQ_TABLE, QDNASEQ_ACE_MAPPING)
+        by_key = {(segment.contig, segment.start): segment for segment in segments}
+        self.assertEqual(by_key[("7", 0)].state, CopyNumberState.LOSS)
+        self.assertEqual(by_key[("7", 60_000_000)].state, CopyNumberState.NEUTRAL)
+        self.assertEqual(by_key[("8", 0)].state, CopyNumberState.GAIN)
+        self.assertAlmostEqual(by_key[("8", 0)].copy_number or 0.0, 3.11)
+
+    def test_bin_count_is_carried_as_supporting_bins(self) -> None:
+        segments, _ = parse_segment_table(QDNASEQ_TABLE, QDNASEQ_ACE_MAPPING)
+        self.assertEqual(segments[0].supporting_bins, 120)
+
+
+class QDNAseqMethodVersionTests(unittest.TestCase):
+    def test_both_packages_are_named(self) -> None:
+        version = qdnaseq_method_version(
+            [ToolRecord(name="QDNAseq", version="1.38.0"), ToolRecord(name="ACE", version="1.20.0")]
+        )
+        self.assertEqual(version, "QDNAseq 1.38.0+ACE 1.20.0")
+
+    def test_a_missing_version_refuses_rather_than_guessing(self) -> None:
+        with self.assertRaises(SegmentParseError) as raised:
+            qdnaseq_method_version([ToolRecord(name="QDNAseq", version="1.38.0")])
+        self.assertIn("ACE", str(raised.exception))
+
+
+class QDNAseqCallSetTests(unittest.TestCase):
+    def _write(self, directory: Path, name: str = "S.500kbp.segments.tsv") -> None:
+        (directory / name).write_text("\n".join(QDNASEQ_TABLE) + "\n", encoding="utf-8")
+
+    def test_provenance_and_fit_reach_the_call_set(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_001",
+                data_basis=CnvDataBasis.ADAPTIVE_SAMPLING_OFF_TARGET,
+                output_dir=directory,
+            )
+        self.assertEqual(call_set.method, "QDNAseq+ACE")
+        self.assertEqual(call_set.method_version, "QDNAseq 1.38.0+ACE 1.20.0")
+        self.assertEqual(call_set.data_basis, CnvDataBasis.ADAPTIVE_SAMPLING_OFF_TARGET)
+        self.assertEqual(call_set.bin_size_bp, 500_000)
+        self.assertAlmostEqual(call_set.estimated_tumor_fraction or 0.0, 0.62)
+        self.assertAlmostEqual(call_set.estimated_ploidy or 0.0, 2.1)
+        self.assertEqual(call_set.status, ModuleRunStatus.COMPLETED)
+
+    def test_nothing_here_can_make_the_lane_reportable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_002",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+            )
+        self.assertIs(call_set.reportable, False)
+        self.assertIs(call_set.research_only, True)
+
+    def test_uncovered_contigs_become_declared_no_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_003",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+                contig_lengths={"chr7": 159_345_973, "chr8": 145_138_636, "chrX": 156_040_895},
+            )
+        no_call_contigs = {region.contig for region in call_set.no_call_regions}
+        # chr7 and chr8 are fully covered by the table; chrX is not covered at all and must
+        # not be scored as agreement with whatever the truth set asserts there.
+        self.assertEqual(no_call_contigs, {"X"})
+        region = next(item for item in call_set.no_call_regions if item.contig == "X")
+        self.assertEqual((region.start, region.end), (0, 156_040_895))
+
+    def test_a_gap_inside_a_covered_contig_is_also_a_no_call(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_004",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+                contig_lengths={"chr7": 200_000_000},
+            )
+        regions = [item for item in call_set.no_call_regions if item.contig == "7"]
+        self.assertEqual([(item.start, item.end) for item in regions], [(159_345_973, 200_000_000)])
+
+    def test_calls_and_no_calls_account_for_each_contig_exactly(self) -> None:
+        """The property that makes the denominator auditable, asserted rather than assumed."""
+        lengths = {"chr7": 200_000_000, "chr8": 145_138_636, "chrX": 156_040_895}
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_009",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+                contig_lengths=lengths,
+            )
+        spans: dict[str, list[tuple[int, int]]] = {}
+        for segment in call_set.segments:
+            spans.setdefault(segment.contig, []).append((segment.start, segment.end))
+        for region in call_set.no_call_regions:
+            spans.setdefault(region.contig, []).append((region.start, region.end))
+        for contig, length in lengths.items():
+            items = sorted(spans.get(contig.removeprefix("chr"), []))
+            previous_end = 0
+            covered = 0
+            for start, end in items:
+                self.assertGreaterEqual(start, previous_end, f"{contig} spans overlap")
+                covered += end - start
+                previous_end = end
+            self.assertEqual(covered, length, f"{contig} does not reconcile")
+
+    def test_without_contig_lengths_the_gap_is_stated_rather_than_hidden(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_005",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+            )
+        self.assertEqual(call_set.no_call_regions, [])
+        self.assertTrue(any("could not be declared" in item for item in call_set.warnings))
+
+    def test_a_requested_bin_size_selects_that_fit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory, "S.1000kbp.segments.tsv")
+            call_set = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_006",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+                bin_size_kbp=1000,
+            )
+        self.assertEqual(call_set.bin_size_bp, 1_000_000)
+
+    def test_an_absent_bin_size_refuses_and_names_what_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            with self.assertRaises(SegmentParseError) as raised:
+                call_set_from_qdnaseq_report(
+                    _report(),
+                    call_set_id="QDNASEQ_007",
+                    data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                    output_dir=directory,
+                    bin_size_kbp=250,
+                )
+        self.assertIn("500", str(raised.exception))
+        self.assertIn("1000", str(raised.exception))
+
+    def test_a_missing_segment_table_refuses_rather_than_scoring_nothing(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as raw,
+            self.assertRaises(SegmentParseError),
+        ):
+            call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_008",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=Path(raw),
+            )
 
 
 if __name__ == "__main__":

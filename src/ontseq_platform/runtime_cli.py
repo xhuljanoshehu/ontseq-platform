@@ -140,8 +140,13 @@ def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> 
     if args.cnv_policy.is_file():
         policy = load_model(args.cnv_policy, QDNAseqPolicy)
     else:
+        # The pinned versions are repeated here rather than left at the model defaults.
+        # A fallback that quietly drops them would turn a missing policy file into an
+        # unpinned run under the same profile name, which is the failure the pin prevents.
         policy = QDNAseqPolicy(
             profile_id="qdnaseq-ace-multibin-v1",
+            expected_qdnaseq_version="1.42.0",
+            expected_ace_version="1.24.0",
             note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
         )
     register_qdnaseq_extension(

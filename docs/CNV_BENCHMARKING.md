@@ -340,17 +340,71 @@ Positional parsing is the classic silent scientific error: a tool adds a column 
 patch release, every downstream number shifts by one field, and the pipeline keeps
 producing plausible results. A loud failure is strictly preferable.
 
-Shipped mappings: generic IGV `SEG`, and ichorCNA (`Corrected_Copy_Number` /
-`Corrected_Call`, derived from the ichorCNA output documentation).
+Shipped mappings: generic IGV `SEG`, ichorCNA (`Corrected_Copy_Number` /
+`Corrected_Call`, derived from the ichorCNA output documentation), and `QDNASEQ_ACE_MAPPING`
+for the table `scripts/run_qdnaseq_ace.R` writes.
 
-**Not shipped:** Spectre and QDNAseq/ACE mappings. Their exact column layouts were not
-confirmed against upstream sources while this module was written, and shipping a guessed
-mapping as a verified default is exactly the failure mode the design avoids. Supply a
-mapping explicitly and record it in provenance.
+The QDNAseq mapping is a narrower claim than the other two. It is not a mapping for QDNAseq
+output in general: it describes the columns *this repository's* runner chooses, and it is
+shipped for that reason — the layout is ours and its checksum is in every run's provenance,
+which is exactly what could not be said when this module was first written. A differently
+configured QDNAseq or ACE installation still needs its own mapping.
+
+**Not shipped:** a Spectre mapping, for the original reason — its column layout was not
+confirmed against the upstream source, and shipping a guessed mapping as a verified default
+is exactly the failure mode the design avoids.
 
 These adapters only *parse*. Execution belongs behind the repository's existing adapter
 boundary with version pinning and argument-vector invocation, as done for Sniffles2 and
 Mosdepth.
+
+## The QDNAseq lane, measured through this subsystem
+
+The runtime CNV lane is QDNAseq + ACE. It is wired *through* the benchmark architecture
+rather than being promoted beside it: `call_set_from_qdnaseq_report()` turns one run's
+`*.qdnaseq.json` into a `CnvCallSet`, which is the same contract every other candidate
+method is scored under, over the same evaluable-genome mask.
+
+```bash
+ontseq cnv-callset-from-qdnaseq results/runs/RUN_001/S1/evidence/cnv/S1.qdnaseq.json \
+  --call-set-id QDNASEQ_S1_500KBP \
+  --data-basis adaptive_sampling_off_target \
+  --reference-lock configs/reference/grch38.lock.json \
+  --output results/cnv/S1.qdnaseq.callset.json
+```
+
+Four properties of that conversion are worth stating, because each one is a place where a
+convenient default would have produced a wrong number quietly:
+
+**`data_basis` has no default.** An adaptive-sampling run contains two read populations
+whose depth behaviour is not comparable, and a run that pooled them is a third case. The
+caller states which one the report came from; nothing guesses it from the manifest.
+
+**Uncovered regions become declared no-calls.** QDNAseq drops bins it cannot correct, and
+the runner keeps only chr1–22. Both limits are invisible in a segment table — the rows that
+would say so are simply absent. Given contig lengths, every uncovered base is emitted as a
+`no_call_region`, which keeps it out of the denominator instead of being scored as agreement
+with whatever the truth set asserts there. Without a reference lock the conversion still
+runs, but it says in a warning that it could not do this.
+
+**The version names both packages.** `QDNAseq 1.38.0+ACE 1.20.0`, not `QDNAseq`. QDNAseq
+decides the bins and the correction; ACE decides the purity/ploidy fit the absolute copy
+numbers are expressed in. Either one moving changes the answer, so a result attributed to
+one of them could not be reproduced from its own label.
+
+**The quantitative column wins over the rounded one.** `absolute_copy_number` is used, not
+`call`. Rounding is the step at which a shallow gain and a neutral region stop being
+distinguishable, and the scorer should see that distinction rather than a band boundary
+someone else chose.
+
+What this does **not** do is promote anything. `CnvCallSet` fixes `reportable` to `False`
+and no argument changes it. The bin size, the ACE penalty and the ploidy grid arrive from
+the run's policy and are recorded as engineering parameters; a benchmark result does not
+turn one of them into a validated threshold. Historical values from the laboratory's
+previous pipeline — the 1000 kbp lane, ACE penalty 0.6, the 0.66 affected-band threshold —
+are reference points for comparison, and must not become production defaults by being
+mentioned here. Selecting a preferred CNV method still requires real cohort data, which
+this repository does not have.
 
 ## Running it
 
