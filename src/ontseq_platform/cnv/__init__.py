@@ -27,6 +27,9 @@ and reasoned about without the serialization contract:
     A transparent read-depth baseline caller used as an experimental control.
 ``adapters``
     Parsers that normalize third-party caller output into the shared contract.
+``lea_compat`` / ``lea_io`` / ``lea_truth_tables`` / ``lea_audit``
+    Strict research-only compatibility, local import and aggregate-audit boundary for the
+    Lea Evers historical comparator.
 ``strata``
     Cross-run aggregation and limit-of-detection analysis.
 
@@ -85,6 +88,10 @@ __all__ = [
     "core",
     "evaluate",
     "intervals",
+    "lea_audit",
+    "lea_compat",
+    "lea_io",
+    "lea_truth_tables",
     "mask",
     "models",
     "run_qdnaseq_ace",
