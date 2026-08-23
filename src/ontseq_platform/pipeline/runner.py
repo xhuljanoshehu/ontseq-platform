@@ -23,6 +23,7 @@ sequences them.
 
 from __future__ import annotations
 
+import shutil
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
     AlignedBamIntakeReport,
+    AssayMode,
     CheckStatus,
     CraminoQCReport,
     InputKind,
@@ -54,7 +56,9 @@ from ..qc import run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
 from ..sniffles import run_sniffles
+from ..target_coverage import TargetCoveragePolicy, run_target_coverage
 from ..workbook import render_workbook
+from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
 from .lock import run_lock
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
@@ -71,7 +75,6 @@ from .stages import (
 )
 from .state import ArtifactRecord, ReleaseBundle, RunReport, StageRecord
 
-#: Where each stage's primary artifacts live inside the envelope.
 BASECALL_BAM = "alignment/{sample}.unaligned.bam"
 BASECALL_REPORT = "provenance/basecall.json"
 ALIGNED_BAM = "alignment/{sample}.bam"
@@ -79,6 +82,9 @@ ALIGNED_BAI = "alignment/{sample}.bam.bai"
 ALIGN_REPORT = "provenance/alignment.json"
 INTAKE_REPORT = "manifest/intake.json"
 QC_REPORT = "qc/cramino.json"
+TARGET_COVERAGE_REPORT = "qc/target-coverage.json"
+TARGET_COVERAGE_DIR = "qc/target-coverage"
+COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
 RESULT_JSON = "normalized/{sample}.result.json"
@@ -112,6 +118,8 @@ class RunConfiguration:
     git_commit: str
     qc_policy: QCPolicy
     sniffles_policy: SnifflesPolicy | None = None
+    target_coverage_policy: TargetCoveragePolicy | None = None
+    components: RunComponents | None = None
     alignment_policy: AlignmentPolicy | None = None
     basecall_policy: BasecallPolicy | None = None
     reference_fasta: Path | None = None
@@ -123,10 +131,10 @@ class RunConfiguration:
             "cramino": "cramino",
             "sniffles": "sniffles",
             "minimap2": "minimap2",
+            "mosdepth": "mosdepth",
             "dorado": "dorado",
         }
     )
-    #: Ignore any previous run state and execute every stage again.
     force: bool = False
 
     def executable(self, name: str) -> str:
@@ -140,8 +148,6 @@ class RunContext:
     config: RunConfiguration
     envelope: RunEnvelope
     runner: StreamingCommandRunner
-    #: The manifest as it currently stands. Alignment rewrites its input to the BAM the
-    #: pipeline just produced, so downstream adapters need no special casing.
     manifest: SampleManifest
     artifacts: dict[StageId, list[Artifact]] = field(default_factory=dict)
 
@@ -184,13 +190,6 @@ class StageResult:
 class StageImplementation:
     plan: Callable[[RunContext], StagePlan]
     execute: Callable[[RunContext, StagePlan], StageResult]
-    #: Re-point the context at what the stage produced. Runs after a stage completes *and*
-    #: after it resumes, because a resumed stage produced its artifacts just as surely as
-    #: one that just ran. Putting this inside ``execute`` would mean a resumed alignment
-    #: left the manifest pointing at the unaligned input, and every downstream stage would
-    #: then either re-run against the wrong file or fail outright. It receives the recorded
-    #: artifacts rather than re-reading the envelope, so adopting a multi-gigabyte BAM does
-    #: not cost a second checksum pass over it.
     settle: Callable[[RunContext, Sequence[Artifact]], None] | None = None
 
 
@@ -210,7 +209,6 @@ def _probe(
 
 def _stable_digest(path: Path) -> tuple[str, bool]:
     """Hash a regular file and report whether its size/mtime stayed fixed while reading."""
-
     if not path.is_file():
         raise StageFailure("required external input is missing")
     before = path.stat()
@@ -221,18 +219,13 @@ def _stable_digest(path: Path) -> tuple[str, bool]:
 
 
 def _external_fingerprint(path: Path, *, label: str | None = None) -> tuple[str, str]:
-    """Fingerprint an input from outside the envelope by name and content."""
+    """Fingerprint an input from outside the envelope by label and stable content."""
     digest, stable = _stable_digest(path)
     if not stable:
         raise StageFailure(
             f"{label or 'required external input'} changed while it was being fingerprinted"
         )
     return (label or path.name, digest)
-
-
-# --------------------------------------------------------------------------------------
-# Stage implementations
-# --------------------------------------------------------------------------------------
 
 
 def _basecall_plan(ctx: RunContext) -> StagePlan:
@@ -267,7 +260,6 @@ def _recorded(outputs: Sequence[Artifact], relative_path: str, *, stage: str) ->
 
 
 def _basecall_settle(ctx: RunContext, outputs: Sequence[Artifact]) -> None:
-    """Point the manifest at the unaligned BAM basecalling produced."""
     relative = ctx.path(BASECALL_BAM)
     bam = _recorded(outputs, relative, stage="basecall")
     ctx.manifest = ctx.manifest.model_copy(
@@ -334,7 +326,6 @@ def _align_plan(ctx: RunContext) -> StagePlan:
 
 
 def _align_settle(ctx: RunContext, outputs: Sequence[Artifact]) -> None:
-    """Point the manifest at the aligned BAM, so downstream adapters need no special case."""
     bam = _recorded(outputs, ctx.path(ALIGNED_BAM), stage="align")
     _recorded(outputs, ctx.path(ALIGNED_BAI), stage="align")
     bam_path = ctx.envelope.path(bam.relative_path)
@@ -420,7 +411,6 @@ def _intake_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     report = AlignedBamInspector(
         runner=ctx.runner, samtools=ctx.config.executable("samtools")
     ).inspect(ctx.manifest, ctx.config.reference_lock, include_checksums=False)
-
     planned = dict(plan.external_inputs)
 
     def final_digest(path: Path) -> tuple[str | None, bool]:
@@ -470,10 +460,13 @@ def _intake_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
     if report.verdict == Verdict.FAIL:
         failed = [item for item in report.checks if item.status.value == "FAIL"]
-        detail = "; ".join(f"{item.name}: {item.message}" for item in failed) or "unspecified check"
+        detail = (
+            "; ".join(f"{item.name}: {item.message}" for item in failed)
+            or "unspecified check"
+        )
         return StageResult(
             status=ModuleRunStatus.FAILED,
-            reason=(f"Aligned-BAM intake failed: {detail}. Full details: {INTAKE_REPORT}"),
+            reason=f"Aligned-BAM intake failed: {detail}. Full details: {INTAKE_REPORT}",
             tools=[report.tool] if report.tool else [],
             limitations=[
                 *report.limitations,
@@ -519,6 +512,86 @@ def _qc_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         outputs=[artifact],
         tools=[report.tool],
         warnings=report.qc.warnings,
+        limitations=report.limitations,
+    )
+
+
+def _target_coverage_plan(ctx: RunContext) -> StagePlan:
+    if ctx.manifest.assay.mode != AssayMode.ADAPTIVE_SAMPLING:
+        return StagePlan(parameters={"applicable": False}, tool_versions={})
+    policy = ctx.config.target_coverage_policy
+    if policy is None:
+        raise StageFailure(
+            "adaptive sampling was selected but no target-coverage policy was supplied. "
+            "Refusing to continue: a run whose enrichment was never measured must not "
+            "produce a report that looks complete"
+        )
+    target_bed = ctx.manifest.assay.target_bed
+    if not target_bed:
+        raise StageFailure("adaptive sampling requires assay.target_bed")
+    mosdepth = ctx.config.executable("mosdepth")
+    return StagePlan(
+        parameters={
+            "applicable": True,
+            "profile": policy.profile_id,
+            "thresholds": list(policy.thresholds),
+            "mapq": policy.mapq,
+            "exclude_flags": policy.exclude_flags,
+            "target_bed_version": ctx.manifest.assay.target_bed_version,
+            "target_bed_role": ctx.manifest.assay.target_bed_role.value,
+            "threads": ctx.config.threads,
+        },
+        tool_versions={
+            "mosdepth": _probe(ctx.runner, mosdepth, [mosdepth, "--version"], tool="mosdepth")
+        },
+        external_inputs=(
+            _external_fingerprint(Path(target_bed)),
+            _external_fingerprint(Path(ctx.manifest.input.path)),
+        ),
+    )
+
+
+def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("applicable") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Assay mode is {ctx.manifest.assay.mode.value}; per-target coverage does not "
+                "apply. This is a scope statement, not a coverage finding."
+            ),
+        )
+    policy = ctx.config.target_coverage_policy
+    assert policy is not None
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    output_dir = ctx.envelope.path(TARGET_COVERAGE_DIR)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    report = run_target_coverage(
+        ctx.manifest,
+        intake,
+        policy,
+        output_dir=output_dir,
+        runner=ctx.runner,
+        mosdepth=ctx.config.executable("mosdepth"),
+        threads=ctx.config.threads,
+    )
+    artifact = ctx.envelope.atomic_write_text(
+        TARGET_COVERAGE_REPORT, report.model_dump_json(indent=2) + "\n"
+    )
+    weighted = report.summary_metrics.get("interval_weighted_mean_depth", 0.0)
+    minimum = report.summary_metrics.get("minimum_region_mean_depth", 0.0)
+    return StageResult(
+        status=report.status,
+        reason=(
+            f"Measured {len(report.regions)} target(s) at {float(weighted):.1f}x "
+            f"interval-weighted mean depth; the least-covered target reached "
+            f"{float(minimum):.1f}x."
+        ),
+        outputs=[artifact],
+        tools=[report.tool],
+        warnings=report.warnings,
         limitations=report.limitations,
     )
 
@@ -653,8 +726,6 @@ def _release_plan(ctx: RunContext) -> StagePlan:
 
 
 def _release_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    # The release stage is written by build_release_bundle after the run report exists,
-    # because the bundle must checksum the run report itself.
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason="Release bundle prepared; artifacts are checksummed after the run report.",
@@ -666,16 +737,12 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.ALIGN: StageImplementation(_align_plan, _align_execute, _align_settle),
     StageId.INTAKE: StageImplementation(_intake_plan, _intake_execute),
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
+    StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
     StageId.RELEASE: StageImplementation(_release_plan, _release_execute),
 }
-
-
-# --------------------------------------------------------------------------------------
-# Orchestration
-# --------------------------------------------------------------------------------------
 
 
 def _load_previous(envelope: RunEnvelope) -> RunReport | None:
@@ -685,8 +752,6 @@ def _load_previous(envelope: RunEnvelope) -> RunReport | None:
     try:
         return RunReport.model_validate_json(path.read_text(encoding="utf-8"))
     except ValueError:
-        # A corrupt or schema-incompatible state file must not silently disable resume
-        # checks; discarding it means the run simply repeats every stage.
         return None
 
 
@@ -738,7 +803,6 @@ def _persist(envelope: RunEnvelope, report: RunReport) -> None:
 def build_release_bundle(
     envelope: RunEnvelope, report: RunReport, config: RunConfiguration
 ) -> ReleaseBundle:
-    """Checksum every exportable artifact of a run, including the run report itself."""
     _persist(envelope, report)
     run_report_artifact = envelope.fingerprint(RUN_REPORT)
 
@@ -776,25 +840,10 @@ def build_release_bundle(
 
 
 class EnvelopeAlreadyReviewed(RuntimeError):
-    """Raised when a run would modify an envelope somebody has already signed off.
-
-    Nothing else in the design catches this. The lock stops two runs colliding *now*;
-    content-addressed resume stops a stale artifact being accepted. Neither notices that a
-    human accepted this envelope yesterday and a resumed run is about to rewrite what they
-    accepted — which would leave the review pointing at content nobody reviewed.
-
-    Deliberately not overridable by a flag. A flag would be used, and the situation it
-    covers has a correct answer that costs nothing: use a new run id. The old envelope then
-    keeps its review, and the new one gets its own.
-    """
+    """Raised when a run would modify an envelope somebody has already signed off."""
 
 
 def _refuse_if_reviewed(envelope_root: Path) -> None:
-    """Refuse to write into an envelope whose latest review accepts its current content.
-
-    A rejected or stale review does not block: a rejection is often precisely why somebody
-    re-runs, and a stale review already says it no longer describes what is on disk.
-    """
     release = envelope_root / RELEASE_RELATIVE
     if not release.is_file():
         return
@@ -802,8 +851,6 @@ def _refuse_if_reviewed(envelope_root: Path) -> None:
     try:
         entries = read_review_log(envelope_root / REVIEW_LOG)
     except ReviewError:
-        # An unreadable trail is reported by `ontseq review`, whose job that is. Blocking
-        # the run here as well would make a corrupt log impossible to move past.
         return
     state, detail = review_state(entries, digest)
     if state is ReviewState.ACCEPTED:
@@ -817,7 +864,6 @@ def _refuse_if_reviewed(envelope_root: Path) -> None:
 def run_pipeline(
     config: RunConfiguration, *, runner: StreamingCommandRunner | None = None
 ) -> tuple[RunReport, ReleaseBundle | None]:
-    """Execute every applicable stage and return the run report and release bundle."""
     started_at = datetime.now(UTC)
     envelope = RunEnvelope.create(
         config.output_base, run_id=config.run_id, sample_id=config.manifest.sample_id
@@ -839,13 +885,21 @@ def _run_locked(
     runner: StreamingCommandRunner | None,
     run_warnings: list[str],
 ) -> tuple[RunReport, ReleaseBundle | None]:
-    """Execute the run. Split out so the lock covers every write, including the first."""
     envelope.atomic_write_text(
         "manifest/sample.manifest.json", config.manifest.model_dump_json(indent=2) + "\n"
     )
     envelope.atomic_write_text(
         "manifest/reference.lock.json", config.reference_lock.model_dump_json(indent=2) + "\n"
     )
+    if config.components is not None:
+        envelope.atomic_write_text(
+            COMPONENTS_REPORT, config.components.model_dump_json(indent=2) + "\n"
+        )
+        for stage in config.components.unpinned_stages():
+            run_warnings.append(
+                f"Component selection does not pin a version for {stage.value}; this run is "
+                "reproducible only against the toolchain that happened to be installed."
+            )
 
     previous = None if config.force else _load_previous(envelope)
     context = RunContext(
@@ -865,8 +919,6 @@ def _run_locked(
         outcomes[stage] = StageOutcome(record.status.value)
         context.artifacts[stage] = [item.to_artifact() for item in record.outputs]
         if record.status == ModuleRunStatus.FAILED and spec.required:
-            # Continue the loop so every remaining stage is recorded as NOT_RUN with a
-            # reason, rather than vanishing from the report.
             pass
         _persist(envelope, _build_report(config, records, started_at, run_warnings))
 
@@ -906,6 +958,19 @@ def _execute_stage(
             reason=f"No adapter is wired in for this stage. {spec.purpose}",
         )
 
+    selection = context.config.components
+    choice = selection.choice_for(stage) if selection is not None else None
+    if selection is not None and choice is not None and not choice.enabled:
+        return StageRecord(
+            **base,
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Deselected for this run by component selection {selection.selection_id!r}. "
+                "A stage that was switched off produced no evidence and is not a negative "
+                "finding."
+            ),
+        )
+
     started = datetime.now(UTC)
     try:
         plan = implementation.plan(context)
@@ -917,6 +982,18 @@ def _execute_stage(
             started_at=started,
             finished_at=datetime.now(UTC),
         )
+
+    if choice is not None and plan.tool_versions:
+        try:
+            choice.verify(plan.tool_versions, stage=stage)
+        except ComponentVersionMismatch as error:
+            return StageRecord(
+                **base,
+                status=ModuleRunStatus.FAILED,
+                reason=str(error),
+                started_at=started,
+                finished_at=datetime.now(UTC),
+            )
 
     signature = stage_signature(
         stage=stage.value,
@@ -941,8 +1018,6 @@ def _execute_stage(
             try:
                 implementation.settle(context, [item.to_artifact() for item in prior.outputs])
             except (StageFailure, ValueError, OSError) as error:
-                # The artifacts verified, so this is a bug rather than stale state; fail
-                # the stage instead of letting a half-settled context reach the next one.
                 return StageRecord(
                     **base,
                     status=ModuleRunStatus.FAILED,
