@@ -219,9 +219,7 @@ def _job_detail(report: Any) -> str:
     failures = [record for record in report.stages if record.status.value == "FAILED"]
     if not failures:
         return str(report.verdict_reason)
-    return " | ".join(
-        f"{record.title}: {record.reason}" for record in failures[:3]
-    )
+    return " | ".join(f"{record.title}: {record.reason}" for record in failures[:3])
 
 
 def _runtime_git_commit() -> str:
@@ -296,9 +294,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
             git_commit=_runtime_git_commit(),
             qc_policy=load_model(config.qc_policy, QCPolicy),
             sniffles_policy=load_model(config.sniffles_policy, SnifflesPolicy),
-            target_coverage_policy=load_model(
-                config.target_coverage_policy, TargetCoveragePolicy
-            ),
+            target_coverage_policy=load_model(config.target_coverage_policy, TargetCoveragePolicy),
             components=config.components,
             threads=config.threads,
         )
