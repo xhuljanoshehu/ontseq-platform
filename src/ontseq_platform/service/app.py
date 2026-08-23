@@ -53,11 +53,13 @@ from ..models import (
     SampleManifest,
     SnifflesPolicy,
 )
+from ..pipeline.components import RunComponents
 from ..pipeline.review import Decision, ReviewError
 from ..pipeline.runner import RunConfiguration, run_pipeline
 from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
+from ..target_coverage import TargetCoveragePolicy
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -142,6 +144,8 @@ class ServiceConfig:
     allowed_roots: list[Path]
     qc_policy: Path
     sniffles_policy: Path
+    target_coverage_policy: Path
+    components: RunComponents | None = None
     host: str = "127.0.0.1"
     port: int = 8765
     threads: int = 4
@@ -290,6 +294,10 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
             git_commit=_runtime_git_commit(),
             qc_policy=load_model(config.qc_policy, QCPolicy),
             sniffles_policy=load_model(config.sniffles_policy, SnifflesPolicy),
+            target_coverage_policy=load_model(
+                config.target_coverage_policy, TargetCoveragePolicy
+            ),
+            components=config.components,
             threads=config.threads,
         )
         report, _bundle = run_pipeline(run_config)
