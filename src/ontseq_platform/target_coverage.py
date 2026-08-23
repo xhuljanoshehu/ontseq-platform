@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import re
 import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -322,6 +323,45 @@ _ROLE_LIMITATION: dict[TargetBedRole, str] = {
 }
 
 
+def _verify_panel_contract(target_bed: Path, declared_role: TargetBedRole) -> list[str]:
+    """Check a target BED against the lock beside it, and report what it does not establish.
+
+    The role limitations above concede that the pipeline cannot verify a declared role. When a
+    lock exists it can: the lock records the role the design was built as, and a mismatch means
+    per-target means would be read as something they are not. That is refused rather than
+    warned, because the resulting number looks entirely plausible.
+
+    A design with no lock is not refused. Synthetic fixtures legitimately have none, and
+    refusing them would make the smoke path unrunnable. It is stated in the report instead.
+
+    The import is function-local on purpose: ``ontseq_platform.pipeline`` reaches the runner,
+    which imports this module, so a module-level import would close a cycle.
+    """
+    from .pipeline.panel_lock import (
+        PanelLockError,
+        check_declared_role,
+        load_panel_lock,
+        panel_usage_warnings,
+        target_labels,
+        verify_panel_bed,
+    )
+
+    lock_path = target_bed.with_suffix(".lock.yaml")
+    if not lock_path.is_file():
+        return [
+            f"{target_bed.name} carries no panel lock, so its provenance, buffering and "
+            "confirmation status are unrecorded. Per-target depth from this run cannot be "
+            "traced to a described design."
+        ]
+    try:
+        lock = load_panel_lock(lock_path)
+        verify_panel_bed(lock, target_bed)
+        check_declared_role(lock, declared_role.value)
+        return list(panel_usage_warnings(lock, labels=target_labels(target_bed)))
+    except PanelLockError as error:
+        raise ValueError(str(error)) from error
+
+
 def normalize_target_coverage(
     *,
     sample_id: str,
@@ -333,6 +373,7 @@ def normalize_target_coverage(
     policy: TargetCoveragePolicy,
     tool: ToolRecord,
     target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED,
+    panel_warnings: Sequence[str] = (),
 ) -> TargetCoverageReport:
     if tool.version != policy.expected_version:
         raise ValueError(
@@ -383,7 +424,7 @@ def normalize_target_coverage(
 
     overlap_count = _overlap_count(bed_regions)
     summary_metrics["overlapping_interval_count"] = overlap_count
-    warnings = [policy.note]
+    warnings = [policy.note, *panel_warnings]
     if overlap_count:
         warnings.append(
             "Target BED intervals overlap; interval-weighted summaries count each BED interval "
@@ -453,6 +494,7 @@ def run_target_coverage(
 
     target_bed = Path(manifest.assay.target_bed)
     load_target_bed(target_bed)
+    panel_warnings = _verify_panel_contract(target_bed, manifest.assay.target_bed_role)
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = output_dir / f"{manifest.sample_id}.target-coverage"
     regions_path = Path(f"{prefix}.regions.bed.gz")
@@ -516,5 +558,6 @@ def run_target_coverage(
         regions_path=regions_path,
         thresholds_path=thresholds_path,
         policy=policy,
+        panel_warnings=panel_warnings,
         tool=ToolRecord(name="mosdepth", version=version, parameters=parameters),
     )
