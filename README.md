@@ -98,7 +98,9 @@ Diagnostiksoftware.
 | Unaligned BAM | Alignment mit Minimap2 + samtools implementiert und mit realen Tools auf synthetischen Fixtures getestet |
 | POD5 | Dorado-Adapter vorhanden, aber noch nicht gegen einen realen Dorado/GPU/Modell-Stack end-to-end verifiziert |
 | QC | Cramino integriert |
-| Adaptive-Sampling-Zielabdeckung | Mosdepth-basierter, versionierter technischer QC-Adapter vorhanden; die echte Analyse-ROI-BED muss lokal gelockt werden |
+| Adaptive-Sampling-Zielabdeckung | Mosdepth-Adapter ist als Stage im kanonischen Runner verdrahtet und läuft im End-to-End-CI; ein Adaptive-Sampling-Lauf ohne Policy bricht fail-closed ab |
+| Zielpanel | Aus den Laborquellen abgeleitetes, gepuffertes GRCh38-Panel mit 111 Zielen unter `configs/panels/`; Status `derived_unconfirmed`, siehe [`docs/PANEL_PROVENANCE.md`](docs/PANEL_PROVENANCE.md) |
+| Komponentenauswahl | Provider und exakte Tool-Version je Stage pro Lauf wählbar, fail-closed gegen die installierte Version geprüft und in der Provenienz protokolliert |
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
 | SV | Sniffles2 v2.8.0 als konservative, nicht-reportable Kandidaten-Evidenz integriert |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
@@ -273,6 +275,22 @@ ontseq run sample.manifest.json \
   --run-id RUN_001
 ```
 
+Komponenten für genau diesen Lauf wählen — etwa Sniffles 2.4 statt 2.8.0 für einen
+Vergleich, oder die CNV-Lane abschalten:
+
+```bash
+ontseq run sample.manifest.json \
+  --reference-lock /approved/references/reference.lock.json \
+  --run-id RUN_001 \
+  --components configs/components/legacy_sniffles_2.4.yaml
+
+ontseq run sample.manifest.json ... --without cnv
+```
+
+Die gewählte Version wird vor dem Lauf gegen die tatsächlich installierte geprüft. Stimmt
+sie nicht, bricht die betroffene Stage ab und nennt beide Versionen. Details in
+[`docs/COMPONENT_SELECTION.md`](docs/COMPONENT_SELECTION.md).
+
 Vor einem realen Run sollte immer zuerst die dokumentierte Preflight-/Reference-Lock-Logik
 verwendet werden. Für echte genomische Daten gelten die lokalen Daten- und Governance-Regeln.
 
@@ -319,6 +337,10 @@ Validierung kommen.
 
 ### Kurzfristig: realer End-to-End-Pfad
 
+0. offene Panel-Frage klären: die mit `IGH` beschriftete Zeile liegt auf chr5, IGH liegt auf
+   chr14q32. Solange das nicht entschieden ist, bleibt das Panel `derived_unconfirmed`.
+   Parallel `fusion_panel_with_buffer.bed` aus dem historischen Repository anfordern und
+   gegen die abgeleitete Datei prüfen;
 1. genaue lokale GRCh37/GRCh38-Referenzdistribution identifizieren und locken;
 2. reale, nicht in Git gespeicherte Forschungs-BAM gegen diese Referenz durch Preflight schicken;
 3. Desktop → WSL → Backend → CNV/SV → HTML/XLSX auf dem Zielrechner vollständig durchlaufen;
@@ -364,7 +386,7 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core: `0.3.0` auf dem aktuellen `main`-Stand.
+Python-Core: `0.3.4` (2026-08-22). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
 
 Der Windows-Desktop auf `main` enthält den v0.2.1-Engineering-Pfad mit vollständigem
 installierten System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
@@ -378,6 +400,9 @@ Datenschutz, Validierung und gegebenenfalls Medizinprodukterecht separat geklär
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Pipeline execution](docs/PIPELINE_EXECUTION.md)
+- [Component selection](docs/COMPONENT_SELECTION.md)
+- [Panel provenance](docs/PANEL_PROVENANCE.md)
+- [Legacy comparison](docs/LEGACY_COMPARISON.md)
 - [Evidence base](docs/EVIDENCE_BASE.md)
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
 - [Desktop](desktop/README.md)

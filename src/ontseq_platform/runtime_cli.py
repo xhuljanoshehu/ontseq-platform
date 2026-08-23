@@ -21,10 +21,12 @@ from .models import InputKind, QCPolicy, ReferenceLock, SampleManifest, Sniffles
 from .pipeline.checks import exit_code as check_exit_code
 from .pipeline.checks import render_json as render_checks_json
 from .pipeline.checks import render_text as render_checks_text
+from .pipeline.components import RunComponents
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.review import Decision, ReviewError
 from .pipeline.review import exit_code as review_exit_code
 from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
+from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
 from .review import inspect as inspect_review
 from .review import record as record_review
@@ -35,11 +37,30 @@ from .status import exit_code as status_exit_code
 from .status import render_json as render_status_json
 from .status import render_ledger, scan
 from .status import render_text as render_status_text
+from .target_coverage import TargetCoveragePolicy
 from .watchfolder import PassResult, WatchConfigurationError, WatchSettings, watch
 
 RUNTIME_COMMANDS = frozenset(
     {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
 )
+
+
+SELECTABLE_STAGES = (
+    StageId.BASECALL,
+    StageId.ALIGN,
+    StageId.QC,
+    StageId.TARGET_COVERAGE,
+    StageId.CNV,
+    StageId.SV,
+)
+
+
+def _selected_policy(selection: RunComponents | None, stage: StageId, fallback: Path) -> Path:
+    """A selection may name the policy file, so one document configures the whole run."""
+    choice = selection.choice_for(stage) if selection is not None else None
+    if choice is not None and choice.policy:
+        return Path(choice.policy)
+    return fallback
 
 
 def _repo_root() -> Path:
@@ -58,6 +79,33 @@ def _sniffles_policy(path: Path) -> SnifflesPolicy | None:
     return load_model(path, SnifflesPolicy) if path.is_file() else None
 
 
+def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
+    return load_model(path, TargetCoveragePolicy) if path.is_file() else None
+
+
+def _components(args: argparse.Namespace) -> RunComponents | None:
+    """Resolve the component selection for this run, if the operator asked for one.
+
+    ``--without`` is applied on top of the file rather than instead of it, so switching a
+    stage off for one run does not require editing, copying or forking a selection.
+    """
+    selection: RunComponents | None = None
+    path: Path | None = getattr(args, "components", None)
+    if path is not None:
+        if not path.is_file():
+            raise SystemExit(f"component selection not found: {path}")
+        selection = load_model(path, RunComponents)
+    without = [StageId(name) for name in getattr(args, "without", []) or []]
+    if without:
+        base = selection or RunComponents(
+            selection_id="command-line-only",
+            status="technical_defaults_only",
+            note="Created implicitly by --without; no versions are pinned.",
+        )
+        selection = base.without(*without)
+    return selection
+
+
 def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
     root = _repo_root()
     parser.add_argument(
@@ -73,9 +121,21 @@ def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _register_cnv(args: argparse.Namespace) -> None:
+def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
+    """Install the QDNAseq/ACE lane unless this run deselected it.
+
+    The lane still arrives by registration rather than as a first-class member of the
+    graph, which remains the outstanding architectural debt. Gating it on the selection at
+    least means a run that switched CNV off does not silently get it anyway.
+    """
     from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
+
+    choice = selection.choice_for(StageId.CNV) if selection is not None else None
+    if choice is not None and not choice.enabled:
+        return
+    if choice is not None and choice.policy:
+        args.cnv_policy = Path(choice.policy)
 
     if args.cnv_policy.is_file():
         policy = load_model(args.cnv_policy, QDNAseqPolicy)
@@ -117,10 +177,28 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("--pod5-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
     parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+    )
+    parser.add_argument(
+        "--components",
+        type=Path,
+        help="Component selection for this run: which provider and version runs each stage",
+    )
+    parser.add_argument(
+        "--without",
+        action="append",
+        choices=sorted(item.value for item in SELECTABLE_STAGES),
+        default=[],
+        help="Switch a stage off for this run; repeatable",
+    )
     parser.add_argument("--samtools", default="samtools")
     parser.add_argument("--cramino", default="cramino")
     parser.add_argument("--sniffles", default="sniffles")
     parser.add_argument("--minimap2", default="minimap2")
+    parser.add_argument("--mosdepth", default="mosdepth")
     parser.add_argument("--dorado", default="dorado")
 
 
@@ -224,6 +302,7 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "cramino": args.cramino,
         "sniffles": args.sniffles,
         "minimap2": args.minimap2,
+        "mosdepth": getattr(args, "mosdepth", "mosdepth"),
         "dorado": args.dorado,
     }
 
@@ -237,8 +316,9 @@ def _print_pass(result: PassResult) -> None:
 
 def main() -> None:
     args = _parser().parse_args()
+    selection = _components(args) if args.command == "run" else None
     if args.command in {"run", "serve", "watch"}:
-        _register_cnv(args)
+        _register_cnv(args, selection)
     try:
         if args.command == "run":
             config = RunConfiguration(
@@ -249,15 +329,31 @@ def main() -> None:
                 pipeline_version=__version__,
                 git_commit=args.git_commit,
                 qc_policy=load_model(args.qc_policy, QCPolicy),
-                sniffles_policy=_sniffles_policy(args.sniffles_policy),
-                alignment_policy=_alignment_policy(args.alignment_policy),
-                basecall_policy=_basecall_policy(args.basecall_policy),
+                sniffles_policy=_sniffles_policy(
+                    _selected_policy(selection, StageId.SV, args.sniffles_policy)
+                ),
+                target_coverage_policy=_target_coverage_policy(
+                    _selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    )
+                ),
+                alignment_policy=_alignment_policy(
+                    _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
+                ),
+                basecall_policy=_basecall_policy(
+                    _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
+                ),
+                components=selection,
                 reference_fasta=args.reference_fasta,
                 pod5_directory=args.pod5_dir,
                 threads=args.threads,
                 executables=_executables(args),
                 force=args.force,
             )
+            if selection is not None:
+                print(f"component selection: {selection.selection_id}")
+                for line in selection.summary():
+                    print(f"  {line}")
             run_report, release = run_pipeline(config)
             for stage in run_report.stages:
                 marker = "resumed" if stage.resumed else stage.status.value

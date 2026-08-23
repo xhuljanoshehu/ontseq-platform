@@ -158,11 +158,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         title="Adaptive-sampling target coverage",
         depends_on=(StageId.INTAKE,),
         applicable_for=_ALL_KINDS,
-        verification=VerificationStatus.NOT_IMPLEMENTED,
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose=(
-            "Per-target depth for adaptive sampling. The adapter is developed separately "
-            "in the target-coverage work stream and plugs in here."
+            "Per-target depth over the locked target design. Runs only for "
+            "assay.mode=adaptive_sampling; for any other mode the stage records that it "
+            "does not apply, which is a scope statement rather than a coverage result."
         ),
     ),
     StageSpec(

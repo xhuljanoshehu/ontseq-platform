@@ -444,7 +444,7 @@ class AdapterTests(PreflightCase):
         check = self.results()["stages.not_implemented"]
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("cnv", check.detail)
-        self.assertIn("target_coverage", check.detail)
+        self.assertNotIn("target_coverage", check.detail)
         self.assertIn("not a negative biological finding", check.detail)
 
     def test_the_two_adapter_claims_never_name_the_same_stage(self) -> None:

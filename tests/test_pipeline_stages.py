@@ -203,9 +203,14 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn(StageId.ALIGN, stages)
 
     def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
-        """Below POD5 every wired adapter is exercised by CI; only stubs remain."""
+        """Below POD5 every wired adapter is exercised by CI; only stubs remain.
+
+        Target coverage left this set when its adapter was wired into the runner. CNV is
+        the last stage whose implementation still arrives by registration rather than by
+        being part of the graph.
+        """
         specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
-        self.assertEqual({spec.stage for spec in specs}, {StageId.TARGET_COVERAGE, StageId.CNV})
+        self.assertEqual({spec.stage for spec in specs}, {StageId.CNV})
 
 
 if __name__ == "__main__":

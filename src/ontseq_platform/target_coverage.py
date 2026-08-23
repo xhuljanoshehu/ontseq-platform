@@ -19,6 +19,7 @@ from .models import (
     ModuleRunStatus,
     SampleManifest,
     StrictModel,
+    TargetBedRole,
     ToolRecord,
     Verdict,
 )
@@ -77,7 +78,7 @@ class TargetCoverageReport(StrictModel):
     sample_id: str
     genome_build: GenomeBuild
     target_bed_version: str = Field(min_length=1)
-    target_bed_role: Literal["analysis_roi_unbuffered"] = "analysis_roi_unbuffered"
+    target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED
     status: ModuleRunStatus
     policy: TargetCoveragePolicy
     summary_metrics: dict[str, float | int]
@@ -305,6 +306,22 @@ def _overlap_count(regions: list[_BedRegion]) -> int:
     return count
 
 
+#: What the numbers mean depends entirely on which kind of BED produced them, so the
+#: distinction is carried into the report rather than left to the reader.
+_ROLE_LIMITATION: dict[TargetBedRole, str] = {
+    TargetBedRole.ANALYSIS_ROI_UNBUFFERED: (
+        "The target BED is declared as an unbuffered analysis ROI. The pipeline cannot verify "
+        "that claim; a BED that in fact carries Adaptive Sampling selection buffers would "
+        "report diluted per-target means under this label."
+    ),
+    TargetBedRole.SELECTION_PANEL_BUFFERED: (
+        "The target BED is declared as a buffered Adaptive Sampling selection panel. Per-target "
+        "means therefore include flanking sequence and describe enrichment behaviour, not "
+        "observation of the analysis region. They must not be read as ROI adequacy."
+    ),
+}
+
+
 def normalize_target_coverage(
     *,
     sample_id: str,
@@ -315,6 +332,7 @@ def normalize_target_coverage(
     thresholds_path: Path,
     policy: TargetCoveragePolicy,
     tool: ToolRecord,
+    target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED,
 ) -> TargetCoverageReport:
     if tool.version != policy.expected_version:
         raise ValueError(
@@ -375,6 +393,7 @@ def normalize_target_coverage(
         sample_id=sample_id,
         genome_build=genome_build,
         target_bed_version=target_bed_version,
+        target_bed_role=target_bed_role,
         status=ModuleRunStatus.COMPLETED,
         policy=policy,
         summary_metrics=summary_metrics,
@@ -386,8 +405,7 @@ def normalize_target_coverage(
         tool=tool,
         warnings=warnings,
         limitations=[
-            "The target BED is interpreted as an unbuffered analysis ROI BED. The pipeline cannot "
-            "infer whether a supplied BED contains Adaptive Sampling selection buffers.",
+            _ROLE_LIMITATION[target_bed_role],
             "Coverage thresholds are descriptive technical bins and are not validated adequacy or "
             "reportability thresholds.",
             "Off-target enrichment and CNV inference are outside this adapter.",
@@ -467,7 +485,7 @@ def run_target_coverage(
         "thresholds": policy.thresholds,
         "mapq": policy.mapq,
         "exclude_flags": policy.exclude_flags,
-        "target_bed_role": "analysis_roi_unbuffered",
+        "target_bed_role": manifest.assay.target_bed_role.value,
         "expected_version": policy.expected_version,
     }
     argv = [
@@ -492,6 +510,7 @@ def run_target_coverage(
     return normalize_target_coverage(
         sample_id=manifest.sample_id,
         genome_build=manifest.assay.genome_build,
+        target_bed_role=manifest.assay.target_bed_role,
         target_bed=target_bed,
         target_bed_version=manifest.assay.target_bed_version,
         regions_path=regions_path,
