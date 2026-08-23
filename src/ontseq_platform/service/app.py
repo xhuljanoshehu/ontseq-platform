@@ -219,7 +219,9 @@ def _job_detail(report: Any) -> str:
     failures = [record for record in report.stages if record.status.value == "FAILED"]
     if not failures:
         return str(report.verdict_reason)
-    return " | ".join(f"{record.title}: {record.reason}" for record in failures[:3])
+    return " | ".join(
+        f"{record.title}: {record.reason}" for record in failures[:3]
+    )
 
 
 def _runtime_git_commit() -> str:
