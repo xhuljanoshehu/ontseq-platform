@@ -37,7 +37,32 @@ try
         () => PathBridge.WindowsToWsl(@"\\server\share\sample.bam"),
         "UNC refusal");
 
-    Console.WriteLine("Desktop path and BAM index tests passed.");
+    const string upperHash = "E518E7131D51ABED37A7AED5DB6A031B753ADF424E867B52352B44CA4A6E7B4B";
+    AssertEqual(
+        "GRCh38_LOCAL_e518e7131d51abed",
+        WslServiceLauncher.ReferenceIdFor("GRCh38", upperHash),
+        "content-addressed reference ID");
+    AssertEqual(
+        "GRCh38.e518e7131d51abed.reference-lock.json",
+        WslServiceLauncher.ReferenceLockFileNameFor("GRCh38", upperHash),
+        "content-addressed reference filename");
+    AssertThrows<ArgumentException>(
+        () => WslServiceLauncher.ReferenceIdFor("GRCh38", "not-a-sha256"),
+        "invalid reference fingerprint refusal");
+
+    var existingLock = Path.Combine(root, "existing.reference-lock.json");
+    var rejectedLock = Path.Combine(root, "rejected.reference-lock.tmp.json");
+    File.WriteAllText(existingLock, "existing-lock");
+    File.WriteAllText(rejectedLock, "{\"source_fai_sha256\":\"" + new string('b', 64) + "\"}");
+    AssertThrows<InvalidDataException>(
+        () => WslServiceLauncher.PublishReferenceLockFile(
+            rejectedLock,
+            existingLock,
+            new string('a', 64)),
+        "changed FAI refusal");
+    AssertEqual("existing-lock", File.ReadAllText(existingLock), "active lock preservation");
+
+    Console.WriteLine("Desktop path, BAM index and reference identity tests passed.");
 }
 finally
 {
