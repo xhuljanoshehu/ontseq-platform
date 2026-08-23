@@ -165,9 +165,7 @@ class ReferenceLockFromFaiTests(unittest.TestCase):
                 allow_extra_contigs=True,
             )
         self.assertEqual(reference_lock_signature(strict), reference_lock_signature(strict))
-        self.assertNotEqual(
-            reference_lock_signature(strict), reference_lock_signature(permissive)
-        )
+        self.assertNotEqual(reference_lock_signature(strict), reference_lock_signature(permissive))
 
 
 if __name__ == "__main__":
