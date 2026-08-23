@@ -186,7 +186,9 @@ class UsageWarningTests(unittest.TestCase):
                 validated_gene_count=2,
             )
             warnings = panel_usage_warnings(load_panel_lock(lock_path))
-        self.assertEqual(warnings, ())
+        self.assertFalse(any("recorded as" in warning for warning in warnings))
+        self.assertFalse(any("design is buffered" in warning for warning in warnings))
+        self.assertTrue(any("BBB_REVIEW_REQUIRED" in warning for warning in warnings))
 
     def test_a_review_label_absent_from_the_lock_is_reported(self) -> None:
         with TemporaryDirectory() as raw:
