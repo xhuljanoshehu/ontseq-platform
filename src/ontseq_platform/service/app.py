@@ -1,4 +1,4 @@
-"""HTTP transport for the local browser interface. Computes nothing.
+"""HTTP transport for the local browser and desktop interface. Computes nothing.
 
 Every analytical decision already exists: ``run_pipeline`` executes the stages, ``RunReport``
 records what each one did, and the report, workbook and JSON are written by the same code
@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BufferedIOBase
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -61,6 +62,7 @@ from .guard import (
     host_is_loopback,
     new_token,
     origin_is_loopback,
+    resolve_bam_index,
     resolve_within,
     token_matches,
     windows_to_wsl,
@@ -73,10 +75,58 @@ PAGE = Path(__file__).with_name("ONTSeq.html")
 #: was never meant to be an input.
 INPUT_SUFFIXES = frozenset({".bam"})
 
+#: Small JSON control messages only. Bound both fixed-length and chunked requests so a
+#: local client cannot make the service buffer an arbitrary amount of data.
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
+MAX_CHUNK_LINE_BYTES = 8192
+
 #: Directories a by-name search may descend into before it gives up. A run directory holds
 #: hundreds of gigabytes; a search with no bound would appear to hang, and a bound that is
 #: hit must be reported rather than passed off as "not found".
 SEARCH_DIRECTORY_LIMIT = 20_000
+
+
+def _read_chunked_body(stream: BufferedIOBase) -> bytes:
+    """Decode one bounded HTTP/1.1 chunked request body."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        line = stream.readline(MAX_CHUNK_LINE_BYTES + 1)
+        if not line.endswith(b"\r\n") or len(line) > MAX_CHUNK_LINE_BYTES:
+            raise ValueError("invalid chunk header")
+        size_text = line[:-2].split(b";", 1)[0].strip()
+        try:
+            size = int(size_text, 16)
+        except ValueError as error:
+            raise ValueError("invalid chunk size") from error
+        if size < 0:
+            raise ValueError("invalid chunk size")
+        if size == 0:
+            trailer_bytes = 0
+            while True:
+                trailer = stream.readline(MAX_CHUNK_LINE_BYTES + 1)
+                if trailer == b"\r\n":
+                    return b"".join(chunks)
+                if not trailer.endswith(b"\r\n") or len(trailer) > MAX_CHUNK_LINE_BYTES:
+                    raise ValueError("invalid chunk trailer")
+                trailer_bytes += len(trailer)
+                if trailer_bytes > MAX_REQUEST_BODY_BYTES:
+                    raise ValueError("chunk trailers are too large")
+        total += size
+        if total > MAX_REQUEST_BODY_BYTES:
+            raise ValueError("request body is too large")
+        chunk = stream.read(size)
+        if len(chunk) != size or stream.read(2) != b"\r\n":
+            raise ValueError("truncated chunked request body")
+        chunks.append(chunk)
+
+
+def _bam_is_indexed(path: Path) -> bool:
+    try:
+        resolve_bam_index(path)
+    except GuardError:
+        return False
+    return True
 
 
 @dataclass
@@ -140,17 +190,10 @@ class Jobs:
 
 
 def _stage_view(record: Any) -> dict[str, Any]:
-    """One stage, with its outcome kept as one of four values rather than two.
-
-    ``not_run`` and ``no_call`` look identical to a progress bar and mean opposite things:
-    nothing looked, versus something looked and found nothing.
-    """
+    """One stage, with its outcome kept as one of four values rather than two."""
     return {
         "stage": record.stage.value,
         "title": record.title,
-        # The contract's value verbatim — COMPLETED, NO_CALL, FAILED, NOT_RUN — so what the
-        # page shows can be compared with provenance/run.json without translating. The page
-        # lowercases it for display; nothing renames it here.
         "status": record.status.value,
         "reason": record.reason,
         "required": record.required,
@@ -160,17 +203,35 @@ def _stage_view(record: Any) -> dict[str, Any]:
     }
 
 
-def _build_manifest(payload: dict[str, Any], *, reference_id: str) -> SampleManifest:
+def _build_manifest(
+    payload: dict[str, Any],
+    *,
+    reference_id: str,
+    allowed_roots: list[Path],
+) -> SampleManifest:
     """Turn what the page sent into the manifest contract, refusing anything unstated."""
     raw_path = str(payload.get("bam", "")).strip()
     if not raw_path:
         raise GuardError("no BAM was selected")
     bam = windows_to_wsl(raw_path)
-    index = f"{bam}.bai"
+    resolve_within(bam, allowed_roots)
+    index = str(resolve_bam_index(bam))
+    resolve_within(index, allowed_roots)
 
     mode = AssayMode(str(payload.get("assay", "")))
+    genome_build = GenomeBuild(str(payload.get("genome_build", "")))
     target_bed = str(payload.get("target_bed", "")).strip() or None
     target_bed_version = str(payload.get("target_bed_version", "")).strip() or None
+    target_bed_wsl = windows_to_wsl(target_bed) if target_bed else None
+    if target_bed_wsl is not None:
+        resolve_within(target_bed_wsl, allowed_roots)
+
+    modules = [AnalysisModule.QC, AnalysisModule.SV, AnalysisModule.ISCN, AnalysisModule.REPORT]
+    # The bundled real-tool QDNAseq runtime currently carries the hg19 annotation package.
+    # GRCh38 remains usable for the other modules; CNV is added only when its annotation
+    # package is actually present in the tested desktop runtime.
+    if genome_build == GenomeBuild.GRCH37:
+        modules.insert(1, AnalysisModule.CNV)
 
     return SampleManifest(
         sample_id=str(payload.get("sample_id", "")).strip(),
@@ -178,21 +239,14 @@ def _build_manifest(payload: dict[str, Any], *, reference_id: str) -> SampleMani
         input=InputSpec(kind=InputKind.ALIGNED_BAM, path=bam, index_path=index),
         assay=AssaySpec(
             mode=mode,
-            genome_build=GenomeBuild(str(payload.get("genome_build", ""))),
+            genome_build=genome_build,
             reference_id=reference_id,
-            target_bed=windows_to_wsl(target_bed) if target_bed else None,
+            target_bed=target_bed_wsl,
             target_bed_version=target_bed_version,
         ),
         analysis=AnalysisSpec(
             profile=mode.value,
-            modules=[
-                AnalysisModule.QC,
-                AnalysisModule.SV,
-                AnalysisModule.ISCN,
-                AnalysisModule.REPORT,
-            ],
-            # Stated, never inferred. An AML workup asks a somatic question, and leaving
-            # this unset would make every knowledge-base assertion report an unknown scope.
+            modules=modules,
             intent=AnalysisIntent.SOMATIC,
         ),
         privacy=PrivacySpec(),
@@ -219,9 +273,6 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
         job.detail = report.verdict_reason
     except Exception as error:  # noqa: BLE001 - the page must see every failure, typed or not
         job.state = "error"
-        # The class name matters to whoever reads this: the runner distinguishes a locked
-        # envelope, an already-reviewed envelope and an ordinary failure, and the page
-        # should not flatten them into "something went wrong".
         job.detail = f"{type(error).__name__}: {error}"
         traceback.print_exc()
     finally:
@@ -238,12 +289,10 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
         def log_message(self, fmt: str, *args: Any) -> None:
             print(f"[{self.log_date_time_string()}] {fmt % args}")
 
-        # -- plumbing ------------------------------------------------------------------
         def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            # No caching: the page embeds a token that is only valid for this process.
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
@@ -256,7 +305,6 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             self._json(status, {"error": reason})
 
         def _authorised(self) -> bool:
-            """Both checks, in this order, before anything reads a path or starts a run."""
             if not host_is_loopback(self.headers.get("Host"), port=config.port):
                 self._refuse(HTTPStatus.FORBIDDEN, "request did not come from loopback")
                 return False
@@ -268,7 +316,31 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return False
             return True
 
-        # -- routes --------------------------------------------------------------------
+        def _request_body(self) -> bytes:
+            """Read a bounded fixed-length or HTTP/1.1 chunked request body."""
+            transfer_encoding = self.headers.get("Transfer-Encoding")
+            content_length = self.headers.get("Content-Length")
+            if transfer_encoding is not None:
+                if content_length is not None:
+                    raise ValueError("ambiguous request framing")
+                if transfer_encoding.strip().lower() != "chunked":
+                    raise ValueError("unsupported transfer encoding")
+                return _read_chunked_body(self.rfile)
+            if content_length is None:
+                return b""
+            try:
+                length = int(content_length)
+            except ValueError as error:
+                raise ValueError("invalid content length") from error
+            if length < 0:
+                raise ValueError("invalid content length")
+            if length > MAX_REQUEST_BODY_BYTES:
+                raise ValueError("request body is too large")
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ValueError("truncated request body")
+            return body
+
         def do_GET(self) -> None:  # noqa: N802 - name fixed by BaseHTTPRequestHandler
             route = urlparse(self.path)
             if route.path in {"/", "/index.html", "/ONTSeq.html"}:
@@ -300,11 +372,14 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             if not self._authorised():
                 return
-            length = int(self.headers.get("Content-Length", "0"))
             try:
-                payload = json.loads(self.rfile.read(length) or b"{}")
-            except ValueError:
-                self._refuse(HTTPStatus.BAD_REQUEST, "request body was not JSON")
+                payload = json.loads(self._request_body() or b"{}")
+            except ValueError as error:
+                self.close_connection = True
+                self._refuse(HTTPStatus.BAD_REQUEST, str(error) or "request body was not JSON")
+                return
+            if not isinstance(payload, dict):
+                self._refuse(HTTPStatus.BAD_REQUEST, "request body was not a JSON object")
                 return
             if path == "/api/runs":
                 self._start_run(payload)
@@ -315,14 +390,18 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             self._review(parts[0], parts[1], payload)
 
-        # -- handlers ------------------------------------------------------------------
         def _serve_page(self) -> None:
             html = PAGE.read_text(encoding="utf-8")
-            # The token reaches the page here rather than through the operator's clipboard.
             html = html.replace("__ONTSEQ_TOKEN__", config.token)
             self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8")
 
         def _config_view(self) -> dict[str, Any]:
+            lock = load_model(config.reference_lock, ReferenceLock)
+            not_wired = ["basecalling — not needed for an already aligned BAM"]
+            if lock.genome_build != GenomeBuild.GRCH37:
+                not_wired.append(
+                    "cnv — bundled QDNAseq annotations are currently available for GRCh37 only"
+                )
             return {
                 "version": __version__,
                 "roots": [
@@ -331,11 +410,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 ],
                 "output_dir": str(config.output_dir),
                 "busy": jobs.running(),
-                # Said once, in the place the page can show before anything is started.
-                "not_wired": [
-                    "cnv — no caller is wired in; the stage records NOT_RUN",
-                    "basecalling — not needed, the instrument already basecalled",
-                ],
+                "not_wired": not_wired,
             }
 
         def _browse(self, requested: str) -> None:
@@ -365,7 +440,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                         "display": wsl_to_windows(str(item)),
                         "directory": is_dir,
                         "size_bytes": None if is_dir else item.stat().st_size,
-                        "indexed": is_dir or Path(f"{item}.bai").is_file(),
+                        "indexed": is_dir or _bam_is_indexed(item),
                     }
                 )
             parent = str(target.parent) if target != target.parent else None
@@ -385,8 +460,15 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             try:
                 lock = load_model(config.reference_lock, ReferenceLock)
-                manifest = _build_manifest(payload, reference_id=lock.reference_id)
-                resolve_within(manifest.input.path, config.allowed_roots)
+                manifest = _build_manifest(
+                    payload,
+                    reference_id=lock.reference_id,
+                    allowed_roots=config.allowed_roots,
+                )
+                if manifest.assay.genome_build != lock.genome_build:
+                    raise ValueError(
+                        "selected genome build does not match the configured reference lock"
+                    )
             except GuardError as error:
                 self._refuse(HTTPStatus.FORBIDDEN, str(error))
                 return
@@ -405,16 +487,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             self._json(HTTPStatus.ACCEPTED, job.snapshot())
 
         def _locate(self, name: str) -> None:
-            """Find a file by its bare name inside the allowed roots.
-
-            A browser hands JavaScript only the file name when something is dropped on the
-            page — never the path. Searching for that name is what lets somebody drag a BAM
-            out of Explorer and have the pipeline read it where it already lies, instead of
-            copying thirty gigabytes through an upload to reach the same disk.
-
-            Ambiguity is returned, not resolved: two runs may hold a file of the same name,
-            and picking one of them silently would analyse a sample nobody chose.
-            """
+            """Find a BAM by its bare name inside the allowed roots without guessing."""
             wanted = Path(name.replace("\\", "/")).name
             if not wanted or wanted.startswith("."):
                 self._refuse(HTTPStatus.BAD_REQUEST, "no usable file name was given")
@@ -439,7 +512,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                                 "posix": str(found),
                                 "display": wsl_to_windows(str(found)),
                                 "size_bytes": found.stat().st_size,
-                                "indexed": Path(f"{found}.bai").is_file(),
+                                "indexed": _bam_is_indexed(found),
                             }
                         )
                 if exhausted:
@@ -449,21 +522,13 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 {
                     "name": wanted,
                     "matches": matches,
-                    # Said plainly: a search that ran out of budget found nothing *yet*,
-                    # which is a different answer from the file not being there.
                     "search_incomplete": exhausted,
                     "roots": [wsl_to_windows(str(root)) for root in config.allowed_roots],
                 },
             )
 
         def _findings(self) -> None:
-            """Every envelope this output directory holds, for the reviewing physician.
-
-            Deliberately not filtered to the ones that passed. A run that failed, or one
-            whose sign-off went stale because the release changed underneath it, is exactly
-            what somebody needs to see — hiding it would make the list look tidier and the
-            situation less true.
-            """
+            """Every envelope this output directory holds, including failed runs."""
             try:
                 statuses = scan_envelopes(config.output_dir)
             except NotADirectoryError:
@@ -495,12 +560,6 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             self._json(HTTPStatus.OK, {"findings": findings})
 
         def _review(self, run_id: str, sample_id: str, payload: dict[str, Any]) -> None:
-            """Record one judgement. The name is asserted; nothing here authenticates it.
-
-            That is not a gap this layer introduces — the trail says the same about a
-            judgement recorded from the command line. What the entry binds to is the
-            checksum of the release bundle, so a judgement always names what was judged.
-            """
             reviewer = str(payload.get("reviewer", "")).strip()
             if not reviewer:
                 self._refuse(HTTPStatus.BAD_REQUEST, "no reviewer name was given")

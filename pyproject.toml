@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontseq-platform"
-version = "0.3.0"
+version = "0.3.4"
 description = "A safety-first foundation for automated single-sample Oxford Nanopore karyotyping workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,14 +29,11 @@ workflow = [
 ]
 
 [project.scripts]
-ontseq = "ontseq_platform.cli:main"
+ontseq = "ontseq_platform.entrypoint:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# The browser interface is one file and it ships inside the package. Without this the
-# wheel installs the service and not the page it serves, and the failure appears only on
-# the machine that has no network to fetch anything with.
 [tool.setuptools.package-data]
 "ontseq_platform.service" = ["*.html"]
 

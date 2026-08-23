@@ -1,0 +1,122 @@
+<Window x:Class="ONTSeq.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ONTSeq Desktop" Height="820" Width="1040" MinHeight="700" MinWidth="900"
+        WindowStartupLocation="CenterScreen" FontFamily="Segoe UI" Background="#F5F7FA"
+        Loaded="Window_Loaded" Closed="Window_Closed">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,18">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="ONTSeq Desktop" FontSize="30" FontWeight="SemiBold" Foreground="#152238" />
+                <TextBlock Text="Oxford Nanopore Genomic Analysis" FontSize="14" Foreground="#5F6B7A" Margin="1,4,0,0" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Background="#E8EEF7" CornerRadius="6" Padding="12,7" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock x:Name="BackendStateText" Text="Backend wird beim Start geprüft" Foreground="#34465F" />
+                </Border>
+                <Button x:Name="SetupButton" Content="System einrichten" Click="Setup_Click" Padding="12,7" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E8C861" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,0,0,18">
+            <TextBlock Text="RESEARCH USE ONLY · nicht klinisch validiert · Ergebnisse erfordern fachliche Prüfung" Foreground="#5B4710" FontWeight="SemiBold" />
+        </Border>
+
+        <Border Grid.Row="2" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" CornerRadius="8" Padding="22" Margin="0,0,0,18">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="BAM-Datei" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Row="0" Grid.Column="1" x:Name="BamPathTextBox" IsReadOnly="True" Margin="0,0,10,10" />
+                <Button Grid.Row="0" Grid.Column="2" x:Name="BrowseButton" Content="Auswählen…" Click="Browse_Click" Margin="0,0,0,10" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Sample-ID" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="SampleIdTextBox" Margin="0,0,0,10" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Referenzgenom" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <ComboBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="GenomeBuildCombo" SelectedIndex="0" Margin="0,0,0,10">
+                    <ComboBoxItem Content="GRCh38" Tag="GRCh38" />
+                    <ComboBoxItem Content="GRCh37" Tag="GRCh37" />
+                </ComboBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Analyseprofil" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="AssayCombo" SelectedIndex="0" Margin="0,0,0,18">
+                    <ComboBoxItem Content="Whole Genome / low-coverage WGS" Tag="lcwgs" />
+                    <ComboBoxItem Content="Adaptive Sampling" Tag="adaptive_sampling" />
+                </ComboBox>
+
+                <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                    <Button x:Name="StartButton" Content="ANALYSE STARTEN" FontWeight="SemiBold" MinWidth="190" Click="Start_Click" />
+                    <Button x:Name="CancelButton" Content="Abbrechen" IsEnabled="False" MinWidth="110"
+                            ToolTip="Noch deaktiviert: ein laufendes Bioinformatik-Tool darf erst beendet werden, wenn der Backend-Abbruch atomar und getestet ist." />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" CornerRadius="8" Padding="22">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="Analysefortschritt" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" x:Name="RunStateText" Text="Bereit" Foreground="#5F6B7A" VerticalAlignment="Center" />
+                </Grid>
+                <ProgressBar Grid.Row="1" x:Name="RunProgress" Height="7" Minimum="0" Maximum="100" Value="0" Margin="0,0,0,14" />
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding StageItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="230" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Symbol}" FontWeight="Bold" FontSize="16" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="{Binding Status}" Foreground="#4F6073" />
+                                    <TextBlock Grid.Column="3" Text="{Binding Reason}" Foreground="#758294" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="4" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock x:Name="DetailText" Text="BAM auswählen, Referenz und Analyseprofil prüfen, dann Analyse starten." Foreground="#5F6B7A" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="OpenReportButton" Content="HTML-Bericht öffnen" IsEnabled="False" Click="OpenReport_Click" />
+                <Button x:Name="OpenExcelButton" Content="Excel öffnen" IsEnabled="False" Click="OpenExcel_Click" />
+                <Button x:Name="OpenFolderButton" Content="Ergebnisordner" IsEnabled="False" Click="OpenFolder_Click" Margin="0" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

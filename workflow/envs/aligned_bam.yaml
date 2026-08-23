@@ -5,11 +5,10 @@ channels:
 dependencies:
   - python=3.11
   - samtools=1.24
-  # Pinned to the version locked in configs/alignment/minimap2.ont.technical.yaml. The
-  # adapter refuses to run against any other version, so the two must move together.
   - minimap2=2.28
   - cramino=1.3.0
   - sniffles=2.8.0
+  - mosdepth=0.3.14
   - openpyxl>=3.1,<4
   - pydantic>=2.8,<3
   - pyyaml>=6,<7

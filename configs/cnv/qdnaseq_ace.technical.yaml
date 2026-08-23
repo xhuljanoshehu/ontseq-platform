@@ -1,0 +1,22 @@
+schema_version: 0.1.0
+profile_id: qdnaseq-ace-multibin-v1
+bin_sizes_kbp:
+  - 100
+  - 500
+  - 1000
+primary_bin_size_kbp: 500
+ace_penalty: 0.6
+ploidy_min: 1.5
+ploidy_max: 4.5
+ploidy_step: 0.05
+minimum_segment_bins: 1
+whole_chromosome_fraction: 0.90
+timeout_seconds: 7200
+expected_qdnaseq_version: null
+expected_ace_version: null
+note: >-
+  Experimental robust CNV profile. QDNAseq is run independently at 100, 500 and
+  1000 kbp. ACE squaremodel searches purity and ploidy automatically; the 0.6
+  low-cellularity penalty is carried forward from the Lea Evers ONTseq evaluation.
+  Segment-level calls use 500 kbp as the primary view while chromosome-level
+  agreement is retained across all three resolutions.

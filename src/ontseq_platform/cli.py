@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from . import __version__
-from .align import AlignmentPolicy
-from .align_fixture import build_alignment_fixture
 from .annotation import annotate_result, load_clinvar
 from .annotation import describe as describe_annotation
 from .bam_intake import AlignedBamInspector
-from .basecall import BasecallPolicy
 from .benchmark import benchmark_case
 from .cnv.cytobands import load_cytoband_file
 from .cnv.demo import summarize_comparison, summarize_demo, write_demo_benchmark
@@ -25,16 +20,11 @@ from .demo import build_demo_result
 from .execution import ToolExecutionError
 from .io import load_model, write_json
 from .knowledge.annotate import DEFAULT_EXACT_TOLERANCE_BP, DEFAULT_MINIMUM_OVERLAP
-from .model_lock import ModelLockError
-from .model_lock import exit_code as model_lock_exit_code
-from .model_lock import fingerprint as model_fingerprint
-from .model_lock import render as render_model_lock
 from .models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
     CraminoQCReport,
     GenomeBuild,
-    InputKind,
     PipelineResult,
     QCPolicy,
     ReferenceLock,
@@ -44,31 +34,12 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
-from .pipeline.checks import exit_code as check_exit_code
-from .pipeline.checks import render_json as render_checks_json
-from .pipeline.checks import render_text as render_checks_text
-from .pipeline.lock import RunAlreadyRunning
-from .pipeline.review import Decision, ReviewError
-from .pipeline.review import exit_code as review_exit_code
-from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
-from .preflight import PreflightRequest, preflight
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai
 from .report import render_html
-from .review import inspect as inspect_review
-from .review import record as record_review
-from .review import render_json as render_review_json
-from .review import render_text as render_review_text
-from .service.app import ServiceConfig, serve
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
-from .status import exit_code, render_json, render_ledger, render_text, scan
-from .watchfolder import (
-    PassResult,
-    WatchConfigurationError,
-    WatchSettings,
-    watch,
-)
+from .target_coverage import TargetCoveragePolicy, run_target_coverage
 from .workbook import render_workbook
 
 
@@ -81,16 +52,6 @@ def _render(result: PipelineResult, output_dir: Path) -> list[Path]:
         render_workbook(result, output_dir / f"{stem}.results.xlsx"),
     ]
     return outputs
-
-
-def _print_pass(result: PassResult) -> None:
-    """Report one sweep: what ran, and why everything else did not."""
-    for attempt in result.attempted:
-        print(f"  {attempt.name:<28} {attempt.outcome.value.upper():<10} {attempt.detail}")
-    for name, reason in result.skipped:
-        print(f"  {name:<28} {'skipped':<10} {reason}")
-    if not result.attempted and not result.skipped:
-        print("  nothing to do")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -121,54 +82,6 @@ def _parser() -> argparse.ArgumentParser:
     reference_lock.add_argument("--allow-extra-contigs", action="store_true")
     reference_lock.add_argument("--output", type=Path, required=True)
 
-    model_lock = subparsers.add_parser(
-        "model-lock",
-        help="Fingerprint a downloaded Dorado model directory for model_sha256",
-        description=(
-            "Compute the checksum a basecalling policy locks its model to, and report what "
-            "went into it. Exits 2 when the directory should not be locked."
-        ),
-    )
-    model_lock.add_argument("model", type=Path, help="Path to a downloaded model directory")
-    model_lock.add_argument(
-        "--list-files",
-        action="store_true",
-        help="List every file in the order it enters the checksum",
-    )
-    model_lock.add_argument("--json", action="store_true", help="Emit JSON for a setup script")
-
-    serve_parser = subparsers.add_parser(
-        "serve",
-        help="Run the local browser interface on the loopback interface",
-        description=(
-            "Serve the ONTSeq page and start runs from it. Binds to 127.0.0.1 only, "
-            "requires a per-process token, and reads only the directories named with "
-            "--allow-root."
-        ),
-    )
-    serve_parser.add_argument("--reference-lock", type=Path, required=True)
-    serve_parser.add_argument(
-        "--allow-root",
-        type=Path,
-        action="append",
-        required=True,
-        dest="allow_roots",
-        help="A directory the interface may browse and read. Repeatable. Nothing else "
-        "is reachable, whatever path is requested.",
-    )
-    serve_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    serve_parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
-    serve_parser.add_argument(
-        "--sniffles-policy",
-        type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
-    )
-    serve_parser.add_argument("--port", type=int, default=8765)
-    serve_parser.add_argument("--threads", type=int, default=4)
-    serve_parser.add_argument(
-        "--no-browser", action="store_true", help="Do not open a browser window"
-    )
-
     inspect_bam = subparsers.add_parser(
         "inspect-bam", help="Run the aligned-BAM integrity and reference gate"
     )
@@ -186,6 +99,18 @@ def _parser() -> argparse.ArgumentParser:
     cramino_qc.add_argument("--cramino", default="cramino")
     cramino_qc.add_argument("--threads", type=int, default=4)
     cramino_qc.add_argument("--output", type=Path, required=True)
+
+    target_coverage = subparsers.add_parser(
+        "qc-target-coverage",
+        help="Run Mosdepth and normalize Adaptive Sampling target-region coverage",
+    )
+    target_coverage.add_argument("manifest", type=Path)
+    target_coverage.add_argument("--intake", type=Path, required=True)
+    target_coverage.add_argument("--policy", type=Path, required=True)
+    target_coverage.add_argument("--mosdepth", default="mosdepth")
+    target_coverage.add_argument("--threads", type=int, default=4)
+    target_coverage.add_argument("--output-dir", type=Path, required=True)
+    target_coverage.add_argument("--output", type=Path, required=True)
 
     call_sniffles = subparsers.add_parser(
         "call-sniffles", help="Run Sniffles2 and normalize conservative candidate SV evidence"
@@ -215,95 +140,30 @@ def _parser() -> argparse.ArgumentParser:
     local_smoke.add_argument("--threads", type=int, default=2)
     local_smoke.add_argument("--git-commit", default="LOCAL_SMOKE")
 
+    system_smoke = subparsers.add_parser(
+        "system-smoke",
+        help=(
+            "Exercise the installed samtools/Cramino/Sniffles path plus canonical "
+            "QDNAseq+ACE CNV, reporting, release checksums and resume"
+        ),
+    )
+    system_smoke.add_argument("--output-dir", type=Path, default=Path("results/system-smoke"))
+    system_smoke.add_argument("--qc-policy", type=Path, required=True)
+    system_smoke.add_argument("--sniffles-policy", type=Path, required=True)
+    system_smoke.add_argument("--cnv-policy", type=Path, required=True)
+    system_smoke.add_argument("--qdnaseq-rscript", default="Rscript")
+    system_smoke.add_argument("--qdnaseq-script", type=Path, required=True)
+    system_smoke.add_argument("--samtools", default="samtools")
+    system_smoke.add_argument("--cramino", default="cramino")
+    system_smoke.add_argument("--sniffles", default="sniffles")
+    system_smoke.add_argument("--threads", type=int, default=2)
+    system_smoke.add_argument("--git-commit", default="SYSTEM_SMOKE")
+
     benchmark = subparsers.add_parser(
         "benchmark", help="Benchmark normalized CNV or SV events against a locked truth case"
     )
     benchmark.add_argument("case", type=Path)
     benchmark.add_argument("--output", type=Path, required=True)
-
-    run = subparsers.add_parser(
-        "run",
-        help="Execute the whole pipeline for one sample into a resumable run envelope",
-    )
-    run.add_argument("manifest", type=Path)
-    run.add_argument("--reference-lock", type=Path, required=True)
-    run.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
-    run.add_argument(
-        "--sniffles-policy",
-        type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
-    )
-    run.add_argument(
-        "--alignment-policy",
-        type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
-    )
-    run.add_argument(
-        "--basecall-policy",
-        type=Path,
-        default=Path("configs/basecalling/dorado.technical.yaml"),
-    )
-    run.add_argument("--reference-fasta", type=Path, help="Required when aligning")
-    run.add_argument("--pod5-dir", type=Path, help="Required when starting from POD5")
-    run.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    run.add_argument("--run-id", required=True)
-    run.add_argument("--threads", type=int, default=4)
-    run.add_argument("--git-commit", default="UNKNOWN")
-    run.add_argument("--samtools", default="samtools")
-    run.add_argument("--cramino", default="cramino")
-    run.add_argument("--sniffles", default="sniffles")
-    run.add_argument("--minimap2", default="minimap2")
-    run.add_argument("--dorado", default="dorado")
-    run.add_argument(
-        "--force",
-        action="store_true",
-        help="Re-run every stage instead of resuming unchanged ones",
-    )
-
-    preflight_parser = subparsers.add_parser(
-        "preflight",
-        help="Check a run's preconditions without starting it, creating nothing",
-    )
-    preflight_parser.add_argument("manifest", type=Path)
-    preflight_parser.add_argument("--reference-lock", type=Path, required=True)
-    preflight_parser.add_argument("--run-id", required=True)
-    preflight_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    preflight_parser.add_argument(
-        "--sniffles-policy",
-        type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
-    )
-    preflight_parser.add_argument(
-        "--alignment-policy",
-        type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
-    )
-    preflight_parser.add_argument(
-        "--basecall-policy",
-        type=Path,
-        default=Path("configs/basecalling/dorado.technical.yaml"),
-    )
-    preflight_parser.add_argument("--reference-fasta", type=Path, help="Required when aligning")
-    preflight_parser.add_argument("--pod5-dir", type=Path, help="Required when starting from POD5")
-    preflight_parser.add_argument("--samtools", default="samtools")
-    preflight_parser.add_argument("--cramino", default="cramino")
-    preflight_parser.add_argument("--sniffles", default="sniffles")
-    preflight_parser.add_argument("--minimap2", default="minimap2")
-    preflight_parser.add_argument("--dorado", default="dorado")
-    preflight_parser.add_argument(
-        "--require-free-gb",
-        type=float,
-        help=(
-            "Free space this run needs. Without it free space is reported, not judged: no "
-            "measured size model for this lab's data exists in this repository"
-        ),
-    )
-    preflight_parser.add_argument(
-        "--verbose", action="store_true", help="Also list checks that do not apply"
-    )
-    preflight_parser.add_argument(
-        "--json", action="store_true", dest="as_json", help="Emit JSON for a scheduler"
-    )
 
     annotate_parser = subparsers.add_parser(
         "annotate",
@@ -336,135 +196,6 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_EXACT_TOLERANCE_BP,
         help="Breakpoint slack within which a match counts as exact",
     )
-
-    review_parser = subparsers.add_parser(
-        "review",
-        help="Record and inspect who signed off a run, bound to what they saw",
-    )
-    review_sub = review_parser.add_subparsers(dest="review_command", required=True)
-
-    review_record = review_sub.add_parser(
-        "record", help="Append one judgement to a run envelope's review trail"
-    )
-    review_record.add_argument("envelope", type=Path, help="Path to <output>/<run-id>/<sample-id>")
-    review_record.add_argument(
-        "--decision", required=True, choices=[item.value for item in Decision]
-    )
-    review_record.add_argument(
-        "--reviewer",
-        required=True,
-        help="Who is taking responsibility. Recorded as asserted; nothing authenticates it",
-    )
-    review_record.add_argument(
-        "--note", default="", help="Reason. Required in practice for a rejection"
-    )
-
-    review_status = review_sub.add_parser(
-        "status", help="Report the review state of a run envelope"
-    )
-    review_status.add_argument("envelope", type=Path)
-    review_status.add_argument(
-        "--verbose", action="store_true", help="List every entry in the trail"
-    )
-    review_status.add_argument("--json", action="store_true", dest="as_json")
-    review_status.add_argument(
-        "--require-reviewers",
-        type=int,
-        default=0,
-        help=(
-            "Exit non-zero unless this many distinct reviewers accepted the content now on "
-            "disk. Use 2 for a four-eyes release gate"
-        ),
-    )
-
-    status_parser = subparsers.add_parser(
-        "status",
-        help="Report the state of every run envelope beneath an output directory",
-    )
-    status_parser.add_argument("output_dir", type=Path)
-    status_parser.add_argument("--run-id", help="Restrict the report to one run")
-    status_parser.add_argument(
-        "--verbose", action="store_true", help="List every stage of every run"
-    )
-    status_parser.add_argument(
-        "--json", action="store_true", dest="as_json", help="Emit JSON for a monitoring check"
-    )
-
-    watch_parser = subparsers.add_parser(
-        "watch",
-        help="Process every ready sample directory in a drop folder, once or continuously",
-    )
-    watch_parser.add_argument("watch_dir", type=Path)
-    watch_parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    watch_parser.add_argument(
-        "--manifest-template",
-        type=Path,
-        required=True,
-        help="Manifest with the assay-level constants; sample_id and input are filled in",
-    )
-    watch_parser.add_argument("--reference-lock", type=Path, required=True)
-    watch_parser.add_argument(
-        "--input-kind",
-        required=True,
-        choices=[item.value for item in InputKind],
-        help="Declared, not sniffed: a drop folder does not alternate kind per sample",
-    )
-    watch_parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
-    watch_parser.add_argument(
-        "--sniffles-policy",
-        type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
-    )
-    watch_parser.add_argument(
-        "--alignment-policy",
-        type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
-    )
-    watch_parser.add_argument("--reference-fasta", type=Path, help="Required when aligning")
-    watch_parser.add_argument(
-        "--ready-marker",
-        help=(
-            "Glob for the file the producer writes when a run is complete, matched anywhere "
-            "beneath the sample directory. Authoritative when set. For a GridION: "
-            "'final_summary_*.txt'"
-        ),
-    )
-    watch_parser.add_argument(
-        "--pod5-subdir",
-        help=(
-            "Which POD5 directory to basecall when the instrument wrote several, e.g. "
-            "'pod5_pass'. Declared rather than guessed: including failed reads changes the "
-            "depth distribution that depth-based copy-number methods assume"
-        ),
-    )
-    watch_parser.add_argument(
-        "--quiet-seconds",
-        type=float,
-        default=300.0,
-        help="Without a marker, how long a directory must be unmodified. A heuristic",
-    )
-    watch_parser.add_argument("--run-id-prefix", default="")
-    watch_parser.add_argument("--threads", type=int, default=4)
-    watch_parser.add_argument("--git-commit", default="UNKNOWN")
-    watch_parser.add_argument(
-        "--retry-failed",
-        action="store_true",
-        help="Re-attempt samples that failed before. Use once the cause is understood",
-    )
-    watch_parser.add_argument(
-        "--once", action="store_true", help="Make a single pass and exit, for cron"
-    )
-    watch_parser.add_argument("--poll-seconds", type=float, default=60.0)
-
-    align_fixture = subparsers.add_parser(
-        "align-fixture",
-        help=(
-            "Write a synthetic unaligned BAM and reference so the alignment lane can be "
-            "exercised with real tools"
-        ),
-    )
-    align_fixture.add_argument("--output-dir", type=Path, default=Path("results/align-fixture"))
-    align_fixture.add_argument("--samtools", default="samtools")
 
     cnv_evaluate = subparsers.add_parser(
         "cnv-evaluate",
@@ -553,41 +284,6 @@ def main() -> None:
                 allow_extra_contigs=args.allow_extra_contigs,
             )
             print(write_json(lock, args.output))
-        elif args.command == "model-lock":
-            model = model_fingerprint(args.model)
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "path": str(model.path),
-                            "sha256": model.signature,
-                            "file_count": model.file_count,
-                            "total_bytes": model.total_bytes,
-                            "concerns": list(model.concerns),
-                            "files": [
-                                {"path": item.relative_path, "size_bytes": item.size_bytes}
-                                for item in model.files
-                            ],
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                print(render_model_lock(model, list_files=args.list_files))
-            raise SystemExit(model_lock_exit_code(model))
-        elif args.command == "serve":
-            serve(
-                ServiceConfig(
-                    reference_lock=args.reference_lock,
-                    output_dir=args.output_dir,
-                    allowed_roots=list(args.allow_roots),
-                    qc_policy=args.qc_policy,
-                    sniffles_policy=args.sniffles_policy,
-                    port=args.port,
-                    threads=args.threads,
-                ),
-                open_browser=not args.no_browser,
-            )
         elif args.command == "inspect-bam":
             manifest = load_model(args.manifest, SampleManifest)
             lock = load_model(args.reference_lock, ReferenceLock)
@@ -609,6 +305,19 @@ def main() -> None:
             print(write_json(cramino_report, args.output))
             if cramino_report.qc.verdict == Verdict.FAIL:
                 raise SystemExit(2)
+        elif args.command == "qc-target-coverage":
+            manifest = load_model(args.manifest, SampleManifest)
+            intake = load_model(args.intake, AlignedBamIntakeReport)
+            coverage_policy = load_model(args.policy, TargetCoveragePolicy)
+            coverage_report = run_target_coverage(
+                manifest,
+                intake,
+                coverage_policy,
+                output_dir=args.output_dir,
+                mosdepth=args.mosdepth,
+                threads=args.threads,
+            )
+            print(write_json(coverage_report, args.output))
         elif args.command == "call-sniffles":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
@@ -625,7 +334,7 @@ def main() -> None:
         elif args.command == "local-smoke":
             qc_policy = load_model(args.qc_policy, QCPolicy)
             sniffles_policy = load_model(args.sniffles_policy, SnifflesPolicy)
-            smoke_report = run_local_smoke(
+            local_smoke_report = run_local_smoke(
                 args.output_dir,
                 qc_policy,
                 sniffles_policy,
@@ -637,106 +346,30 @@ def main() -> None:
                 git_commit=args.git_commit,
             )
             print(args.output_dir / "local-smoke.report.json")
-            print(f"PASS: {smoke_report.sniffles.accepted_record_count} SV candidate(s)")
+            print(f"PASS: {local_smoke_report.sniffles.accepted_record_count} SV candidate(s)")
+        elif args.command == "system-smoke":
+            from .cnv.qdnaseq import QDNAseqPolicy
+            from .system_smoke import run_system_smoke
+
+            system_smoke_report = run_system_smoke(
+                args.output_dir,
+                load_model(args.qc_policy, QCPolicy),
+                load_model(args.sniffles_policy, SnifflesPolicy),
+                load_model(args.cnv_policy, QDNAseqPolicy),
+                qdnaseq_script=args.qdnaseq_script,
+                samtools=args.samtools,
+                cramino=args.cramino,
+                sniffles=args.sniffles,
+                rscript=args.qdnaseq_rscript,
+                threads=args.threads,
+                pipeline_version=__version__,
+                git_commit=args.git_commit,
+            )
+            print(args.output_dir / "system-smoke.report.json")
+            print(f"PASS: {len(system_smoke_report.checks)} system checks")
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
-        elif args.command == "run":
-            run_manifest = load_model(args.manifest, SampleManifest)
-            configuration = RunConfiguration(
-                manifest=run_manifest,
-                reference_lock=load_model(args.reference_lock, ReferenceLock),
-                output_base=args.output_dir,
-                run_id=args.run_id,
-                pipeline_version=__version__,
-                git_commit=args.git_commit,
-                qc_policy=load_model(args.qc_policy, QCPolicy),
-                sniffles_policy=(
-                    load_model(args.sniffles_policy, SnifflesPolicy)
-                    if args.sniffles_policy.is_file()
-                    else None
-                ),
-                alignment_policy=(
-                    load_model(args.alignment_policy, AlignmentPolicy)
-                    if args.alignment_policy.is_file()
-                    else None
-                ),
-                basecall_policy=(
-                    load_model(args.basecall_policy, BasecallPolicy)
-                    if args.basecall_policy.is_file()
-                    else None
-                ),
-                reference_fasta=args.reference_fasta,
-                pod5_directory=args.pod5_dir,
-                threads=args.threads,
-                executables={
-                    "samtools": args.samtools,
-                    "cramino": args.cramino,
-                    "sniffles": args.sniffles,
-                    "minimap2": args.minimap2,
-                    "dorado": args.dorado,
-                },
-                force=args.force,
-            )
-            run_report, release_bundle = run_pipeline(configuration)
-            for stage_record in run_report.stages:
-                marker = "resumed" if stage_record.resumed else stage_record.status.value
-                print(f"  {stage_record.stage.value:<16} {marker:<10} {stage_record.reason}")
-            outcome = "PASS" if run_report.passed else "FAIL"
-            print(f"verdict: {outcome} - {run_report.verdict_reason}")
-            if run_report.unverified_stages:
-                names = ", ".join(item.value for item in run_report.unverified_stages)
-                print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
-            if release_bundle is not None:
-                print(
-                    f"release bundle: {len(release_bundle.artifacts)} artifact(s), "
-                    f"{len(release_bundle.withheld_artifact_paths)} withheld, unsigned"
-                )
-            if not run_report.passed:
-                raise SystemExit(2)
-        elif args.command == "preflight":
-            request = PreflightRequest(
-                manifest=load_model(args.manifest, SampleManifest),
-                reference_lock=load_model(args.reference_lock, ReferenceLock),
-                output_base=args.output_dir,
-                run_id=args.run_id,
-                executables={
-                    "samtools": args.samtools,
-                    "cramino": args.cramino,
-                    "sniffles": args.sniffles,
-                    "minimap2": args.minimap2,
-                    "dorado": args.dorado,
-                },
-                reference_fasta=args.reference_fasta,
-                pod5_directory=args.pod5_dir,
-                alignment_policy=(
-                    load_model(args.alignment_policy, AlignmentPolicy)
-                    if args.alignment_policy.is_file()
-                    else None
-                ),
-                basecall_policy=(
-                    load_model(args.basecall_policy, BasecallPolicy)
-                    if args.basecall_policy.is_file()
-                    else None
-                ),
-                sniffles_policy=(
-                    load_model(args.sniffles_policy, SnifflesPolicy)
-                    if args.sniffles_policy.is_file()
-                    else None
-                ),
-                require_free_gb=args.require_free_gb,
-            )
-            checks = preflight(request)
-            if args.as_json:
-                print(render_checks_json(checks), end="")
-            else:
-                print(render_checks_text(checks, verbose=args.verbose))
-            # 2 when at least one precondition makes the run impossible; a warning or an
-            # unanswerable question does not block, or the command would be unusable on
-            # exactly the machines it exists to help.
-            code = check_exit_code(checks)
-            if code:
-                raise SystemExit(code)
         elif args.command == "annotate":
             annotate_result_input = load_model(args.result, PipelineResult)
             clinvar_records, clinvar_lock = load_clinvar(
@@ -754,86 +387,6 @@ def main() -> None:
             print(write_json(annotation_outcome.result, args.output))
             for line in describe_annotation(annotation_outcome):
                 print(line)
-        elif args.command == "review":
-            if args.review_command == "record":
-                entry = record_review(
-                    args.envelope,
-                    decision=Decision(args.decision),
-                    reviewer=args.reviewer,
-                    note=args.note,
-                )
-                print(entry.describe())
-                print(f"bound to release bundle {entry.release_sha256}")
-                print(f"entry digest {entry.entry_sha256}")
-            else:
-                report = inspect_review(args.envelope)
-                if args.as_json:
-                    print(render_review_json(report), end="")
-                else:
-                    print(render_review_text(report, verbose=args.verbose))
-                # 0 nothing stands in the way, 2 rejected or the trail does not verify,
-                # 6 not reviewed yet or reviewed against different content.
-                code = review_exit_code(
-                    report.state,
-                    reviewers=len(report.reviewers),
-                    required_reviewers=args.require_reviewers,
-                )
-                if code:
-                    raise SystemExit(code)
-        elif args.command == "status":
-            statuses = scan(args.output_dir, run_id=args.run_id)
-            if args.as_json:
-                print(render_json(statuses), end="")
-            else:
-                print(render_text(statuses, verbose=args.verbose))
-                ledger = render_ledger(args.output_dir)
-                if ledger:
-                    print(ledger)
-            # 0 nothing wrong, 2 a run failed or its report is unreadable, 6 a run was
-            # interrupted or never reached a verdict. A run merely in progress is not a
-            # problem, and a check that fires during normal work teaches people to ignore it.
-            code = exit_code(statuses)
-            if code:
-                raise SystemExit(code)
-        elif args.command == "watch":
-            settings = WatchSettings(
-                watch_dir=args.watch_dir,
-                output_dir=args.output_dir,
-                manifest_template=args.manifest_template,
-                reference_lock=args.reference_lock,
-                qc_policy=args.qc_policy,
-                input_kind=InputKind(args.input_kind),
-                sniffles_policy=args.sniffles_policy,
-                alignment_policy=args.alignment_policy,
-                reference_fasta=args.reference_fasta,
-                run_id_prefix=args.run_id_prefix,
-                ready_marker=args.ready_marker,
-                pod5_subdirectory=args.pod5_subdir,
-                quiet_seconds=args.quiet_seconds,
-                threads=args.threads,
-                git_commit=args.git_commit,
-                retry_failed=args.retry_failed,
-            )
-            passes = watch(
-                settings,
-                once=args.once,
-                poll_seconds=args.poll_seconds,
-                report=_print_pass,
-            )
-            # A failed sample makes the whole sweep non-zero so a cron job is noticed; a
-            # sample that is merely not ready yet, or already done, does not.
-            if any(item.failures for item in passes):
-                raise SystemExit(2)
-        elif args.command == "align-fixture":
-            fixture = build_alignment_fixture(args.output_dir, samtools=args.samtools)
-            for path in (
-                fixture.reference_fasta,
-                fixture.reference_fai,
-                fixture.unaligned_bam,
-                fixture.manifest,
-                fixture.reference_lock,
-            ):
-                print(path)
         elif args.command == "cnv-evaluate":
             cnv_case = load_model(args.case, CnvBenchmarkCase)
             print(
@@ -917,27 +470,5 @@ def main() -> None:
                 sniffles_report=optional_sniffles_report,
             )
             print(write_json(result, args.output))
-    except WatchConfigurationError as exc:
-        # 5, not 3: exit 3 already means a partially converted karyotype elsewhere. Run
-        # outcomes keep their own codes — 2 a failed run, 4 a locked envelope, 5 a
-        # configuration nothing can run under.
-        print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(5) from exc
-    except EnvelopeAlreadyReviewed as exc:
-        # Its own exit code: a scheduler must be able to tell "somebody signed this off,
-        # rerunning would rewrite what they saw" apart from an ordinary failure.
-        print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(7) from exc
-    except ReviewError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
-    except ModelLockError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
-    except RunAlreadyRunning as exc:
-        # Its own exit code, so a watcher or scheduler can tell "someone else is already
-        # on this sample" apart from "this run failed" and simply move on.
-        print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(4) from exc
     except (OSError, ValueError, ValidationError, ToolExecutionError) as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

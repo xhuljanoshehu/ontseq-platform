@@ -23,6 +23,7 @@ sequences them.
 
 from __future__ import annotations
 
+import shutil
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -35,6 +36,7 @@ from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
     AlignedBamIntakeReport,
+    AssayMode,
     CraminoQCReport,
     InputKind,
     InputSpec,
@@ -51,7 +53,9 @@ from ..mvp import assemble_aligned_bam_mvp
 from ..qc import run_cramino_qc
 from ..report import render_html
 from ..sniffles import run_sniffles
+from ..target_coverage import TargetCoveragePolicy, run_target_coverage
 from ..workbook import render_workbook
+from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
 from .lock import run_lock
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
@@ -76,6 +80,9 @@ ALIGNED_BAI = "alignment/{sample}.bam.bai"
 ALIGN_REPORT = "provenance/alignment.json"
 INTAKE_REPORT = "manifest/intake.json"
 QC_REPORT = "qc/cramino.json"
+TARGET_COVERAGE_REPORT = "qc/target-coverage.json"
+TARGET_COVERAGE_DIR = "qc/target-coverage"
+COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
 RESULT_JSON = "normalized/{sample}.result.json"
@@ -109,6 +116,10 @@ class RunConfiguration:
     git_commit: str
     qc_policy: QCPolicy
     sniffles_policy: SnifflesPolicy | None = None
+    target_coverage_policy: TargetCoveragePolicy | None = None
+    #: Which component runs each stage, and at which version. ``None`` keeps the built-in
+    #: defaults and pins nothing, which is what every run did before selection existed.
+    components: RunComponents | None = None
     alignment_policy: AlignmentPolicy | None = None
     basecall_policy: BasecallPolicy | None = None
     reference_fasta: Path | None = None
@@ -120,6 +131,7 @@ class RunConfiguration:
             "cramino": "cramino",
             "sniffles": "sniffles",
             "minimap2": "minimap2",
+            "mosdepth": "mosdepth",
             "dorado": "dorado",
         }
     )
@@ -433,6 +445,91 @@ def _qc_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
 
 
+def _target_coverage_plan(ctx: RunContext) -> StagePlan:
+    """Plan per-target depth, or record that this assay has no targets to speak of."""
+    if ctx.manifest.assay.mode != AssayMode.ADAPTIVE_SAMPLING:
+        # Probing Mosdepth here would make an lcWGS run depend on a tool it never uses.
+        return StagePlan(parameters={"applicable": False}, tool_versions={})
+    policy = ctx.config.target_coverage_policy
+    if policy is None:
+        raise StageFailure(
+            "adaptive sampling was selected but no target-coverage policy was supplied. "
+            "Refusing to continue: a run whose enrichment was never measured must not "
+            "produce a report that looks complete"
+        )
+    target_bed = ctx.manifest.assay.target_bed
+    if not target_bed:
+        raise StageFailure("adaptive sampling requires assay.target_bed")
+    mosdepth = ctx.config.executable("mosdepth")
+    return StagePlan(
+        parameters={
+            "applicable": True,
+            "profile": policy.profile_id,
+            "thresholds": list(policy.thresholds),
+            "mapq": policy.mapq,
+            "exclude_flags": policy.exclude_flags,
+            "target_bed_version": ctx.manifest.assay.target_bed_version,
+            "target_bed_role": ctx.manifest.assay.target_bed_role.value,
+            "threads": ctx.config.threads,
+        },
+        tool_versions={
+            "mosdepth": _probe(ctx.runner, mosdepth, [mosdepth, "--version"], tool="mosdepth")
+        },
+        external_inputs=(
+            _external_fingerprint(Path(target_bed)),
+            _external_fingerprint(Path(ctx.manifest.input.path)),
+        ),
+    )
+
+
+def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("applicable") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Assay mode is {ctx.manifest.assay.mode.value}; per-target coverage does not "
+                "apply. This is a scope statement, not a coverage finding."
+            ),
+        )
+    policy = ctx.config.target_coverage_policy
+    assert policy is not None
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    output_dir = ctx.envelope.path(TARGET_COVERAGE_DIR)
+    if output_dir.exists():
+        # The adapter refuses to overwrite its own outputs, which is right for a bare
+        # invocation. Inside an envelope the stage owns this directory, so a re-run clears
+        # it rather than inheriting half a previous attempt.
+        shutil.rmtree(output_dir)
+    report = run_target_coverage(
+        ctx.manifest,
+        intake,
+        policy,
+        output_dir=output_dir,
+        runner=ctx.runner,
+        mosdepth=ctx.config.executable("mosdepth"),
+        threads=ctx.config.threads,
+    )
+    artifact = ctx.envelope.atomic_write_text(
+        TARGET_COVERAGE_REPORT, report.model_dump_json(indent=2) + "\n"
+    )
+    weighted = report.summary_metrics.get("interval_weighted_mean_depth", 0.0)
+    minimum = report.summary_metrics.get("minimum_region_mean_depth", 0.0)
+    return StageResult(
+        status=report.status,
+        reason=(
+            f"Measured {len(report.regions)} target(s) at {float(weighted):.1f}x "
+            f"interval-weighted mean depth; the least-covered target reached "
+            f"{float(minimum):.1f}x."
+        ),
+        outputs=[artifact],
+        tools=[report.tool],
+        warnings=report.warnings,
+        limitations=report.limitations,
+    )
+
+
 def _sv_plan(ctx: RunContext) -> StagePlan:
     policy = ctx.config.sniffles_policy
     if policy is None:
@@ -576,6 +673,7 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.ALIGN: StageImplementation(_align_plan, _align_execute, _align_settle),
     StageId.INTAKE: StageImplementation(_intake_plan, _intake_execute),
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
+    StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
@@ -756,6 +854,17 @@ def _run_locked(
     envelope.atomic_write_text(
         "manifest/reference.lock.json", config.reference_lock.model_dump_json(indent=2) + "\n"
     )
+    if config.components is not None:
+        # Written before the first stage so that an interrupted run still records which
+        # components it was asked to use.
+        envelope.atomic_write_text(
+            COMPONENTS_REPORT, config.components.model_dump_json(indent=2) + "\n"
+        )
+        for stage in config.components.unpinned_stages():
+            run_warnings.append(
+                f"Component selection does not pin a version for {stage.value}; this run is "
+                "reproducible only against the toolchain that happened to be installed."
+            )
 
     previous = None if config.force else _load_previous(envelope)
     context = RunContext(
@@ -816,6 +925,21 @@ def _execute_stage(
             reason=f"No adapter is wired in for this stage. {spec.purpose}",
         )
 
+    selection = context.config.components
+    choice = selection.choice_for(stage) if selection is not None else None
+    if selection is not None and choice is not None and not choice.enabled:
+        # Deselected before planning, so a switched-off stage never probes for a tool the
+        # operator deliberately did not install.
+        return StageRecord(
+            **base,
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Deselected for this run by component selection {selection.selection_id!r}. "
+                "A stage that was switched off produced no evidence and is not a negative "
+                "finding."
+            ),
+        )
+
     started = datetime.now(UTC)
     try:
         plan = implementation.plan(context)
@@ -827,6 +951,21 @@ def _execute_stage(
             started_at=started,
             finished_at=datetime.now(UTC),
         )
+
+    if choice is not None and plan.tool_versions:
+        # An empty probe set means the stage ran no external tool at all - target coverage
+        # on a non-adaptive assay, for instance. Enforcing a pinned version there would
+        # fail a run for not using a tool it correctly declined to use.
+        try:
+            choice.verify(plan.tool_versions, stage=stage)
+        except ComponentVersionMismatch as error:
+            return StageRecord(
+                **base,
+                status=ModuleRunStatus.FAILED,
+                reason=str(error),
+                started_at=started,
+                finished_at=datetime.now(UTC),
+            )
 
     signature = stage_signature(
         stage=stage.value,

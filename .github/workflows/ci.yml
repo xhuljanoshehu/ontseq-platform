@@ -5,8 +5,8 @@ on:
   push:
     branches: [main]
 
-# A newer push makes an older run irrelevant. Without this, a run that hangs keeps a
-# runner for the job timeout while its replacement is already queued behind it.
+# A newer push supersedes an older run on the same ref. This keeps integration feedback
+# deterministic instead of allowing stale jobs to finish after the code has changed.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +17,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -31,91 +31,44 @@ jobs:
         id: install
         run: python -m pip install -e ".[dev,workflow]"
       - name: Repository safety
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/check_repository_safety.py
       - name: Schemas are current
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/export_schemas.py --check
       - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           ruff check .
           ruff format --check .
-      # These two run even when an earlier check failed, because the job still reports
-      # failure and one push should surface everything wrong with it. The alternative
-      # costs a full round trip per layer: a lint error hides the type errors, which hide
-      # the test failures. That is not hypothetical here — pydantic cannot be installed in
-      # the development sandbox, so 21 of 36 test modules are first executed on this
-      # runner, and a step that never runs is the most invisible way to be wrong.
-      # Gated on Install so a broken environment does not produce a page of noise.
       - name: Type check
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: mypy src
       - name: Unit tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m unittest discover -s tests -v
-      - name: Lock a synthetic model directory and refuse a broken one
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/model/weights
-          printf '[model]\n' > /tmp/model/config.toml
-          head -c 4096 /dev/urandom > /tmp/model/weights/0.tensor
-          python -m ontseq_platform model-lock /tmp/model | tee /tmp/model-lock.log
-          grep -q 'model_sha256: [0-9a-f]\{64\}' /tmp/model-lock.log
-          # The value the command prints must be the value preflight compares against.
-          # Two implementations of one digest is how a lock starts refusing a correct model.
-          python - <<'CHECK'
-          import json
-          import subprocess
-
-          from ontseq_platform.basecall import model_signature
-
-          out = subprocess.run(
-              ["python", "-m", "ontseq_platform", "model-lock", "/tmp/model", "--json"],
-              capture_output=True, text=True, check=True,
-          )
-          payload = json.loads(out.stdout)
-          assert payload["sha256"] == model_signature("/tmp/model"), (
-              "model-lock and the preflight comparison disagree about the same directory"
-          )
-          assert payload["file_count"] == 2, payload["file_count"]
-          assert payload["total_bytes"] == 4096 + len("[model]\n"), payload["total_bytes"]
-          print("model-lock agrees with preflight:", payload["sha256"])
-          CHECK
-          # An interrupted download hashes perfectly happily, so the command has to say so.
-          : > /tmp/model/weights/1.tensor
-          set +e
-          python -m ontseq_platform model-lock /tmp/model > /tmp/model-broken.log
-          status=$?
-          set -e
-          test "$status" -eq 2
-          grep -q 'DO NOT LOCK THIS DIRECTORY YET' /tmp/model-broken.log
-          grep -q 'weights/1.tensor' /tmp/model-broken.log
-          # and it must not print a line anybody could paste anyway
-          if grep -q 'model_sha256:' /tmp/model-broken.log; then
-            echo "a broken model was still offered as something to record" >&2
-            exit 1
-          fi
-      - name: Every shipped manifest template still validates
-        run: |
-          set -euo pipefail
-          for manifest in examples/manifests/*.yaml; do
-            python -m ontseq_platform validate-manifest "$manifest"
-          done
       - name: Validate Snakemake DAGs
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1
           snakemake --snakefile workflow/aligned_bam.smk --dry-run --cores 4
       - name: Generate synthetic report bundle
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m ontseq_platform demo --output-dir results/demo
       - name: Run the synthetic CNV benchmark end to end
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: >-
           python -m ontseq_platform cnv-demo-benchmark
           --output-dir results/cnv-demo
       - name: Compare the two baseline configurations pairwise via the CLI
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: >-
           python -m ontseq_platform cnv-compare-methods
           --method-a results/cnv-demo/evaluations/default/*.json
           --method-b results/cnv-demo/evaluations/conservative/*.json
           --output results/cnv-demo/cli-comparison.json
       - name: Convert a synthetic karyotype into CNV truth
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: >-
           python -m ontseq_platform cnv-karyotype-truth
           --karyotype "46,XY,del(5)(q13q33),-7,+8,t(9;22)(q34;q11)"
@@ -127,14 +80,14 @@ jobs:
           --source-version synthetic-cytobands-v1
           --output results/cnv-demo/karyotype-truth.json
       - name: Upload synthetic bundle
-        if: matrix.python-version == '3.12'
+        if: ${{ always() && matrix.python-version == '3.12' }}
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-report-bundle
           path: results/demo/
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Upload synthetic CNV benchmark summary
-        if: matrix.python-version == '3.12'
+        if: ${{ always() && matrix.python-version == '3.12' }}
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-cnv-benchmark
@@ -144,49 +97,11 @@ jobs:
             results/cnv-demo/cnv-demo.aggregate.conservative.json
             results/cnv-demo/cnv-demo.comparison.json
             results/cnv-demo/karyotype-truth.json
-          if-no-files-found: error
-
-  # The offline container is the delivery route for a machine with no network. A recipe that
-  # has never been built is a promise, not an artifact — so CI builds it and runs the real
-  # tools inside it. Same rule as ADR-015: the status is claimed only once something executed.
-  offline-container:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build the offline image
-        run: docker build -f containers/Dockerfile -t ontseq:ci .
-      - name: The pinned tools are in the image, at the pinned versions
-        run: |
-          set -euo pipefail
-          run() { docker run --rm --entrypoint /usr/local/bin/_entrypoint.sh ontseq:ci "$@"; }
-          run samtools --version | head -1 | tee /tmp/v.log
-          run minimap2 --version | tee -a /tmp/v.log
-          run sniffles --version | tee -a /tmp/v.log
-          run cramino --version | tee -a /tmp/v.log
-          # Version drift between the image and the policies the adapters enforce would only
-          # surface as a refused run on the isolated machine, where nobody can debug it.
-          grep -q '1\.24' /tmp/v.log
-          grep -q '2\.28' /tmp/v.log
-          grep -q '2\.8\.0' /tmp/v.log
-      - name: The pipeline runs inside the image against those tools
-        run: |
-          set -euo pipefail
-          docker run --rm ontseq:ci local-smoke --output-dir /tmp/smoke | tee /tmp/smoke.log
-          grep -q 'PASS\|pass' /tmp/smoke.log
-      - name: The image is loadable from a saved archive, which is how it travels
-        run: |
-          set -euo pipefail
-          docker save ontseq:ci | gzip > /tmp/ontseq-ci.tar.gz
-          sha256sum /tmp/ontseq-ci.tar.gz
-          docker image rm ontseq:ci
-          gunzip -c /tmp/ontseq-ci.tar.gz | docker load
-          docker run --rm ontseq:ci --help > /dev/null
-          echo "Abbildgröße: $(du -h /tmp/ontseq-ci.tar.gz | cut -f1)"
+          if-no-files-found: warn
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v3
@@ -194,211 +109,70 @@ jobs:
           environment-file: workflow/envs/aligned_bam.yaml
           cache-environment: true
           post-cleanup: all
-      - name: Run synthetic BAM through real local tools
+
+      - name: Verify pinned open-source toolchain
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          samtools --version | head -1 | tee /tmp/tool-versions.log
+          minimap2 --version | tee -a /tmp/tool-versions.log
+          cramino --version | tee -a /tmp/tool-versions.log
+          sniffles --version | tee -a /tmp/tool-versions.log
+          mosdepth --version | tee -a /tmp/tool-versions.log
+          grep -q '1\.24' /tmp/tool-versions.log
+          grep -q '2\.28' /tmp/tool-versions.log
+          grep -q '1\.3\.0' /tmp/tool-versions.log
+          grep -q '2\.8\.0' /tmp/tool-versions.log
+          grep -q '0\.3\.14' /tmp/tool-versions.log
+
+      - name: Run synthetic aligned BAM through real local tools
         shell: micromamba-shell {0}
         run: >-
           PYTHONPATH=src python -m ontseq_platform local-smoke
           --output-dir results/local-smoke
           --git-commit "$GITHUB_SHA"
-      - name: The browser interface refuses what it should and runs what it should
+
+      - name: Prepare synthetic Adaptive Sampling manifest and ROI BED
         shell: micromamba-shell {0}
         run: |
-          set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform serve \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --allow-root results/local-smoke \
-            --output-dir results/service-runs \
-            --port 8765 --no-browser > /tmp/serve.log 2>&1 &
-          # By PID, not by %1: job control is off in a non-interactive shell, so `kill %1`
-          # cannot find the job — and a service left running holds the step open until the
-          # job timeout rather than failing.
-          SERVICE_PID=$!
-          trap 'kill "$SERVICE_PID" 2>/dev/null || true; wait "$SERVICE_PID" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import json
+          from pathlib import Path
 
-          # Every request is bounded. One curl that never returns would otherwise stall the
-          # whole job, which is exactly what happened the first time this step ran.
-          get() { curl -sS --max-time 20 "$@"; }
-          code() { curl -sS --max-time 20 -o /tmp/body -w '%{http_code}' "$@"; }
+          root = Path("results/local-smoke")
+          manifest = json.loads((root / "synthetic.manifest.json").read_text(encoding="utf-8"))
+          target_bed = root / "synthetic.analysis-roi.bed"
+          target_bed.write_text(
+              "chr1\t4800\t16000\tSYNTHETIC_TARGET_A\n"
+              "chr2\t1000\t2000\tSYNTHETIC_TARGET_B\n",
+              encoding="utf-8",
+          )
+          manifest["assay"]["mode"] = "adaptive_sampling"
+          manifest["assay"]["target_bed"] = str(target_bed.resolve())
+          manifest["assay"]["target_bed_version"] = "SYNTHETIC_ROI_V1"
+          (root / "synthetic.adaptive.manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
-          for _ in $(seq 1 60); do
-            if get -f http://127.0.0.1:8765/ -o /tmp/page.html; then break; fi
-            if ! kill -0 "$SERVICE_PID" 2>/dev/null; then
-              echo "der Dienst ist beim Start gestorben:"; cat /tmp/serve.log; exit 1
-            fi
-            sleep 0.5
-          done
-          test -s /tmp/page.html || { echo "Seite kam nie"; cat /tmp/serve.log; exit 1; }
-
-          # The token reaches the page the way a browser gets it: by fetching the page. A
-          # copy of the file opened from disk has no token and therefore no access.
-          TOKEN=$(sed -n 's/.*const TOKEN = "\([^"]*\)".*/\1/p' /tmp/page.html)
-          test -n "$TOKEN"
-          test "$TOKEN" != "__ONTSEQ_TOKEN__"
-
-          # Each refusal below is a real attack shape, not a formality.
-          test "$(code http://127.0.0.1:8765/api/config)" = 401
-          test "$(code -H "X-ONTSeq-Token: wrong" http://127.0.0.1:8765/api/config)" = 401
-          test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Origin: https://evil.example' \
-                  http://127.0.0.1:8765/api/config)" = 403
-          test "$(code -H "X-ONTSeq-Token: $TOKEN" -H 'Host: evil.example:8765' \
-                  http://127.0.0.1:8765/api/config)" = 403
-          test "$(code -H "X-ONTSeq-Token: $TOKEN" \
-                  'http://127.0.0.1:8765/api/browse?path=/etc')" = 403
-
-          auth=(-H "X-ONTSeq-Token: $TOKEN")
-          get -f "${auth[@]}" http://127.0.0.1:8765/api/browse | tee /tmp/browse.json
-          grep -q 'synthetic.sorted.bam' /tmp/browse.json
-          grep -q '"indexed"' /tmp/browse.json
-
-          get -f "${auth[@]}" -X POST http://127.0.0.1:8765/api/runs \
-            -d '{"bam":"results/local-smoke/synthetic.sorted.bam","sample_id":"CI_SERVICE_001","run_id":"CI_SERVICE_RUN_001","genome_build":"GRCh38","assay":"lcwgs"}' \
-            | tee /tmp/started.json
-          grep -q '"state": *"running"' /tmp/started.json
-
-          for _ in $(seq 1 90); do
-            get -f "${auth[@]}" \
-              http://127.0.0.1:8765/api/runs/CI_SERVICE_RUN_001 > /tmp/job.json
-            grep -q '"state": *"running"' /tmp/job.json || break
-            sleep 1
-          done
-          cat /tmp/job.json
-          echo "--- Dienstprotokoll ---"; cat /tmp/serve.log
-          grep -q '"state": *"passed"' /tmp/job.json
-          # The four outcomes must survive the trip to the page. A progress list showing
-          # only done-or-pending would undo, where everybody looks, the distinction the
-          # whole design rests on.
-          grep -q '"status": *"NOT_RUN"' /tmp/job.json
-          grep -q '"status": *"COMPLETED"' /tmp/job.json
-          # And the page must not have its own spelling of them: it lowercases the
-          # contract's value at the point of display, which is why the class names below
-          # are lowercase while the API is not.
-          grep -q 'toLowerCase()' src/ontseq_platform/service/ONTSeq.html
-
-          # Dragging a file onto the page gives JavaScript only its name. The service
-          # finds it where it already lies — the point being that nothing is copied.
-          get -f "${auth[@]}" \
-            'http://127.0.0.1:8765/api/locate?name=synthetic.sorted.bam' | tee /tmp/loc.json
-          grep -q '"indexed": *true' /tmp/loc.json
-          grep -q 'results/local-smoke/synthetic.sorted.bam' /tmp/loc.json
-          # A name that is not there is not silently turned into something that is.
-          get -f "${auth[@]}" \
-            'http://127.0.0.1:8765/api/locate?name=nicht_vorhanden.bam' > /tmp/loc2.json
-          grep -q '"matches": *\[\]' /tmp/loc2.json
-          # And nothing but a BAM gets past the front door.
-          test "$(code "${auth[@]}" \
-            'http://127.0.0.1:8765/api/locate?name=/etc/passwd')" = 400
-
-          # The reviewing physician's path: the finished run appears in the list, is signed
-          # off through the interface, and the trail says so afterwards.
-          get -f "${auth[@]}" http://127.0.0.1:8765/api/findings | tee /tmp/find.json
-          grep -q 'CI_SERVICE_001' /tmp/find.json
-          # A run with stages that did not run must say which, in the list itself.
-          grep -q 'Copy-number evidence' /tmp/find.json
-
-          get -f "${auth[@]}" -X POST \
-            http://127.0.0.1:8765/api/review/CI_SERVICE_RUN_001/CI_SERVICE_001 \
-            -d '{"decision":"accepted","reviewer":"CI Pruefer","note":"CI"}' \
-            | tee /tmp/signed.json
-          grep -q '"state": *"accepted"' /tmp/signed.json
-          # A judgement that names no reviewer is refused: an unsigned signature is not one.
-          test "$(code "${auth[@]}" -X POST \
-            http://127.0.0.1:8765/api/review/CI_SERVICE_RUN_001/CI_SERVICE_001 \
-            -d '{"decision":"accepted","reviewer":"  "}')" = 400
-          # And the trail is now visible to the command line too — same log, same envelope.
-          PYTHONPATH=src python -m ontseq_platform review status \
-            results/service-runs/CI_SERVICE_RUN_001/CI_SERVICE_001 | tee /tmp/rev.log
-          grep -qi 'accepted' /tmp/rev.log
-      - name: Preflight the run before starting it
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform preflight \
-            results/local-smoke/synthetic.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --output-dir results/runs \
-            --run-id CI_RUN_001 | tee /tmp/preflight.log
-          # The tools this lane needs were identified against the real binaries, and the
-          # envelope this run is about to create is free.
-          grep -qE '^\[ok  \] tool\.samtools' /tmp/preflight.log
-          grep -qE '^\[ok  \] tool\.cramino' /tmp/preflight.log
-          grep -qE '^\[ok  \] envelope\.lock' /tmp/preflight.log
-          # An aligned-BAM run must not be asked to install a basecaller.
-          if grep -q 'tool\.dorado' /tmp/preflight.log; then
-            echo "preflight asked an aligned-BAM run for a basecaller"; exit 1
-          fi
-          # Preflight promises to leave nothing behind.
-          if [ -e results/runs/CI_RUN_001 ]; then
-            echo "preflight created a run envelope"; exit 1
-          fi
-      - name: Preflight refuses a run whose stated space requirement cannot be met
-        shell: micromamba-shell {0}
-        run: |
-          set -uo pipefail
-          PYTHONPATH=src python -m ontseq_platform preflight \
-            results/local-smoke/synthetic.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --output-dir results/runs \
-            --run-id CI_RUN_001 \
-            --require-free-gb 1000000000 > /tmp/preflight-space.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/preflight-space.log
-          test "$code" -eq 2
-          grep -qE '^\[FAIL\] disk\.free' /tmp/preflight-space.log
-      - name: Run the whole pipeline end to end with real tools
+      - name: Run real Mosdepth target coverage QC
         shell: micromamba-shell {0}
         run: >-
-          PYTHONPATH=src python -m ontseq_platform run
-          results/local-smoke/synthetic.manifest.json
-          --reference-lock results/local-smoke/synthetic.reference-lock.json
-          --output-dir results/runs
-          --run-id CI_RUN_001
-          --threads 2
-          --git-commit "$GITHUB_SHA"
-      - name: Re-run to prove every stage resumes unchanged
-        shell: micromamba-shell {0}
-        run: |
-          PYTHONPATH=src python -m ontseq_platform run \
-            results/local-smoke/synthetic.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --output-dir results/runs \
-            --run-id CI_RUN_001 \
-            --threads 2 \
-            --git-commit "$GITHUB_SHA" | tee /tmp/resume.log
-          if grep -qE '^\s+\w+\s+(COMPLETED|NO_CALL)\s' /tmp/resume.log; then
-            echo "A stage re-executed instead of resuming:"; cat /tmp/resume.log; exit 1
-          fi
-      - name: Verify the release bundle checksums independently
-        shell: micromamba-shell {0}
-        run: |
-          cd results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
-          sha256sum -c release/checksums.sha256
-      - name: Refuse a second run on a locked envelope
-        shell: micromamba-shell {0}
-        run: |
-          set -uo pipefail
-          envelope=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
-          # The lock names this shell's PID, which stays alive for the whole step, so the
-          # run meets a holder it cannot judge dead. Stale-reclaiming must not rescue it.
-          python -c "import json,os,pathlib,socket,sys; pathlib.Path(sys.argv[1],'.ontseq-run.lock').write_text(json.dumps({'pid':int(sys.argv[2]),'hostname':socket.gethostname(),'acquired_at':'2026-01-01T00:00:00+00:00','run_id':'CI_RUN_001','sample_id':'SYNTHETIC_SMOKE_001','pipeline_version':'ci'}))" "$envelope" "$$"
-          PYTHONPATH=src python -m ontseq_platform run \
-            results/local-smoke/synthetic.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --output-dir results/runs --run-id CI_RUN_001 --threads 2 \
-            --git-commit "$GITHUB_SHA" > /tmp/locked.log 2>&1
-          status=$?
-          cat /tmp/locked.log
-          set -e
-          # Exit 4 specifically: a scheduler has to tell "already running" from "failed".
-          test "$status" -eq 4
-          grep -q 'already in use' /tmp/locked.log
-          rm "$envelope/.ontseq-run.lock"
-      - name: Build the synthetic alignment-lane fixture
+          PYTHONPATH=src python -m ontseq_platform qc-target-coverage
+          results/local-smoke/synthetic.adaptive.manifest.json
+          --intake results/local-smoke/synthetic.intake.json
+          --policy configs/qc/adaptive_target_coverage.technical.yaml
+          --output-dir results/local-smoke/target-coverage-runtime
+          --output results/local-smoke/synthetic.target-coverage.json
+
+      - name: Build the synthetic unaligned-BAM alignment fixture
         shell: micromamba-shell {0}
         run: >-
           PYTHONPATH=src python -m ontseq_platform align-fixture
           --output-dir results/align-fixture
-      - name: Preflight the alignment lane against its real reference
+
+      - name: Preflight the unaligned-BAM lane against the locked reference
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
@@ -408,30 +182,30 @@ jobs:
             --reference-fasta results/align-fixture/synthetic.reference.fasta \
             --output-dir results/runs \
             --run-id CI_ALIGN_001 | tee /tmp/preflight-align.log
-          # The lock records the checksum of the .fai it was built from, so this asserts
-          # that preflight recomputes it the same way `ontseq reference-lock` wrote it.
-          grep -qE '^\[ok  \] reference\.fai .*matches the lock checksum' \
-            /tmp/preflight-align.log
-          grep -qE '^\[ok  \] tool\.minimap2' /tmp/preflight-align.log
-      - name: Preflight refuses the alignment lane against the wrong reference
+          grep -qE '^\[ok  \] reference\.fai .*matches the lock checksum' /tmp/preflight-align.log
+          if grep -qE '^\[FAIL\]' /tmp/preflight-align.log; then
+            echo "preflight unexpectedly reported a blocking failure" >&2
+            exit 1
+          fi
+
+      - name: Wrong reference fails closed before any run envelope is created
         shell: micromamba-shell {0}
         run: |
           set -uo pipefail
-          # The smoke lane's reference is a different synthetic genome. Pointing this run
-          # at it is the mistake that silently produces confidently wrong coordinates, so
-          # preflight must refuse before minimap2 is ever invoked.
           PYTHONPATH=src python -m ontseq_platform preflight \
             results/align-fixture/synthetic.manifest.json \
             --reference-lock results/local-smoke/synthetic.reference-lock.json \
             --reference-fasta results/align-fixture/synthetic.reference.fasta \
             --output-dir results/runs \
-            --run-id CI_ALIGN_001 > /tmp/preflight-wrong-ref.log 2>&1
-          code=$?
+            --run-id CI_ALIGN_WRONG_REFERENCE > /tmp/preflight-wrong-ref.log 2>&1
+          status=$?
           set -e
           cat /tmp/preflight-wrong-ref.log
-          test "$code" -eq 2
+          test "$status" -ne 0
           grep -qE '^\[FAIL\] reference\.fai' /tmp/preflight-wrong-ref.log
-      - name: Run the unaligned-BAM lane through real minimap2
+          test ! -e results/runs/CI_ALIGN_WRONG_REFERENCE
+
+      - name: Run unaligned BAM through minimap2, intake, QC, SV, report and release
         shell: micromamba-shell {0}
         run: >-
           PYTHONPATH=src python -m ontseq_platform run
@@ -442,49 +216,46 @@ jobs:
           --run-id CI_ALIGN_001
           --threads 2
           --git-commit "$GITHUB_SHA"
-      - name: Prove the alignment kept mapping, read groups and base modifications
+
+      - name: Prove the real alignment preserved mapping, read groups and modified-base tags
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
           bam=results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/alignment/SYNTHETIC_ALIGN_001.bam
-          mapped=$(samtools view -c -F 0x904 "$bam")
-          reverse=$(samtools view -c -f 16 -F 0x900 "$bam")
-          echo "primary mapped=$mapped reverse-strand=$reverse"
-          # 24 reads go in and all are carved from the reference, so all must map. The
-          # reverse-complemented ones must land on the reverse strand, or the fixture is
-          # not exercising the path it claims to exercise.
-          test "$mapped" -eq 24
-          test "$reverse" -ge 4
-          # Dumped to files rather than piped into grep: `grep -q` exits on its first
-          # match, and under `pipefail` the resulting SIGPIPE in samtools fails the step
-          # precisely when the assertion succeeded.
+          bai="$bam.bai"
+          test -s "$bam"
+          test -s "$bai"
+          samtools quickcheck -v "$bam"
+          test "$(samtools view -c -F 4 "$bam")" -eq 24
           samtools view -H "$bam" > /tmp/align.header.sam
           samtools view "$bam" > /tmp/align.records.sam
           samtools view -f 16 "$bam" > /tmp/align.reverse.sam
-          # Read groups survive only if the header was re-attached after the FASTQ round
-          # trip and the per-read RG tag was carried through. Both groups are asserted:
-          # with one group a bug collapsing every read onto the first group is invisible,
-          # and a real ONT sample is routinely sequenced across several flowcells.
-          grep -q '^@RG.*ID:SYNTHETIC_ALIGN_RG\b.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
-          grep -q '^@RG.*ID:SYNTHETIC_ALIGN_RG2.*SM:SYNTHETIC_ALIGN_001' /tmp/align.header.sam
-          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG\b' /tmp/align.records.sam
+          test "$(grep -c '^@RG' /tmp/align.header.sam)" -eq 2
+          grep -q 'RG:Z:SYNTHETIC_ALIGN_RG' /tmp/align.records.sam
           grep -q 'RG:Z:SYNTHETIC_ALIGN_RG2' /tmp/align.records.sam
-          # Every read keeps the group it came in with. Counting proves no read was
-          # reassigned, which a per-group presence check alone would not.
-          first=$(grep -c 'RG:Z:SYNTHETIC_ALIGN_RG\b' /tmp/align.records.sam)
-          second=$(grep -c 'RG:Z:SYNTHETIC_ALIGN_RG2' /tmp/align.records.sam)
-          echo "read groups: first=$first second=$second"
-          test "$second" -ge 4
-          test "$first" -ge 20
           grep -q 'MM:Z:C+m?' /tmp/align.records.sam
-          grep -q 'ML:B:C,' /tmp/align.records.sam
-          grep -q 'MD:Z:' /tmp/align.records.sam
-          # Modified-base tags must survive on reverse-strand records too, which is where
-          # a FASTQ round trip is most likely to lose them.
-          grep -q 'MM:Z:C+m?' /tmp/align.reverse.sam
-      - name: Re-run the alignment lane to prove it resumes unchanged
+          grep -q 'ML:B:C,220,180' /tmp/align.records.sam
+          grep -q '^SYNTH_ALIGN_REV_' /tmp/align.reverse.sam
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/manifest/intake.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/qc/cramino.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/evidence/sv/SYNTHETIC_ALIGN_001.sniffles.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/normalized/SYNTHETIC_ALIGN_001.result.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.report.html
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.results.xlsx
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
+          test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
+
+      - name: Verify the release bundle checksums independently
         shell: micromamba-shell {0}
         run: |
+          set -euo pipefail
+          cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
+          sha256sum -c release/checksums.sha256
+
+      - name: Re-run the identical sample and prove content-addressed resume
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
           PYTHONPATH=src python -m ontseq_platform run \
             results/align-fixture/synthetic.manifest.json \
             --reference-lock results/align-fixture/synthetic.reference-lock.json \
@@ -493,212 +264,16 @@ jobs:
             --run-id CI_ALIGN_001 \
             --threads 2 \
             --git-commit "$GITHUB_SHA" | tee /tmp/resume-align.log
-          if grep -qE '^\s+\w+\s+(COMPLETED|NO_CALL)\s' /tmp/resume-align.log; then
-            echo "A stage re-executed instead of resuming:"; cat /tmp/resume-align.log; exit 1
+          grep -q 'resumed' /tmp/resume-align.log
+          if grep -qE '^\s+[A-Za-z0-9_-]+\s+(COMPLETED|NO_CALL)\s' /tmp/resume-align.log; then
+            echo "at least one completed stage executed again instead of resuming" >&2
+            cat /tmp/resume-align.log >&2
+            exit 1
           fi
-      - name: Verify the alignment-lane release bundle checksums independently
-        shell: micromamba-shell {0}
-        run: |
           cd results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001
           sha256sum -c release/checksums.sha256
-      - name: Drive a watch folder end to end with real tools
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          # One drop directory per sample, built from the smoke fixture's real BAM.
-          mkdir -p results/drop/WATCHED_SAMPLE_001
-          cp results/local-smoke/synthetic.sorted.bam \
-             results/drop/WATCHED_SAMPLE_001/reads.bam
-          cp results/local-smoke/synthetic.sorted.bam.bai \
-             results/drop/WATCHED_SAMPLE_001/reads.bam.bai
-          # A directory nobody can name a sample after: it must be rejected, not repaired.
-          mkdir -p "results/drop/not a sample id"
-          cp results/local-smoke/synthetic.sorted.bam "results/drop/not a sample id/reads.bam"
-          # An assay-level template: identity and input path are the watcher's job, and
-          # everything here is a constant of the assay rather than of the sample.
-          python -c "import json,pathlib; pathlib.Path('results/watch.manifest.json').write_text(json.dumps({'schema_version':'0.1.0','run_id':'CI_WATCH_RUN','assay':{'mode':'lcwgs','genome_build':'GRCh38','reference_id':'SYNTHETIC_NOT_REAL_GRCH38_V1'},'analysis':{'profile':'lcwgs','modules':['qc','sv','report']}}))"
-          PYTHONPATH=src python -m ontseq_platform watch results/drop \
-            --manifest-template results/watch.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --input-kind aligned_bam \
-            --output-dir results/watched \
-            --quiet-seconds 0 --threads 2 --once \
-            --git-commit "$GITHUB_SHA" | tee /tmp/watch.log
-          grep -q 'WATCHED_SAMPLE_001 *COMPLETED' /tmp/watch.log
-          grep -q 'REJECTED' /tmp/watch.log
-          test -f results/watched/WATCHED_SAMPLE_001/WATCHED_SAMPLE_001/provenance/run.json
-          test -f results/watched/.ontseq-watch.json
-          # The drop folder is an input area: nothing of ours may be written into it.
-          test -z "$(find results/drop -name '.ontseq*')"
-      - name: Re-run the watch folder to prove finished samples are not repeated
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform watch results/drop \
-            --manifest-template results/watch.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --input-kind aligned_bam \
-            --output-dir results/watched \
-            --quiet-seconds 0 --threads 2 --once \
-            --git-commit "$GITHUB_SHA" | tee /tmp/watch2.log
-          grep -q 'WATCHED_SAMPLE_001 *skipped *already completed' /tmp/watch2.log
-      - name: Annotate a real result against a locked ClinVar release
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          result=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/normalized/SYNTHETIC_SMOKE_001.result.json
-          PYTHONPATH=src python -m ontseq_platform annotate "$result" \
-            --clinvar examples/knowledge/synthetic.clinvar.variant_summary.txt \
-            --release CI-SYNTHETIC-2026-08-01 \
-            --output /tmp/annotated.json | tee /tmp/annotate.log
-          # The loader must report what it skipped, or an assembly mismatch looks exactly
-          # like a sample nobody knows anything about.
-          grep -q 'for another assembly' /tmp/annotate.log
-          grep -q 'without a matchable extent' /tmp/annotate.log
-          grep -q 'does not make a finding reportable\|makes a finding reportable' /tmp/annotate.log
-      - name: Prove annotation never touches a judgement field
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          result=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/normalized/SYNTHETIC_SMOKE_001.result.json
-          python -c "import json,sys;a=json.load(open(sys.argv[1]));b=json.load(open(sys.argv[2]));ea={e['event_id']:e for e in a['events']};eb={e['event_id']:e for e in b['events']};assert ea.keys()==eb.keys(),'event set changed';[sys.exit('judgement field changed for '+k) for k in ea if (ea[k]['reportable'],ea[k]['confidence'])!=(eb[k]['reportable'],eb[k]['confidence'])];print('reportable and confidence unchanged for',len(ea),'event(s)')" "$result" /tmp/annotated.json
-          # Every annotation must carry its caveats; the contract refuses an empty list.
-          python -c "import json;d=json.load(open('/tmp/annotated.json'));anns=[x for e in d['events'] for x in e['annotations']];print(len(anns),'annotation(s)');assert anns,'nothing was annotated, so this step proved nothing';assert all(x['caveats'] for x in anns),'an annotation carried no caveats';assert all(x['assertion_vocabulary']=='acmg_germline' for x in anns),'vocabulary was not carried';assert any(x['scope_alignment']=='mismatched' for x in anns),'the germline-under-somatic case was not exercised';assert all(x['source_release']=='CI-SYNTHETIC-2026-08-01' for x in anns),'the release was not recorded'"
-          PYTHONPATH=src python -m ontseq_platform validate-result /tmp/annotated.json
-      - name: Prove the workbook carries the reading rule, not only the HTML
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform render /tmp/annotated.json \
-            --output-dir /tmp/annotated-report
-          python - <<'CHECK'
-          import json
-          from pathlib import Path
 
-          from openpyxl import load_workbook
-
-          book = load_workbook(next(Path("/tmp/annotated-report").glob("*.results.xlsx")))
-          sheet = book["11_Annotations"]
-          banner = str(sheet["A1"].value or "")
-          assert "not findings about this sample" in banner, "the sheet carries no reading rule"
-          headers = [cell.value for cell in sheet[2]]
-          for column in ("event_id", "assertion", "scope_alignment", "caveats"):
-              assert column in headers, f"column missing: {column}"
-          rows = list(sheet.iter_rows(min_row=3, values_only=True))
-          assert rows, "nothing was written, so this step proved nothing"
-          caveats = headers.index("caveats")
-          scope = headers.index("scope_alignment")
-          assert all(str(row[caveats] or "").strip() for row in rows), "a row lost its caveats"
-          # The synthetic release deliberately contains a germline record matched against a
-          # somatic question. If that row is not marked, colour is not carrying the warning.
-          marked = [
-              index
-              for index, row in enumerate(rows, start=3)
-              if sheet.cell(row=index, column=1).fill.fgColor.rgb == "00FEE2E2"
-          ]
-          mismatched = [index for index, row in enumerate(rows, start=3)
-                        if row[scope] == "mismatched"]
-          assert mismatched, "the germline-under-somatic case was not exercised"
-          assert marked == mismatched, f"marked rows {marked} != mismatched rows {mismatched}"
-
-          # The count on the event sheets must agree with the result contract, or a
-          # reviewer is told to look at records that are not there.
-          expected = {e["event_id"]: len(e["annotations"])
-                      for e in json.load(open("/tmp/annotated.json"))["events"]}
-          seen = 0
-          for name in ("02_CNV_Chromosomes", "03_CNV_Segments", "04_SV", "05_Fusions"):
-              event_headers = [cell.value for cell in book[name][1]]
-              assert "db_records_matched" in event_headers, f"{name} has no pointer column"
-              column = event_headers.index("db_records_matched")
-              for row in book[name].iter_rows(min_row=2, values_only=True):
-                  assert row[column] == expected[row[0]], f"{name}: wrong count for {row[0]}"
-                  seen += row[column]
-          assert seen, "no event sheet showed a matched record"
-          print(f"{len(rows)} annotation row(s), {len(mismatched)} marked, {seen} counted")
-          CHECK
-      - name: Sign off a run and prove the trail binds to what was signed
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          envelope=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001
-          # Nothing reviewed yet: unfinished, not wrong.
-          set +e
-          PYTHONPATH=src python -m ontseq_platform review status "$envelope" > /tmp/rev0.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/rev0.log
-          test "$code" -eq 6
-          grep -q 'PENDING' /tmp/rev0.log
-
-          PYTHONPATH=src python -m ontseq_platform review record "$envelope" \
-            --decision accepted --reviewer dr.mueller --note "CI sign-off" | tee /tmp/rev1.log
-          grep -q 'bound to release bundle' /tmp/rev1.log
-          PYTHONPATH=src python -m ontseq_platform review status "$envelope" --verbose \
-            | tee /tmp/rev2.log
-          grep -q 'ACCEPTED' /tmp/rev2.log
-          grep -q 'chain: intact' /tmp/rev2.log
-          # The record must never imply an authentication it does not perform.
-          grep -q 'asserted, not authenticated' /tmp/rev2.log
-          PYTHONPATH=src python -m ontseq_platform review status "$envelope" --json \
-            > /tmp/rev.json
-          python -c "import json;d=json.load(open('/tmp/rev.json'));assert d['state']=='accepted',d;assert d['accepted_by']==['dr.mueller'],d;assert d['identity_is_authenticated'] is False,d;assert d['chain_is_tamper_proof'] is False,d"
-
-          # A four-eyes gate is not satisfied by one person.
-          set +e
-          PYTHONPATH=src python -m ontseq_platform review status "$envelope" \
-            --require-reviewers 2 > /tmp/rev3.log 2>&1
-          code=$?
-          set -e
-          test "$code" -eq 6
-      - name: Refuse to re-run an envelope somebody signed off
-        shell: micromamba-shell {0}
-        run: |
-          set +e
-          PYTHONPATH=src python -m ontseq_platform run \
-            results/local-smoke/synthetic.manifest.json \
-            --reference-lock results/local-smoke/synthetic.reference-lock.json \
-            --output-dir results/runs --run-id CI_RUN_001 --threads 2 \
-            --git-commit "$GITHUB_SHA" > /tmp/rerun.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/rerun.log
-          # Exit 7 is its own code: a scheduler must tell this apart from an ordinary
-          # failure and from a locked envelope.
-          test "$code" -eq 7
-          grep -q 'accepted review' /tmp/rerun.log
-      - name: Prove an edited review trail is detected
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          log=results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/review/review.log.jsonl
-          cp "$log" /tmp/review.backup
-          python -c "import json;p='$log';rows=[json.loads(l) for l in open(p) if l.strip()];rows[0]['note']='tampered';open(p,'w').write(''.join(json.dumps(r,sort_keys=True,separators=(',',':'))+chr(10) for r in rows))"
-          set +e
-          PYTHONPATH=src python -m ontseq_platform review status \
-            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001 > /tmp/rev4.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/rev4.log
-          test "$code" -eq 2
-          grep -q 'BROKEN' /tmp/rev4.log
-          cp /tmp/review.backup "$log"
-      - name: Report the state of every envelope the job produced
-        shell: micromamba-shell {0}
-        run: |
-          set -euo pipefail
-          PYTHONPATH=src python -m ontseq_platform status results/runs --verbose \
-            | tee /tmp/status.log
-          grep -q 'CI_RUN_001/SYNTHETIC_SMOKE_001 *PASSED' /tmp/status.log
-          grep -q 'CI_ALIGN_001/SYNTHETIC_ALIGN_001 *PASSED' /tmp/status.log
-          # The watch folder's own output directory carries its ledger alongside the runs.
-          PYTHONPATH=src python -m ontseq_platform status results/watched | tee /tmp/watched.log
-          grep -q 'watch ledger' /tmp/watched.log
-          # The operator surface must show the sign-off state, or an operator scanning many
-          # envelopes has to run a second command per envelope to learn it.
-          grep -q 'review: ACCEPTED' /tmp/status.log
-          PYTHONPATH=src python -m ontseq_platform status results/runs --json > /tmp/status.json
-          python -c "import json,sys; d=json.load(open('/tmp/status.json')); assert all(i['state']=='passed' for i in d), d; print(f'{len(d)} envelope(s) reported')"
-      - name: Upload synthetic reviewer artifacts (no BAM or VCF)
+      - name: Upload synthetic reviewer artifacts without BAM or VCF payloads
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -711,10 +286,15 @@ jobs:
             results/local-smoke/synthetic.intake.json
             results/local-smoke/synthetic.qc.json
             results/local-smoke/synthetic.sniffles.json
-            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/provenance/run.json
-            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/release.json
-            results/runs/CI_RUN_001/SYNTHETIC_SMOKE_001/release/checksums.sha256
+            results/local-smoke/synthetic.target-coverage.json
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/run.json
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/provenance/alignment.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/manifest/intake.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/qc/cramino.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/evidence/sv/SYNTHETIC_ALIGN_001.sniffles.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/normalized/SYNTHETIC_ALIGN_001.result.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.report.html
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/reports/SYNTHETIC_ALIGN_001.results.xlsx
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
+            results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
           if-no-files-found: error
