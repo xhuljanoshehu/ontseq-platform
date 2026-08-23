@@ -261,7 +261,7 @@ def panel_usage_warnings(lock: PanelLock, *, labels: Sequence[str] = ()) -> tupl
             "count. The interval labels are reproduced from the laboratory source and were "
             "not independently curated."
         )
-    if "buffered" in lock.role:
+    if lock.role.endswith("_buffered"):
         warnings.append(
             f"The design is buffered ({lock.role}). Per-target depth therefore includes "
             "flanking sequence and is not coverage of the gene body alone."
