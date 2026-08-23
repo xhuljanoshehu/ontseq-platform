@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import unittest
-
 import tempfile
+import unittest
 from pathlib import Path
 
 from ontseq_platform.cnv.adapters import (
