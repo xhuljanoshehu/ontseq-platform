@@ -448,9 +448,7 @@ def main() -> None:
                     output_dir=args.output_dir,
                     allowed_roots=list(args.allow_roots),
                     qc_policy=args.qc_policy,
-                    sniffles_policy=_selected_policy(
-                        selection, StageId.SV, args.sniffles_policy
-                    ),
+                    sniffles_policy=_selected_policy(selection, StageId.SV, args.sniffles_policy),
                     target_coverage_policy=_selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     ),
