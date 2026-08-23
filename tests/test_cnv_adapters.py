@@ -19,7 +19,14 @@ from ontseq_platform.cnv.adapters import (
 from ontseq_platform.cnv.models import CnvDataBasis
 from ontseq_platform.cnv.qdnaseq import CnvFit, QDNAseqCallReport
 from ontseq_platform.cnv.states import CopyNumberState
-from ontseq_platform.models import GenomeBuild, ModuleRunStatus, ToolRecord
+from ontseq_platform.models import (
+    EventType,
+    GenomeBuild,
+    GenomicEvent,
+    Locus,
+    ModuleRunStatus,
+    ToolRecord,
+)
 
 SEG_TABLE = [
     "ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean",
@@ -197,12 +204,27 @@ def _fit(bin_size_kbp: int, *, segment_file: str) -> CnvFit:
     )
 
 
+#: One promoted alteration, for the case where the runtime lane found something.
+LOSS_EVENT = GenomicEvent(
+    event_id="CNV_CHR7_LOSS",
+    event_type=EventType.CHROMOSOME_LOSS,
+    primary=Locus(chromosome="chr7", start=0, end=159_138_663),
+    copy_number=1.04,
+)
+
+
 def _report(**overrides: object) -> QDNAseqCallReport:
+    """A report whose segment table is a full partition but promotes no alteration.
+
+    ``QDNAseqCallReport.status`` is derived from its *events*, so a run that segmented the
+    whole genome and found nothing worth promoting is ``NO_CALL`` there. That is a different
+    question from the one the call set answers, and the tests below rely on the difference.
+    """
     primary = _fit(500, segment_file="S.500kbp.segments.tsv")
     defaults: dict[str, object] = {
         "sample_id": "SYNTHETIC_AML_001",
         "genome_build": GenomeBuild.GRCH38,
-        "status": ModuleRunStatus.COMPLETED,
+        "status": ModuleRunStatus.NO_CALL,
         "primary_fit": primary,
         "fits": [primary, _fit(1000, segment_file="S.1000kbp.segments.tsv")],
         "chromosome_consensus": [],
@@ -272,6 +294,34 @@ class QDNAseqCallSetTests(unittest.TestCase):
         self.assertAlmostEqual(call_set.estimated_tumor_fraction or 0.0, 0.62)
         self.assertAlmostEqual(call_set.estimated_ploidy or 0.0, 2.1)
         self.assertEqual(call_set.status, ModuleRunStatus.COMPLETED)
+
+    def test_the_reports_status_does_not_decide_the_call_sets_status(self) -> None:
+        """Two different questions, deliberately not collapsed into one.
+
+        The runtime report says whether an alteration was promoted to an event. The call
+        set says whether the method produced a scoreable partition. A run that segmented
+        the whole genome and promoted nothing is NO_CALL in the first sense and COMPLETED
+        in the second, and reading one as the other would turn "found nothing" into "could
+        not look" — the exact confusion the vocabulary exists to prevent.
+        """
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            self._write(directory)
+            quiet = call_set_from_qdnaseq_report(
+                _report(),
+                call_set_id="QDNASEQ_010",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+            )
+            loud = call_set_from_qdnaseq_report(
+                _report(status=ModuleRunStatus.COMPLETED, events=[LOSS_EVENT]),
+                call_set_id="QDNASEQ_011",
+                data_basis=CnvDataBasis.LOW_COVERAGE_WGS,
+                output_dir=directory,
+            )
+        self.assertEqual(quiet.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual(loud.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual(len(quiet.segments), len(loud.segments))
 
     def test_nothing_here_can_make_the_lane_reportable(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
