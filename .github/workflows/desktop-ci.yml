@@ -207,14 +207,46 @@ jobs:
         with:
           name: ontseq-linux-runtime-v0.3.4
           path: desktop/publish/runtime
+      - name: Add operator documentation and build identity
+        shell: pwsh
+        run: |
+          Copy-Item desktop/README-FIRST-RUN.md desktop/publish/README-FIRST-RUN.md
+          Copy-Item desktop/README.md desktop/publish/README.md
+          Copy-Item desktop/ONTSeq.Desktop/CHANGELOG.md desktop/publish/CHANGELOG.md
+          $commit = (git rev-parse HEAD).Trim()
+          @"
+          ONTSeq Desktop 0.3.4-engineering
+          Core 0.3.4
+          Git commit: $commit
+          Platform: win-x64 self-contained WPF + bundled Linux/R WSL runtime
+          Build type: unsigned Research Use Only engineering bundle
+          Artifact: ontseq-desktop-v0.3.4-win-x64-setup-engineering
+          "@ | Set-Content -Encoding utf8 desktop/publish/BUILD-INFO.txt
       - name: Verify complete first-run bundle
         shell: pwsh
         run: |
           $exe = "desktop/publish/ONTSeq.Desktop.exe"
           $runtime = "desktop/publish/runtime/ontseq-linux-runtime.tar.gz"
-          if (-not (Test-Path $exe)) { throw "Desktop executable was not published" }
-          if (-not (Test-Path $runtime)) { throw "Bundled Linux runtime is missing" }
-          Get-Item $exe,$runtime | Select-Object Name,Length,LastWriteTime
+          $buildInfo = "desktop/publish/BUILD-INFO.txt"
+          $firstRun = "desktop/publish/README-FIRST-RUN.md"
+          $readme = "desktop/publish/README.md"
+          $changelog = "desktop/publish/CHANGELOG.md"
+          foreach ($path in @($exe, $runtime, $buildInfo, $firstRun, $readme, $changelog)) {
+            if (-not (Test-Path $path)) { throw "Required bundle file is missing: $path" }
+          }
+          $expectedCommit = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          $embeddedCommit = (& tar -xOf $runtime share/ontseq/git-commit.txt).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0) { throw "Could not read embedded runtime git commit" }
+          if ($embeddedCommit -ne $expectedCommit) {
+            throw "Bundled runtime commit $embeddedCommit does not match desktop build $expectedCommit"
+          }
+          if (-not (Select-String -Path $buildInfo -SimpleMatch "ONTSeq Desktop 0.3.4-engineering" -Quiet)) {
+            throw "BUILD-INFO.txt does not identify Desktop v0.3.4"
+          }
+          if (-not (Select-String -Path $firstRun -SimpleMatch "Desktop v0.3.4" -Quiet)) {
+            throw "First-run documentation is not versioned for v0.3.4"
+          }
+          Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
