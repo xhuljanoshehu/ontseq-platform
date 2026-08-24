@@ -34,6 +34,19 @@ validated release.
   same-origin with the service and could read the token out of the response. The API check
   still refused the stolen token; the page route now applies the same check.
 
+### Added
+
+- `scripts/check_version_consistency.py`, run by `make versions` and by CI, refuses a tree
+  whose declared versions disagree. Five files state what a release is — package metadata,
+  the package, the citation record, the desktop project and the README's status section —
+  and nothing tied them together. They had drifted: the README described the desktop on
+  `main` as the v0.2.1 engineering path while every other declaration said 0.3.4.
+
+### Changed
+
+- README section 14 names the desktop version on `main` as 0.3.4, matching
+  `desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj` and the desktop README.
+
 ### Validation impact
 
 None. No analytical threshold, caller parameter, normalization rule or result contract

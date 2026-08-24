@@ -388,8 +388,9 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 Python-Core: `0.3.4` (2026-08-22). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
 
-Der Windows-Desktop auf `main` enthält den v0.2.1-Engineering-Pfad mit vollständigem
-installierten System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
+Windows-Desktop auf `main`: `0.3.4`, passend zum Python-Core derselben Version
+(`desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`), mit vollständigem installierten
+System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
 Pull Requests liegen; deshalb vor einem realen Test immer `main` und die offenen PRs prüfen.
 
 Dieses Repository hat derzeit **keine Open-Source-Lizenz** und ist privat. Vor einer öffentlichen
