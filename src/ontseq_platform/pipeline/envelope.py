@@ -105,6 +105,66 @@ def sha256_file(path: Path, *, chunk_size: int = CHUNK_SIZE) -> str:
     return digest.hexdigest()
 
 
+#: Digests of run inputs already read in this process, keyed by file identity.
+#:
+#: Bounded because ``ontseq serve`` and ``ontseq watch`` are long-lived: they process many
+#: samples in one process, and an unbounded map would grow for the life of the daemon.
+_INPUT_DIGESTS: dict[tuple[int, int, int, int], str] = {}
+_INPUT_DIGEST_LIMIT = 512
+
+
+def _file_identity(path: Path) -> tuple[int, int, int, int]:
+    """Identify a file by what it *is*, not by what it is called.
+
+    Device and inode rather than the path, so two names for one file share an entry
+    instead of being read twice. Size and modification time alongside them, so a file
+    replaced under the same name is read again rather than answered from the map.
+    """
+    stat = path.stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def sha256_input(path: Path, *, chunk_size: int = CHUNK_SIZE) -> tuple[str, bool]:
+    """Digest a run *input*, reading it at most once per process.
+
+    Returns the digest and whether the file held still while it was read. Five stage plans
+    fingerprint the sample BAM, and plans are rebuilt on every invocation because comparing
+    them is how content-addressed resume decides whether a stage may be skipped. Six reads
+    of a twenty-gigabyte file therefore happen per run, and a resume whose whole job is to
+    conclude that nothing changed pays all six before it can conclude it.
+
+    The digest recorded is byte-identical to :func:`sha256_file`; this only stops the same
+    number being computed repeatedly inside one run.
+
+    A memo hit reports ``stable=True``. The key is read from the filesystem *now* and
+    matches one stored after a read that was itself checked, so size and modification time
+    have not moved in between — the same inference the direct check makes, on the same
+    assumption that a modification disturbs one of them.
+
+    **Not for re-verification.** Two callers deliberately do not use this: `verify`, which
+    exists to notice that an artifact no longer matches its recorded checksum, and the
+    intake stage, which re-reads its input after running to notice that it changed
+    underneath. Both need to touch the disk; answering either from a map populated earlier
+    in the same run would reduce the check to comparing a value with itself.
+    """
+    identity = _file_identity(path)
+    cached = _INPUT_DIGESTS.get(identity)
+    if cached is not None:
+        return cached, True
+    digest = sha256_file(path, chunk_size=chunk_size)
+    stable = _file_identity(path) == identity
+    if stable:
+        if len(_INPUT_DIGESTS) >= _INPUT_DIGEST_LIMIT:
+            del _INPUT_DIGESTS[next(iter(_INPUT_DIGESTS))]
+        _INPUT_DIGESTS[identity] = digest
+    return digest, stable
+
+
+def forget_input_digests() -> None:
+    """Drop every memoised input digest. For tests, and for a daemon between samples."""
+    _INPUT_DIGESTS.clear()
+
+
 @dataclass(frozen=True)
 class Artifact:
     """A file produced by a stage, addressed relative to the envelope root."""

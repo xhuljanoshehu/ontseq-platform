@@ -3,6 +3,40 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased
+
+### Changed
+
+- A run input is read once per process instead of once per stage. Five stage plans
+  fingerprint the sample BAM — intake, QC, target coverage, SV and CNV — and a sixth does
+  when the input is unaligned. Plans are rebuilt on every invocation because comparing them
+  is how content-addressed resume decides whether a stage may be skipped, so a
+  twenty-gigabyte BAM was read end to end six times per run, and a resume whose whole job
+  is to conclude that nothing changed paid all six reads before it could conclude it.
+  Measured here: 6.1x over the hashing step, roughly 1.5 min saved per run on a 20 GB BAM
+  and 2.3 min on a 30 GB one; on a 200 MB/s hospital disk, where the platter rather than
+  the CPU is the limit, closer to 10-12 min.
+
+  The recorded digest is byte-identical — this removes repeated computation of the same
+  number, not the number itself. The memo is keyed on device, inode, size and modification
+  time, so a file replaced under the same name is read again, and it is bounded because
+  `ontseq serve` and `ontseq watch` process many samples in one long-lived process.
+
+  `sha256_input` carries forward the intake hardening rather than bypassing it: a read
+  during which the file's size or modification time moves is reported as unstable and is
+  **not** remembered, so a later stage cannot fingerprint a state the file was never in.
+
+  It is deliberately a separate function rather than a faster `sha256_file`. Two callers
+  re-read a file precisely to notice that it changed — `RunEnvelope.verify`, against an
+  artifact's recorded checksum, and `_intake_execute`, against the digest its own plan
+  recorded. Answering either from a map populated when the file was first read would reduce
+  the check to comparing a value with itself. Both still call `sha256_file`.
+
+### Validation impact
+
+None. No threshold, status vocabulary, reported value or provenance field changes. The
+digests written into `provenance/run.json` and the release bundle are the same bytes.
+
 ## 0.3.4 - 2026-08-22
 
 ### Added

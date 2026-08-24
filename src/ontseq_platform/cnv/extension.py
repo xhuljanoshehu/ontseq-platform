@@ -21,7 +21,7 @@ from ..models import (
 )
 from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
-from ..pipeline.envelope import Artifact, sha256_file
+from ..pipeline.envelope import Artifact, sha256_file, sha256_input
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
@@ -86,6 +86,10 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
         raise ValueError(f"QDNAseq R runner not found: {settings.script}")
     versions = _probe_r_packages(ctx)
     bam = Path(ctx.manifest.input.path)
+    bam_digest, bam_stable = sha256_input(bam)
+    script_digest, script_stable = sha256_input(settings.script)
+    if not (bam_stable and script_stable):
+        raise ValueError("a CNV input changed while it was being fingerprinted")
     return StagePlan(
         parameters={
             "requested": True,
@@ -100,8 +104,8 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
         },
         tool_versions=versions,
         external_inputs=(
-            (bam.name, sha256_file(bam)),
-            (settings.script.name, sha256_file(settings.script)),
+            (bam.name, bam_digest),
+            (settings.script.name, script_digest),
         ),
     )
 
