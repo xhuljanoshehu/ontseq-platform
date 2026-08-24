@@ -3,6 +3,45 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased
+
+### Fixed
+
+- Tool output is decoded as UTF-8 with replacement instead of through `text=True`, which
+  used the platform locale. Under `LC_ALL=C` — the default in many containers, cron
+  environments and freshly installed WSL distributions — that resolved to ASCII, and a
+  single non-ASCII byte in a tool's own banner raised `UnicodeDecodeError` from inside the
+  runner. A version probe could therefore fail a stage on one machine and pass on another
+  from identical inputs. `run_to_file` already decoded this way; both paths now agree.
+- The local service refused to escape its allowed roots for BAM paths but built the review
+  envelope path by joining two raw URL segments onto the output directory, so
+  `POST /api/review/../<sample>` reached an envelope outside `--output-dir` and could append
+  a sign-off there. Both identifiers are now matched against the manifest's `run_id` /
+  `sample_id` contract and the resolved path is confirmed to be inside the output directory.
+- The service decided "one analysis at a time" by asking `Jobs.running()` and registering the
+  job afterwards. Between those two steps it read the reference lock and resolved the BAM and
+  its index, so simultaneous requests all passed the gate and started concurrent pipelines,
+  each sized for the whole machine. The envelope lock does not catch this: two runs with
+  different run ids take different envelopes. The slot is now claimed atomically, and reusing
+  a run id already in the table is refused rather than dropping the earlier job's record.
+- A dangling symlink or an unreadable entry in a browsed directory made `stat()` raise inside
+  the request, which ended the response without a body and showed the operator a network
+  error for a directory whose other files were usable. Such entries are now skipped, counted
+  and reported to the page as `unreadable_entries`, so a BAM that is present but invisible is
+  distinguishable from one that is absent.
+- `GET /` handed out the session token without the loopback `Host` check that every `/api/`
+  route applies, so a page on an attacker-controlled name resolved to `127.0.0.1` was
+  same-origin with the service and could read the token out of the response. The API check
+  still refused the stolen token; the page route now applies the same check.
+
+### Validation impact
+
+None. No analytical threshold, caller parameter, normalization rule or result contract
+changed, and no stage produces a different outcome from the same inputs on a machine where
+the previous version ran to completion. The decoding fix removes a locale-dependent failure
+mode, so a run that previously aborted mid-stage on a non-UTF-8 locale now proceeds — it does
+not change what that run reports. Nothing here makes any output more validated than it was.
+
 ## 0.3.4 - 2026-08-22
 
 ### Added

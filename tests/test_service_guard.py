@@ -9,6 +9,7 @@ from ontseq_platform.service.guard import (
     host_is_loopback,
     new_token,
     origin_is_loopback,
+    resolve_envelope,
     resolve_within,
     token_matches,
     windows_to_wsl,
@@ -131,6 +132,55 @@ class RootBoundaryTests(unittest.TestCase):
             sibling.mkdir()
             with self.assertRaises(GuardError):
                 resolve_within(sibling, [allowed])
+
+
+class EnvelopeResolutionTests(unittest.TestCase):
+    """The two identifiers in ``/api/review/<run>/<sample>`` arrive from the request URL."""
+
+    def test_a_normal_pair_resolves_under_the_output_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolved = resolve_envelope(root, "RUN_001", "SAMPLE_001")
+            self.assertEqual(resolved, (root / "RUN_001" / "SAMPLE_001").resolve())
+
+    def test_dot_dot_in_the_run_id_cannot_climb_out(self) -> None:
+        """``/api/review/../other`` must not reach an envelope beside the output directory."""
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(GuardError):
+            resolve_envelope(Path(temporary) / "runs", "..", "SAMPLE_001")
+
+    def test_dot_dot_in_the_sample_id_cannot_climb_out(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(GuardError):
+            resolve_envelope(Path(temporary) / "runs", "RUN_001", "..")
+
+    def test_a_separator_in_an_identifier_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            for run_id, sample_id in (
+                ("RUN_001/nested", "SAMPLE_001"),
+                ("RUN_001", "nested/SAMPLE_001"),
+                ("/absolute", "SAMPLE_001"),
+            ):
+                with (
+                    self.subTest(run_id=run_id, sample_id=sample_id),
+                    self.assertRaises(GuardError),
+                ):
+                    resolve_envelope(Path(temporary), run_id, sample_id)
+
+    def test_an_empty_identifier_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(GuardError):
+            resolve_envelope(Path(temporary), "", "SAMPLE_001")
+
+    def test_an_identifier_the_manifest_would_reject_is_refused_here_too(self) -> None:
+        """The service must not name an envelope a run was never allowed to create."""
+        with tempfile.TemporaryDirectory() as temporary:
+            for identifier in ("ab", "_leading", "a" * 65, "has space"):
+                with self.subTest(identifier=identifier), self.assertRaises(GuardError):
+                    resolve_envelope(Path(temporary), identifier, "SAMPLE_001")
+
+    def test_a_missing_envelope_still_resolves(self) -> None:
+        """Existence is the caller's question; this answers only what the path may mean."""
+        with tempfile.TemporaryDirectory() as temporary:
+            resolved = resolve_envelope(Path(temporary), "RUN_404", "SAMPLE_404")
+            self.assertFalse(resolved.exists())
 
 
 class PathTranslationTests(unittest.TestCase):
