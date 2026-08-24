@@ -36,11 +36,22 @@ validated release.
 
 ### Added
 
+- `tests/test_cli_surface.py`. Both parsers, the dispatcher and the command overview had no
+  test coverage at all. The tests tie the three descriptions of the command set together —
+  the overview listing, the dispatch set and the parsers themselves — and check that a bad
+  invocation leaves through `SystemExit` rather than a traceback.
 - `scripts/check_version_consistency.py`, run by `make versions` and by CI, refuses a tree
   whose declared versions disagree. Five files state what a release is — package metadata,
   the package, the citation record, the desktop project and the README's status section —
   and nothing tied them together. They had drifted: the README described the desktop on
   `main` as the v0.2.1 engineering path while every other declaration said 0.3.4.
+
+### Fixed (continued)
+
+- `ontseq` never listed `validate-reference` in its command overview, so a working command
+  was reachable only by already knowing its name — the discoverability problem the overview
+  exists to solve. It is listed now, and a test fails if any command is missing from the
+  overview or from the dispatch set.
 
 ### Changed
 
