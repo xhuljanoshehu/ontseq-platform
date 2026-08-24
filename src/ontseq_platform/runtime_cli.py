@@ -83,6 +83,27 @@ def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
     return load_model(path, TargetCoveragePolicy) if path.is_file() else None
 
 
+def _resolve_component_policies(selection: RunComponents, source: Path) -> RunComponents:
+    """Resolve selection policy paths against the selection's packaged/repository root.
+
+    Component documents deliberately use repository-root-relative paths such as
+    ``configs/qc/...``. A packed Desktop runtime may be launched from any Windows working
+    directory, so leaving those paths relative would make the selected policy depend on the
+    operator's current directory. ``configs/components/default.yaml`` lives two directory
+    levels below the root both in the repository and in ``share/ontseq`` after packaging.
+    """
+    root = source.resolve().parents[2]
+    updated = dict(selection.components)
+    for stage, choice in selection.components.items():
+        if not choice.policy:
+            continue
+        policy = Path(choice.policy)
+        if policy.is_absolute():
+            continue
+        updated[stage] = choice.model_copy(update={"policy": str((root / policy).resolve())})
+    return selection.model_copy(update={"components": updated})
+
+
 def _components(args: argparse.Namespace) -> RunComponents | None:
     """Resolve the component selection for this run, if the operator asked for one.
 
@@ -94,7 +115,7 @@ def _components(args: argparse.Namespace) -> RunComponents | None:
     if path is not None:
         if not path.is_file():
             raise SystemExit(f"component selection not found: {path}")
-        selection = load_model(path, RunComponents)
+        selection = _resolve_component_policies(load_model(path, RunComponents), path)
     without = [StageId(name) for name in getattr(args, "without", []) or []]
     if without:
         base = selection or RunComponents(
@@ -237,6 +258,16 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
     )
+    srv.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+    )
+    srv.add_argument(
+        "--components",
+        type=Path,
+        help="Component selection applied to every run started by this local service",
+    )
     _add_cnv_options(srv)
     srv.add_argument("--port", type=int, default=8765)
     srv.add_argument("--threads", type=int, default=4)
@@ -316,7 +347,7 @@ def _print_pass(result: PassResult) -> None:
 
 def main() -> None:
     args = _parser().parse_args()
-    selection = _components(args) if args.command == "run" else None
+    selection = _components(args) if args.command in {"run", "serve"} else None
     if args.command in {"run", "serve", "watch"}:
         _register_cnv(args, selection)
     try:
@@ -417,7 +448,11 @@ def main() -> None:
                     output_dir=args.output_dir,
                     allowed_roots=list(args.allow_roots),
                     qc_policy=args.qc_policy,
-                    sniffles_policy=args.sniffles_policy,
+                    sniffles_policy=_selected_policy(selection, StageId.SV, args.sniffles_policy),
+                    target_coverage_policy=_selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    ),
+                    components=selection,
                     port=args.port,
                     threads=args.threads,
                 ),

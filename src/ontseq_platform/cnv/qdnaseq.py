@@ -38,6 +38,8 @@ class QDNAseqPolicy(StrictModel):
     ploidy_step: float = Field(default=0.05, gt=0)
     minimum_segment_bins: int = Field(default=1, ge=1)
     whole_chromosome_fraction: float = Field(default=0.90, gt=0, le=1)
+    cellularity_review_fraction: float = Field(default=0.20, gt=0, le=1)
+    cellularity_critical_fraction: float = Field(default=0.10, gt=0, le=1)
     timeout_seconds: int = Field(default=7200, ge=60)
     expected_qdnaseq_version: str | None = None
     expected_ace_version: str | None = None
@@ -53,6 +55,10 @@ class QDNAseqPolicy(StrictModel):
             raise ValueError("primary_bin_size_kbp must be one of bin_sizes_kbp")
         if self.ploidy_max <= self.ploidy_min:
             raise ValueError("ploidy_max must be greater than ploidy_min")
+        if self.cellularity_critical_fraction >= self.cellularity_review_fraction:
+            raise ValueError(
+                "cellularity_critical_fraction must be below cellularity_review_fraction"
+            )
         return self
 
 
@@ -199,6 +205,62 @@ def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[
     ]
 
 
+def _cellularity_tier(value: float, policy: QDNAseqPolicy) -> str:
+    if value < policy.cellularity_critical_fraction:
+        return "critical"
+    if value < policy.cellularity_review_fraction:
+        return "review"
+    return "unflagged"
+
+
+def _cellularity_warnings(
+    primary: CnvFit,
+    fits: Sequence[CnvFit],
+    policy: QDNAseqPolicy,
+) -> list[str]:
+    """Grade the fitted cellularity of the primary fit.
+
+    ACE reports a fitted model parameter: the aberrant-cell fraction the model needs in
+    order to explain the observed segment levels. It is not a measurement of tumour
+    content, and a low value is equally consistent with a sample that carries no
+    copy-number aberration at all. The boundaries are clinician-specified rather than
+    validated on this platform, and they live in the policy so that every run records
+    which boundaries were applied to it.
+    """
+    warnings: list[str] = []
+    value = primary.cellularity
+    if value < policy.cellularity_critical_fraction:
+        warnings.append(
+            f"ACE fitted a cellularity of {value:.3f} at the primary "
+            f"{primary.bin_size_kbp} kbp bin. Below "
+            f"{policy.cellularity_critical_fraction:.2f} ONTSeq makes no claim that the "
+            "selected purity/ploidy solution is biologically meaningful. Copy-number "
+            "segments derived from this fit are retained as technical evidence only; "
+            "alternative fits with comparable error are listed in the CNV JSON. Do not "
+            "interpret these events without orthogonal confirmation."
+        )
+    elif value < policy.cellularity_review_fraction:
+        warnings.append(
+            f"ACE fitted a cellularity of {value:.3f} at the primary "
+            f"{primary.bin_size_kbp} kbp bin. Below "
+            f"{policy.cellularity_review_fraction:.2f} this fit is weakly constrained: at "
+            "low aberrant fractions the segment levels the model relies on lie close "
+            "together, and bin-count noise, GC and mappability bias in low-pass nanopore "
+            "data blur them further. A low fitted cellularity can equally reflect a "
+            "sample with no copy-number aberration at all. This value is a fitted model "
+            "parameter, not a measured tumour content, and must not be compared with a "
+            "blast count."
+        )
+    tiers = {fit.bin_size_kbp: _cellularity_tier(fit.cellularity, policy) for fit in fits}
+    if len(set(tiers.values())) > 1:
+        detail = ", ".join(f"{size} kbp: {tier}" for size, tier in sorted(tiers.items()))
+        warnings.append(
+            "Fitted cellularity falls into different confidence tiers across bin sizes "
+            f"({detail}); the grading above follows the primary bin size only."
+        )
+    return warnings
+
+
 def _parse_fit(raw: Mapping[str, object]) -> CnvFit:
     alternatives_raw = raw.get("alternatives", [])
     alternatives: list[dict[str, float]] = []
@@ -257,10 +319,11 @@ def _events_from_primary_segments(
     minimum_segment_bins: int,
     whole_chromosome_fraction: float,
     consensus: Mapping[str, CnvChromosomeConsensus],
-) -> list[GenomicEvent]:
+) -> tuple[list[GenomicEvent], list[str]]:
     rows = _read_tsv(path)
     lengths = _contig_lengths(reference_lock)
     events: list[GenomicEvent] = []
+    unmeasured: set[str] = set()
     caller_version = "/".join(item.version for item in tools if item.name in {"QDNAseq", "ACE"})
     baseline = int(round(fit.ploidy))
     serial = 0
@@ -278,6 +341,8 @@ def _events_from_primary_segments(
             raise ValueError(f"QDNAseq segment end is not after start on {chromosome}")
         copy_number = max(0.0, _float(row, "absolute_copy_number"))
         contig_length = lengths.get(chromosome)
+        if contig_length is None:
+            unmeasured.add(chromosome)
         fraction = (end - start) / contig_length if contig_length else 0.0
         direction_gain = copy_number > baseline
         if fraction >= whole_chromosome_fraction:
@@ -322,7 +387,16 @@ def _events_from_primary_segments(
                 notes=notes,
             )
         )
-    return events
+    classification_warnings: list[str] = []
+    if unmeasured:
+        names = ", ".join(sorted(unmeasured))
+        classification_warnings.append(
+            f"No chromosome length was available from the reference lock for {names}; "
+            "segments there were classified as focal events because their extent could "
+            "not be measured. A whole-chromosome change on these contigs would be "
+            "reported as a duplication or a deletion."
+        )
+    return events, classification_warnings
 
 
 def _copy_outputs(staged: Path, final: Path) -> None:
@@ -425,7 +499,7 @@ def run_qdnaseq_ace(
         consensus_by_chr = {item.chromosome: item for item in consensus}
         tools = _tool_records(summary, policy)
 
-        events = _events_from_primary_segments(
+        events, classification_warnings = _events_from_primary_segments(
             staged / primary.segment_file,
             sample_id=sample_id,
             fit=primary,
@@ -452,6 +526,7 @@ def run_qdnaseq_ace(
             raise ValueError("QDNAseq result is incomplete; missing: " + ", ".join(missing))
 
         warnings: list[str] = []
+        warnings.extend(classification_warnings)
         for chromosome in consensus:
             if chromosome.agreeing_bins < chromosome.contributing_bins:
                 disagreements = chromosome.contributing_bins - chromosome.agreeing_bins
@@ -465,6 +540,7 @@ def run_qdnaseq_ace(
             warnings.append("ACE cellularity estimates differ by >=0.20 across bin sizes")
         if max(ploidies) - min(ploidies) >= 0.50:
             warnings.append("ACE ploidy estimates differ by >=0.50 across bin sizes")
+        warnings.extend(_cellularity_warnings(primary, fits, policy))
 
         _copy_outputs(staged, output_dir)
         promoted = True
@@ -488,6 +564,21 @@ def run_qdnaseq_ace(
                 (
                     "ACE purity/ploidy is selected deterministically from squaremodel minima; "
                     "alternative low-error fits are retained in the CNV JSON for inspection."
+                ),
+                (
+                    "Copy-number analysis excludes chromosomes X and Y by design: ACE "
+                    "purity/ploidy fitting and segment normalization are restricted to "
+                    "autosomes 1-22. No statement about X or Y copy number is made or "
+                    "implied. Absence of an X/Y finding in this report is not evidence of "
+                    "a normal X/Y complement."
+                ),
+                (
+                    "Whole-chromosome versus focal classification uses a technical length "
+                    f"fraction of {policy.whole_chromosome_fraction:.2f}, which is a "
+                    "configured default and not a clinically validated boundary. Filtered "
+                    "regions and interrupting segments can push a true whole-chromosome "
+                    "change below this fraction, in which case it is labelled a "
+                    "duplication or a deletion rather than a chromosome gain or loss."
                 ),
             ],
         )

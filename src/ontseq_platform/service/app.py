@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sys
 import threading
 import traceback
 import webbrowser
@@ -51,11 +53,13 @@ from ..models import (
     SampleManifest,
     SnifflesPolicy,
 )
+from ..pipeline.components import RunComponents
 from ..pipeline.review import Decision, ReviewError
 from ..pipeline.runner import RunConfiguration, run_pipeline
 from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
+from ..target_coverage import TargetCoveragePolicy
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -68,6 +72,8 @@ from .guard import (
     windows_to_wsl,
     wsl_to_windows,
 )
+
+RUNTIME_GIT_COMMIT = Path(sys.prefix) / "share" / "ontseq" / "git-commit.txt"
 
 PAGE = Path(__file__).with_name("ONTSeq.html")
 
@@ -138,6 +144,8 @@ class ServiceConfig:
     allowed_roots: list[Path]
     qc_policy: Path
     sniffles_policy: Path
+    target_coverage_policy: Path
+    components: RunComponents | None = None
     host: str = "127.0.0.1"
     port: int = 8765
     threads: int = 4
@@ -203,6 +211,27 @@ def _stage_view(record: Any) -> dict[str, Any]:
     }
 
 
+def _job_detail(report: Any) -> str:
+    """Prefer concrete failed-stage reasons over the graph's generic failure summary."""
+
+    if report.passed:
+        return str(report.verdict_reason)
+    failures = [record for record in report.stages if record.status.value == "FAILED"]
+    if not failures:
+        return str(report.verdict_reason)
+    return " | ".join(f"{record.title}: {record.reason}" for record in failures[:3])
+
+
+def _runtime_git_commit() -> str:
+    """Read the exact commit embedded in the packed runtime, failing honestly if absent."""
+
+    try:
+        value = RUNTIME_GIT_COMMIT.read_text(encoding="ascii").strip().lower()
+    except OSError:
+        return "UNKNOWN"
+    return value if re.fullmatch(r"[0-9a-f]{40}", value) else "UNKNOWN"
+
+
 def _build_manifest(
     payload: dict[str, Any],
     *,
@@ -262,15 +291,17 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
             output_base=config.output_dir,
             run_id=manifest.run_id,
             pipeline_version=__version__,
-            git_commit="UNKNOWN",
+            git_commit=_runtime_git_commit(),
             qc_policy=load_model(config.qc_policy, QCPolicy),
             sniffles_policy=load_model(config.sniffles_policy, SnifflesPolicy),
+            target_coverage_policy=load_model(config.target_coverage_policy, TargetCoveragePolicy),
+            components=config.components,
             threads=config.threads,
         )
         report, _bundle = run_pipeline(run_config)
         job.stages = [_stage_view(record) for record in report.stages]
         job.state = "passed" if report.passed else "failed"
-        job.detail = report.verdict_reason
+        job.detail = _job_detail(report)
     except Exception as error:  # noqa: BLE001 - the page must see every failure, typed or not
         job.state = "error"
         job.detail = f"{type(error).__name__}: {error}"

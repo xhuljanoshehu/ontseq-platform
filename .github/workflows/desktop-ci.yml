@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           micromamba install -y -n ontseq-qdnaseq-cnv -c conda-forge pip conda-pack
           micromamba run -n ontseq-qdnaseq-cnv python -m pip install .
-      - name: Add versioned runtime resources
+      - name: Add versioned runtime resources and provenance
         shell: bash -el {0}
         run: |
           set -euo pipefail
@@ -58,15 +58,23 @@ jobs:
           cp -a configs "$prefix/share/ontseq/configs"
           mkdir -p "$prefix/share/ontseq/scripts"
           cp scripts/run_qdnaseq_ace.R "$prefix/share/ontseq/scripts/run_qdnaseq_ace.R"
+          git rev-parse HEAD > "$prefix/share/ontseq/git-commit.txt"
       - name: Verify complete open-source runtime before packing
         shell: bash -el {0}
         run: |
           set -euo pipefail
+          micromamba run -n ontseq-qdnaseq-cnv python -c 'import ontseq_platform; assert ontseq_platform.__version__ == "0.3.4", ontseq_platform.__version__'
           micromamba run -n ontseq-qdnaseq-cnv samtools --version | head -1
           micromamba run -n ontseq-qdnaseq-cnv cramino --version
           micromamba run -n ontseq-qdnaseq-cnv sniffles --version
+          micromamba run -n ontseq-qdnaseq-cnv mosdepth --version
           micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\n",sep="")'
           micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--cnv-policy'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--target-coverage-policy'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq run --help | grep -q -- '--components'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq serve --help | grep -q -- '--target-coverage-policy'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq serve --help | grep -q -- '--components'
+          micromamba run -n ontseq-qdnaseq-cnv ontseq validate-reference --help >/dev/null
           micromamba run -n ontseq-qdnaseq-cnv ontseq system-smoke --help | grep -q -- '--qdnaseq-script'
       - name: Pack relocatable Linux runtime
         shell: bash -el {0}
@@ -87,10 +95,16 @@ jobs:
           tar -xzf ontseq-linux-runtime.tar.gz -C /tmp/ontseq-packed
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/conda-unpack
           test -f /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/qc/adaptive_target_coverage.technical.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/components/default.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/scripts/run_qdnaseq_ace.R
+          test "$(wc -c < /tmp/ontseq-packed/share/ontseq/git-commit.txt)" -ge 40
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq --help >/dev/null
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq validate-reference --help >/dev/null
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--target-coverage-policy'
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--components'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript -e 'stopifnot(requireNamespace("QDNAseq",quietly=TRUE), requireNamespace("QDNAseq.hg19",quietly=TRUE), requireNamespace("ACE",quietly=TRUE))'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq local-smoke \
             --output-dir /tmp/ontseq-packed-smoke \
@@ -164,7 +178,7 @@ jobs:
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-linux-runtime
+          name: ontseq-linux-runtime-v0.3.4
           path: ontseq-linux-runtime.tar.gz
           if-no-files-found: error
           retention-days: 30
@@ -180,7 +194,7 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Build WPF shell
         run: dotnet build desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release
-      - name: Test BAM index detection
+      - name: Test BAM index and reference identity handling
         run: dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release
       - name: Publish self-contained win-x64 executable
         run: >-
@@ -191,20 +205,52 @@ jobs:
       - name: Add pinned Linux runtime to desktop bundle
         uses: actions/download-artifact@v4
         with:
-          name: ontseq-linux-runtime
+          name: ontseq-linux-runtime-v0.3.4
           path: desktop/publish/runtime
+      - name: Add operator documentation and build identity
+        shell: pwsh
+        run: |
+          Copy-Item desktop/README-FIRST-RUN.md desktop/publish/README-FIRST-RUN.md
+          Copy-Item desktop/README.md desktop/publish/README.md
+          Copy-Item desktop/ONTSeq.Desktop/CHANGELOG.md desktop/publish/CHANGELOG.md
+          $commit = (git rev-parse HEAD).Trim()
+          @"
+          ONTSeq Desktop 0.3.4-engineering
+          Core 0.3.4
+          Git commit: $commit
+          Platform: win-x64 self-contained WPF + bundled Linux/R WSL runtime
+          Build type: unsigned Research Use Only engineering bundle
+          Artifact: ontseq-desktop-v0.3.4-win-x64-setup-engineering
+          "@ | Set-Content -Encoding utf8 desktop/publish/BUILD-INFO.txt
       - name: Verify complete first-run bundle
         shell: pwsh
         run: |
           $exe = "desktop/publish/ONTSeq.Desktop.exe"
           $runtime = "desktop/publish/runtime/ontseq-linux-runtime.tar.gz"
-          if (-not (Test-Path $exe)) { throw "Desktop executable was not published" }
-          if (-not (Test-Path $runtime)) { throw "Bundled Linux runtime is missing" }
-          Get-Item $exe,$runtime | Select-Object Name,Length,LastWriteTime
+          $buildInfo = "desktop/publish/BUILD-INFO.txt"
+          $firstRun = "desktop/publish/README-FIRST-RUN.md"
+          $readme = "desktop/publish/README.md"
+          $changelog = "desktop/publish/CHANGELOG.md"
+          foreach ($path in @($exe, $runtime, $buildInfo, $firstRun, $readme, $changelog)) {
+            if (-not (Test-Path $path)) { throw "Required bundle file is missing: $path" }
+          }
+          $expectedCommit = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          $embeddedCommit = (& tar -xOf $runtime share/ontseq/git-commit.txt).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0) { throw "Could not read embedded runtime git commit" }
+          if ($embeddedCommit -ne $expectedCommit) {
+            throw "Bundled runtime commit $embeddedCommit does not match desktop build $expectedCommit"
+          }
+          if (-not (Select-String -Path $buildInfo -SimpleMatch "ONTSeq Desktop 0.3.4-engineering" -Quiet)) {
+            throw "BUILD-INFO.txt does not identify Desktop v0.3.4"
+          }
+          if (-not (Select-String -Path $firstRun -SimpleMatch "Desktop v0.3.4" -Quiet)) {
+            throw "First-run documentation is not versioned for v0.3.4"
+          }
+          Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.2.1-win-x64-setup-engineering
+          name: ontseq-desktop-v0.3.4-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30
