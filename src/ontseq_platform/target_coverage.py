@@ -457,7 +457,13 @@ def normalize_target_coverage(
     )
 
 
-def _mosdepth_version(text: str) -> str:
+def mosdepth_version(text: str) -> str:
+    """Parse Mosdepth's ``--version`` output.
+
+    Public so preflight probes the binary with the same parser the stage uses. A preflight
+    that reads a version differently from the adapter can clear a run the adapter then
+    refuses, which is the one failure mode a preflight must not have.
+    """
     match = _VERSION.search(text)
     if match:
         return match.group(1)
@@ -515,7 +521,7 @@ def run_target_coverage(
     version_result = command_runner.run([mosdepth, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
         raise ValueError("Mosdepth version probe returned a non-zero exit code")
-    version = _mosdepth_version(f"{version_result.stdout}\n{version_result.stderr}")
+    version = mosdepth_version(f"{version_result.stdout}\n{version_result.stderr}")
     if version != policy.expected_version:
         raise ValueError(
             f"Mosdepth version {version!r} does not match policy lock {policy.expected_version!r}"

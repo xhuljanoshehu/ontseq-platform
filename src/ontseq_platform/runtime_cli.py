@@ -347,7 +347,10 @@ def _print_pass(result: PassResult) -> None:
 
 def main() -> None:
     args = _parser().parse_args()
-    selection = _components(args) if args.command in {"run", "serve"} else None
+    # Preflight resolves the selection too. Its whole value is that it agrees with the
+    # run: checking the default policies while `ontseq run` would use the ones a component
+    # selection names is how a preflight clears a run that then fails on what it checked.
+    selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
     if args.command in {"run", "serve", "watch"}:
         _register_cnv(args, selection)
     try:
@@ -408,9 +411,20 @@ def main() -> None:
                 executables=_executables(args),
                 reference_fasta=args.reference_fasta,
                 pod5_directory=args.pod5_dir,
-                alignment_policy=_alignment_policy(args.alignment_policy),
-                basecall_policy=_basecall_policy(args.basecall_policy),
-                sniffles_policy=_sniffles_policy(args.sniffles_policy),
+                alignment_policy=_alignment_policy(
+                    _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
+                ),
+                basecall_policy=_basecall_policy(
+                    _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
+                ),
+                sniffles_policy=_sniffles_policy(
+                    _selected_policy(selection, StageId.SV, args.sniffles_policy)
+                ),
+                target_coverage_policy=_target_coverage_policy(
+                    _selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    )
+                ),
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)

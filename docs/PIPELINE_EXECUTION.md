@@ -26,7 +26,7 @@ about without executing anything.
 | `align` | minimap2 + samtools | POD5, unaligned BAM | yes | verified with real tool |
 | `intake` | samtools | all | yes | verified with real tool |
 | `qc` | cramino | all | yes | verified with real tool |
-| `target_coverage` | — | all | no | not implemented |
+| `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
 | `sv` | Sniffles2 | all | no | verified with real tool |
 | `assemble` | — | all | yes | pure Python |
@@ -206,11 +206,17 @@ reads them correctly, because there is no methylation lane yet to read them.
 Thresholds are technical defaults. `qc` gates are `null` pending analytical validation. A
 `PASS` verdict means the software executed as designed; it is not evidence about a sample.
 
-**CNV and target coverage are not wired in.** Both are declared in the graph and both record
-`NOT_RUN` with the reason "No adapter is wired in for this stage." The CNV benchmarking
-subsystem (`docs/CNV_BENCHMARKING.md`) exists to choose a caller on evidence before one is
-wired in; target coverage is developed in the adaptive-sampling work stream and plugs into
-the same seam.
+**CNV is not wired in.** It is declared in the graph and records `NOT_RUN` with the reason
+"No adapter is wired in for this stage." The CNV benchmarking subsystem
+(`docs/CNV_BENCHMARKING.md`) exists to choose a caller on evidence before one is wired in.
+
+**Target coverage is wired in, and only an adaptive-sampling run measures anything.** The
+Mosdepth adapter runs in the canonical runner. For any other assay mode the stage records
+`NOT_RUN` with the reason that per-target coverage does not apply — a scope statement, not a
+coverage finding. An adaptive-sampling run without a target-coverage policy or a readable
+target BED fails closed rather than producing a report that looks complete. The stage is
+declared optional in the graph because an lcWGS run legitimately skips it; for an
+adaptive-sampling run it is not optional, and a `FAILED` target-coverage stage fails the run.
 
 **The release bundle is unsigned.** `signature_status` is the literal `"unsigned"`. It is a
 checksum manifest, not a chain of custody.
@@ -420,7 +426,9 @@ What it checks: the declared input exists and has the shape its kind promises; t
 and the reference lock agree; the reference FASTA's `.fai` still hashes to the
 `source_fai_sha256` the lock recorded; every binary the *planned* stages will invoke is
 present, runnable and at its locked version; the Dorado model matches its lock and a
-modified-base model was requested; the envelope is free; the output location is writable.
+modified-base model was requested; for an adaptive-sampling run, that a target-coverage
+policy was supplied and that the declared target BED parses into usable regions; the
+envelope is free; the output location is writable.
 
 It also reports two things about the run's *scope*, kept deliberately apart. A stage on an
 `unverified_adapter` **will run**, on code nobody has executed against the real tool, and its
@@ -438,9 +446,17 @@ version strings are parsed by the adapters' own parsers rather than re-implement
 version lock is enforced only when a *planned* stage would enforce it — the alignment policy
 locks a samtools version, but an aligned-BAM run never aligns and never applies that lock.
 
-**A tool's absence is as fatal as its stage is required.** `sniffles` serves only the
-optional SV stage, so a machine without it gets a warning saying SV will record `NOT_RUN`,
-not a refusal. That is derived from `StageSpec.required`, not maintained by hand.
+**A tool's absence is as fatal as its stage is required — for this run.** `sniffles` serves
+only the optional SV stage, so a machine without it gets a warning saying SV will record
+`NOT_RUN`, not a refusal. That is derived from `StageSpec.required`, not maintained by hand.
+
+`required` is a property of the graph, though, and one stage needs more than the graph can
+say: target coverage is optional because an lcWGS run records it as out of scope, but an
+adaptive-sampling run neither skips it nor survives it failing. So preflight escalates a tool
+to blocking when any stage needing it is one *this particular run* cannot do without, and a
+missing Mosdepth is therefore a warning for lcWGS and a refusal for adaptive sampling. The
+Mosdepth version lock is applied on the same condition, so an lcWGS run is never refused over
+a tool it will not invoke.
 
 **Not knowing is a distinct answer.** Free disk space is *reported*, not judged, unless the
 caller states a requirement with `--require-free-gb`. There is no measured relationship in

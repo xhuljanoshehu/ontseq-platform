@@ -48,6 +48,21 @@ validated release.
 
 ### Fixed (continued)
 
+- Preflight was blind to everything adaptive sampling needs. `mosdepth` had no entry in
+  `TOOLS_BY_STAGE`, so no run of any input kind checked for it, and nothing checked the
+  target BED or the target-coverage policy. All three fail the target-coverage stage closed,
+  and a `FAILED` target-coverage stage fails the whole run — but only after the envelope
+  exists and the lock is taken, which is exactly what preflight was written to prevent.
+  Preflight now probes Mosdepth with the adapter's own version parser, enforces its policy
+  lock, and parses the declared target BED. A tool is escalated from warning to blocking when
+  the stage needing it is one *this* run cannot do without, so a missing Mosdepth refuses an
+  adaptive-sampling run and only warns on an lcWGS one, which correctly records targets as
+  out of scope.
+- `ontseq preflight` accepted `--target-coverage-policy` and `--components` and used
+  neither. The policy was dropped on the way into `PreflightRequest`, and the component
+  selection was resolved only for `run` and `serve` — so preflight could check the default
+  policies while `ontseq run` would use the ones a selection names. Both are honoured now,
+  for the alignment, basecall, SV and target-coverage policies alike.
 - `ontseq` never listed `validate-reference` in its command overview, so a working command
   was reachable only by already knowing its name — the discoverability problem the overview
   exists to solve. It is listed now, and a test fails if any command is missing from the
@@ -55,6 +70,12 @@ validated release.
 
 ### Changed
 
+- `target_coverage.mosdepth_version` is public, so preflight probes the binary with the same
+  parser the stage uses rather than a second implementation of it.
+- `docs/PIPELINE_EXECUTION.md` described target coverage as "not implemented" with no tool,
+  and grouped it with CNV as "not wired in". It has been wired into the canonical runner and
+  verified against real Mosdepth since 0.3.4; the stage table, the scope note and the
+  preflight section now say what the code does.
 - README section 14 names the desktop version on `main` as 0.3.4, matching
   `desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj` and the desktop README.
 
