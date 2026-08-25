@@ -47,9 +47,7 @@ def read_cytobands(build_input: BuildInput) -> list[tuple[str, int, int, str, st
         if len(fields) < 5:
             fields = line.split()
         if len(fields) < 5:
-            raise ValueError(
-                f"{build_input.path}:{line_number}: expected at least five columns"
-            )
+            raise ValueError(f"{build_input.path}:{line_number}: expected at least five columns")
         chromosome = normalize_chromosome(fields[0])
         if chromosome is None:
             continue
