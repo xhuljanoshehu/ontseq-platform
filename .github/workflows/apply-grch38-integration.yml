@@ -17,118 +17,66 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - name: Apply exact reviewed replacements
+      - name: Enable GRCh38 CNV in Desktop source
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import re
           from pathlib import Path
 
-          HG38_COMMIT = "cf7c07e39de0ac64a9c38cb030cba4626e2aae83"
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one replacement, found {count}")
-              file.write_text(text.replace(old, new), encoding="utf-8")
-
-          # Desktop service: the canonical GRCh38 real-tool gate is green, so request CNV
-          # for both supported reference builds and stop advertising it as unwired.
-          replace_once(
-              "src/ontseq_platform/service/app.py",
-              '''    modules = [AnalysisModule.QC, AnalysisModule.SV, AnalysisModule.ISCN, AnalysisModule.REPORT]\n    # The bundled real-tool QDNAseq runtime currently carries the hg19 annotation package.\n    # GRCh38 remains usable for the other modules; CNV is added only when its annotation\n    # package is actually present in the tested desktop runtime.\n    if genome_build == GenomeBuild.GRCH37:\n        modules.insert(1, AnalysisModule.CNV)\n''',
-              '''    modules = [\n        AnalysisModule.QC,\n        AnalysisModule.CNV,\n        AnalysisModule.SV,\n        AnalysisModule.ISCN,\n        AnalysisModule.REPORT,\n    ]\n''',
+          service = Path("src/ontseq_platform/service/app.py")
+          text = service.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r"    modules = \[AnalysisModule\.QC, AnalysisModule\.SV, AnalysisModule\.ISCN, AnalysisModule\.REPORT\]\n"
+              r"    # The bundled real-tool QDNAseq runtime currently carries the hg19 annotation package\.\n"
+              r"    # GRCh38 remains usable for the other modules; CNV is added only when its annotation\n"
+              r"    # package is actually present in the tested desktop runtime\.\n"
+              r"    if genome_build == GenomeBuild\.GRCH37:\n"
+              r"        modules\.insert\(1, AnalysisModule\.CNV\)\n"
           )
-          replace_once(
-              "src/ontseq_platform/service/app.py",
-              '''            lock = load_model(config.reference_lock, ReferenceLock)\n            not_wired = ["basecalling — not needed for an already aligned BAM"]\n            if lock.genome_build != GenomeBuild.GRCH37:\n                not_wired.append(\n                    "cnv — bundled QDNAseq annotations are currently available for GRCh37 only"\n                )\n''',
-              '''            not_wired = ["basecalling — not needed for an already aligned BAM"]\n''',
+          replacement = (
+              "    modules = [\n"
+              "        AnalysisModule.QC,\n"
+              "        AnalysisModule.CNV,\n"
+              "        AnalysisModule.SV,\n"
+              "        AnalysisModule.ISCN,\n"
+              "        AnalysisModule.REPORT,\n"
+              "    ]\n"
           )
+          text, n = pattern.subn(replacement, text)
+          if n != 1:
+              raise SystemExit(f"service manifest replacement count={n}")
+          pattern = re.compile(
+              r"            lock = load_model\(config\.reference_lock, ReferenceLock\)\n"
+              r"            not_wired = \[\"basecalling — not needed for an already aligned BAM\"\]\n"
+              r"            if lock\.genome_build != GenomeBuild\.GRCH37:\n"
+              r"                not_wired\.append\(\n"
+              r"                    \"cnv — bundled QDNAseq annotations are currently available for GRCh37 only\"\n"
+              r"                \)\n"
+          )
+          text, n = pattern.subn(
+              '            not_wired = ["basecalling — not needed for an already aligned BAM"]\n',
+              text,
+          )
+          if n != 1:
+              raise SystemExit(f"service config replacement count={n}")
+          service.write_text(text, encoding="utf-8")
 
-          # Windows shell: isolate the new runtime version and require both build-specific
-          # QDNAseq annotation packages plus the source-commit provenance marker.
           launcher = Path("desktop/ONTSeq.Desktop/WslServiceLauncher.cs")
           text = launcher.read_text(encoding="utf-8")
           text = text.replace("v0.3.4", "v0.3.5").replace("0.3.4", "0.3.5")
-          old = '''                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"))}" +\n                      $" && test -f {ShellQuote(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"))}";'''
-          new = '''                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"))}" +\n                      $" && test -f {ShellQuote(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"))}" +\n                      $" && test -f {ShellQuote(RuntimeResource(settings, "qdnaseq-hg38-commit.txt"))}";'''
+          old = "requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('ACE',quietly=TRUE)"
+          new = "requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('QDNAseq.hg38',quietly=TRUE), requireNamespace('ACE',quietly=TRUE)"
           if text.count(old) != 1:
-              raise SystemExit("WslServiceLauncher.cs: runtime resource anchor mismatch")
-          text = text.replace(old, new)
-          old = '''        var cnvPolicy = target + "/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml";\n        var cnvScript = target + "/share/ontseq/scripts/run_qdnaseq_ace.R";'''
-          new = '''        var cnvPolicy = target + "/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml";\n        var cnvScript = target + "/share/ontseq/scripts/run_qdnaseq_ace.R";\n        var hg38Pin = target + "/share/ontseq/qdnaseq-hg38-commit.txt";'''
-          if text.count(old) != 1:
-              raise SystemExit("WslServiceLauncher.cs: install variable anchor mismatch")
-          text = text.replace(old, new)
-          old = '''            $"test -f {ShellQuote(components)} && test -f {ShellQuote(sniffles)} && " +\n            $"test -f {ShellQuote(cnvPolicy)} && test -f {ShellQuote(cnvScript)} && " +\n            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/Rscript")} -e " +\n            ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +'''
-          new = f'''            $"test -f {{ShellQuote(components)}} && test -f {{ShellQuote(sniffles)}} && " +\n            $"test -f {{ShellQuote(cnvPolicy)}} && test -f {{ShellQuote(cnvScript)}} && " +\n            $"test -f {{ShellQuote(hg38Pin)}} && grep -qx {HG38_COMMIT} {{ShellQuote(hg38Pin)}} && " +\n            $"env PATH={{ShellQuote(runtimePath)}} {{ShellQuote(bin + "/Rscript")}} -e " +\n            ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), as.character(packageVersion('QDNAseq')) == '1.42.0', requireNamespace('QDNAseq.hg19',quietly=TRUE), as.character(packageVersion('QDNAseq.hg19')) == '1.36.0', requireNamespace('QDNAseq.hg38',quietly=TRUE), as.character(packageVersion('QDNAseq.hg38')) == '1.2.0', requireNamespace('ACE',quietly=TRUE), as.character(packageVersion('ACE')) == '1.24.0')") +'''
-          if text.count(old) != 1:
-              raise SystemExit("WslServiceLauncher.cs: install validation anchor mismatch")
+              raise SystemExit(f"launcher QDNAseq package replacement count={text.count(old)}")
           text = text.replace(old, new)
           launcher.write_text(text, encoding="utf-8")
-
-          # Desktop packaging: install the exact upstream hg38 data package, record its
-          # source commit, verify it before and after relocation, and version the bundle.
-          workflow = Path(".github/workflows/desktop-ci.yml")
-          text = workflow.read_text(encoding="utf-8")
-          text = text.replace("0.3.4", "0.3.5")
-          old = '''          micromamba install -y -n ontseq-qdnaseq-cnv -c conda-forge pip conda-pack\n          micromamba run -n ontseq-qdnaseq-cnv python -m pip install .\n'''
-          new = f'''          micromamba install -y -n ontseq-qdnaseq-cnv -c conda-forge pip conda-pack\n          micromamba run -n ontseq-qdnaseq-cnv python -m pip install .\n          rm -rf /tmp/QDNAseq.hg38\n          git clone --quiet https://github.com/asntech/QDNAseq.hg38.git /tmp/QDNAseq.hg38\n          git -C /tmp/QDNAseq.hg38 checkout --quiet {HG38_COMMIT}\n          test "$(git -C /tmp/QDNAseq.hg38 rev-parse HEAD)" = "{HG38_COMMIT}"\n          micromamba run -n ontseq-qdnaseq-cnv R CMD INSTALL /tmp/QDNAseq.hg38\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: package install anchor mismatch")
-          text = text.replace(old, new)
-          old = '''          git rev-parse HEAD > "$prefix/share/ontseq/git-commit.txt"\n'''
-          new = f'''          git rev-parse HEAD > "$prefix/share/ontseq/git-commit.txt"\n          printf '%s\\n' '{HG38_COMMIT}' > "$prefix/share/ontseq/qdnaseq-hg38-commit.txt"\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: provenance anchor mismatch")
-          text = text.replace(old, new)
-          old = '''          micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\\n",sep="")'\n'''
-          new = '''          micromamba run -n ontseq-qdnaseq-cnv Rscript -e 'cat("R=",R.version.string,"\\n",sep=""); cat("QDNAseq=",as.character(packageVersion("QDNAseq")),"\\n",sep=""); cat("QDNAseq.hg19=",as.character(packageVersion("QDNAseq.hg19")),"\\n",sep=""); cat("QDNAseq.hg38=",as.character(packageVersion("QDNAseq.hg38")),"\\n",sep=""); cat("ACE=",as.character(packageVersion("ACE")),"\\n",sep=""); stopifnot(as.character(packageVersion("QDNAseq")) == "1.42.0", as.character(packageVersion("QDNAseq.hg19")) == "1.36.0", as.character(packageVersion("QDNAseq.hg38")) == "1.2.0", as.character(packageVersion("ACE")) == "1.24.0")'\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: prepack R verification anchor mismatch")
-          text = text.replace(old, new)
-          old = '''          test "$(wc -c < /tmp/ontseq-packed/share/ontseq/git-commit.txt)" -ge 40\n'''
-          new = f'''          test "$(wc -c < /tmp/ontseq-packed/share/ontseq/git-commit.txt)" -ge 40\n          grep -qx '{HG38_COMMIT}' /tmp/ontseq-packed/share/ontseq/qdnaseq-hg38-commit.txt\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: relocated provenance anchor mismatch")
-          text = text.replace(old, new)
-          old = '''          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript -e 'stopifnot(requireNamespace("QDNAseq",quietly=TRUE), requireNamespace("QDNAseq.hg19",quietly=TRUE), requireNamespace("ACE",quietly=TRUE))'\n'''
-          new = '''          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript -e 'stopifnot(requireNamespace("QDNAseq",quietly=TRUE), requireNamespace("QDNAseq.hg19",quietly=TRUE), requireNamespace("QDNAseq.hg38",quietly=TRUE), requireNamespace("ACE",quietly=TRUE), as.character(packageVersion("QDNAseq.hg38")) == "1.2.0"); for (s in c(100,500,1000)) stopifnot(nrow(Biobase::pData(QDNAseq::getBinAnnotations(binSize=s, genome="hg38"))) > 0)'\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: relocated R verification anchor mismatch")
-          text = text.replace(old, new)
-          old = '''              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\\\"QDNAseq\\\",quietly=TRUE), requireNamespace(\\\"QDNAseq.hg19\\\",quietly=TRUE), requireNamespace(\\\"ACE\\\",quietly=TRUE))"\n'''
-          new = f'''              grep -qx '{HG38_COMMIT}' /opt/ontseq/share/ontseq/qdnaseq-hg38-commit.txt\n              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\\\"QDNAseq\\\",quietly=TRUE), requireNamespace(\\\"QDNAseq.hg19\\\",quietly=TRUE), requireNamespace(\\\"QDNAseq.hg38\\\",quietly=TRUE), requireNamespace(\\\"ACE\\\",quietly=TRUE), as.character(packageVersion(\\\"QDNAseq.hg38\\\")) == \\\"1.2.0\\\"); for (s in c(100,500,1000)) stopifnot(nrow(Biobase::pData(QDNAseq::getBinAnnotations(binSize=s, genome=\\\"hg38\\\"))) > 0)"\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop-ci.yml: stock Ubuntu R verification anchor mismatch")
-          text = text.replace(old, new)
-          workflow.write_text(text, encoding="utf-8")
-
-          # Operator documentation: update release identity and replace the obsolete
-          # GRCh38-CNV limitation with the tested/pinned status and remaining validation boundary.
-          readme = Path("desktop/README.md")
-          text = readme.read_text(encoding="utf-8")
-          text = text.replace("v0.3.4", "v0.3.5").replace("0.3.4", "0.3.5")
-          old = '''The bundled reproducible QDNAseq environment currently includes the Bioconductor `QDNAseq.hg19` annotation package. Therefore a GRCh37 desktop run requests the integrated QDNAseq + ACE CNV stage using 100/500/1000 kbp views, a 500-kbp primary view and multi-bin consensus.\n\nGRCh38 runs continue through the other requested modules but do **not** request QDNAseq CNV until the hg38 annotation resource has its own pinned, real-tool-tested packaging path. This is deliberate fail-closed behavior: absence of GRCh38 CNV output is not evidence of normal copy number.\n'''
-          new = f'''The bundled reproducible QDNAseq environment includes `QDNAseq.hg19` 1.36.0 for GRCh37 and the open-source `QDNAseq.hg38` 1.2.0 data package pinned to upstream commit `{HG38_COMMIT}` for GRCh38. Desktop runs on either build request the integrated QDNAseq + ACE CNV stage using 100/500/1000 kbp views, a 500-kbp primary view and multi-bin consensus.\n\nThe GRCh38 lane was promoted only after a canonical real-tool test recovered a deterministic synthetic chromosome 7 loss (CN~1) and chromosome 8 gain (CN~3), produced the normal HTML/XLSX/JSON outputs, verified release checksums and resumed content-addressed on an unchanged rerun. This is an engineering verification, not cohort-level analytical or clinical validation.\n'''
-          if text.count(old) != 1:
-              raise SystemExit("desktop/README.md: CNV behavior paragraph mismatch")
-          text = text.replace(old, new)
-          text = text.replace(
-              "- GRCh38 QDNAseq annotation packaging and real-tool test;\n",
-              "- analytical validation of both GRCh37 and GRCh38 CNV on controlled real/reference samples;\n",
-          )
-          readme.write_text(text, encoding="utf-8")
           PY
 
           git rm .github/workflows/apply-grch38-integration.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/ontseq_platform/service/app.py \
-                  desktop/ONTSeq.Desktop/WslServiceLauncher.cs \
-                  .github/workflows/desktop-ci.yml \
-                  desktop/README.md
-          git commit -m "Desktop 0.3.5: enable real-tool-tested GRCh38 CNV"
+          git add src/ontseq_platform/service/app.py desktop/ONTSeq.Desktop/WslServiceLauncher.cs
+          git commit -m "Desktop 0.3.5: enable GRCh38 CNV selection"
           git push origin HEAD:${{ github.head_ref }}
