@@ -10,6 +10,9 @@ on:
       - ".github/workflows/cnv-qdnaseq-grch38.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   qdnaseq-grch38-real-tool:
     runs-on: ubuntu-latest
@@ -228,5 +231,5 @@ jobs:
             results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/reports/CNV_HG38_SYNTH_001.report.html
             results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/reports/CNV_HG38_SYNTH_001.results.xlsx
             results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/provenance/run.json
-            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/release/checksums.sha256
+            results/runs/CI_CNV_HG38_SYNTH_001/release/checksums.sha256
           if-no-files-found: warn
