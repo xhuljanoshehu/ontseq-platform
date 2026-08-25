@@ -3,6 +3,40 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased - ISCN engine v0.2
+
+### Added
+
+- Coordinate-aware `CytobandIndex` for GRCh37/hg19 and GRCh38/hg38 UCSC-style cytoband
+  references, including deterministic interval lookup and centromere bounds derived from `acen`.
+- Reproducible cytoband fetch and SQLite knowledge-base builder scripts with source URLs,
+  checksums, record counts and provenance.
+- A conservative built-in validator for the exact ISCN subset emitted by ONTSeq and an optional,
+  pinned `iscn-authenticator==0.2.1` cross-check adapter.
+- Synthetic unit tests for chromosome-count derivation, coordinate-to-band mapping,
+  translocation breakpoints, centromere crossing and validation failures.
+
+### Changed
+
+- ISCN remains an output representation of normalized `GenomicEvent` objects rather than the
+  internal biological data model.
+- The subset renderer can map genomic coordinates to cytobands at render time and now derives
+  chromosome count from reportable whole-chromosome gains and losses when no explicit count is
+  supplied.
+- Unsupported or ambiguous events continue to fail closed: they are omitted from the generated
+  proposal with an explicit warning rather than guessed.
+
+### Validation impact
+
+This change can alter the text of an ISCN proposal and therefore biological presentation. It does
+not promote ISCN to an automatic clinical result. Every generated string remains Research Use Only
+and requires expert cytogenetic review. The built-in validator checks only the deliberately limited
+ONTSeq subset; the external validator is an independent technical cross-check, not a validated
+clinical decision system. Before any clinical promotion, coordinate-to-cytoband mapping and rendered
+strings require locked real-case validation against expert-reviewed cytogenetic truth across both
+supported reference builds, event types, breakpoint boundaries, complex karyotypes, mosaicism and
+known no-call/uncertainty cases.
+
 ## 0.3.4 - 2026-08-22
 
 ### Added

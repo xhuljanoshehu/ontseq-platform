@@ -24,6 +24,9 @@ dev = [
   "types-openpyxl>=3.1",
   "types-PyYAML>=6",
 ]
+iscn = [
+  "iscn-authenticator==0.2.1",
+]
 workflow = [
   "snakemake>=9,<10",
 ]
