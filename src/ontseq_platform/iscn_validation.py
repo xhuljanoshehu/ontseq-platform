@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib import import_module
+from typing import Protocol, cast
 
 
 class ISCNValidationStatus(StrEnum):
@@ -17,6 +20,11 @@ class ISCNValidationResult:
     status: ISCNValidationStatus
     engine: str
     messages: tuple[str, ...] = ()
+
+
+class _ExternalValidationResult(Protocol):
+    valid: bool
+    errors: Iterable[object]
 
 
 _CHROMOSOME = r"(?:[1-9]|1[0-9]|2[0-2]|X|Y)"
@@ -102,16 +110,25 @@ def validate_with_iscn_authenticator(notation: str) -> ISCNValidationResult:
     """
 
     try:
-        from iscn_authenticator import validate_karyotype
-    except ImportError:
+        module = import_module("iscn_authenticator")
+    except ModuleNotFoundError:
         return ISCNValidationResult(
             status=ISCNValidationStatus.NOT_RUN,
             engine="iscn-authenticator",
             messages=("Optional package iscn-authenticator is not installed.",),
         )
 
+    raw_validator = module.__dict__.get("validate_karyotype")
+    if not callable(raw_validator):
+        return ISCNValidationResult(
+            status=ISCNValidationStatus.WARN,
+            engine="iscn-authenticator",
+            messages=("Installed iscn-authenticator exposes no validate_karyotype callable.",),
+        )
+    validator = cast(Callable[[str], _ExternalValidationResult], raw_validator)
+
     try:
-        result = validate_karyotype(notation)
+        result = validator(notation)
     except Exception as exc:  # pragma: no cover - defensive boundary around optional package
         return ISCNValidationResult(
             status=ISCNValidationStatus.WARN,
@@ -119,8 +136,8 @@ def validate_with_iscn_authenticator(notation: str) -> ISCNValidationResult:
             messages=(f"External validator failed unexpectedly: {exc}",),
         )
 
-    errors = tuple(str(error) for error in getattr(result, "errors", ()) or ())
-    if bool(getattr(result, "valid", False)):
+    errors = tuple(str(error) for error in result.errors or ())
+    if result.valid:
         return ISCNValidationResult(
             status=ISCNValidationStatus.PASS,
             engine="iscn-authenticator",
