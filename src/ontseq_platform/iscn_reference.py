@@ -59,9 +59,7 @@ class CytobandIndex:
             self._starts[chromosome] = tuple(item.start for item in ordered)
 
     @staticmethod
-    def _validate_chromosome(
-        chromosome: str, records: tuple[CytobandRecord, ...]
-    ) -> None:
+    def _validate_chromosome(chromosome: str, records: tuple[CytobandRecord, ...]) -> None:
         previous_end: int | None = None
         for record in records:
             if record.start < 0 or record.end <= record.start:
