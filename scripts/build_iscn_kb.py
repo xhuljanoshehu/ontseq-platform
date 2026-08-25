@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 import argparse
@@ -190,7 +191,10 @@ def seed_static_data(connection: sqlite3.Connection) -> None:
         """,
         (
             "lea_evers_thesis_2026",
-            "Lea Evers MSc thesis: Establishing Oxford Nanopore Sequencing technology as a rapid method for karyotyping in clinical practice",
+            (
+                "Lea Evers MSc thesis: Establishing Oxford Nanopore Sequencing "
+                "technology as a rapid method for karyotyping in clinical practice"
+            ),
             "project thesis",
             None,
             "User-provided project source; only short reformulated rules/examples are stored.",
@@ -202,7 +206,10 @@ def seed_static_data(connection: sqlite3.Connection) -> None:
     ).fetchone()[0]
 
     connection.executemany(
-        "INSERT INTO event_types(code,name,template,auto_render_supported,notes) VALUES (?,?,?,?,?)",
+        """
+        INSERT INTO event_types(code,name,template,auto_render_supported,notes)
+        VALUES (?,?,?,?,?)
+        """,
         [
             ("+", "whole chromosome gain", "+chr", 1, "Numerical event."),
             ("-", "whole chromosome loss", "-chr", 1, "Numerical event."),
@@ -269,7 +276,9 @@ def seed_static_data(connection: sqlite3.Connection) -> None:
     ]
     connection.executemany(
         """
-        INSERT INTO rules(rule_key,rule_group,rule_summary,implementation_note,source_id,source_locator)
+        INSERT INTO rules(
+            rule_key,rule_group,rule_summary,implementation_note,source_id,source_locator
+        )
         VALUES (?,?,?,?,?,?)
         """,
         [(*row[:4], thesis_source_id, row[4]) for row in rules],
@@ -281,16 +290,42 @@ def seed_static_data(connection: sqlite3.Connection) -> None:
         VALUES (?,?,?,?,?)
         """,
         [
-            ("47,XY,+8", "Male karyotype with an additional chromosome 8.", 1, thesis_source_id, "p. 18"),
-            ("44,X,-X,-3", "Female karyotype with loss of X and chromosome 3.", 1, thesis_source_id, "p. 18"),
-            ("46,XX,inv(2)(p23p13)", "Inversion of chromosome 2.", 1, thesis_source_id, "p. 19"),
-            ("46,XX,t(9;22)(q34;q11.2)", "Translocation between chromosomes 9 and 22.", 1, thesis_source_id, "p. 20"),
+            (
+                "47,XY,+8",
+                "Male karyotype with an additional chromosome 8.",
+                1,
+                thesis_source_id,
+                "p. 18",
+            ),
+            (
+                "44,X,-X,-3",
+                "Female karyotype with loss of X and chromosome 3.",
+                1,
+                thesis_source_id,
+                "p. 18",
+            ),
+            (
+                "46,XX,inv(2)(p23p13)",
+                "Inversion of chromosome 2.",
+                1,
+                thesis_source_id,
+                "p. 19",
+            ),
+            (
+                "46,XX,t(9;22)(q34;q11.2)",
+                "Translocation between chromosomes 9 and 22.",
+                1,
+                thesis_source_id,
+                "p. 20",
+            ),
         ],
     )
 
     connection.execute(
         """
-        INSERT INTO external_validators(package_name,pinned_version,license,role,enabled_by_default,notes)
+        INSERT INTO external_validators(
+            package_name,pinned_version,license,role,enabled_by_default,notes
+        )
         VALUES (?,?,?,?,?,?)
         """,
         (
@@ -409,7 +444,9 @@ def main() -> None:
                 genome_build="GRCh37",
                 common_name="hg19",
                 path=args.hg19,
-                source_url="https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz",
+                source_url=(
+                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz"
+                ),
             )
         )
     if args.hg38:
@@ -418,7 +455,9 @@ def main() -> None:
                 genome_build="GRCh38",
                 common_name="hg38",
                 path=args.hg38,
-                source_url="https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz",
+                source_url=(
+                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz"
+                ),
             )
         )
     build_database(args.output, inputs, args.bootstrap_only)
