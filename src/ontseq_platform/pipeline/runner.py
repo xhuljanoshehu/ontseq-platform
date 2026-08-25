@@ -59,7 +59,7 @@ from ..sniffles import run_sniffles
 from ..target_coverage import TargetCoveragePolicy, run_target_coverage
 from ..workbook import render_workbook
 from .components import ComponentVersionMismatch, RunComponents
-from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
+from .envelope import Artifact, RunEnvelope, sha256_file, sha256_input, stage_signature
 from .lock import run_lock
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
 from .review import current_state as review_state
@@ -221,7 +221,13 @@ def _probe(
 
 
 def _stable_digest(path: Path) -> tuple[str, bool]:
-    """Hash a regular file and report whether its size/mtime stayed fixed while reading."""
+    """Hash a regular file and report whether its size/mtime stayed fixed while reading.
+
+    Reads the file every time, deliberately. The intake stage calls this *after* running to
+    notice that its input changed underneath it, and that check is only worth having if it
+    touches the disk. Plan-time fingerprinting uses :func:`sha256_input` instead, which
+    memoises; see the note there.
+    """
     if not path.is_file():
         raise StageFailure("required external input is missing")
     before = path.stat()
@@ -232,8 +238,15 @@ def _stable_digest(path: Path) -> tuple[str, bool]:
 
 
 def _external_fingerprint(path: Path, *, label: str | None = None) -> tuple[str, str]:
-    """Fingerprint an input from outside the envelope by name and content."""
-    digest, stable = _stable_digest(path)
+    """Fingerprint an input from outside the envelope by name and content.
+
+    Five stage plans fingerprint the sample BAM and plans are rebuilt on every invocation,
+    so this reads each input once per process rather than once per stage. The digest is the
+    same; only the repetition goes away.
+    """
+    if not path.is_file():
+        raise StageFailure("required external input is missing")
+    digest, stable = sha256_input(path)
     if not stable:
         raise StageFailure(
             f"{label or 'required external input'} changed while it was being fingerprinted"
