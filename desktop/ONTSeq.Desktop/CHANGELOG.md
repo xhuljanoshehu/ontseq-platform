@@ -1,5 +1,15 @@
 # ONTSeq Desktop changelog
 
+## 0.3.5-engineering
+
+- add the pinned open-source `QDNAseq.hg38` 1.2.0 annotation package to the bundled runtime, locked to upstream commit `cf7c07e39de0ac64a9c38cb030cba4626e2aae83`
+- real-tool test the canonical QDNAseq+ACE CNV path on a deterministic whole-genome-shaped GRCh38 fixture at 100/500/1000 kbp
+- require recovery of the synthetic chromosome 7 loss at CN~1 and chromosome 8 gain at CN~3 and verify content-addressed resume
+- request CNV for GRCh38 Desktop runs as well as GRCh37 after the GRCh38 real-tool gate passed
+- preserve exact hg38 annotation source identity in the packed runtime and verify it after relocation
+- keep the existing QDNAseq 1.42.0 / ACE 1.24.0 multi-bin profile and the Research Use Only boundary
+- do not claim cohort-level analytical or clinical validation; both GRCh37 and GRCh38 still require validation on controlled real/reference samples
+
 ## 0.3.4-engineering
 
 - combine Core 0.3.4 with the working Desktop/reference-integrity hardening from v0.2.2
