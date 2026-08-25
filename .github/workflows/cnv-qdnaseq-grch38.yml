@@ -1,0 +1,235 @@
+name: CNV QDNAseq GRCh38 real-tool
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/cnv/**"
+      - "scripts/run_qdnaseq_ace.R"
+      - "configs/cnv/**"
+      - "workflow/envs/cnv_qdnaseq.yaml"
+      - ".github/workflows/cnv-qdnaseq-grch38.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qdnaseq-grch38-real-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/cnv_qdnaseq.yaml
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Install pinned QDNAseq.hg38 annotations
+        shell: micromamba-shell {0}
+        env:
+          QDNASEQ_HG38_COMMIT: cf7c07e39de0ac64a9c38cb030cba4626e2aae83
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/asntech/QDNAseq.hg38.git /tmp/QDNAseq.hg38
+          git -C /tmp/QDNAseq.hg38 checkout --quiet "$QDNASEQ_HG38_COMMIT"
+          test "$(git -C /tmp/QDNAseq.hg38 rev-parse HEAD)" = "$QDNASEQ_HG38_COMMIT"
+          R CMD INSTALL /tmp/QDNAseq.hg38
+          Rscript -e 'stopifnot(as.character(packageVersion("QDNAseq.hg38")) == "1.2.0")'
+
+      - name: Verify QDNAseq/ACE and hg38 annotation access
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          Rscript - <<'RS'
+          stopifnot(requireNamespace("QDNAseq", quietly = TRUE))
+          stopifnot(requireNamespace("QDNAseq.hg38", quietly = TRUE))
+          stopifnot(requireNamespace("ACE", quietly = TRUE))
+          cat("QDNAseq=", as.character(packageVersion("QDNAseq")), "\n", sep = "")
+          cat("QDNAseq.hg38=", as.character(packageVersion("QDNAseq.hg38")), "\n", sep = "")
+          cat("ACE=", as.character(packageVersion("ACE")), "\n", sep = "")
+          for (size in c(100, 500, 1000)) {
+            bins <- QDNAseq::getBinAnnotations(binSize = size, genome = "hg38")
+            stopifnot(nrow(Biobase::pData(bins)) > 0)
+            cat("hg38 bins ", size, " kbp: ", nrow(Biobase::pData(bins)), "\n", sep = "")
+          }
+          RS
+
+      - name: Build whole-genome-shaped GRCh38 BAM
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          mkdir -p results/cnv-grch38-fixture
+          python - <<'PY'
+          from pathlib import Path
+
+          lengths = {
+              1: 248956422, 2: 242193529, 3: 198295559, 4: 190214555,
+              5: 181538259, 6: 170805979, 7: 159345973, 8: 145138636,
+              9: 138394717, 10: 133797422, 11: 135086622, 12: 133275309,
+              13: 114364328, 14: 107043718, 15: 101991189, 16: 90338345,
+              17: 83257441, 18: 80373285, 19: 58617616, 20: 64444167,
+              21: 46709983, 22: 50818468,
+          }
+          root = Path("results/cnv-grch38-fixture")
+          sam = root / "synthetic.hg38.sam"
+          seq = "ACGT" * 25
+          qual = "I" * 100
+          with sam.open("w", encoding="utf-8") as out:
+              out.write("@HD\tVN:1.6\tSO:unsorted\n")
+              for chrom, length in lengths.items():
+                  out.write(f"@SQ\tSN:chr{chrom}\tLN:{length}\n")
+              out.write("@RG\tID:CNV_HG38_SYNTH\tSM:CNV_HG38_SYNTH\tPL:ONT\n")
+              serial = 0
+              for chrom, length in lengths.items():
+                  copies = 1 if chrom == 7 else 3 if chrom == 8 else 2
+                  for pos in range(50_001, length - 100, 100_000):
+                      for replicate in range(copies):
+                          serial += 1
+                          out.write(
+                              f"HG38READ_{serial:07d}\t0\tchr{chrom}\t{pos + replicate * 5}\t60\t100M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:CNV_HG38_SYNTH\tNM:i:0\tAS:i:100\tde:f:0.0\n"
+                          )
+          fai = root / "synthetic.hg38.fai"
+          fai.write_text("".join(f"chr{c}\t{n}\t0\t0\t0\n" for c, n in lengths.items()), encoding="utf-8")
+          PY
+          samtools view -b results/cnv-grch38-fixture/synthetic.hg38.sam \
+            | samtools sort -@ 2 -o results/cnv-grch38-fixture/synthetic.hg38.bam -
+          samtools index results/cnv-grch38-fixture/synthetic.hg38.bam
+          samtools quickcheck -v results/cnv-grch38-fixture/synthetic.hg38.bam
+          rm results/cnv-grch38-fixture/synthetic.hg38.sam
+
+      - name: Build GRCh38 manifest and reference lock
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("results/cnv-grch38-fixture").resolve()
+          bam = root / "synthetic.hg38.bam"
+          bai = root / "synthetic.hg38.bam.bai"
+          fai = root / "synthetic.hg38.fai"
+          contigs = []
+          for line in fai.read_text(encoding="utf-8").splitlines():
+              chrom, length, *_ = line.split("\t")
+              contigs.append({"name": chrom, "length": int(length)})
+          lock = {
+              "schema_version": "0.1.0",
+              "reference_id": "synthetic-hg38-cnv",
+              "genome_build": "GRCh38",
+              "contigs": contigs,
+              "allow_extra_contigs": False,
+              "source_fai_sha256": hashlib.sha256(fai.read_bytes()).hexdigest(),
+          }
+          manifest = {
+              "schema_version": "0.1.0",
+              "sample_id": "CNV_HG38_SYNTH_001",
+              "run_id": "CI_CNV_HG38_001",
+              "input": {
+                  "kind": "aligned_bam",
+                  "path": str(bam),
+                  "index_path": str(bai),
+                  "sha256": hashlib.sha256(bam.read_bytes()).hexdigest(),
+              },
+              "assay": {
+                  "mode": "lcwgs",
+                  "genome_build": "GRCh38",
+                  "reference_id": "synthetic-hg38-cnv",
+              },
+              "analysis": {
+                  "profile": "cnv-grch38-real-tool-ci",
+                  "modules": ["qc", "cnv", "report"],
+                  "intent": "somatic",
+                  "parameters": {},
+              },
+              "privacy": {
+                  "pseudonymized": True,
+                  "contains_direct_identifiers": False,
+                  "cloud_upload_approved": False,
+              },
+          }
+          (root / "reference.lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+          (root / "sample.manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run canonical ONTSeq GRCh38 CNV
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/cnv-grch38-fixture/sample.manifest.json \
+            --reference-lock results/cnv-grch38-fixture/reference.lock.json \
+            --output-dir results/runs \
+            --run-id CI_CNV_HG38_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/cnv-hg38-run.log
+          grep -qE '^  cnv[[:space:]]+(COMPLETED|NO_CALL)' /tmp/cnv-hg38-run.log
+
+      - name: Verify GRCh38 CNV truth and provenance
+        shell: micromamba-shell {0}
+        env:
+          QDNASEQ_HG38_COMMIT: cf7c07e39de0ac64a9c38cb030cba4626e2aae83
+        run: |
+          set -euo pipefail
+          root=results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001
+          test -s "$root/evidence/cnv/CNV_HG38_SYNTH_001.qdnaseq.json"
+          test -s "$root/evidence/cnv/qdnaseq/CNV_HG38_SYNTH_001.qdnaseq-ace.summary.json"
+          test -s "$root/reports/CNV_HG38_SYNTH_001.report.html"
+          test -s "$root/reports/CNV_HG38_SYNTH_001.results.xlsx"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001")
+          report = json.loads((root / "evidence/cnv/CNV_HG38_SYNTH_001.qdnaseq.json").read_text(encoding="utf-8"))
+          assert report["genome_build"] == "GRCh38", report["genome_build"]
+          assert [fit["bin_size_kbp"] for fit in report["fits"]] == [100, 500, 1000]
+          events = {(event["primary"]["chromosome"], event["event_type"]): event for event in report["events"]}
+          loss7 = events[("chr7", "chromosome_loss")]
+          gain8 = events[("chr8", "chromosome_gain")]
+          assert 0.8 <= loss7["copy_number"] <= 1.2, loss7
+          assert 2.8 <= gain8["copy_number"] <= 3.2, gain8
+          consensus = {item["chromosome"]: item for item in report["chromosome_consensus"]}
+          assert consensus["chr7"]["rounded_copy_number"] == 1, consensus["chr7"]
+          assert consensus["chr8"]["rounded_copy_number"] == 3, consensus["chr8"]
+
+          summary = json.loads((root / "evidence/cnv/qdnaseq/CNV_HG38_SYNTH_001.qdnaseq-ace.summary.json").read_text(encoding="utf-8"))
+          assert summary["genome_build"] == "GRCh38"
+          assert summary["genome_annotation"] == "hg38"
+          assert summary["package_versions"]["QDNAseq_hg38"] == "1.2.0", summary["package_versions"]
+          PY
+          cd "$root"
+          sha256sum -c release/checksums.sha256
+
+      - name: Re-run unchanged GRCh38 input and prove CNV resume
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m ontseq_platform run \
+            results/cnv-grch38-fixture/sample.manifest.json \
+            --reference-lock results/cnv-grch38-fixture/reference.lock.json \
+            --output-dir results/runs \
+            --run-id CI_CNV_HG38_001 \
+            --threads 2 \
+            --git-commit "$GITHUB_SHA" | tee /tmp/cnv-hg38-resume.log
+          grep -qE '^  cnv[[:space:]]+resumed' /tmp/cnv-hg38-resume.log
+          cd results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001
+          sha256sum -c release/checksums.sha256
+
+      - name: Upload compact GRCh38 CNV artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qdnaseq-grch38-real-tool-smoke
+          path: |
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/evidence/cnv/CNV_HG38_SYNTH_001.qdnaseq.json
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/evidence/cnv/qdnaseq/CNV_HG38_SYNTH_001.qdnaseq-ace.summary.json
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/normalized/CNV_HG38_SYNTH_001.result.json
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/reports/CNV_HG38_SYNTH_001.report.html
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/reports/CNV_HG38_SYNTH_001.results.xlsx
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/provenance/run.json
+            results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/release/checksums.sha256
+          if-no-files-found: warn

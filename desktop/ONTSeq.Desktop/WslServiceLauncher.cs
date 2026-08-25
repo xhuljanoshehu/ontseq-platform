@@ -99,7 +99,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 return (
                     false,
                     "Die installierte ONTSeq Runtime ist veraltet. Bitte 'Runtime " +
-                    "installieren' ausführen, um sie auf Desktop/Core v0.3.4 zu aktualisieren.");
+                    "installieren' ausführen, um sie auf Desktop/Core v0.3.5 zu aktualisieren.");
 
             var serviceCapability = await RunWslAsync(
                 settings.WslDistribution,
@@ -111,12 +111,12 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             {
                 return (
                     false,
-                    "Die installierte ONTSeq Runtime enthält nicht den vollständigen v0.3.4-" +
+                    "Die installierte ONTSeq Runtime enthält nicht den vollständigen v0.3.5-" +
                     "Desktop-Vertrag für Target Coverage und Komponentenauswahl. Bitte " +
                     "'Runtime installieren' erneut ausführen.");
             }
 
-            return (true, $"ONTSeq Backend v0.3.4 gefunden: {settings.BackendCommand}");
+            return (true, $"ONTSeq Backend v0.3.5 gefunden: {settings.BackendCommand}");
         }
         catch (Exception error)
         {
@@ -166,7 +166,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.3.4";
+        var target = home + "/.local/share/ontseq/runtime-v0.3.5";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
@@ -184,7 +184,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             $"test -f {ShellQuote(components)} && test -f {ShellQuote(sniffles)} && " +
             $"test -f {ShellQuote(cnvPolicy)} && test -f {ShellQuote(cnvScript)} && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/Rscript")} -e " +
-            ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +
+            ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('QDNAseq.hg38',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +
             " && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} validate-reference --help >/dev/null && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--target-coverage-policy' && " +
@@ -192,7 +192,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
         if (install.ExitCode != 0)
-            throw new InvalidOperationException("ONTSeq Linux-Runtime v0.3.4 konnte nicht installiert werden.\n" + install.StdErr);
+            throw new InvalidOperationException("ONTSeq Linux-Runtime v0.3.5 konnte nicht installiert werden.\n" + install.StdErr);
 
         settings.RuntimeBinWsl = bin;
         settings.BackendCommand = bin + "/ontseq";

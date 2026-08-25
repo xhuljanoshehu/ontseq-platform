@@ -255,12 +255,13 @@ def _build_manifest(
     if target_bed_wsl is not None:
         resolve_within(target_bed_wsl, allowed_roots)
 
-    modules = [AnalysisModule.QC, AnalysisModule.SV, AnalysisModule.ISCN, AnalysisModule.REPORT]
-    # The bundled real-tool QDNAseq runtime currently carries the hg19 annotation package.
-    # GRCh38 remains usable for the other modules; CNV is added only when its annotation
-    # package is actually present in the tested desktop runtime.
-    if genome_build == GenomeBuild.GRCH37:
-        modules.insert(1, AnalysisModule.CNV)
+    modules = [
+        AnalysisModule.QC,
+        AnalysisModule.CNV,
+        AnalysisModule.SV,
+        AnalysisModule.ISCN,
+        AnalysisModule.REPORT,
+    ]
 
     return SampleManifest(
         sample_id=str(payload.get("sample_id", "")).strip(),
@@ -427,12 +428,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8")
 
         def _config_view(self) -> dict[str, Any]:
-            lock = load_model(config.reference_lock, ReferenceLock)
             not_wired = ["basecalling — not needed for an already aligned BAM"]
-            if lock.genome_build != GenomeBuild.GRCH37:
-                not_wired.append(
-                    "cnv — bundled QDNAseq annotations are currently available for GRCh37 only"
-                )
             return {
                 "version": __version__,
                 "roots": [
