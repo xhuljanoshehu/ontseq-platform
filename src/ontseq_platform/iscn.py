@@ -162,7 +162,10 @@ def build_iscn_proposal(
                 "mappable cytobands, or cannot be represented safely and was omitted."
             )
 
-    resolved_count = chromosome_count if chromosome_count is not None else _derived_chromosome_count(events)
+    if chromosome_count is not None:
+        resolved_count = chromosome_count
+    else:
+        resolved_count = _derived_chromosome_count(events)
     base = f"{resolved_count},{sex_chromosomes}"
     notation = base if not fragments else f"{base},{','.join(fragments)}"
 
