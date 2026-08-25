@@ -54,7 +54,7 @@ class DesktopManifestTests(unittest.TestCase):
             )
             self.assertEqual(manifest.input.index_path, str(preferred))
 
-    def test_grch38_does_not_request_unbundled_qdnaseq_annotations(self) -> None:
+    def test_grch38_requests_real_tool_tested_qdnaseq_cnv(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bam = root / "sample.bam"
@@ -65,7 +65,7 @@ class DesktopManifestTests(unittest.TestCase):
                 reference_id="SYNTHETIC_REF",
                 allowed_roots=[root],
             )
-            self.assertNotIn(AnalysisModule.CNV, manifest.analysis.modules)
+            self.assertIn(AnalysisModule.CNV, manifest.analysis.modules)
 
     def test_bam_outside_allowed_root_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as outside:
