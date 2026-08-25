@@ -124,10 +124,10 @@ jobs:
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--target-coverage-policy'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--components'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript - <<'RS'
-          stopifnot(requireNamespace("QDNAseq", quiet = TRUE))
-          stopifnot(requireNamespace("QDNAseq.hg19", quiet = TRUE))
-          stopifnot(requireNamespace("QDNAseq.hg38", quiet = TRUE))
-          stopifnot(requireNamespace("ACE", quiet = TRUE))
+          stopifnot(requireNamespace("QDNAseq", quietly = TRUE))
+          stopifnot(requireNamespace("QDNAseq.hg19", quietly = TRUE))
+          stopifnot(requireNamespace("QDNAseq.hg38", quietly = TRUE))
+          stopifnot(requireNamespace("ACE", quietly = TRUE))
           stopifnot(as.character(packageVersion("QDNAseq.hg38")) == "1.2.0")
           for (size in c(100, 500, 1000)) {
             bins <- QDNAseq::getBinAnnotations(binSize = size, genome = "hg38")
