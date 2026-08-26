@@ -172,6 +172,50 @@ class BrowseRouteTests(unittest.TestCase):
             self.assertEqual(json.loads(body)["unreadable_entries"], 0)
 
 
+class LocateRouteTests(unittest.TestCase):
+    """A name lookup must not follow a BAM symlink outside an allowed root."""
+
+    def test_a_regular_bam_inside_the_root_is_returned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            allowed = base / "allowed"
+            allowed.mkdir()
+            (allowed / "real.bam").write_bytes(b"BAM")
+
+            with _service(allowed, allowed / "runs") as (config, port):
+                status, body = _request(
+                    port,
+                    "GET",
+                    "/api/locate?name=real.bam",
+                    token=config.token,
+                )
+
+            self.assertEqual(status, 200, body)
+            payload = json.loads(body)
+            self.assertEqual(len(payload["matches"]), 1)
+            self.assertEqual(payload["matches"][0]["posix"], str(allowed / "real.bam"))
+
+    def test_a_bam_symlink_outside_the_root_is_not_returned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            allowed = base / "allowed"
+            allowed.mkdir()
+            outside = base / "outside.bam"
+            outside.write_bytes(b"BAM outside the service boundary")
+            os.symlink(outside, allowed / "escaped.bam")
+
+            with _service(allowed, allowed / "runs") as (config, port):
+                status, body = _request(
+                    port,
+                    "GET",
+                    "/api/locate?name=escaped.bam",
+                    token=config.token,
+                )
+
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body)["matches"], [])
+
+
 class JobClaimTests(unittest.TestCase):
     """One analysis at a time, decided under the lock rather than between two calls."""
 

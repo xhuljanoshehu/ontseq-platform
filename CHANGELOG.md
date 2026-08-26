@@ -37,6 +37,10 @@ validated release.
   error for a directory whose other files were usable. Such entries are now skipped, counted
   and reported to the page as `unreadable_entries`, so a BAM that is present but invisible is
   distinguishable from one that is absent.
+- BAM name lookup now builds candidates from directory entries and resolves each candidate
+  inside its declared allowed root before reading metadata. A BAM symlink that points outside
+  the service boundary is omitted rather than exposing its target's size or presenting it as
+  selectable input.
 - `GET /` handed out the session token without the loopback `Host` check that every `/api/`
   route applies, so a page on an attacker-controlled name resolved to `127.0.0.1` was
   same-origin with the service and could read the token out of the response. The API check

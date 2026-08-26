@@ -586,19 +586,29 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             visited = 0
             exhausted = False
             for root in config.allowed_roots:
-                for directory, _subdirs, files in os.walk(Path(root).expanduser().resolve()):
+                resolved_root = Path(root).expanduser().resolve()
+                for directory, _subdirs, files in os.walk(resolved_root):
                     visited += 1
                     if visited > SEARCH_DIRECTORY_LIMIT:
                         exhausted = True
                         break
-                    if wanted in files:
-                        found = Path(directory) / wanted
+                    # Construct the candidate from the filename returned by the
+                    # filesystem, not from the query parameter. Apart from making the
+                    # data-flow boundary explicit, resolving it again prevents a BAM
+                    # symlink inside an allowed root from exposing a target outside it.
+                    for entry_name in files:
+                        if entry_name != wanted:
+                            continue
+                        candidate = Path(directory) / entry_name
                         try:
+                            found = resolve_within(candidate, [resolved_root])
+                            if not found.is_file():
+                                continue
                             size = found.stat().st_size
-                        except OSError:
+                        except (GuardError, OSError):
                             # Same reasoning as the browser: an entry that cannot be
-                            # stat'ed is dropped from the results, not turned into a
-                            # failed search across every other root.
+                            # resolved/stat'ed is dropped from the results, not turned
+                            # into a failed search across every other root.
                             continue
                         matches.append(
                             {
@@ -608,6 +618,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                                 "indexed": _bam_is_indexed(found),
                             }
                         )
+                        break
                 if exhausted:
                     break
             self._json(
