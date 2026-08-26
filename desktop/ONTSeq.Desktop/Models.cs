@@ -15,6 +15,16 @@ public sealed class DesktopSettings
     public string? AdaptiveTargetBedVersion { get; set; }
     public int Port { get; set; } = 8765;
 
+    public bool HasAdaptiveTargetBedConfiguration =>
+        !string.IsNullOrWhiteSpace(AdaptiveTargetBedWsl) ||
+        !string.IsNullOrWhiteSpace(AdaptiveTargetBedVersion);
+
+    public void ClearAdaptiveTargetBed()
+    {
+        AdaptiveTargetBedWsl = null;
+        AdaptiveTargetBedVersion = null;
+    }
+
     public static string UserSettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ONTSeq", "desktop.settings.json");
