@@ -62,7 +62,26 @@ try
         "changed FAI refusal");
     AssertEqual("existing-lock", File.ReadAllText(existingLock), "active lock preservation");
 
-    Console.WriteLine("Desktop path, BAM index and reference identity tests passed.");
+    var adaptiveSettings = new DesktopSettings
+    {
+        AdaptiveTargetBedWsl = "/mnt/c/ONTSeq/resources/adaptive_sampling/analysis_roi.test.bed",
+        AdaptiveTargetBedVersion = "panel.bed@sha256:" + new string('a', 64)
+    };
+    AssertEqual("True", adaptiveSettings.HasAdaptiveTargetBedConfiguration.ToString(), "adaptive BED configured state");
+    adaptiveSettings.ClearAdaptiveTargetBed();
+    AssertEqual(null, adaptiveSettings.AdaptiveTargetBedWsl, "adaptive BED path cleared");
+    AssertEqual(null, adaptiveSettings.AdaptiveTargetBedVersion, "adaptive BED version cleared");
+    AssertEqual("False", adaptiveSettings.HasAdaptiveTargetBedConfiguration.ToString(), "adaptive BED cleared state");
+
+    var partialAdaptiveSettings = new DesktopSettings
+    {
+        AdaptiveTargetBedVersion = "incomplete-bed-version"
+    };
+    AssertEqual("True", partialAdaptiveSettings.HasAdaptiveTargetBedConfiguration.ToString(), "partial adaptive BED remains removable");
+    partialAdaptiveSettings.ClearAdaptiveTargetBed();
+    AssertEqual("False", partialAdaptiveSettings.HasAdaptiveTargetBedConfiguration.ToString(), "partial adaptive BED clear state");
+
+    Console.WriteLine("Desktop path, BAM index, reference identity and adaptive BED state tests passed.");
 }
 finally
 {

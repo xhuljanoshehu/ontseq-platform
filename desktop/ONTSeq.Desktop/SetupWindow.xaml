@@ -61,7 +61,12 @@
 
                 <TextBlock Grid.Row="4" Grid.Column="0" Text="Adaptive Sampling ROI" FontWeight="SemiBold" Margin="0,8" />
                 <TextBlock Grid.Row="4" Grid.Column="1" x:Name="AdaptiveBedStatusText" Text="Nicht konfiguriert" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
-                <Button Grid.Row="4" Grid.Column="2" x:Name="ConfigureAdaptiveBedButton" Content="Analyse-BED wählen…" Click="ConfigureAdaptiveBed_Click" MinWidth="140" />
+                <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="ConfigureAdaptiveBedButton" Content="Analyse-BED wählen…" Click="ConfigureAdaptiveBed_Click" MinWidth="140" />
+                    <Button x:Name="RemoveAdaptiveBedButton" Content="Entfernen" Click="RemoveAdaptiveBed_Click"
+                            MinWidth="90" Margin="8,0,0,0" IsEnabled="False"
+                            ToolTip="Ausgewähltes Adaptive-Sampling-BED aus der ONTSeq-Konfiguration entfernen" />
+                </StackPanel>
 
                 <TextBlock Grid.Row="5" Grid.Column="0" Text="Engineering-Selbsttest" FontWeight="SemiBold" Margin="0,8" />
                 <TextBlock Grid.Row="5" Grid.Column="1" x:Name="SelfTestStatusText" Text="Noch nicht ausgeführt" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />

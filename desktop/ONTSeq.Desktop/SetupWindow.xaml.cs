@@ -17,6 +17,7 @@ public partial class SetupWindow : Window
         InitializeComponent();
         _settings = settings;
         SettingsPathText.Text = "Konfiguration: " + DesktopSettings.UserSettingsPath;
+        RemoveAdaptiveBedButton.IsEnabled = _settings.HasAdaptiveTargetBedConfiguration;
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -39,7 +40,9 @@ public partial class SetupWindow : Window
             if (!wsl.Ok)
             {
                 BackendStatusText.Text = "— WSL muss zuerst funktionieren.";
-                AdaptiveBedStatusText.Text = "— WSL muss zuerst funktionieren.";
+                AdaptiveBedStatusText.Text = _settings.HasAdaptiveTargetBedConfiguration
+                    ? "— Konfiguriert; WSL muss für die Prüfung funktionieren."
+                    : "— Nicht konfiguriert";
                 SelfTestStatusText.Text = "— Nicht möglich, solange WSL fehlt.";
                 return;
             }
@@ -76,9 +79,17 @@ public partial class SetupWindow : Window
 
     private async Task RefreshAdaptiveBedAsync(CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(_settings.AdaptiveTargetBedWsl))
+        if (!_settings.HasAdaptiveTargetBedConfiguration)
         {
             AdaptiveBedStatusText.Text = "— Nicht konfiguriert";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.AdaptiveTargetBedWsl) ||
+            string.IsNullOrWhiteSpace(_settings.AdaptiveTargetBedVersion))
+        {
+            AdaptiveBedStatusText.Text =
+                "✕ Unvollständige Konfiguration – bitte entfernen und das Analyse-BED neu wählen.";
             return;
         }
 
@@ -86,11 +97,8 @@ public partial class SetupWindow : Window
             _settings.WslDistribution,
             ["sh", "-lc", $"test -s {ShellQuote(_settings.AdaptiveTargetBedWsl)}"],
             token);
-        var version = string.IsNullOrWhiteSpace(_settings.AdaptiveTargetBedVersion)
-            ? "Version unbekannt"
-            : _settings.AdaptiveTargetBedVersion;
         AdaptiveBedStatusText.Text = check.ExitCode == 0
-            ? $"✓ {version}"
+            ? $"✓ {_settings.AdaptiveTargetBedVersion}"
             : $"✕ Konfiguriert, aber in WSL nicht auffindbar: {_settings.AdaptiveTargetBedWsl}";
     }
 
@@ -204,6 +212,31 @@ public partial class SetupWindow : Window
         });
     }
 
+    private void RemoveAdaptiveBed_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_settings.HasAdaptiveTargetBedConfiguration) return;
+
+        var configuredVersion = string.IsNullOrWhiteSpace(_settings.AdaptiveTargetBedVersion)
+            ? "Unbekannte/teilweise Konfiguration"
+            : _settings.AdaptiveTargetBedVersion;
+        var confirm = MessageBox.Show(
+            this,
+            $"Adaptive-Sampling Analyse-BED aus der ONTSeq-Konfiguration entfernen?\n\n{configuredVersion}\n\n" +
+            "Die ursprüngliche BED-Datei auf deinem Rechner wird nicht gelöscht.",
+            "Adaptive Sampling ROI entfernen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        _settings.ClearAdaptiveTargetBed();
+        _settings.SaveUserSettings();
+        AdaptiveBedStatusText.Text = "— Nicht konfiguriert";
+        RemoveAdaptiveBedButton.IsEnabled = false;
+        DetailText.Text =
+            "Adaptive-Sampling Analyse-ROI aus der ONTSeq-Konfiguration entfernt. " +
+            "Die ursprüngliche BED-Datei wurde nicht gelöscht.";
+    }
+
     private static void ValidateBed(string path)
     {
         var intervals = 0;
@@ -278,6 +311,7 @@ public partial class SetupWindow : Window
         CheckButton.IsEnabled = !busy;
         InstallRuntimeButton.IsEnabled = !busy;
         ConfigureAdaptiveBedButton.IsEnabled = !busy;
+        RemoveAdaptiveBedButton.IsEnabled = !busy && _settings.HasAdaptiveTargetBedConfiguration;
         SelfTestButton.IsEnabled = !busy;
     }
 
