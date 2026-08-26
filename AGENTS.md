@@ -12,7 +12,7 @@ must preserve the following boundaries:
 4. Any change that can alter biological output needs tests, provenance fields, a changelog
    entry and validation-impact review.
 5. Prefer typed adapters and structured contracts over parsing presentation files.
-6. Run `make safety`, `make lint`, and `make test` before proposing a change.
+6. Run `make safety`, `make versions`, `make lint`, and `make test` before proposing a change.
 7. Do not add a public license, public deployment, cloud upload or external data transfer
    without explicit owner and institutional approval.
 

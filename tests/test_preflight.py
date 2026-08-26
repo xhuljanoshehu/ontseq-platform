@@ -18,12 +18,20 @@ from ontseq_platform.models import ReferenceLock, SampleManifest
 from ontseq_platform.pipeline.checks import Check, CheckStatus
 from ontseq_platform.pipeline.lock import LOCK_FILENAME
 from ontseq_platform.preflight import PreflightRequest, preflight
+from ontseq_platform.target_coverage import TargetCoveragePolicy
 
 ALIGNMENT_POLICY = AlignmentPolicy(
     profile_id="test",
     status="technical_defaults_only",
     expected_minimap2_version="2.28",
     expected_samtools_version="1.24",
+    note="test",
+)
+
+TARGET_COVERAGE_POLICY = TargetCoveragePolicy(
+    profile_id="test",
+    status="technical_defaults_only",
+    expected_version="0.3.14",
     note="test",
 )
 
@@ -42,6 +50,7 @@ DEFAULT_VERSIONS = {
     "cramino": "cramino 0.14.5",
     "sniffles": "Sniffles2, Version 2.8.0",
     "dorado": "dorado 0.9.0+abcdef",
+    "mosdepth": "mosdepth 0.3.14",
 }
 
 
@@ -87,13 +96,18 @@ class PreflightCase(unittest.TestCase):
         self.fai.write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
         self.fai_sha256 = hashlib.sha256(self.fai.read_bytes()).hexdigest()
 
-    def manifest(self, kind: str = "aligned_bam") -> SampleManifest:
+    def manifest(
+        self,
+        kind: str = "aligned_bam",
+        *,
+        assay: dict[str, object] | None = None,
+    ) -> SampleManifest:
         payload: dict[str, object] = {
             "schema_version": "0.1.0",
             "sample_id": "SAMPLE_A",
             "run_id": "RUN_001",
             "input": {"kind": kind, "path": str(self.bam)},
-            "assay": {"mode": "lcwgs", "genome_build": "GRCh38", "reference_id": "REF_V1"},
+            "assay": assay or {"mode": "lcwgs", "genome_build": "GRCh38", "reference_id": "REF_V1"},
             "analysis": {"profile": "lcwgs", "modules": ["qc"]},
         }
         if kind == "aligned_bam":
@@ -472,6 +486,115 @@ class ReportingTests(PreflightCase):
             name for name, check in self.results().items() if check.status is CheckStatus.FAILED
         ]
         self.assertEqual(blocking, [])
+
+
+class TargetCoverageTests(PreflightCase):
+    """Adaptive sampling has preconditions the run fails closed on. Preflight must too.
+
+    ``ontseq run`` refuses an adaptive-sampling run without a target-coverage policy or a
+    readable target BED, and probes Mosdepth before the stage. All three refusals happen
+    after the envelope exists and the lock is taken, and a FAILED target-coverage stage
+    fails the whole run — so a preflight that stayed silent about them would clear a run
+    that could not succeed.
+    """
+
+    def adaptive_manifest(self, target_bed: Path | None) -> SampleManifest:
+        assay: dict[str, object] = {
+            "mode": "adaptive_sampling",
+            "genome_build": "GRCh38",
+            "reference_id": "REF_V1",
+            "target_bed": str(target_bed) if target_bed is not None else None,
+            "target_bed_version": "ROI_V1",
+        }
+        return self.manifest(assay=assay)
+
+    def target_bed(self, text: str = "chr1\t1000\t2000\tTARGET_A\n", *, name: str = "roi") -> Path:
+        """Write a target BED under its own name, so two in one test cannot overwrite each other."""
+        bed = self.root / f"{name}.bed"
+        bed.write_text(text, encoding="utf-8")
+        return bed
+
+    def adaptive_request(self, **overrides: object) -> PreflightRequest:
+        values: dict[str, object] = {"target_coverage_policy": TARGET_COVERAGE_POLICY}
+        values.update(overrides)
+        # Built only when the test did not supply one, so writing the default BED cannot
+        # overwrite a BED the test wrote for the manifest it passed in.
+        values.setdefault("manifest", self.adaptive_manifest(self.target_bed()))
+        return self.request(**values)
+
+    def test_a_complete_adaptive_run_passes_its_target_checks(self) -> None:
+        found = self.results(self.adaptive_request())
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.OK)
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.OK)
+        self.assertIs(found["tool.mosdepth"].status, CheckStatus.OK)
+
+    def test_the_bed_check_reports_what_was_actually_read(self) -> None:
+        bed = self.target_bed("chr1\t1000\t2000\tA\nchr2\t0\t500\tB\n", name="two")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIn("2 target(s)", found["target_coverage.bed"].detail)
+        self.assertIn("1500 bp", found["target_coverage.bed"].detail)
+
+    def test_a_missing_target_coverage_policy_blocks_the_run(self) -> None:
+        found = self.results(self.adaptive_request(target_coverage_policy=None))
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.FAILED)
+        self.assertTrue(found["target_coverage.policy"].remedy)
+
+    def test_an_absent_target_bed_blocks_the_run(self) -> None:
+        manifest = self.adaptive_manifest(self.root / "never-written.bed")
+        found = self.results(self.adaptive_request(manifest=manifest))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_an_unparseable_target_bed_blocks_the_run(self) -> None:
+        """The BED is parsed, not merely stat'ed: a truncated ROI fails the stage."""
+        bed = self.target_bed("chr1\t1000\n", name="truncated")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_a_target_bed_on_a_non_canonical_contig_blocks_the_run(self) -> None:
+        bed = self.target_bed("chrUn_GL000220v1\t100\t200\tA\n", name="noncanonical")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_missing_mosdepth_blocks_an_adaptive_run_rather_than_warning(self) -> None:
+        """The stage is optional in the graph; for this assay its failure fails the run."""
+        request = self.adaptive_request(
+            executables={
+                name: str(self.bin / name) for name in DEFAULT_VERSIONS if name != "mosdepth"
+            }
+            | {"mosdepth": str(self.root / "absent" / "mosdepth")}
+        )
+        self.assertIs(self.results(request)["tool.mosdepth"].status, CheckStatus.FAILED)
+
+    def test_missing_mosdepth_only_warns_on_a_run_that_never_measures_targets(self) -> None:
+        """An lcWGS run records targets as out of scope, so it must not be blocked."""
+        request = self.request(
+            executables={
+                name: str(self.bin / name) for name in DEFAULT_VERSIONS if name != "mosdepth"
+            }
+            | {"mosdepth": str(self.root / "absent" / "mosdepth")}
+        )
+        self.assertIs(self.results(request)["tool.mosdepth"].status, CheckStatus.WARNING)
+
+    def test_the_target_checks_are_skipped_rather_than_passed_for_lcwgs(self) -> None:
+        """Not applicable and checked-and-fine are different claims."""
+        found = self.results()
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.SKIPPED)
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.SKIPPED)
+        self.assertIn("lcwgs", found["target_coverage.bed"].detail)
+
+    def test_the_mosdepth_version_lock_is_enforced_for_an_adaptive_run(self) -> None:
+        versions = dict(DEFAULT_VERSIONS) | {"mosdepth": "mosdepth 0.3.10"}
+        found = self.results(self.adaptive_request(), versions=versions)
+        self.assertIs(found["tool.mosdepth"].status, CheckStatus.FAILED)
+        self.assertIn("0.3.14", found["tool.mosdepth"].detail)
+
+    def test_the_mosdepth_version_lock_is_not_applied_to_an_lcwgs_run(self) -> None:
+        """An lcWGS run never invokes Mosdepth, so its lock must not refuse the run."""
+        versions = dict(DEFAULT_VERSIONS) | {"mosdepth": "mosdepth 0.3.10"}
+        request = self.request(target_coverage_policy=TARGET_COVERAGE_POLICY)
+        self.assertIs(
+            self.results(request, versions=versions)["tool.mosdepth"].status, CheckStatus.OK
+        )
 
 
 if __name__ == "__main__":

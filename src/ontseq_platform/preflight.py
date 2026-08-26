@@ -38,10 +38,11 @@ from pathlib import Path
 from .align import AlignmentPolicy, parse_version
 from .basecall import BasecallPolicy, dorado_version, model_signature
 from .execution import CommandRunner, SubprocessRunner
-from .models import InputKind, ReferenceLock, SampleManifest, SnifflesPolicy
+from .models import AssayMode, InputKind, ReferenceLock, SampleManifest, SnifflesPolicy
 from .pipeline.checks import Check, CheckList, required_tools
 from .pipeline.lock import LOCK_FILENAME, holder_is_running, read_holder
 from .pipeline.stages import (
+    SPEC_BY_STAGE,
     InputKindName,
     StageId,
     VerificationStatus,
@@ -51,6 +52,7 @@ from .pipeline.stages import (
 from .qc import cramino_version
 from .reference import sha256_file
 from .sniffles import sniffles_version
+from .target_coverage import TargetCoveragePolicy, load_target_bed, mosdepth_version
 
 GIGABYTE = 1024**3
 
@@ -69,6 +71,7 @@ class PreflightRequest:
     alignment_policy: AlignmentPolicy | None = None
     basecall_policy: BasecallPolicy | None = None
     sniffles_policy: SnifflesPolicy | None = None
+    target_coverage_policy: TargetCoveragePolicy | None = None
     #: Free space the caller knows this run needs. Without it, space is reported, not judged.
     require_free_gb: float | None = None
 
@@ -230,6 +233,94 @@ def _check_reference(request: PreflightRequest, checks: CheckList) -> None:
     checks.ok("reference.fai", f"{fai} matches the lock checksum", stage=StageId.ALIGN)
 
 
+def _measures_targets(request: PreflightRequest) -> bool:
+    """Whether this run will actually measure per-target coverage.
+
+    The stage applies to every input kind, but only an adaptive-sampling run does anything
+    in it; any other mode records that targets are out of scope without touching Mosdepth.
+    """
+    return (
+        StageId.TARGET_COVERAGE in planned_stages(request.input_kind)
+        and request.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING
+    )
+
+
+def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
+    """Stages this particular run cannot get away without, beyond the declared-required set.
+
+    ``StageSpec.required`` is a property of the graph, not of a run. Target coverage is
+    declared optional because an lcWGS run legitimately records it as out of scope — but an
+    adaptive-sampling run neither skips it nor survives it failing: the runner refuses to
+    continue without a policy and a target BED, and ``summarize`` fails a run on any FAILED
+    stage whether or not the graph called it required. Preflight has to apply the same rule,
+    or it clears a run that cannot succeed and reports the missing tool as a warning.
+    """
+    fatal = {stage for stage in planned_stages(request.input_kind) if SPEC_BY_STAGE[stage].required}
+    if _measures_targets(request):
+        fatal.add(StageId.TARGET_COVERAGE)
+    return frozenset(fatal)
+
+
+def _check_target_coverage(request: PreflightRequest, checks: CheckList) -> None:
+    """The adaptive-sampling inputs exist and parse, before the envelope is created.
+
+    Both of these fail the run closed inside the target-coverage stage, which is right —
+    a run whose enrichment was never measured must not produce a report that looks
+    complete. But they fail it after the envelope exists and the lock is taken, and both
+    are answerable here in milliseconds.
+    """
+    if not _measures_targets(request):
+        reason = (
+            f"assay mode is {request.manifest.assay.mode.value}; per-target coverage does not apply"
+        )
+        checks.skipped("target_coverage.policy", reason)
+        checks.skipped("target_coverage.bed", reason)
+        return
+
+    if request.target_coverage_policy is None:
+        checks.failed(
+            "target_coverage.policy",
+            "adaptive sampling was selected but no target-coverage policy was supplied",
+            remedy="pass --target-coverage-policy with the technical policy for this assay",
+            stage=StageId.TARGET_COVERAGE,
+        )
+    else:
+        checks.ok(
+            "target_coverage.policy",
+            f"{request.target_coverage_policy.profile_id} "
+            f"({request.target_coverage_policy.status})",
+            stage=StageId.TARGET_COVERAGE,
+        )
+
+    declared = request.manifest.assay.target_bed
+    if not declared:
+        checks.failed(
+            "target_coverage.bed",
+            "adaptive sampling requires assay.target_bed",
+            remedy="name the controlled analysis ROI BED in the manifest",
+            stage=StageId.TARGET_COVERAGE,
+        )
+        return
+    bed = Path(declared)
+    try:
+        regions = load_target_bed(bed)
+    except (ValueError, OSError) as error:
+        checks.failed(
+            "target_coverage.bed",
+            f"{bed} could not be read as a target BED: {error}",
+            remedy="point assay.target_bed at the controlled, readable ROI BED for this panel",
+            stage=StageId.TARGET_COVERAGE,
+        )
+        return
+    bases = sum(region.length for region in regions)
+    checks.ok(
+        "target_coverage.bed",
+        f"{len(regions)} target(s) over {bases} bp "
+        f"({request.manifest.assay.target_bed_role.value})",
+        stage=StageId.TARGET_COVERAGE,
+    )
+
+
 def _expected_version(request: PreflightRequest, tool: str) -> str | None:
     """What the policies lock this tool to, when a *planned* stage will enforce that lock.
 
@@ -248,6 +339,14 @@ def _expected_version(request: PreflightRequest, tool: str) -> str | None:
         return request.sniffles_policy.expected_version
     if tool == "dorado" and request.basecall_policy is not None and StageId.BASECALL in planned:
         return request.basecall_policy.expected_version
+    # Gated on the assay rather than only on the plan: the stage is planned for every input
+    # kind, but an lcWGS run never invokes Mosdepth and so never applies its lock.
+    if (
+        tool == "mosdepth"
+        and request.target_coverage_policy is not None
+        and _measures_targets(request)
+    ):
+        return request.target_coverage_policy.expected_version
     return None
 
 
@@ -271,6 +370,8 @@ def _probe_version(runner: CommandRunner, tool: str, executable: str) -> str:
         return sniffles_version(combined)
     if tool == "dorado":
         return dorado_version(combined)
+    if tool == "mosdepth":
+        return mosdepth_version(combined)
     raise ValueError(f"no version parser for {tool!r}")
 
 
@@ -281,15 +382,20 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
     the run completes without it, records the stage as ``NOT_RUN``, and that is a
     legitimate outcome the operator should be told about in advance, not blocked on.
     """
+    fatal = _fatal_stages(request)
     for requirement in required_tools(request.input_kind):
         name = f"tool.{requirement.name}"
         executable = request.executable(requirement.name)
         stage = requirement.stages[0]
+        # A tool is fatal when any stage needing it is one this run cannot do without.
+        # Mosdepth is the case that matters: the graph calls target coverage optional, but
+        # an adaptive-sampling run fails outright without it.
+        blocking = requirement.required or any(item in fatal for item in requirement.stages)
         located = shutil.which(executable)
         if located is None and not Path(executable).is_file():
             detail = f"{executable} is not on PATH"
             remedy = f"install {requirement.name}, or pass --{requirement.name} with its path"
-            if requirement.required:
+            if blocking:
                 checks.failed(name, detail, remedy=remedy, stage=stage)
             else:
                 stage_names = ", ".join(item.value for item in requirement.stages)
@@ -542,6 +648,7 @@ def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None)
     _check_reference(request, checks)
     _check_tools(request, command_runner, checks)
     _check_basecalling(request, checks)
+    _check_target_coverage(request, checks)
     _check_envelope(request, checks)
     _check_disk(request, checks)
     _check_adapters(request, checks)

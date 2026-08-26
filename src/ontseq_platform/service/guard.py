@@ -3,7 +3,7 @@
 A service on ``127.0.0.1`` that accepts a filesystem path and starts subprocesses is a
 local attack surface, not a convenience layer. Any page open in the same browser can issue
 requests to it, and a path that escapes its allowed roots turns a viewer into a file
-reader. So the four decisions that carry that weight live here, apart from the transport,
+reader. So the decisions that carry that weight live here, apart from the transport,
 with no dependency beyond the standard library — which is also what lets them be tested in
 a development environment where pydantic cannot be installed.
 
@@ -27,6 +27,10 @@ TOKEN_HEADER = "X-ONTSeq-Token"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
 
 _DRIVE = re.compile(r"^([A-Za-z]):[\\/](.*)$", re.DOTALL)
+
+#: Mirrors the ``run_id``/``sample_id`` contract in ``SampleManifest``. A request that names
+#: an envelope must use an identifier a run was allowed to create in the first place.
+IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
 
 
 class GuardError(Exception):
@@ -95,6 +99,30 @@ def resolve_within(candidate: str | Path, roots: Sequence[Path]) -> Path:
             return resolved
     allowed = ", ".join(str(Path(root).expanduser().resolve()) for root in roots)
     raise GuardError(f"path is outside the allowed directories ({allowed}): {resolved}")
+
+
+def resolve_envelope(output_dir: str | Path, run_id: str, sample_id: str) -> Path:
+    """Resolve ``<output-dir>/<run-id>/<sample-id>`` from two untrusted identifiers.
+
+    The two names arrive as URL path segments, and joining them onto a base directory
+    without checking them is how ``..`` reaches an envelope the service was never pointed
+    at. Both are matched against the manifest's identifier contract first — which admits no
+    separator and no dot-segment — and the joined path is then confirmed to be inside the
+    output directory anyway. The pattern alone would be enough; the containment check costs
+    nothing and does not depend on the pattern staying exactly as strict as it is today.
+
+    Existence is deliberately not checked here. Whether an envelope is there, and whether it
+    holds anything reviewable, is the caller's question; this answers only which path the
+    request is allowed to mean.
+    """
+    for label, value in (("run id", run_id), ("sample id", sample_id)):
+        if not IDENTIFIER.fullmatch(value):
+            raise GuardError(f"{label} is not a valid identifier: {value!r}")
+    base = Path(output_dir).expanduser().resolve()
+    candidate = (base / run_id / sample_id).resolve()
+    if base not in candidate.parents:
+        raise GuardError(f"run envelope is outside the output directory: {candidate}")
+    return candidate
 
 
 def resolve_bam_index(bam_path: str | Path) -> Path:
