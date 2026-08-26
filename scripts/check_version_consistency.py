@@ -4,7 +4,9 @@ Five files state what this release is: the package metadata, the package itself,
 citation record, the Windows desktop project and the README's status section. Nothing tied
 them together, and they drifted — the README described the desktop on ``main`` as the
 v0.2.1 engineering path while the project file, the desktop README and the changelog had
-all moved to 0.3.4.
+all moved to 0.3.4. The same class of drift recurred when the package and Desktop advanced
+to 0.3.5 without a matching root README status or changelog release heading; this guard now
+catches that mismatch in CI.
 
 That matters more here than in most projects. A reader deciding whether a bundle is worth
 testing against real data starts at the README, and the repository's own rule is that the
