@@ -106,16 +106,21 @@ class CraminoQCTests(unittest.TestCase):
         self.assertNotIn("path", metrics)
         self.assertNotIn("name", metrics)
 
-    def test_unvalidated_empty_policy_is_warning_not_pass(self) -> None:
+    def test_missing_numeric_gates_warn_independent_of_research_status(self) -> None:
         qc = evaluate_qc_metrics(parse_cramino_json(CRAMINO_JSON), _policy())
         self.assertEqual(qc.verdict, Verdict.WARN)
+        self.assertIn(
+            "No validated numeric QC gates are configured; metrics are descriptive only.",
+            qc.warnings,
+        )
+        self.assertNotIn("Synthetic unvalidated policy", qc.warnings)
 
     def test_configured_minimum_can_fail(self) -> None:
         qc = evaluate_qc_metrics(parse_cramino_json(CRAMINO_JSON), _policy(4.0))
         self.assertEqual(qc.verdict, Verdict.FAIL)
         self.assertEqual(qc.failed_gates, ["mean_coverage_x"])
 
-    def test_runner_records_version_and_normalized_output(self) -> None:
+    def test_runner_research_status_does_not_change_qc_verdict(self) -> None:
         report = run_cramino_qc(
             _manifest(),
             _policy(3.0),
@@ -123,7 +128,8 @@ class CraminoQCTests(unittest.TestCase):
             threads=2,
         )
         self.assertEqual(report.tool.version, "1.3.0")
-        self.assertEqual(report.qc.verdict, Verdict.WARN)
+        self.assertEqual(report.qc.verdict, Verdict.PASS)
+        self.assertNotIn("Synthetic unvalidated policy", report.qc.warnings)
         self.assertNotIn("/sensitive/", report.model_dump_json())
 
     def test_runner_includes_bounded_stderr_on_tool_failure(self) -> None:
