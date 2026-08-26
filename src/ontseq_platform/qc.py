@@ -82,12 +82,8 @@ def evaluate_qc_metrics(
         warnings.append(
             "No validated numeric QC gates are configured; metrics are descriptive only."
         )
-    elif policy.status != "validated":
-        verdict = Verdict.WARN
     else:
         verdict = Verdict.PASS
-    if policy.status != "validated":
-        warnings.append(policy.note)
     return QCMetrics(
         verdict=verdict,
         metrics=metrics,

@@ -3,6 +3,21 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased
+
+### Changed
+
+- Research-only/validation status no longer participates in QC verdict calculation.
+  Configured measurable gates alone determine `PASS` or `FAIL`; absence of configured gates
+  remains `WARN`.
+- The research-use disclaimer remains visible as report text. It does not change QC status.
+  Non-reportable findings and the separate expert-review workflow remain unchanged.
+
+### Validation impact
+
+This is a QC status-semantics change only. It does not alter QC measurements, configured
+thresholds, CNV/SV evidence, reportability, ISCN output or clinical-release safeguards.
+
 ## 0.3.4 - 2026-08-22
 
 ### Added
