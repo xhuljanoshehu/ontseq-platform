@@ -4,45 +4,81 @@ import html
 import json
 from pathlib import Path
 
-from .models import PipelineResult
+from .models import GenomicEvent, PipelineResult
+from .sv_evidence import sv_review_queue
 
 
 def _cell(value: object) -> str:
     return html.escape("" if value is None else str(value))
 
 
+def _event_evidence(event: GenomicEvent) -> str:
+    return ", ".join(
+        f"{item.caller} {item.caller_version} "
+        f"(support={item.support_reads}, vaf={item.variant_allele_fraction})"
+        for item in event.evidence
+    )
+
+
+def _event_loci(event: GenomicEvent) -> tuple[str, str]:
+    primary = f"{event.primary.chromosome}:{event.primary.start}-{event.primary.end}"
+    secondary = (
+        ""
+        if event.secondary is None
+        else f"{event.secondary.chromosome}:{event.secondary.start}-{event.secondary.end}"
+    )
+    return primary, secondary
+
+
+def _full_event_row(event: GenomicEvent) -> str:
+    primary_locus, secondary_locus = _event_loci(event)
+    return (
+        "<tr>"
+        f"<td>{_cell(event.event_id)}</td>"
+        f"<td>{_cell(event.event_type.value)}</td>"
+        f"<td>{_cell(event.length_bp)}</td>"
+        f"<td>{_cell(primary_locus)}</td>"
+        f"<td>{_cell(secondary_locus)}</td>"
+        f"<td>{_cell(event.primary.cytoband_start)}</td>"
+        f"<td>{_cell(', '.join(event.genes))}</td>"
+        f"<td>{_cell(event.confidence)}</td>"
+        f"<td>{_cell(event.reportable)}</td>"
+        f"<td>{_cell(_event_evidence(event))}</td>"
+        "</tr>"
+    )
+
+
+def _review_event_row(event: GenomicEvent) -> str:
+    primary_locus, secondary_locus = _event_loci(event)
+    return (
+        "<tr>"
+        f"<td>{_cell(event.event_id)}</td>"
+        f"<td>{_cell(event.event_type.value)}</td>"
+        f"<td>{_cell(primary_locus)}</td>"
+        f"<td>{_cell(secondary_locus)}</td>"
+        f"<td>{_cell(', '.join(event.genes))}</td>"
+        f"<td><strong>{_cell(event.confidence)}</strong></td>"
+        f"<td>{_cell(_event_evidence(event))}</td>"
+        "</tr>"
+    )
+
+
 def render_html(result: PipelineResult, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    event_rows = []
-    for event in result.events:
-        evidence = ", ".join(
-            f"{item.caller} {item.caller_version} (support={item.support_reads})"
-            for item in event.evidence
-        )
-        primary_locus = f"{event.primary.chromosome}:{event.primary.start}-{event.primary.end}"
-        secondary_locus = (
-            ""
-            if event.secondary is None
-            else f"{event.secondary.chromosome}:{event.secondary.start}-{event.secondary.end}"
-        )
-        event_rows.append(
-            "<tr>"
-            f"<td>{_cell(event.event_id)}</td>"
-            f"<td>{_cell(event.event_type.value)}</td>"
-            f"<td>{_cell(event.length_bp)}</td>"
-            f"<td>{_cell(primary_locus)}</td>"
-            f"<td>{_cell(secondary_locus)}</td>"
-            f"<td>{_cell(event.primary.cytoband_start)}</td>"
-            f"<td>{_cell(', '.join(event.genes))}</td>"
-            f"<td>{_cell(event.confidence)}</td>"
-            f"<td>{_cell(event.reportable)}</td>"
-            f"<td>{_cell(evidence)}</td>"
-            "</tr>"
-        )
+
+    event_rows = [_full_event_row(event) for event in result.events]
     if not event_rows:
         event_rows.append(
             "<tr><td colspan='10'>No events were produced. Review module status; this is not "
             "a biological negative result.</td></tr>"
+        )
+
+    review_events = sv_review_queue(result.events, limit=50)
+    review_rows = [_review_event_row(event) for event in review_events]
+    if not review_rows:
+        review_rows.append(
+            "<tr><td colspan='7'>No high/moderate technical-priority SV candidate was "
+            "identified. This is not a biological negative result.</td></tr>"
         )
 
     metric_cards = "".join(
@@ -74,7 +110,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
   <title>ONTSeq report - {_cell(result.manifest.sample_id)}</title>
   <style>
     :root {{ color-scheme: light; --ink:#132238; --muted:#5b6778; --line:#dbe3ec;
-      --brand:#075985; --soft:#eef7fb; --warn:#9a3412; }}
+      --brand:#075985; --soft:#eef7fb; --warn:#9a3412; --priority:#7c2d12; }}
     body {{ margin:0; font:15px/1.5 system-ui,sans-serif; color:var(--ink); background:#f6f8fb; }}
     main {{ max-width:1120px; margin:32px auto; padding:0 24px 48px; }}
     header {{ background:linear-gradient(135deg,#083344,#075985); color:white; padding:28px;
@@ -94,6 +130,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
     th {{ background:var(--soft); }} code {{ font-size:12px; }}
     .iscn {{ font:700 20px ui-monospace,monospace; color:var(--brand); overflow-wrap:anywhere; }}
     .warn {{ color:var(--warn); }}
+    .priority-note {{ color:var(--priority); font-weight:650; }}
   </style>
 </head>
 <body>
@@ -110,7 +147,8 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
         <strong>{_cell(result.qc.verdict.value)}</strong></div>
       <div class="card"><span>Release status</span>
         <strong>{_cell(result.release_status.value)}</strong></div>
-      <div class="card"><span>Events</span><strong>{len(result.events)}</strong></div>
+      <div class="card"><span>Review queue</span><strong>{len(review_events)}</strong></div>
+      <div class="card"><span>All events</span><strong>{len(result.events)}</strong></div>
       <div class="card"><span>Pipeline</span>
         <strong>{_cell(result.provenance.pipeline_version)}</strong></div>
     </div>
@@ -120,7 +158,14 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       <p>{_cell(result.iscn.standard_edition)} | {_cell(result.iscn.conformance_profile)} |
       {_cell(result.iscn.review_status.value)}</p></section>
     <section><h2>Quality control</h2><div class="grid">{metric_cards}</div></section>
-    <section><h2>Genomic events</h2><table><thead><tr><th>ID</th><th>Type</th>
+    <section><h2>SV review queue</h2>
+      <p class="priority-note">Automated technical prioritization only — not clinical validation.
+      High/moderate candidates are surfaced here for efficient review; every normalized event is
+      retained in the complete table below and remains non-reportable pending assay validation.</p>
+      <table><thead><tr><th>ID</th><th>Type</th><th>Locus 1</th><th>Locus 2</th>
+      <th>Genes</th><th>Technical confidence</th><th>Evidence</th></tr></thead>
+      <tbody>{"".join(review_rows)}</tbody></table></section>
+    <section><h2>All normalized genomic events</h2><table><thead><tr><th>ID</th><th>Type</th>
       <th>Length (bp)</th><th>Locus 1</th><th>Locus 2</th><th>Band</th><th>Genes</th>
       <th>Confidence</th><th>Reportable</th><th>Evidence</th></tr></thead>
       <tbody>{"".join(event_rows)}</tbody></table></section>
