@@ -5,6 +5,10 @@ validated release.
 
 ## Unreleased
 
+No changes recorded yet.
+
+## 0.4.0 - 2026-08-27
+
 ### Changed
 
 - Research-only/validation status no longer participates in QC verdict calculation.
@@ -88,8 +92,10 @@ validated release.
   and grouped it with CNV as "not wired in". It has been wired into the canonical runner and
   verified against real Mosdepth since 0.3.4; the stage table, the scope note and the
   preflight section now say what the code does.
-- README section 14 names the desktop version on `main` as 0.3.5, matching
-  `desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj` and the desktop README.
+- Core, Desktop, WSL runtime and Windows bundle identity advance together to 0.4.0. The
+  consistency gate now covers the executable Desktop label, runtime installer, Desktop CI
+  artifact version and current operator documentation in addition to the original five
+  release declarations.
 
 ### Validation impact
 
@@ -103,6 +109,9 @@ machine where the previous version ran to completion. The decoding fix removes a
 locale-dependent failure mode, so a run that previously aborted mid-stage on a non-UTF-8
 locale now proceeds; it does not change what that run reports. Nothing here makes any output
 more validated than it was.
+
+The 0.4.0 version advance changes release and runtime identity only; it does not itself add
+analytical or clinical validation.
 
 ## 0.3.5 - 2026-08-25
 

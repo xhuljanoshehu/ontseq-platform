@@ -1,5 +1,8 @@
 name: Desktop CI
 
+env:
+  ONTSEQ_VERSION: "0.4.0"
+
 on:
   pull_request:
     paths:
@@ -71,7 +74,7 @@ jobs:
         shell: bash -el {0}
         run: |
           set -euo pipefail
-          micromamba run -n ontseq-qdnaseq-cnv python -c 'import ontseq_platform; assert ontseq_platform.__version__ == "0.3.5", ontseq_platform.__version__'
+          micromamba run -n ontseq-qdnaseq-cnv python -c 'import ontseq_platform; assert ontseq_platform.__version__ == "${{ env.ONTSEQ_VERSION }}", ontseq_platform.__version__'
           micromamba run -n ontseq-qdnaseq-cnv samtools --version | head -1
           micromamba run -n ontseq-qdnaseq-cnv cramino --version
           micromamba run -n ontseq-qdnaseq-cnv sniffles --version
@@ -207,7 +210,7 @@ jobs:
       - name: Upload Linux runtime
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-linux-runtime-v0.3.5
+          name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: ontseq-linux-runtime.tar.gz
           if-no-files-found: error
           retention-days: 30
@@ -234,7 +237,7 @@ jobs:
       - name: Add pinned Linux runtime to desktop bundle
         uses: actions/download-artifact@v4
         with:
-          name: ontseq-linux-runtime-v0.3.5
+          name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: desktop/publish/runtime
       - name: Add operator documentation and build identity
         shell: pwsh
@@ -244,12 +247,12 @@ jobs:
           Copy-Item desktop/ONTSeq.Desktop/CHANGELOG.md desktop/publish/CHANGELOG.md
           $commit = (git rev-parse HEAD).Trim()
           @"
-          ONTSeq Desktop 0.3.5-engineering
-          Core 0.3.5
+          ONTSeq Desktop ${{ env.ONTSEQ_VERSION }}-engineering
+          Core ${{ env.ONTSEQ_VERSION }}
           Git commit: $commit
           Platform: win-x64 self-contained WPF + bundled Linux/R WSL runtime
           Build type: unsigned Research Use Only engineering bundle
-          Artifact: ontseq-desktop-v0.3.5-win-x64-setup-engineering
+          Artifact: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering
           GRCh38 QDNAseq annotation: QDNAseq.hg38 1.2.0 @ cf7c07e39de0ac64a9c38cb030cba4626e2aae83
           "@ | Set-Content -Encoding utf8 desktop/publish/BUILD-INFO.txt
       - name: Verify complete first-run bundle
@@ -275,17 +278,17 @@ jobs:
           if ($hg38Commit -ne "cf7c07e39de0ac64a9c38cb030cba4626e2aae83") {
             throw "Bundled QDNAseq.hg38 commit is unexpected: $hg38Commit"
           }
-          if (-not (Select-String -Path $buildInfo -SimpleMatch "ONTSeq Desktop 0.3.5-engineering" -Quiet)) {
-            throw "BUILD-INFO.txt does not identify Desktop v0.3.5"
+          if (-not (Select-String -Path $buildInfo -SimpleMatch "ONTSeq Desktop ${{ env.ONTSEQ_VERSION }}-engineering" -Quiet)) {
+            throw "BUILD-INFO.txt does not identify Desktop v${{ env.ONTSEQ_VERSION }}"
           }
-          if (-not (Select-String -Path $firstRun -SimpleMatch "Desktop v0.3.5" -Quiet)) {
-            throw "First-run documentation is not versioned for v0.3.5"
+          if (-not (Select-String -Path $firstRun -SimpleMatch "Desktop v${{ env.ONTSEQ_VERSION }}" -Quiet)) {
+            throw "First-run documentation is not versioned for v${{ env.ONTSEQ_VERSION }}"
           }
           Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ontseq-desktop-v0.3.5-win-x64-setup-engineering
+          name: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
           retention-days: 30
