@@ -160,6 +160,19 @@ parameters and must not be interpreted as validated clinical cut-offs.
 - Dedicated technical policy for target coverage and a synthetic real-tool CI path.
 - Documentation that separates the unbuffered analysis ROI BED from operational Adaptive
   Sampling selection regions.
+- Precision-first portable-report view model that keeps execution state, caller evidence,
+  knowledge-resource annotations and interpretation boundaries separate.
+- Synthetic regression tests for `NO_CALL`, `FAILED`, zero-valued evidence, HTML escaping,
+  offline rendering and RUO/reportability boundaries.
+
+### Changed
+
+- Reorganized the portable HTML report around reviewer tasks: review blockers first, then module
+  execution, QC, normalized event evidence, ISCN proposal, warnings and provenance.
+- Expanded event evidence display to preserve support reads, local coverage, VAF, quality,
+  strands, precision and filters without converting missing values into zero or vice versa.
+- A `reportable: true` pipeline flag is now displayed with an explicit statement that the RUO
+  report remains not clinically validated.
 
 ### Changed
 
@@ -178,6 +191,11 @@ not an adequacy gate, not a reportability threshold and not a no-call definition
 is `derived_unconfirmed`: it is reconstructed from laboratory coverage tables rather than
 copied from the selection file used at sequencing time, and one target label contradicts its
 coordinates.
+
+The HTML changes are presentation-only: they do not alter callers, thresholds, normalized events,
+module status, confidence, reportability or ISCN generation. They deliberately make `FAILED`,
+`NO_CALL`, `NOT_RUN`, unavailable evidence and unvalidated interpretation boundaries harder to
+misread. Clinical/analytical validation status is unchanged.
 
 ## 0.3.0 - 2026-08-14
 
