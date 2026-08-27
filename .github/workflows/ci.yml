@@ -36,6 +36,9 @@ jobs:
       - name: Schemas are current
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/export_schemas.py --check
+      - name: Declared versions agree
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python scripts/check_version_consistency.py
       - name: Lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |

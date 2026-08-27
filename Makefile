@@ -1,4 +1,4 @@
-.PHONY: install test lint demo local-smoke schemas safety clean
+.PHONY: install test lint demo local-smoke schemas safety versions clean
 
 install:
 	python -m pip install -e ".[dev]"
@@ -22,6 +22,9 @@ schemas:
 
 safety:
 	python scripts/check_repository_safety.py
+
+versions:
+	python scripts/check_version_consistency.py
 
 clean:
 	python -c "from pathlib import Path; import shutil; [shutil.rmtree(p, ignore_errors=True) for p in map(Path, ['results', 'build', 'dist', '.pytest_cache', '.mypy_cache', '.ruff_cache'])]"

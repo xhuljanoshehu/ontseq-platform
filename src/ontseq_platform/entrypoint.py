@@ -22,6 +22,7 @@ _SCIENTIFIC_COMMANDS = (
     ("validate-result", "Validate a pipeline result against the schema"),
     ("render", "Render HTML and Excel from an existing result JSON"),
     ("reference-lock", "Create a versioned reference lock from a FASTA index"),
+    ("validate-reference", "Validate and summarize an existing reference lock"),
     ("inspect-bam", "Run the aligned-BAM integrity and reference gate"),
     ("qc-cramino", "Run Cramino and normalize descriptive BAM QC"),
     ("qc-target-coverage", "Run Mosdepth over a target design"),

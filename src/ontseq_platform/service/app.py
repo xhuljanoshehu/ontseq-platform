@@ -67,6 +67,7 @@ from .guard import (
     new_token,
     origin_is_loopback,
     resolve_bam_index,
+    resolve_envelope,
     resolve_within,
     token_matches,
     windows_to_wsl,
@@ -177,6 +178,10 @@ class RunJob:
         }
 
 
+class JobRejected(Exception):
+    """Raised when a run cannot be registered. The message is safe to show the operator."""
+
+
 class Jobs:
     """The runs this process has started. One at a time, as the envelope lock requires."""
 
@@ -184,8 +189,32 @@ class Jobs:
         self._jobs: dict[str, RunJob] = {}
         self._lock = threading.Lock()
 
-    def add(self, job: RunJob) -> None:
+    def claim(self, job: RunJob) -> None:
+        """Register *job* only if nothing else is running, atomically.
+
+        Asking ``running()`` and then calling ``add()`` reads correctly and is wrong: the
+        service is a ``ThreadingHTTPServer``, so two POSTs to ``/api/runs`` arriving
+        together can both see an idle service and both start a pipeline. The envelope lock
+        does not catch that — it guards one envelope, and two runs with different run ids
+        take different envelopes. What follows is two pipelines on one workstation, each
+        sized for the whole machine, and a page that shows one of them.
+
+        Registering a second run under a run id already in flight would also drop the first
+        job from the table while its thread kept going, leaving a run nobody can observe.
+        Both cases are refused here, where the decision is made under the lock.
+        """
         with self._lock:
+            for existing in self._jobs.values():
+                if existing.state == "running":
+                    raise JobRejected(
+                        f"an analysis is already running ({existing.run_id}/"
+                        f"{existing.sample_id}); wait for it to finish"
+                    )
+            if job.run_id in self._jobs:
+                raise JobRejected(
+                    f"run id {job.run_id!r} has already been used in this session; "
+                    "choose a different run id"
+                )
             self._jobs[job.run_id] = job
 
     def get(self, run_id: str) -> RunJob | None:
@@ -376,6 +405,15 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
         def do_GET(self) -> None:  # noqa: N802 - name fixed by BaseHTTPRequestHandler
             route = urlparse(self.path)
             if route.path in {"/", "/index.html", "/ONTSeq.html"}:
+                # The page carries the session token, so it gets the same rebinding check
+                # the API gets. Without it a page on an attacker-controlled name resolved
+                # to 127.0.0.1 is same-origin with this service and can simply read the
+                # token out of the response. The API's Host check still refuses the token
+                # afterwards; not handing it over in the first place is cheaper than
+                # relying on that being the only place it matters.
+                if not host_is_loopback(self.headers.get("Host"), port=config.port):
+                    self._refuse(HTTPStatus.FORBIDDEN, "request did not come from loopback")
+                    return
                 self._serve_page()
                 return
             if not route.path.startswith("/api/"):
@@ -453,12 +491,27 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             if not target.is_dir():
                 self._refuse(HTTPStatus.BAD_REQUEST, f"not a directory: {target}")
                 return
+            try:
+                listing = sorted(target.iterdir(), key=lambda entry: entry.name.lower())
+            except OSError as error:
+                self._refuse(HTTPStatus.BAD_REQUEST, f"cannot list {target}: {error}")
+                return
             entries = []
-            for item in sorted(target.iterdir(), key=lambda entry: entry.name.lower()):
+            skipped = 0
+            for item in listing:
                 if item.name.startswith("."):
                     continue
-                is_dir = item.is_dir()
-                if not is_dir and item.suffix.lower() not in INPUT_SUFFIXES:
+                try:
+                    is_dir = item.is_dir()
+                    if not is_dir and item.suffix.lower() not in INPUT_SUFFIXES:
+                        continue
+                    size = None if is_dir else item.stat().st_size
+                except OSError:
+                    # A dangling symlink or an entry this user may not stat is not a
+                    # reason to fail the whole listing. Letting it raise here aborts the
+                    # request without a response, and the page shows a network error for
+                    # a directory whose other entries are perfectly usable.
+                    skipped += 1
                     continue
                 entries.append(
                     {
@@ -466,7 +519,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                         "posix": str(item),
                         "display": wsl_to_windows(str(item)),
                         "directory": is_dir,
-                        "size_bytes": None if is_dir else item.stat().st_size,
+                        "size_bytes": size,
                         "indexed": is_dir or _bam_is_indexed(item),
                     }
                 )
@@ -478,13 +531,13 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                     "display": wsl_to_windows(str(target)),
                     "parent": parent,
                     "entries": entries,
+                    # Reported rather than swallowed: a BAM missing from a listing is
+                    # something the operator has to be able to see, not guess at.
+                    "unreadable_entries": skipped,
                 },
             )
 
         def _start_run(self, payload: dict[str, Any]) -> None:
-            if jobs.running():
-                self._refuse(HTTPStatus.CONFLICT, "an analysis is already running")
-                return
             try:
                 lock = load_model(config.reference_lock, ReferenceLock)
                 manifest = _build_manifest(
@@ -508,7 +561,13 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 sample_id=manifest.sample_id,
                 envelope=config.output_dir / manifest.run_id / manifest.sample_id,
             )
-            jobs.add(job)
+            try:
+                # Claimed before the thread starts, so the slot is taken by whichever
+                # request got here first rather than by whichever thread starts fastest.
+                jobs.claim(job)
+            except JobRejected as error:
+                self._refuse(HTTPStatus.CONFLICT, str(error))
+                return
             args = (config, manifest, job)
             threading.Thread(target=_execute, args=args, daemon=True).start()
             self._json(HTTPStatus.ACCEPTED, job.snapshot())
@@ -527,21 +586,39 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             visited = 0
             exhausted = False
             for root in config.allowed_roots:
-                for directory, _subdirs, files in os.walk(Path(root).expanduser().resolve()):
+                resolved_root = Path(root).expanduser().resolve()
+                for directory, _subdirs, files in os.walk(resolved_root):
                     visited += 1
                     if visited > SEARCH_DIRECTORY_LIMIT:
                         exhausted = True
                         break
-                    if wanted in files:
-                        found = Path(directory) / wanted
+                    # Construct the candidate from the filename returned by the
+                    # filesystem, not from the query parameter. Apart from making the
+                    # data-flow boundary explicit, resolving it again prevents a BAM
+                    # symlink inside an allowed root from exposing a target outside it.
+                    for entry_name in files:
+                        if entry_name != wanted:
+                            continue
+                        candidate = Path(directory) / entry_name
+                        try:
+                            found = resolve_within(candidate, [resolved_root])
+                            if not found.is_file():
+                                continue
+                            size = found.stat().st_size
+                        except (GuardError, OSError):
+                            # Same reasoning as the browser: an entry that cannot be
+                            # resolved/stat'ed is dropped from the results, not turned
+                            # into a failed search across every other root.
+                            continue
                         matches.append(
                             {
                                 "posix": str(found),
                                 "display": wsl_to_windows(str(found)),
-                                "size_bytes": found.stat().st_size,
+                                "size_bytes": size,
                                 "indexed": _bam_is_indexed(found),
                             }
                         )
+                        break
                 if exhausted:
                     break
             self._json(
@@ -591,7 +668,14 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             if not reviewer:
                 self._refuse(HTTPStatus.BAD_REQUEST, "no reviewer name was given")
                 return
-            envelope = config.output_dir / run_id / sample_id
+            try:
+                # Both names come straight out of the request URL. Joining them onto the
+                # output directory unchecked is how "/api/review/../other" signs off an
+                # envelope this service was never pointed at.
+                envelope = resolve_envelope(config.output_dir, run_id, sample_id)
+            except GuardError as error:
+                self._refuse(HTTPStatus.FORBIDDEN, str(error))
+                return
             try:
                 entry = record_review(
                     envelope,

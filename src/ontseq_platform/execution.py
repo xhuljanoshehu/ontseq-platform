@@ -97,6 +97,17 @@ class SubprocessRunner:
         )
 
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
+        """Run a command and capture its output as text.
+
+        Decoding is pinned to UTF-8 with replacement rather than left to ``text=True``,
+        which would use the platform locale. Under the ``C``/``POSIX`` locale that
+        resolves to ASCII, and a single non-ASCII byte anywhere in a tool banner — an
+        em dash in a version string, a micro sign in a progress line — would raise
+        ``UnicodeDecodeError`` from inside the runner. That would make the outcome of a
+        stage depend on the operator's environment, which is the one thing a
+        reproducible pipeline cannot allow. Replacement matches ``run_to_file``, and
+        losing a character from a diagnostic line is preferable to losing the run.
+        """
         normalized = _normalize(argv)
         try:
             completed = subprocess.run(
@@ -104,7 +115,8 @@ class SubprocessRunner:
                 check=False,
                 capture_output=True,
                 stdin=subprocess.DEVNULL,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout_seconds,
             )
         except FileNotFoundError as exc:
