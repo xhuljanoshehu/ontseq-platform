@@ -221,7 +221,7 @@ jobs:
 
       - name: Upload compact GRCh38 CNV artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qdnaseq-grch38-real-tool-smoke
           path: |
