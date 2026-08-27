@@ -64,6 +64,8 @@ Evidence level describes applicability to this project, not general publication 
 | Dependency | Locked interface | Safety-relevant decision |
 | --- | --- | --- |
 | Sniffles2 | v2.8.0; official [CLI source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/config.py), [VCF source](https://github.com/fritzsedlazeck/Sniffles/blob/master/src/sniffles/vcf.py) and [Bioconda recipe](https://bioconda.github.io/recipes/sniffles/README.html) | Explicit support/size/MAPQ parameters; symbolic candidates with PASS-only normalization; no read-name output; unvalidated candidates only. |
+| cuteSV | v2.1.3; official [source](https://github.com/tjiangHIT/cuteSV) and [Bioconda recipe](https://bioconda.github.io/recipes/cutesv/README.html) | Independent candidate evidence with locked clustering/support parameters; caller agreement raises technical priority but never creates truth or reportability. |
+| SV annotation resources | GENCODE v19 for GRCh37, GENCODE v50 for GRCh38 and build-matched UCSC cytobands | Original and normalized resources are locally checksum locked. Build disagreement fails closed; annotation cannot be inferred from an expected fusion name. |
 | samtools | v1.24 in `workflow/envs/aligned_bam.yaml` | Fail-closed quickcheck/header/dictionary/index gate before a scientific caller. |
 | Cramino | v1.3.0 in `workflow/envs/aligned_bam.yaml` | Normalize aggregate QC only; do not copy source path or read-level data. |
 

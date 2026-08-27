@@ -48,7 +48,18 @@ from types import FrameType
 from . import __version__
 from .align import AlignmentPolicy
 from .io import load_mapping, load_model
-from .models import InputKind, QCPolicy, ReferenceLock, SampleManifest, SnifflesPolicy
+from .models import (
+    AmlKnowledgeLock,
+    CuteSvPolicy,
+    InputKind,
+    IntervalResourceLock,
+    QCPolicy,
+    ReferenceLock,
+    SampleManifest,
+    SnifflesPolicy,
+    SvConsensusPolicy,
+    SvEvidencePolicy,
+)
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.runner import RunConfiguration, run_pipeline
 from .pipeline.watch import (
@@ -61,6 +72,7 @@ from .pipeline.watch import (
     sample_id_from_directory,
     should_attempt,
 )
+from .target_coverage import TargetCoveragePolicy
 
 #: What each declared input kind looks like on disk, matched case-insensitively.
 INPUT_SUFFIXES: dict[InputKind, tuple[str, ...]] = {
@@ -96,6 +108,15 @@ class WatchSettings:
     qc_policy: Path
     input_kind: InputKind
     sniffles_policy: Path | None = None
+    cutesv_policy: Path | None = None
+    sv_consensus_policy: Path | None = None
+    sv_evidence_policy: Path | None = None
+    target_coverage_policy: Path | None = None
+    gene_annotation: tuple[Path, IntervalResourceLock] | None = None
+    cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
+    sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
+    aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
+    sv_minimum_mean_depth: float = 10.0
     alignment_policy: Path | None = None
     reference_fasta: Path | None = None
     run_id_prefix: str = ""
@@ -121,6 +142,10 @@ class ResolvedConfiguration:
     reference_lock: ReferenceLock
     qc_policy: QCPolicy
     sniffles_policy: SnifflesPolicy | None
+    cutesv_policy: CuteSvPolicy | None
+    sv_consensus_policy: SvConsensusPolicy | None
+    sv_evidence_policy: SvEvidencePolicy | None
+    target_coverage_policy: TargetCoveragePolicy | None
     alignment_policy: AlignmentPolicy | None
     manifest_template: dict[str, object]
 
@@ -153,6 +178,27 @@ def resolve(settings: WatchSettings) -> ResolvedConfiguration:
             if settings.sniffles_policy is not None and settings.sniffles_policy.is_file()
             else None
         )
+        cutesv = (
+            load_model(settings.cutesv_policy, CuteSvPolicy)
+            if settings.cutesv_policy is not None and settings.cutesv_policy.is_file()
+            else None
+        )
+        consensus = (
+            load_model(settings.sv_consensus_policy, SvConsensusPolicy)
+            if settings.sv_consensus_policy is not None and settings.sv_consensus_policy.is_file()
+            else None
+        )
+        evidence = (
+            load_model(settings.sv_evidence_policy, SvEvidencePolicy)
+            if settings.sv_evidence_policy is not None and settings.sv_evidence_policy.is_file()
+            else None
+        )
+        target_coverage = (
+            load_model(settings.target_coverage_policy, TargetCoveragePolicy)
+            if settings.target_coverage_policy is not None
+            and settings.target_coverage_policy.is_file()
+            else None
+        )
         alignment = (
             load_model(settings.alignment_policy, AlignmentPolicy)
             if settings.alignment_policy is not None and settings.alignment_policy.is_file()
@@ -167,6 +213,8 @@ def resolve(settings: WatchSettings) -> ResolvedConfiguration:
             f"input kind {settings.input_kind.value} has to be aligned, which needs "
             "--reference-fasta"
         )
+    if cutesv is not None and settings.reference_fasta is None:
+        raise WatchConfigurationError("cuteSV is enabled, which requires --reference-fasta")
 
     # Prove the template produces a valid manifest now, rather than once per sample later.
     try:
@@ -187,6 +235,10 @@ def resolve(settings: WatchSettings) -> ResolvedConfiguration:
         reference_lock=reference_lock,
         qc_policy=qc_policy,
         sniffles_policy=sniffles,
+        cutesv_policy=cutesv,
+        sv_consensus_policy=consensus,
+        sv_evidence_policy=evidence,
+        target_coverage_policy=target_coverage,
         alignment_policy=alignment,
         manifest_template=template,
     )
@@ -355,6 +407,15 @@ def _attempt_one(
         git_commit=settings.git_commit,
         qc_policy=resolved.qc_policy,
         sniffles_policy=resolved.sniffles_policy,
+        cutesv_policy=resolved.cutesv_policy,
+        sv_consensus_policy=resolved.sv_consensus_policy,
+        sv_evidence_policy=resolved.sv_evidence_policy,
+        target_coverage_policy=resolved.target_coverage_policy,
+        gene_annotation=settings.gene_annotation,
+        cytoband_annotation=settings.cytoband_annotation,
+        sv_context_resources=settings.sv_context_resources,
+        aml_knowledge=settings.aml_knowledge,
+        sv_minimum_mean_depth=settings.sv_minimum_mean_depth,
         alignment_policy=resolved.alignment_policy,
         reference_fasta=settings.reference_fasta,
         threads=settings.threads,

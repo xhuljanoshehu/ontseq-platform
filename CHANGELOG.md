@@ -5,7 +5,37 @@ validated release.
 
 ## Unreleased
 
-No changes recorded yet.
+### Added
+
+- A productive cuteSV 2.1.3 adapter now runs beside Sniffles2 with version-locked parameters,
+  atomic VCF finalization and caller-specific normalized evidence.
+- A versioned consensus layer canonicalizes reversed BND/TRA representations and clusters
+  compatible DEL/DUP/INV/INS/translocation records by type-aware breakpoint, overlap, length and
+  available orientation rules. Source caller IDs and evidence remain traceable.
+- Build- and checksum-locked interval annotation now supplies separate breakpoint genes,
+  cytobands, nearest-gene distances and repeat/tandem-repeat/segmental-duplication/blacklist/
+  mappability/centromere/telomere context flags. A preparation script records both original and
+  normalized resource hashes.
+- Adaptive Sampling SVs now carry explicit breakpoint depths and observability states. A small,
+  versioned AML rearrangement-pattern resource prioritizes recurrent patterns without asserting a
+  confirmed fusion.
+- The technical evidence score is fully represented by a versioned policy. HTML and XLSX show a
+  filterable high/moderate review queue, Gene A/B, caller support/consensus, coverage, artifact
+  context, AML relevance and validation status while retaining the complete technical table.
+- Synthetic regression coverage includes cuteSV-only normalization/execution, Sniffles-only
+  behavior, two-caller consensus, canonical reversed BND orientation, within-caller clustering,
+  separated nearby events, annotation build refusal, repeat context, Adaptive Sampling partial and
+  insufficient coverage, AML patterns and the permanent non-reportable boundary.
+
+### Validation impact
+
+- This change can alter technical SV clustering, priority tiers and report order. All new matching,
+  observability and scoring cut-offs are explicitly `technical_defaults_only`; none is a validated
+  sensitivity, specificity, PPV, LoD or clinical threshold.
+- Every automated event remains `reportable=false`. Multi-caller support and AML pattern matches do
+  not set `analytically_validated`, assert a fusion or establish a somatic origin. Independent
+  public technical benchmarks and orthogonally characterized AML specimens remain required before
+  clinical use.
 
 ## 0.4.0 - 2026-08-27
 

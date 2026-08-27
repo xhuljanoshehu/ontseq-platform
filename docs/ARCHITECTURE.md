@@ -75,10 +75,18 @@ Each bioinformatics tool will have an adapter with four responsibilities:
 Adapters never decide clinical reportability on their own. Reportability policy belongs to
 the versioned assay profile and its validation evidence.
 
-The first scientific adapter implements this boundary for Sniffles2: shell-free argument-vector
-execution, explicit version and thresholds, symbolic VCF output without read names, defensive VCF
-normalization and non-reportable candidates. BND evidence remains an SV breakend; fusion and ISCN
-semantics require separate downstream modules.
+The SV lane implements this boundary independently for Sniffles2 and cuteSV: shell-free
+argument-vector execution, explicit version and policy locks, VCF output without read names,
+defensive normalization and non-reportable candidates. A separate consensus adapter canonicalizes
+breakend order and clusters compatible caller records; it never treats either caller or their
+agreement as truth.
+
+Build- and checksum-locked interval adapters then attach Gene A/B, cytobands and artifact context.
+The existing target-coverage contract supplies breakpoint observability for Adaptive Sampling. A
+small local AML pattern resource can change review priority but cannot assert a fusion, analytical
+validation, reportability or ISCN semantics. The final deterministic prioritizer reads all weights
+and cut-offs from `configs/sv/evidence-priority.technical.yaml`. See
+`docs/SV_EVIDENCE_LAYER.md` for the resource and validation contract.
 
 ## Evidence lifecycle
 

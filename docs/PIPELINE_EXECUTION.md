@@ -6,7 +6,8 @@ This document describes how one sample is taken from raw input to a checksummed 
 bundle in a single command, and — just as important — what that command does *not* prove.
 
 ```
-ontseq run <manifest.json> --reference-lock <lock.json> --run-id <RUN> [--reference-fasta …]
+ontseq run <manifest.json> --reference-lock <lock.json> --reference-fasta <reference.fa> \
+  --run-id <RUN>
 ```
 
 The scope of automation ends where interpretation begins. The pipeline produces evidence
@@ -28,7 +29,7 @@ about without executing anything.
 | `qc` | cramino | all | yes | verified with real tool |
 | `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
-| `sv` | Sniffles2 | all | no | verified with real tool |
+| `sv` | Sniffles2 + cuteSV, consensus and annotations | all | no | adapters verified with synthetic contracts; real-tool CI |
 | `assemble` | — | all | yes | pure Python |
 | `report` | — | all | yes | pure Python |
 | `release` | — | all | yes | pure Python |
@@ -148,7 +149,8 @@ Two lanes run against real binaries in the `local-real-tool-smoke` job, on synth
 that contains no genomic material of any kind.
 
 **Aligned-BAM lane.** A synthetic BAM is built with samtools, then taken through
-`intake → qc → sv → assemble → report → release` with real samtools, cramino and Sniffles2.
+`intake → qc → sv → assemble → report → release` with real samtools, cramino, Sniffles2 and
+cuteSV. CI requires both caller JSON artifacts and the consolidated consensus artifact.
 The release bundle's `checksums.sha256` is then verified independently with `sha256sum -c`,
 so the checksums are confirmed by a tool that shares no code with the one that wrote them.
 
@@ -164,8 +166,8 @@ alignment has a correct answer to find, and CI asserts on the result:
 - `MM` is still present on reverse-strand records specifically.
 
 Structural-variant detection is deliberately *not* asserted in this lane. Some fixture
-reads carry a 200 bp deletion so the aligner has a real gap to place, but whether Sniffles2
-calls it is the aligned-BAM lane's assertion. On the current fixture the SV stage records
+reads carry a 200 bp deletion so the aligner has a real gap to place, but whether either caller
+calls it is the aligned-BAM lane's assertion. On the current fixture the SV stage can record
 `NO_CALL`, which is a legitimate outcome and not a biological negative.
 
 That job is what earns `align` its `verified_with_real_tool` status. Before it existed the
@@ -269,7 +271,8 @@ Three rules govern reclaiming:
 
 ```
 ontseq watch /drop --manifest-template assay.manifest.yaml \
-  --reference-lock GRCh38.lock.json --input-kind aligned_bam \
+  --reference-lock GRCh38.lock.json --reference-fasta GRCh38.fa \
+  --input-kind aligned_bam \
   --output-dir results/runs
 ```
 

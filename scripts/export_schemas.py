@@ -6,15 +6,22 @@ from pathlib import Path
 
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
+    AmlKnowledgeLock,
     BenchmarkCase,
     BenchmarkReport,
     CraminoQCReport,
+    CuteSvCallReport,
+    CuteSvPolicy,
+    IntervalResourceLock,
     LocalSmokeReport,
     PipelineResult,
     ReferenceLock,
     SampleManifest,
     SnifflesCallReport,
     SnifflesPolicy,
+    SvConsensusPolicy,
+    SvConsensusReport,
+    SvEvidencePolicy,
 )
 
 
@@ -48,6 +55,34 @@ def _render() -> dict[Path, str]:
             SnifflesCallReport.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
+        Path("schemas/cutesv-policy.schema.json"): json.dumps(
+            CuteSvPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/cutesv-call.schema.json"): json.dumps(
+            CuteSvCallReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/sv-consensus-policy.schema.json"): json.dumps(
+            SvConsensusPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/sv-consensus-report.schema.json"): json.dumps(
+            SvConsensusReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/sv-evidence-policy.schema.json"): json.dumps(
+            SvEvidencePolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/interval-resource-lock.schema.json"): json.dumps(
+            IntervalResourceLock.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/aml-knowledge-lock.schema.json"): json.dumps(
+            AmlKnowledgeLock.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
         Path("schemas/local-smoke.schema.json"): json.dumps(
             LocalSmokeReport.model_json_schema(), indent=2, sort_keys=True
         )
@@ -74,7 +109,7 @@ def main() -> None:
                 mismatches.append(str(path))
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            path.write_text(content, encoding="utf-8", newline="\n")
             print(path)
     if mismatches:
         raise SystemExit(f"Schemas are stale: {', '.join(mismatches)}")

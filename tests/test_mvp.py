@@ -153,7 +153,8 @@ class AlignedBamMVPTests(unittest.TestCase):
             sniffles_report=sniffles,
         )
 
-        self.assertEqual(result.events, [event])
+        self.assertEqual([item.event_id for item in result.events], [event.event_id])
+        self.assertEqual(result.events[0].confidence, "low")
         self.assertFalse(result.events[0].reportable)
         status = {item.module: item.status for item in result.modules}
         self.assertEqual(status[AnalysisModule.SV], ModuleRunStatus.COMPLETED)
@@ -165,9 +166,11 @@ class AlignedBamMVPTests(unittest.TestCase):
             workbook = load_workbook(path, read_only=True)
             cnv_ids = {row[0] for row in workbook["03_CNV_Segments"].iter_rows(values_only=True)}
             sv_rows = list(workbook["04_SV"].iter_rows(values_only=True))
+            workbook.close()
         self.assertNotIn(event.event_id, cnv_ids)
         self.assertEqual(sv_rows[1][0], event.event_id)
-        self.assertFalse(sv_rows[1][6])
+        reportable_index = sv_rows[0].index("reportable")
+        self.assertFalse(sv_rows[1][reportable_index])
 
     def test_failed_intake_cannot_be_assembled(self) -> None:
         manifest = _manifest()

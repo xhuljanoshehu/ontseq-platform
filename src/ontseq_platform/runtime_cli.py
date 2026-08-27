@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -17,7 +18,18 @@ from .model_lock import ModelLockError
 from .model_lock import exit_code as model_lock_exit_code
 from .model_lock import fingerprint as model_fingerprint
 from .model_lock import render as render_model_lock
-from .models import InputKind, QCPolicy, ReferenceLock, SampleManifest, SnifflesPolicy
+from .models import (
+    AmlKnowledgeLock,
+    CuteSvPolicy,
+    InputKind,
+    IntervalResourceLock,
+    QCPolicy,
+    ReferenceLock,
+    SampleManifest,
+    SnifflesPolicy,
+    SvConsensusPolicy,
+    SvEvidencePolicy,
+)
 from .pipeline.checks import exit_code as check_exit_code
 from .pipeline.checks import render_json as render_checks_json
 from .pipeline.checks import render_text as render_checks_text
@@ -77,6 +89,51 @@ def _basecall_policy(path: Path) -> BasecallPolicy | None:
 
 def _sniffles_policy(path: Path) -> SnifflesPolicy | None:
     return load_model(path, SnifflesPolicy) if path.is_file() else None
+
+
+def _cutesv_policy(path: Path | None) -> CuteSvPolicy | None:
+    return load_model(path, CuteSvPolicy) if path is not None and path.is_file() else None
+
+
+def _sv_consensus_policy(path: Path | None) -> SvConsensusPolicy | None:
+    return load_model(path, SvConsensusPolicy) if path is not None and path.is_file() else None
+
+
+def _sv_evidence_policy(path: Path | None) -> SvEvidencePolicy | None:
+    return load_model(path, SvEvidencePolicy) if path is not None and path.is_file() else None
+
+
+def _interval_resource(
+    path: Path | None, lock_path: Path | None
+) -> tuple[Path, IntervalResourceLock] | None:
+    if path is None and lock_path is None:
+        return None
+    if path is None or lock_path is None:
+        raise SystemExit("an interval resource requires both data and lock paths")
+    return path, load_model(lock_path, IntervalResourceLock)
+
+
+def _interval_resources(
+    pairs: Sequence[Sequence[Path]],
+) -> tuple[tuple[Path, IntervalResourceLock], ...]:
+    resources: list[tuple[Path, IntervalResourceLock]] = []
+    for pair in pairs:
+        if len(pair) != 2:
+            raise SystemExit("each interval resource requires DATA and LOCK")
+        resolved = _interval_resource(pair[0], pair[1])
+        assert resolved is not None
+        resources.append(resolved)
+    return tuple(resources)
+
+
+def _aml_knowledge(
+    path: Path | None, lock_path: Path | None
+) -> tuple[Path, AmlKnowledgeLock] | None:
+    if path is None and lock_path is None:
+        return None
+    if path is None or lock_path is None:
+        raise SystemExit("AML knowledge requires both resource and lock paths")
+    return path, load_model(lock_path, AmlKnowledgeLock)
 
 
 def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
@@ -185,6 +242,49 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
     )
     parser.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+    )
+    parser.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    parser.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=Path("configs/sv/evidence-priority.technical.yaml"),
+    )
+    parser.add_argument("--gene-annotation", type=Path)
+    parser.add_argument("--gene-annotation-lock", type=Path)
+    parser.add_argument("--cytoband-annotation", type=Path)
+    parser.add_argument("--cytoband-annotation-lock", type=Path)
+    parser.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    parser.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+    )
+    parser.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    parser.add_argument(
+        "--sv-minimum-mean-depth",
+        type=float,
+        default=10.0,
+        help="Unvalidated technical depth floor used only for observability labels",
+    )
+    parser.add_argument(
         "--alignment-policy",
         type=Path,
         default=Path("configs/alignment/minimap2.ont.technical.yaml"),
@@ -218,6 +318,7 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("--samtools", default="samtools")
     parser.add_argument("--cramino", default="cramino")
     parser.add_argument("--sniffles", default="sniffles")
+    parser.add_argument("--cutesv", default="cuteSV")
     parser.add_argument("--minimap2", default="minimap2")
     parser.add_argument("--mosdepth", default="mosdepth")
     parser.add_argument("--dorado", default="dorado")
@@ -258,6 +359,46 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
     )
+    srv.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+    )
+    srv.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    srv.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=Path("configs/sv/evidence-priority.technical.yaml"),
+    )
+    srv.add_argument("--reference-fasta", type=Path)
+    srv.add_argument("--gene-annotation", type=Path)
+    srv.add_argument("--gene-annotation-lock", type=Path)
+    srv.add_argument("--cytoband-annotation", type=Path)
+    srv.add_argument("--cytoband-annotation-lock", type=Path)
+    srv.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    srv.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+    )
+    srv.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    srv.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
+    srv.add_argument("--cutesv", default="cuteSV")
     srv.add_argument(
         "--target-coverage-policy",
         type=Path,
@@ -305,12 +446,56 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
     )
     watcher.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=Path("configs/sv/evidence-priority.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+    )
+    watcher.add_argument("--gene-annotation", type=Path)
+    watcher.add_argument("--gene-annotation-lock", type=Path)
+    watcher.add_argument("--cytoband-annotation", type=Path)
+    watcher.add_argument("--cytoband-annotation-lock", type=Path)
+    watcher.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    watcher.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+    )
+    watcher.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    watcher.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
+    watcher.add_argument(
         "--alignment-policy",
         type=Path,
         default=Path("configs/alignment/minimap2.ont.technical.yaml"),
     )
     _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)
+    watcher.add_argument("--cutesv", default="cuteSV")
     watcher.add_argument("--ready-marker")
     watcher.add_argument("--pod5-subdir")
     watcher.add_argument("--quiet-seconds", type=float, default=300.0)
@@ -332,6 +517,7 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "samtools": args.samtools,
         "cramino": args.cramino,
         "sniffles": args.sniffles,
+        "cutesv": args.cutesv,
         "minimap2": args.minimap2,
         "mosdepth": getattr(args, "mosdepth", "mosdepth"),
         "dorado": args.dorado,
@@ -366,6 +552,16 @@ def main() -> None:
                 sniffles_policy=_sniffles_policy(
                     _selected_policy(selection, StageId.SV, args.sniffles_policy)
                 ),
+                cutesv_policy=_cutesv_policy(args.cutesv_policy),
+                sv_consensus_policy=_sv_consensus_policy(args.sv_consensus_policy),
+                sv_evidence_policy=_sv_evidence_policy(args.sv_evidence_policy),
+                gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
+                cytoband_annotation=_interval_resource(
+                    args.cytoband_annotation, args.cytoband_annotation_lock
+                ),
+                sv_context_resources=_interval_resources(args.sv_context_resource),
+                aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                 target_coverage_policy=_target_coverage_policy(
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
@@ -420,6 +616,7 @@ def main() -> None:
                 sniffles_policy=_sniffles_policy(
                     _selected_policy(selection, StageId.SV, args.sniffles_policy)
                 ),
+                cutesv_policy=_cutesv_policy(args.cutesv_policy),
                 target_coverage_policy=_target_coverage_policy(
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
@@ -467,6 +664,20 @@ def main() -> None:
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     ),
                     components=selection,
+                    cutesv_policy=args.cutesv_policy,
+                    sv_consensus_policy=args.sv_consensus_policy,
+                    sv_evidence_policy=args.sv_evidence_policy,
+                    reference_fasta=args.reference_fasta,
+                    gene_annotation=_interval_resource(
+                        args.gene_annotation, args.gene_annotation_lock
+                    ),
+                    cytoband_annotation=_interval_resource(
+                        args.cytoband_annotation, args.cytoband_annotation_lock
+                    ),
+                    sv_context_resources=_interval_resources(args.sv_context_resource),
+                    aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                    sv_minimum_mean_depth=args.sv_minimum_mean_depth,
+                    cutesv_executable=args.cutesv,
                     port=args.port,
                     threads=args.threads,
                 ),
@@ -519,6 +730,17 @@ def main() -> None:
                 qc_policy=args.qc_policy,
                 input_kind=InputKind(args.input_kind),
                 sniffles_policy=args.sniffles_policy,
+                cutesv_policy=args.cutesv_policy,
+                sv_consensus_policy=args.sv_consensus_policy,
+                sv_evidence_policy=args.sv_evidence_policy,
+                target_coverage_policy=args.target_coverage_policy,
+                gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
+                cytoband_annotation=_interval_resource(
+                    args.cytoband_annotation, args.cytoband_annotation_lock
+                ),
+                sv_context_resources=_interval_resources(args.sv_context_resource),
+                aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                 alignment_policy=args.alignment_policy,
                 reference_fasta=args.reference_fasta,
                 run_id_prefix=args.run_id_prefix,
@@ -528,6 +750,7 @@ def main() -> None:
                 threads=args.threads,
                 git_commit=args.git_commit,
                 retry_failed=args.retry_failed,
+                executables={"cutesv": args.cutesv},
             )
             passes = watch(
                 settings,

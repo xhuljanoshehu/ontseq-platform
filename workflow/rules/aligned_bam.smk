@@ -25,6 +25,9 @@ rule ontseq_run:
         reference_lock=config["reference_lock"],
         qc_policy=config["qc_policy"],
         sniffles_policy=config["sniffles_policy"],
+        cutesv_policy=config["cutesv_policy"],
+        sv_consensus_policy=config["sv_consensus_policy"],
+        sv_evidence_policy=config["sv_evidence_policy"],
     output:
         run_report=config["outputs"]["run_report"],
         release=config["outputs"]["release"],
@@ -37,9 +40,9 @@ rule ontseq_run:
         samtools=config["tools"]["samtools"],
         cramino=config["tools"]["cramino"],
         sniffles=config["tools"]["sniffles"],
+        cutesv=config["tools"]["cutesv"],
         minimap2=config["tools"]["minimap2"],
-        # Only needed when the run starts from POD5 or an unaligned BAM; an aligned-BAM
-        # run must not be forced to name a FASTA it will never read.
+        # Required by cuteSV and by runs that align their own input.
         reference_fasta=(
             f"--reference-fasta {config['reference_fasta']}"
             if config.get("reference_fasta")
@@ -52,6 +55,9 @@ rule ontseq_run:
         "--reference-lock {input.reference_lock:q} "
         "--qc-policy {input.qc_policy:q} "
         "--sniffles-policy {input.sniffles_policy:q} "
+        "--cutesv-policy {input.cutesv_policy:q} "
+        "--sv-consensus-policy {input.sv_consensus_policy:q} "
+        "--sv-evidence-policy {input.sv_evidence_policy:q} "
         "--output-dir {params.output_dir:q} "
         "--run-id {params.run_id:q} "
         "--threads {params.threads} "
@@ -59,5 +65,6 @@ rule ontseq_run:
         "--samtools {params.samtools:q} "
         "--cramino {params.cramino:q} "
         "--sniffles {params.sniffles:q} "
+        "--cutesv {params.cutesv:q} "
         "--minimap2 {params.minimap2:q} "
         "{params.reference_fasta}"

@@ -12,8 +12,10 @@ from .models import (
     ReviewStatus,
     SampleManifest,
     SnifflesCallReport,
+    SvConsensusReport,
     Verdict,
 )
+from .sv_evidence import prioritize_sv_events
 
 
 def assemble_aligned_bam_mvp(
@@ -24,6 +26,7 @@ def assemble_aligned_bam_mvp(
     pipeline_version: str,
     git_commit: str,
     sniffles_report: SnifflesCallReport | None = None,
+    sv_consensus_report: SvConsensusReport | None = None,
 ) -> PipelineResult:
     if manifest.sample_id != intake.sample_id or manifest.sample_id != qc_report.sample_id:
         raise ValueError("Manifest, intake and QC artifacts must refer to the same sample")
@@ -58,7 +61,8 @@ def assemble_aligned_bam_mvp(
         elif module == AnalysisModule.SV and sniffles_report is not None:
             if sniffles_report.status == ModuleRunStatus.COMPLETED:
                 reason = (
-                    "Sniffles2 candidate SV evidence was normalized; reportability remains "
+                    "Sniffles2 candidates were normalized and technically prioritized into "
+                    "high/moderate/low review tiers; clinical reportability remains "
                     "benchmark_required"
                 )
             else:
@@ -123,7 +127,14 @@ def assemble_aligned_bam_mvp(
     if sniffles_report is not None and sniffles_report.vcf_fingerprint.sha256:
         reference_checksums["sniffles_vcf"] = sniffles_report.vcf_fingerprint.sha256
 
-    events = sniffles_report.events if sniffles_report is not None else []
+    source_events = (
+        sv_consensus_report.events
+        if sv_consensus_report is not None
+        else sniffles_report.events
+        if sniffles_report is not None
+        else []
+    )
+    events = prioritize_sv_events(source_events)
     iscn_warnings = [
         "ISCN was not generated because validated CNV/SV interpretation is unavailable.",
         "Absence of an ISCN proposal is not a biological negative result.",
@@ -138,8 +149,8 @@ def assemble_aligned_bam_mvp(
     else:
         warnings.insert(
             1,
-            "Sniffles2 events are unclassified, non-reportable candidates under an unvalidated "
-            "technical policy.",
+            "SV confidence tiers are automated technical prioritization only; all candidates "
+            "remain non-reportable until assay-specific validation criteria pass.",
         )
         warnings.extend(sniffles_report.warnings)
         warnings.extend(sniffles_report.limitations)

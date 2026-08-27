@@ -1,0 +1,155 @@
+{
+  "additionalProperties": false,
+  "description": "Transparent, versioned weights for technical SV review prioritization.",
+  "properties": {
+    "adequate_observability_weight": {
+      "default": 1,
+      "title": "Adequate Observability Weight",
+      "type": "integer"
+    },
+    "balanced_sv_weight": {
+      "default": 1,
+      "title": "Balanced Sv Weight",
+      "type": "integer"
+    },
+    "caller_consensus_weight": {
+      "default": 4,
+      "title": "Caller Consensus Weight",
+      "type": "integer"
+    },
+    "context_flag_weight": {
+      "default": -1,
+      "title": "Context Flag Weight",
+      "type": "integer"
+    },
+    "high_score": {
+      "default": 8,
+      "title": "High Score",
+      "type": "integer"
+    },
+    "inadequate_observability_weight": {
+      "default": -1,
+      "title": "Inadequate Observability Weight",
+      "type": "integer"
+    },
+    "known_aml_pattern_weight": {
+      "default": 2,
+      "title": "Known Aml Pattern Weight",
+      "type": "integer"
+    },
+    "maximum_context_penalty": {
+      "default": 3,
+      "minimum": 0,
+      "title": "Maximum Context Penalty",
+      "type": "integer"
+    },
+    "moderate_score": {
+      "default": 5,
+      "title": "Moderate Score",
+      "type": "integer"
+    },
+    "non_pass_filter_weight": {
+      "default": -3,
+      "title": "Non Pass Filter Weight",
+      "type": "integer"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "precise_breakpoint_weight": {
+      "default": 1,
+      "title": "Precise Breakpoint Weight",
+      "type": "integer"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "single_caller_weight": {
+      "default": 1,
+      "title": "Single Caller Weight",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "support_high": {
+      "default": 20,
+      "minimum": 1,
+      "title": "Support High",
+      "type": "integer"
+    },
+    "support_high_weight": {
+      "default": 4,
+      "title": "Support High Weight",
+      "type": "integer"
+    },
+    "support_minimum": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Support Minimum",
+      "type": "integer"
+    },
+    "support_minimum_weight": {
+      "default": 1,
+      "title": "Support Minimum Weight",
+      "type": "integer"
+    },
+    "support_moderate": {
+      "default": 10,
+      "minimum": 1,
+      "title": "Support Moderate",
+      "type": "integer"
+    },
+    "support_moderate_weight": {
+      "default": 2,
+      "title": "Support Moderate Weight",
+      "type": "integer"
+    },
+    "vaf_high": {
+      "default": 0.1,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Vaf High",
+      "type": "number"
+    },
+    "vaf_high_weight": {
+      "default": 2,
+      "title": "Vaf High Weight",
+      "type": "integer"
+    },
+    "vaf_minimum": {
+      "default": 0.05,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Vaf Minimum",
+      "type": "number"
+    },
+    "vaf_minimum_weight": {
+      "default": 1,
+      "title": "Vaf Minimum Weight",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "SvEvidencePolicy",
+  "type": "object"
+}

@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_sv_types": {
+      "items": {
+        "$ref": "#/$defs/EventType"
+      },
+      "minItems": 1,
+      "title": "Allowed Sv Types",
+      "type": "array"
+    },
+    "diff_ratio_merging_del": {
+      "default": 0.3,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Diff Ratio Merging Del",
+      "type": "number"
+    },
+    "diff_ratio_merging_ins": {
+      "default": 0.3,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Diff Ratio Merging Ins",
+      "type": "number"
+    },
+    "expected_version": {
+      "default": "2.1.3",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Expected Version",
+      "type": "string"
+    },
+    "max_cluster_bias_del": {
+      "default": 100,
+      "minimum": 0,
+      "title": "Max Cluster Bias Del",
+      "type": "integer"
+    },
+    "max_cluster_bias_ins": {
+      "default": 100,
+      "minimum": 0,
+      "title": "Max Cluster Bias Ins",
+      "type": "integer"
+    },
+    "min_support": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Min Support",
+      "type": "integer"
+    },
+    "min_sv_length": {
+      "default": 50,
+      "minimum": 1,
+      "title": "Min Sv Length",
+      "type": "integer"
+    },
+    "minimum_quality": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Minimum Quality"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "pass_only": {
+      "const": true,
+      "default": true,
+      "title": "Pass Only",
+      "type": "boolean"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "CuteSvPolicy",
+  "type": "object"
+}

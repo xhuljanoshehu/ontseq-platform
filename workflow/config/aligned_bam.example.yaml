@@ -4,8 +4,11 @@ manifest: examples/manifests/aligned_bam.example.yaml
 reference_lock: examples/references/synthetic.reference-lock.yaml
 qc_policy: configs/qc/defaults.yaml
 sniffles_policy: configs/sv/sniffles2.conservative.technical.yaml
-# Required only when the manifest declares pod5 or unaligned_bam input.
-# reference_fasta: /approved/references/GRCh38.fa
+cutesv_policy: configs/sv/cutesv.conservative.technical.yaml
+sv_consensus_policy: configs/sv/sniffles2_cutesv.consensus.technical.yaml
+sv_evidence_policy: configs/sv/evidence-priority.technical.yaml
+# Required for cuteSV as well as pod5 or unaligned_bam input.
+reference_fasta: /approved/references/GRCh38.fa
 output_dir: results/runs
 run_id: SNAKEMAKE_RUN_001
 threads: 4
@@ -14,6 +17,7 @@ tools:
   samtools: samtools
   cramino: cramino
   sniffles: sniffles
+  cutesv: cuteSV
   minimap2: minimap2
 outputs:
   run_report: results/runs/SNAKEMAKE_RUN_001/SYNTHETIC_001/provenance/run.json

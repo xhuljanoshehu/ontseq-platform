@@ -102,7 +102,7 @@ Diagnostiksoftware.
 | Zielpanel | Aus den Laborquellen abgeleitetes, gepuffertes GRCh38-Panel mit 111 Zielen unter `configs/panels/`; Status `derived_unconfirmed`, siehe [`docs/PANEL_PROVENANCE.md`](docs/PANEL_PROVENANCE.md) |
 | Komponentenauswahl | Provider und exakte Tool-Version je Stage pro Lauf wählbar, fail-closed gegen die installierte Version geprüft und in der Provenienz protokolliert |
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
-| SV | Sniffles2 v2.8.0 als konservative, nicht-reportable Kandidaten-Evidenz integriert |
+| SV | Sniffles2 2.8.0 + cuteSV 2.1.3, Breakpoint-Konsens, build-gelockte Annotation, Adaptive-Sampling-Observability, AML-Priorisierung und filterbare Review Queue; weiterhin nicht reportable |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
 | ISCN | Nur begrenzte, explizit unvalidierte Proposal-/Demo-Logik; kein klinisch konformer automatischer ISCN-Endpunkt |
 | Output | Validiertes JSON, HTML, XLSX und checksummed release bundle |
@@ -134,12 +134,18 @@ Packaging-/Validierungsschritt.
 
 ### SV-Lane
 
-Sniffles2 erzeugt strukturelle Varianten als Kandidaten-Evidenz. Der Adapter:
+Sniffles2 und cuteSV erzeugen unabhängige strukturelle Varianten als Kandidaten-Evidenz. Die
+SV-Lane:
 
 - verwendet explizite Tool-Versionen und Parameter;
 - schreibt zunächst in Staging-Dateien und fördert ein VCF erst nach erfolgreicher Prüfung;
 - normalisiert DEL/DUP/INV/INS/BND in das gemeinsame Ereignismodell;
 - exportiert keine Read-Namen oder Insert-Sequenzen in Reviewer-Artefakte;
+- vereinigt kompatible Breakpoints, ohne Caller-Konsens als Ground Truth zu behandeln;
+- annotiert beide Breakpoints aus build- und checksum-gelockten Gen-/Cytoband-Ressourcen;
+- ergänzt Repeat-/Blacklist-/Mappability-Kontext und Adaptive-Sampling-Observability;
+- priorisiert bekannte AML-Rearrangement-Muster, bestätigt aber keine Fusion;
+- zeigt eine kompakte filterbare Review Queue und darunter alle technischen Calls;
 - behandelt `NO_CALL` ausdrücklich nicht als biologisch negatives Ergebnis.
 
 Ein BND/TRA ist in dieser Architektur **noch keine bestätigte Fusion**. Fusionen benötigen
@@ -157,7 +163,7 @@ flowchart TD
     E --> F["Cramino QC"]
     E --> G["Adaptive-Sampling Target Coverage / Mosdepth"]
     F --> H["CNV: QDNAseq + ACE / weitere Benchmark-Kandidaten"]
-    E --> I["SV: Sniffles2 / weitere Vergleichscaller"]
+    E --> I["SV: Sniffles2 + cuteSV"]
     G --> J["Observability"]
     I --> K["Fusion evidence / Annotation"]
     H --> L["Normalized genomic events"]
@@ -272,6 +278,7 @@ Kanonischer Run:
 ```bash
 ontseq run sample.manifest.json \
   --reference-lock /approved/references/reference.lock.json \
+  --reference-fasta /approved/references/reference.fasta \
   --run-id RUN_001
 ```
 

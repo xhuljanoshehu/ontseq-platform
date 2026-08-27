@@ -31,22 +31,31 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
+from ..aml_rearrangements import prioritize_aml_rearrangements
 from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
+from ..cutesv import run_cutesv
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
     AlignedBamIntakeReport,
+    AmlKnowledgeLock,
     AssayMode,
     CheckStatus,
     CraminoQCReport,
+    CuteSvPolicy,
+    GenomicEvent,
     InputKind,
     InputSpec,
+    IntervalResourceLock,
     ModuleRunStatus,
     QCPolicy,
     ReferenceLock,
     SampleManifest,
     SnifflesCallReport,
     SnifflesPolicy,
+    SvConsensusPolicy,
+    SvConsensusReport,
+    SvEvidencePolicy,
     ToolRecord,
     ValidationCheck,
     Verdict,
@@ -56,7 +65,11 @@ from ..qc import run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
 from ..sniffles import run_sniffles
-from ..target_coverage import TargetCoveragePolicy, run_target_coverage
+from ..sv_annotation import annotate_sv_events
+from ..sv_consensus import build_consensus_report
+from ..sv_evidence import prioritize_sv_events
+from ..sv_observability import apply_sv_observability
+from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
 from ..workbook import render_workbook
 from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
@@ -88,6 +101,9 @@ TARGET_COVERAGE_DIR = "qc/target-coverage"
 COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
+CUTESV_VCF = "evidence/sv/{sample}.cutesv.vcf"
+CUTESV_REPORT = "evidence/sv/{sample}.cutesv.json"
+SV_CONSENSUS_REPORT = "evidence/sv/{sample}.consensus.json"
 RESULT_JSON = "normalized/{sample}.result.json"
 REPORT_HTML = "reports/{sample}.report.html"
 REPORT_XLSX = "reports/{sample}.results.xlsx"
@@ -119,6 +135,14 @@ class RunConfiguration:
     git_commit: str
     qc_policy: QCPolicy
     sniffles_policy: SnifflesPolicy | None = None
+    cutesv_policy: CuteSvPolicy | None = None
+    sv_consensus_policy: SvConsensusPolicy | None = None
+    sv_evidence_policy: SvEvidencePolicy | None = None
+    gene_annotation: tuple[Path, IntervalResourceLock] | None = None
+    cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
+    sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
+    aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
+    sv_minimum_mean_depth: float = 10.0
     target_coverage_policy: TargetCoveragePolicy | None = None
     #: Which component runs each stage, and at which version. ``None`` keeps the built-in
     #: defaults and pins nothing, which is what every run did before selection existed.
@@ -133,6 +157,7 @@ class RunConfiguration:
             "samtools": "samtools",
             "cramino": "cramino",
             "sniffles": "sniffles",
+            "cutesv": "cuteSV",
             "minimap2": "minimap2",
             "mosdepth": "mosdepth",
             "dorado": "dorado",
@@ -620,61 +645,182 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _sv_plan(ctx: RunContext) -> StagePlan:
-    policy = ctx.config.sniffles_policy
-    if policy is None:
-        raise StageFailure("structural-variant calling requires a Sniffles policy")
-    sniffles = ctx.config.executable("sniffles")
+    sniffles_policy = ctx.config.sniffles_policy
+    cute_policy = ctx.config.cutesv_policy
+    if sniffles_policy is None and cute_policy is None:
+        raise StageFailure("structural-variant calling requires Sniffles2 and/or cuteSV policy")
+    parameters: dict[str, object] = {
+        "threads": ctx.config.threads,
+        "sv_minimum_mean_depth": ctx.config.sv_minimum_mean_depth,
+    }
+    tool_versions: dict[str, str] = {}
+    if sniffles_policy is not None:
+        sniffles = ctx.config.executable("sniffles")
+        parameters.update(
+            {
+                "sniffles_policy": sniffles_policy.model_dump(mode="json"),
+            }
+        )
+        tool_versions["sniffles"] = _probe(
+            ctx.runner, sniffles, [sniffles, "--version"], tool="sniffles"
+        )
+    if ctx.config.sv_evidence_policy is not None:
+        evidence_policy = ctx.config.sv_evidence_policy
+        parameters["sv_evidence_policy"] = evidence_policy.model_dump(mode="json")
+    external_inputs = [_external_fingerprint(Path(ctx.manifest.input.path))]
+    if cute_policy is not None:
+        if ctx.config.reference_fasta is None:
+            raise StageFailure("cuteSV requires --reference-fasta")
+        consensus = ctx.config.sv_consensus_policy
+        if consensus is None:
+            raise StageFailure("cuteSV requires an explicit SV consensus policy")
+        cutesv = ctx.config.executable("cutesv")
+        probe = _probe(ctx.runner, cutesv, [cutesv, "--version"], tool="cuteSV")
+        tool_versions["cutesv"] = probe
+        parameters.update(
+            {
+                "cutesv_policy": cute_policy.model_dump(mode="json"),
+                "sv_consensus_policy": consensus.model_dump(mode="json"),
+            }
+        )
+        external_inputs.append(_external_fingerprint(ctx.config.reference_fasta))
+    annotation_resources = [
+        item
+        for item in [ctx.config.gene_annotation, ctx.config.cytoband_annotation]
+        if item is not None
+    ]
+    annotation_resources.extend(ctx.config.sv_context_resources)
+    for path, lock in annotation_resources:
+        external_inputs.append(_external_fingerprint(path, label=lock.resource_id))
+        parameters[f"resource_lock:{lock.resource_id}"] = lock.model_dump(mode="json")
+    if ctx.config.aml_knowledge is not None:
+        path, lock = ctx.config.aml_knowledge
+        external_inputs.append(_external_fingerprint(path, label=lock.resource_id))
+        parameters[f"knowledge_lock:{lock.resource_id}"] = lock.model_dump(mode="json")
     return StagePlan(
-        parameters={
-            "profile": policy.profile_id,
-            "min_support": policy.min_support,
-            "min_sv_length": policy.min_sv_length,
-            "mapq": policy.mapq,
-            "threads": ctx.config.threads,
-        },
-        tool_versions={
-            "sniffles": _probe(ctx.runner, sniffles, [sniffles, "--version"], tool="sniffles")
-        },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        parameters=parameters,
+        tool_versions=tool_versions,
+        external_inputs=tuple(external_inputs),
     )
 
 
 def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    policy = ctx.config.sniffles_policy
-    assert policy is not None
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
-    vcf_path = ctx.envelope.path(ctx.path(SV_VCF))
-    vcf_path.unlink(missing_ok=True)
-    report = run_sniffles(
-        ctx.manifest,
-        intake,
-        policy,
-        output_vcf=vcf_path,
-        runner=ctx.runner,
-        sniffles=ctx.config.executable("sniffles"),
-        threads=ctx.config.threads,
+    all_events: list[GenomicEvent] = []
+    outputs: list[Artifact] = []
+    tools: list[ToolRecord] = []
+    warnings: list[str] = []
+    limitations: list[str] = []
+    if ctx.config.sniffles_policy is not None:
+        vcf_path = ctx.envelope.path(ctx.path(SV_VCF))
+        vcf_path.unlink(missing_ok=True)
+        report = run_sniffles(
+            ctx.manifest,
+            intake,
+            ctx.config.sniffles_policy,
+            output_vcf=vcf_path,
+            runner=ctx.runner,
+            sniffles=ctx.config.executable("sniffles"),
+            threads=ctx.config.threads,
+        )
+        all_events.extend(report.events)
+        outputs.extend(
+            [
+                ctx.envelope.fingerprint(ctx.path(SV_VCF)),
+                ctx.envelope.atomic_write_text(
+                    ctx.path(SV_REPORT), report.model_dump_json(indent=2) + "\n"
+                ),
+            ]
+        )
+        tools.append(report.tool)
+        warnings.extend(report.warnings)
+        limitations.extend(report.limitations)
+    if ctx.config.cutesv_policy is not None:
+        assert ctx.config.reference_fasta is not None
+        assert ctx.config.sv_consensus_policy is not None
+        cutesv_vcf = ctx.envelope.path(ctx.path(CUTESV_VCF))
+        cutesv_vcf.unlink(missing_ok=True)
+        cute_report = run_cutesv(
+            ctx.manifest,
+            intake,
+            ctx.config.cutesv_policy,
+            reference_fasta=ctx.config.reference_fasta,
+            output_vcf=cutesv_vcf,
+            runner=ctx.runner,
+            cutesv=ctx.config.executable("cutesv"),
+            threads=ctx.config.threads,
+        )
+        all_events.extend(cute_report.events)
+        outputs.extend(
+            [
+                ctx.envelope.fingerprint(ctx.path(CUTESV_VCF)),
+                ctx.envelope.atomic_write_text(
+                    ctx.path(CUTESV_REPORT), cute_report.model_dump_json(indent=2) + "\n"
+                ),
+            ]
+        )
+        tools.append(cute_report.tool)
+        warnings.extend(cute_report.warnings)
+        limitations.extend(cute_report.limitations)
+    consensus_policy = ctx.config.sv_consensus_policy or SvConsensusPolicy(
+        profile_id="sniffles-only-normalization-v1",
+        status="technical_defaults_only",
+        note="Single-caller normalization only; no independent caller consensus was available.",
     )
-    outputs = [
-        ctx.envelope.fingerprint(ctx.path(SV_VCF)),
+    consensus_report = build_consensus_report(
+        sample_id=ctx.manifest.sample_id,
+        genome_build=ctx.manifest.assay.genome_build,
+        events=all_events,
+        policy=consensus_policy,
+    )
+    consolidated = annotate_sv_events(
+        consensus_report.events,
+        genome_build=ctx.manifest.assay.genome_build,
+        gene_resource=ctx.config.gene_annotation,
+        cytoband_resource=ctx.config.cytoband_annotation,
+        context_resources=list(ctx.config.sv_context_resources),
+    )
+    coverage_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
+    coverage_report = (
+        TargetCoverageReport.model_validate_json(coverage_path.read_text(encoding="utf-8"))
+        if coverage_path.is_file()
+        else None
+    )
+    consolidated = apply_sv_observability(
+        consolidated,
+        assay_mode=ctx.manifest.assay.mode,
+        coverage_report=coverage_report,
+        minimum_mean_depth=ctx.config.sv_minimum_mean_depth,
+    )
+    if ctx.config.aml_knowledge is not None:
+        resource_path, resource_lock = ctx.config.aml_knowledge
+        consolidated = prioritize_aml_rearrangements(
+            consolidated,
+            resource_path=resource_path,
+            lock=resource_lock,
+        )
+    consolidated = prioritize_sv_events(consolidated, ctx.config.sv_evidence_policy)
+    consensus_report = consensus_report.model_copy(update={"events": consolidated})
+    outputs.append(
         ctx.envelope.atomic_write_text(
-            ctx.path(SV_REPORT), report.model_dump_json(indent=2) + "\n"
-        ),
-    ]
+            ctx.path(SV_CONSENSUS_REPORT), consensus_report.model_dump_json(indent=2) + "\n"
+        )
+    )
     reason = (
-        f"Normalized {report.accepted_record_count} candidate SV event(s) from "
-        f"{report.raw_record_count} record(s)."
-        if report.status == ModuleRunStatus.COMPLETED
+        f"Consolidated {consensus_report.input_event_count} normalized call(s) into "
+        f"{consensus_report.consolidated_event_count} candidate SV event(s)."
+        if consensus_report.status == ModuleRunStatus.COMPLETED
         else "No record passed the technical policy; this NO_CALL is not a biological negative."
     )
     return StageResult(
-        status=report.status,
+        status=consensus_report.status,
         reason=reason,
         outputs=outputs,
-        tools=[report.tool],
-        warnings=report.warnings,
-        limitations=report.limitations,
+        tools=tools,
+        warnings=warnings + consensus_report.warnings,
+        limitations=limitations + consensus_report.limitations,
     )
 
 
@@ -701,6 +847,12 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if sv_path.is_file()
         else None
     )
+    consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
+    consensus = (
+        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
+        if consensus_path.is_file()
+        else None
+    )
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
         intake,
@@ -708,6 +860,7 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        sv_consensus_report=consensus,
     )
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"

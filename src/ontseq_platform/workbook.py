@@ -126,8 +126,21 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
             "length_bp",
             "locus_1",
             "locus_2",
+            "cytobands",
+            "gene_a",
+            "gene_b",
+            "caller_consensus",
             "confidence",
             "reportable",
+            "validation_status",
+            "breakpoint_mean_depths",
+            "as_observability",
+            "observability_target_role",
+            "technical_flags",
+            "aml_relevance",
+            "known_rearrangement",
+            "fusion_status",
+            "source_event_ids",
             "evidence",
         ],
         [
@@ -141,8 +154,36 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
                 else (
                     f"{event.secondary.chromosome}:{event.secondary.start}-{event.secondary.end}"
                 ),
+                " ↔ ".join(
+                    item
+                    for item in [
+                        event.primary.cytoband_start or "",
+                        event.secondary.cytoband_start
+                        if event.secondary is not None
+                        and event.secondary.cytoband_start is not None
+                        else "",
+                    ]
+                    if item
+                ),
+                event.primary.gene or "",
+                event.secondary.gene if event.secondary is not None else "",
+                len({item.caller.lower() for item in event.evidence}) >= 2,
                 event.confidence,
                 event.reportable,
+                event.validation_status.value,
+                " / ".join(
+                    "n/a" if depth is None else f"{depth:.1f}x"
+                    for depth in event.breakpoint_mean_depths
+                ),
+                event.observability.value,
+                event.observability_target_role.value
+                if event.observability_target_role is not None
+                else "",
+                ", ".join(event.technical_flags),
+                event.aml_relevance or "",
+                event.known_rearrangement or "",
+                event.fusion_status.value,
+                ", ".join(event.source_event_ids),
                 json.dumps([item.model_dump(mode="json") for item in event.evidence]),
             ]
             for event in sv_events

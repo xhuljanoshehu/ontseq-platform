@@ -16,13 +16,14 @@
 - [ ] Validate target-coverage adequacy and observability criteria on the locked local target design
 - [ ] Implement benchmarked CNV, SV and annotation adapters from official interfaces
 - [x] Implement candidate-only Sniffles2 v2.8.0 adapter from its official CLI/VCF interfaces
+- [x] Implement candidate-only cuteSV v2.1.3 adapter and locked two-caller SV consensus
 - [x] BAM/BAI integrity, sort order, read-group and genome-build checks
 - [x] Versioned reference lock generated from the exact FASTA index
-- [ ] Versioned cytoband resource manager
-- [ ] Normalize raw caller outputs into the event schema
+- [x] Versioned build/checksum-locked gene, cytoband and technical-context resource loader
+- [x] Normalize Sniffles2 and cuteSV outputs into the event schema
 - [x] Normalize Sniffles2 DEL/DUP/INV/INS/BND evidence into the event schema
 - [x] Record per-module `COMPLETED`, `NOT_RUN`, `FAILED` and `NO_CALL` outcomes
-- [ ] Interactive evidence-tiering review interface
+- [x] Filterable evidence-tiering review queue with the complete technical call table retained
 - [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
 - [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
 - [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
@@ -30,6 +31,8 @@
 - [ ] Record no-call behavior and failure modes separately from negative results
 - [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
 - [x] Exercise Mosdepth target coverage in CI with generated synthetic Adaptive Sampling metadata
+- [x] Add Adaptive Sampling breakpoint observability and a versioned AML rearrangement-pattern layer
+- [ ] Validate the SV consensus, observability and scoring policies on independent truth data
 
 ## Milestone 2 - POD5 end-to-end
 

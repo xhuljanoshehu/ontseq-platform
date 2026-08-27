@@ -37,9 +37,17 @@ from pathlib import Path
 
 from .align import AlignmentPolicy, parse_version
 from .basecall import BasecallPolicy, dorado_version, model_signature
+from .cutesv import cutesv_version
 from .execution import CommandRunner, SubprocessRunner
-from .models import AssayMode, InputKind, ReferenceLock, SampleManifest, SnifflesPolicy
-from .pipeline.checks import Check, CheckList, required_tools
+from .models import (
+    AssayMode,
+    CuteSvPolicy,
+    InputKind,
+    ReferenceLock,
+    SampleManifest,
+    SnifflesPolicy,
+)
+from .pipeline.checks import Check, CheckList, ToolRequirement, required_tools
 from .pipeline.lock import LOCK_FILENAME, holder_is_running, read_holder
 from .pipeline.stages import (
     SPEC_BY_STAGE,
@@ -71,6 +79,7 @@ class PreflightRequest:
     alignment_policy: AlignmentPolicy | None = None
     basecall_policy: BasecallPolicy | None = None
     sniffles_policy: SnifflesPolicy | None = None
+    cutesv_policy: CuteSvPolicy | None = None
     target_coverage_policy: TargetCoveragePolicy | None = None
     #: Free space the caller knows this run needs. Without it, space is reported, not judged.
     require_free_gb: float | None = None
@@ -185,26 +194,36 @@ def _check_reference(request: PreflightRequest, checks: CheckList) -> None:
     else:
         checks.ok("reference.id", request.reference_lock.reference_id)
 
-    if StageId.ALIGN not in planned_stages(request.input_kind):
-        checks.skipped("reference.fasta", "this run does not align, so no FASTA is needed")
-        checks.skipped("reference.fai", "this run does not align, so no FASTA index is needed")
+    needs_fasta = (
+        StageId.ALIGN in planned_stages(request.input_kind) or request.cutesv_policy is not None
+    )
+    reference_stage = (
+        StageId.ALIGN if StageId.ALIGN in planned_stages(request.input_kind) else StageId.SV
+    )
+    if not needs_fasta:
+        checks.skipped(
+            "reference.fasta", "this run neither aligns nor runs cuteSV, so no FASTA is needed"
+        )
+        checks.skipped(
+            "reference.fai", "this run neither aligns nor runs cuteSV, so no FASTA index is needed"
+        )
         return
 
     fasta = request.reference_fasta
     if fasta is None:
         checks.failed(
             "reference.fasta",
-            "this run aligns but no reference FASTA was given",
+            "this run aligns or runs cuteSV but no reference FASTA was given",
             remedy="pass --reference-fasta",
-            stage=StageId.ALIGN,
+            stage=reference_stage,
         )
         return
     if not fasta.is_file():
         checks.failed(
-            "reference.fasta", f"reference FASTA does not exist: {fasta}", stage=StageId.ALIGN
+            "reference.fasta", f"reference FASTA does not exist: {fasta}", stage=reference_stage
         )
         return
-    checks.ok("reference.fasta", str(fasta), stage=StageId.ALIGN)
+    checks.ok("reference.fasta", str(fasta), stage=reference_stage)
 
     fai = fasta.with_suffix(fasta.suffix + ".fai")
     if not fai.is_file():
@@ -212,7 +231,7 @@ def _check_reference(request: PreflightRequest, checks: CheckList) -> None:
             "reference.fai",
             f"reference index does not exist: {fai}",
             remedy=f"samtools faidx {fasta}",
-            stage=StageId.ALIGN,
+            stage=reference_stage,
         )
         return
     # The lock records the checksum of the .fai it was generated from, so this is an exact
@@ -227,10 +246,10 @@ def _check_reference(request: PreflightRequest, checks: CheckList) -> None:
                 "point --reference-fasta at the locked reference, or regenerate the lock "
                 "with `ontseq reference-lock` if the reference genuinely changed"
             ),
-            stage=StageId.ALIGN,
+            stage=reference_stage,
         )
         return
-    checks.ok("reference.fai", f"{fai} matches the lock checksum", stage=StageId.ALIGN)
+    checks.ok("reference.fai", f"{fai} matches the lock checksum", stage=reference_stage)
 
 
 def _measures_targets(request: PreflightRequest) -> bool:
@@ -337,6 +356,8 @@ def _expected_version(request: PreflightRequest, tool: str) -> str | None:
             return request.alignment_policy.expected_samtools_version
     if tool == "sniffles" and request.sniffles_policy is not None and StageId.SV in planned:
         return request.sniffles_policy.expected_version
+    if tool == "cutesv" and request.cutesv_policy is not None and StageId.SV in planned:
+        return request.cutesv_policy.expected_version
     if tool == "dorado" and request.basecall_policy is not None and StageId.BASECALL in planned:
         return request.basecall_policy.expected_version
     # Gated on the assay rather than only on the plan: the stage is planned for every input
@@ -368,6 +389,8 @@ def _probe_version(runner: CommandRunner, tool: str, executable: str) -> str:
         return cramino_version(result.stdout)
     if tool == "sniffles":
         return sniffles_version(combined)
+    if tool == "cutesv":
+        return cutesv_version(combined)
     if tool == "dorado":
         return dorado_version(combined)
     if tool == "mosdepth":
@@ -383,7 +406,12 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
     legitimate outcome the operator should be told about in advance, not blocked on.
     """
     fatal = _fatal_stages(request)
-    for requirement in required_tools(request.input_kind):
+    requirements = list(required_tools(request.input_kind))
+    if request.sniffles_policy is None and request.cutesv_policy is not None:
+        requirements = [item for item in requirements if item.name != "sniffles"]
+    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
+        requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
+    for requirement in requirements:
         name = f"tool.{requirement.name}"
         executable = request.executable(requirement.name)
         stage = requirement.stages[0]
@@ -433,6 +461,25 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
             )
         else:
             checks.ok(name, f"{observed} matches the policy lock", stage=stage)
+
+
+def _check_sv_configuration(request: PreflightRequest, checks: CheckList) -> None:
+    if StageId.SV not in planned_stages(request.input_kind):
+        return
+    if request.sniffles_policy is None and request.cutesv_policy is None:
+        checks.warning(
+            "sv.callers",
+            "no caller policy was loaded; the optional SV stage will fail closed if executed",
+            remedy="supply at least one version-locked caller policy",
+            stage=StageId.SV,
+        )
+        return
+    callers = []
+    if request.sniffles_policy is not None:
+        callers.append("Sniffles2")
+    if request.cutesv_policy is not None:
+        callers.append("cuteSV")
+    checks.ok("sv.callers", " + ".join(callers), stage=StageId.SV)
 
 
 def _check_basecalling(request: PreflightRequest, checks: CheckList) -> None:
@@ -646,6 +693,7 @@ def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None)
     checks = CheckList()
     _check_input(request, checks)
     _check_reference(request, checks)
+    _check_sv_configuration(request, checks)
     _check_tools(request, command_runner, checks)
     _check_basecalling(request, checks)
     _check_target_coverage(request, checks)

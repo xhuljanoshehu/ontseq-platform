@@ -414,7 +414,7 @@ class EnvelopeTests(PreflightCase):
         self.assertIs(check.status, CheckStatus.OK)
         self.assertFalse((self.root / "deep").exists())
 
-    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "root ignores permissions")
     def test_an_output_directory_that_cannot_be_written_fails(self) -> None:
         blocked = self.root / "blocked"
         blocked.mkdir()

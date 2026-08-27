@@ -1,0 +1,29 @@
+schema_version: 0.1.0
+profile_id: sv-evidence-priority-technical-v1
+status: technical_defaults_only
+high_score: 8
+moderate_score: 5
+support_high: 20
+support_moderate: 10
+support_minimum: 5
+vaf_high: 0.10
+vaf_minimum: 0.05
+caller_consensus_weight: 4
+single_caller_weight: 1
+support_high_weight: 4
+support_moderate_weight: 2
+support_minimum_weight: 1
+precise_breakpoint_weight: 1
+vaf_high_weight: 2
+vaf_minimum_weight: 1
+non_pass_filter_weight: -3
+adequate_observability_weight: 1
+inadequate_observability_weight: -1
+context_flag_weight: -1
+maximum_context_penalty: 3
+known_aml_pattern_weight: 2
+balanced_sv_weight: 1
+note: >-
+  These weights and cut-offs are transparent engineering defaults for review prioritization.
+  They have not been calibrated for analytical sensitivity, specificity, PPV or clinical
+  reportability; every event remains reportable=false.

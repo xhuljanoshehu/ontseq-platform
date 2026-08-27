@@ -60,3 +60,25 @@ caller comparison. Public cancer benchmarks are useful engineering controls, but
 validation in the intended AML specimens and workflow.
 
 `PASS` from a caller or QC module is not equivalent to clinical validity.
+
+## SV evidence-layer validation impact
+
+The two-caller consensus, annotations, Adaptive Sampling observability, AML pattern lookup and
+technical score alter which candidates a reviewer sees first. They do not alter reportability:
+all automatically produced SV candidates remain `reportable=false` and no confirmed fusion is
+emitted.
+
+Promotion of any current technical default requires, at minimum:
+
+- frozen Sniffles2, cuteSV, consensus and score policies;
+- build-specific gene, cytoband and artifact-context resource checksums;
+- per-caller and consensus results on locked HG002/HG008 technical truth sets;
+- AML positive and negative specimens characterized by karyotype, FISH and/or PCR/RNA methods;
+- breakpoint-error, false-positive burden and no-call results by SV class, coverage, VAF or
+  tumor/blast fraction and assay mode;
+- explicit verification of events outside or partly inside the Adaptive Sampling ROI;
+- validation of reviewer workload and traceability from each cluster to every source caller record.
+
+Until those studies and predefined acceptance criteria pass, `high` means high technical review
+priority only. It must not be mapped to `analytically_validated`, `reportable`, a negative result or
+a clinical action.

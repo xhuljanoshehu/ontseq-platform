@@ -68,6 +68,29 @@ class SnifflesMode(StrEnum):
     MOSAIC = "mosaic"
 
 
+class SvObservability(StrEnum):
+    OBSERVED_ADEQUATELY = "OBSERVED_ADEQUATELY"
+    PARTIALLY_OBSERVED = "PARTIALLY_OBSERVED"
+    INSUFFICIENT_COVERAGE = "INSUFFICIENT_COVERAGE"
+    OUTSIDE_TARGET = "OUTSIDE_TARGET"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class SvValidationStatus(StrEnum):
+    DETECTED = "detected"
+    TECHNICALLY_SUPPORTED = "technically_supported"
+    BIOLOGICALLY_PRIORITIZED = "biologically_prioritized"
+    ANALYTICALLY_VALIDATED = "analytically_validated"
+    REPORTABLE = "reportable"
+
+
+class FusionSupportStatus(StrEnum):
+    NOT_ASSESSED = "not_assessed"
+    CANDIDATE = "fusion_candidate"
+    SUPPORTED = "fusion_supported"
+    VALIDATED = "fusion_validated"
+
+
 class EventType(StrEnum):
     CHROMOSOME_GAIN = "chromosome_gain"
     CHROMOSOME_LOSS = "chromosome_loss"
@@ -254,6 +277,102 @@ class SnifflesPolicy(StrictModel):
         return self
 
 
+class CuteSvPolicy(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    profile_id: str = Field(min_length=1)
+    status: Literal["technical_defaults_only", "validated"]
+    expected_version: str = Field(default="2.1.3", pattern=r"^\d+\.\d+\.\d+$")
+    min_support: int = Field(default=5, ge=1)
+    min_sv_length: int = Field(default=50, ge=1)
+    max_cluster_bias_ins: int = Field(default=100, ge=0)
+    diff_ratio_merging_ins: float = Field(default=0.3, ge=0, le=1)
+    max_cluster_bias_del: int = Field(default=100, ge=0)
+    diff_ratio_merging_del: float = Field(default=0.3, ge=0, le=1)
+    minimum_quality: float | None = Field(default=None, ge=0)
+    pass_only: Literal[True] = True
+    allowed_sv_types: list[EventType] = Field(
+        default_factory=lambda: [
+            EventType.DELETION,
+            EventType.DUPLICATION,
+            EventType.INVERSION,
+            EventType.INSERTION,
+            EventType.TRANSLOCATION,
+        ],
+        min_length=1,
+    )
+    note: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def supported_event_types_are_unique(self) -> CuteSvPolicy:
+        supported = {
+            EventType.DELETION,
+            EventType.DUPLICATION,
+            EventType.INVERSION,
+            EventType.INSERTION,
+            EventType.TRANSLOCATION,
+        }
+        if any(item not in supported for item in self.allowed_sv_types):
+            raise ValueError("cuteSV policy contains an unsupported event type")
+        if len(self.allowed_sv_types) != len(set(self.allowed_sv_types)):
+            raise ValueError("cuteSV policy contains duplicate event types")
+        return self
+
+
+class SvConsensusPolicy(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    profile_id: str = Field(min_length=1)
+    status: Literal["technical_defaults_only", "validated"]
+    maximum_breakpoint_distance_bp: int = Field(default=500, ge=0)
+    minimum_reciprocal_overlap: float = Field(default=0.5, ge=0, le=1)
+    maximum_length_ratio_difference: float = Field(default=0.35, ge=0, le=1)
+    require_orientation_when_available: bool = True
+    merge_within_caller: bool = True
+    note: str = Field(min_length=1)
+
+
+class SvEvidencePolicy(StrictModel):
+    """Transparent, versioned weights for technical SV review prioritization."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    profile_id: str = Field(min_length=1)
+    status: Literal["technical_defaults_only", "validated"]
+    high_score: int = 8
+    moderate_score: int = 5
+    support_high: int = Field(default=20, ge=1)
+    support_moderate: int = Field(default=10, ge=1)
+    support_minimum: int = Field(default=5, ge=1)
+    vaf_high: float = Field(default=0.10, ge=0, le=1)
+    vaf_minimum: float = Field(default=0.05, ge=0, le=1)
+    caller_consensus_weight: int = 4
+    single_caller_weight: int = 1
+    support_high_weight: int = 4
+    support_moderate_weight: int = 2
+    support_minimum_weight: int = 1
+    precise_breakpoint_weight: int = 1
+    vaf_high_weight: int = 2
+    vaf_minimum_weight: int = 1
+    non_pass_filter_weight: int = -3
+    adequate_observability_weight: int = 1
+    inadequate_observability_weight: int = -1
+    context_flag_weight: int = -1
+    maximum_context_penalty: int = Field(default=3, ge=0)
+    known_aml_pattern_weight: int = 2
+    balanced_sv_weight: int = 1
+    note: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def thresholds_are_ordered(self) -> SvEvidencePolicy:
+        if self.high_score <= self.moderate_score:
+            raise ValueError("high_score must be greater than moderate_score")
+        if not self.support_minimum <= self.support_moderate <= self.support_high:
+            raise ValueError("support thresholds must be ordered minimum <= moderate <= high")
+        if self.vaf_minimum > self.vaf_high:
+            raise ValueError("VAF thresholds must be ordered minimum <= high")
+        if self.context_flag_weight > 0:
+            raise ValueError("context_flag_weight may not reward artifact context")
+        return self
+
+
 class Locus(StrictModel):
     chromosome: str = Field(pattern=r"^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$")
     start: int = Field(ge=0)
@@ -279,7 +398,7 @@ class Evidence(StrictModel):
     filters: list[str] = Field(default_factory=list)
     supporting_read_strands: str | None = Field(
         default=None,
-        pattern=r"^(?:\+|-|\+-)$",
+        pattern=r"^[+-]{1,2}$",
     )
     coverage_context: list[Annotated[float, Field(ge=0)]] = Field(default_factory=list)
     mean_alignment_nm: float | None = Field(default=None, ge=0)
@@ -308,6 +427,60 @@ class KnowledgeResourceLock(StrictModel):
     #: Records read, records usable, and why the rest were not.
     records_loaded: int = Field(default=0, ge=0)
     load_summary: str = ""
+
+
+class IntervalResourceLock(StrictModel):
+    """Version and checksum lock for a build-specific interval annotation resource."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    resource_id: str = Field(min_length=1)
+    resource_type: Literal[
+        "genes",
+        "cytobands",
+        "repeatmasker",
+        "tandem_repeat",
+        "segmental_duplication",
+        "blacklist",
+        "mappability",
+        "centromere",
+        "telomere",
+    ]
+    source: str = Field(min_length=1)
+    release: str = Field(min_length=1)
+    genome_build: GenomeBuild
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    coordinate_system: Literal["zero_based_half_open"] = "zero_based_half_open"
+    columns: Literal["chrom_start_end_label"] = "chrom_start_end_label"
+    note: str = ""
+
+
+class AmlKnowledgeLock(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    resource_id: str = Field(min_length=1)
+    release: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_ids: list[str] = Field(min_length=1)
+    note: str = Field(min_length=1)
+
+
+class AmlRearrangementRecord(StrictModel):
+    record_id: str = Field(min_length=1)
+    pattern_type: Literal["exact_pair", "gene_any_partner"]
+    genes: list[str] = Field(min_length=1, max_length=2)
+    display_name: str = Field(min_length=1)
+    relevance: Literal["aml_defining_pattern", "aml_relevant_pattern"]
+    source_ids: list[str] = Field(min_length=1)
+    caveat: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def pattern_has_expected_gene_count(self) -> AmlRearrangementRecord:
+        expected = 2 if self.pattern_type == "exact_pair" else 1
+        if len(self.genes) != expected:
+            raise ValueError(f"{self.pattern_type} requires exactly {expected} gene(s)")
+        if len({gene.upper() for gene in self.genes}) != len(self.genes):
+            raise ValueError("AML rearrangement genes must be unique")
+        return self
 
 
 class EventAnnotation(StrictModel):
@@ -368,6 +541,16 @@ class GenomicEvent(StrictModel):
     confidence: Literal["high", "moderate", "low", "unclassified"] = "unclassified"
     reportable: bool = False
     notes: list[str] = Field(default_factory=list)
+    source_event_ids: list[str] = Field(default_factory=list)
+    breakpoint_distance_bp: int | None = Field(default=None, ge=0)
+    technical_flags: list[str] = Field(default_factory=list)
+    observability: SvObservability = SvObservability.NOT_APPLICABLE
+    breakpoint_mean_depths: list[float | None] = Field(default_factory=list)
+    observability_target_role: TargetBedRole | None = None
+    aml_relevance: str | None = None
+    known_rearrangement: str | None = None
+    fusion_status: FusionSupportStatus = FusionSupportStatus.NOT_ASSESSED
+    validation_status: SvValidationStatus = SvValidationStatus.DETECTED
     #: Knowledge-base records matching this event. Evidence for a reviewer; deliberately
     #: without influence on ``confidence`` or ``reportable``.
     annotations: list[EventAnnotation] = Field(default_factory=list)
@@ -521,6 +704,65 @@ class SnifflesCallReport(StrictModel):
         expected_status = ModuleRunStatus.COMPLETED if self.events else ModuleRunStatus.NO_CALL
         if self.status != expected_status:
             raise ValueError("Sniffles status is inconsistent with normalized events")
+        return self
+
+
+class CuteSvCallReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    genome_build: GenomeBuild
+    status: ModuleRunStatus
+    policy: CuteSvPolicy
+    events: list[GenomicEvent]
+    raw_record_count: int = Field(ge=0)
+    accepted_record_count: int = Field(ge=0)
+    rejected_record_count: int = Field(ge=0)
+    rejection_counts: dict[str, int] = Field(default_factory=dict)
+    tool: ToolRecord
+    vcf_fingerprint: FileFingerprint
+    warnings: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def counts_and_status_are_consistent(self) -> CuteSvCallReport:
+        if self.raw_record_count != self.accepted_record_count + self.rejected_record_count:
+            raise ValueError("cuteSV record counts are inconsistent")
+        if self.accepted_record_count != len(self.events):
+            raise ValueError("cuteSV accepted count must equal normalized event count")
+        if sum(self.rejection_counts.values()) != self.rejected_record_count:
+            raise ValueError("cuteSV rejection reason counts are inconsistent")
+        expected_status = ModuleRunStatus.COMPLETED if self.events else ModuleRunStatus.NO_CALL
+        if self.status != expected_status:
+            raise ValueError("cuteSV status is inconsistent with normalized events")
+        return self
+
+
+class SvConsensusReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    sample_id: str
+    genome_build: GenomeBuild
+    status: ModuleRunStatus
+    policy: SvConsensusPolicy
+    events: list[GenomicEvent]
+    input_event_count: int = Field(ge=0)
+    consolidated_event_count: int = Field(ge=0)
+    caller_names: list[str]
+    warnings: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def counts_are_consistent(self) -> SvConsensusReport:
+        if self.consolidated_event_count != len(self.events):
+            raise ValueError("SV consensus event count is inconsistent")
+        if self.consolidated_event_count > self.input_event_count:
+            raise ValueError("SV consensus cannot create more events than it received")
+        expected_status = ModuleRunStatus.COMPLETED if self.events else ModuleRunStatus.NO_CALL
+        if self.status != expected_status:
+            raise ValueError("SV consensus status is inconsistent with events")
         return self
 
 

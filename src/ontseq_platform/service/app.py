@@ -39,19 +39,24 @@ from urllib.parse import parse_qs, urlparse
 from .. import __version__
 from ..io import load_model
 from ..models import (
+    AmlKnowledgeLock,
     AnalysisIntent,
     AnalysisModule,
     AnalysisSpec,
     AssayMode,
     AssaySpec,
+    CuteSvPolicy,
     GenomeBuild,
     InputKind,
     InputSpec,
+    IntervalResourceLock,
     PrivacySpec,
     QCPolicy,
     ReferenceLock,
     SampleManifest,
     SnifflesPolicy,
+    SvConsensusPolicy,
+    SvEvidencePolicy,
 )
 from ..pipeline.components import RunComponents
 from ..pipeline.review import Decision, ReviewError
@@ -147,6 +152,16 @@ class ServiceConfig:
     sniffles_policy: Path
     target_coverage_policy: Path
     components: RunComponents | None = None
+    cutesv_policy: Path | None = None
+    sv_consensus_policy: Path | None = None
+    sv_evidence_policy: Path | None = None
+    reference_fasta: Path | None = None
+    gene_annotation: tuple[Path, IntervalResourceLock] | None = None
+    cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
+    sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
+    aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
+    sv_minimum_mean_depth: float = 10.0
+    cutesv_executable: str = "cuteSV"
     host: str = "127.0.0.1"
     port: int = 8765
     threads: int = 4
@@ -324,9 +339,31 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
             git_commit=_runtime_git_commit(),
             qc_policy=load_model(config.qc_policy, QCPolicy),
             sniffles_policy=load_model(config.sniffles_policy, SnifflesPolicy),
+            cutesv_policy=(
+                load_model(config.cutesv_policy, CuteSvPolicy)
+                if config.cutesv_policy is not None
+                else None
+            ),
+            sv_consensus_policy=(
+                load_model(config.sv_consensus_policy, SvConsensusPolicy)
+                if config.sv_consensus_policy is not None
+                else None
+            ),
+            sv_evidence_policy=(
+                load_model(config.sv_evidence_policy, SvEvidencePolicy)
+                if config.sv_evidence_policy is not None
+                else None
+            ),
+            reference_fasta=config.reference_fasta,
+            gene_annotation=config.gene_annotation,
+            cytoband_annotation=config.cytoband_annotation,
+            sv_context_resources=config.sv_context_resources,
+            aml_knowledge=config.aml_knowledge,
+            sv_minimum_mean_depth=config.sv_minimum_mean_depth,
             target_coverage_policy=load_model(config.target_coverage_policy, TargetCoveragePolicy),
             components=config.components,
             threads=config.threads,
+            executables={"cutesv": config.cutesv_executable},
         )
         report, _bundle = run_pipeline(run_config)
         job.stages = [_stage_view(record) for record in report.stages]
