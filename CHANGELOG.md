@@ -5,6 +5,8 @@ validated release.
 
 ## Unreleased
 
+## 0.4.1 - 2026-08-27
+
 ### Added
 
 - A productive cuteSV 2.1.3 adapter now runs beside Sniffles2 with version-locked parameters,
@@ -26,6 +28,12 @@ validated release.
   behavior, two-caller consensus, canonical reversed BND orientation, within-caller clustering,
   separated nearby events, annotation build refusal, repeat context, Adaptive Sampling partial and
   insufficient coverage, AML patterns and the permanent non-reportable boundary.
+
+### Fixed
+
+- Corrected the productive cuteSV positional argument order to `BAM REF VCF WORKDIR` and exercised
+  it through the real-tool CI smoke test.
+- Resolved strict type-check findings in deterministic SV ordering and provenance resource locks.
 
 ### Validation impact
 

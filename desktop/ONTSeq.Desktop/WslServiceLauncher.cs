@@ -8,7 +8,7 @@ namespace ONTSeq.Desktop;
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-    private const string ReleaseVersion = "0.4.0";
+    private const string ReleaseVersion = "0.4.1";
     private Process? _process;
     private readonly StringBuilder _stderr = new();
     private readonly StringBuilder _stdout = new();

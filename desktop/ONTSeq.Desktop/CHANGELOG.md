@@ -1,5 +1,13 @@
 # ONTSeq Desktop changelog
 
+## 0.4.1-engineering
+
+- advance Core, Desktop, WSL runtime directory and Windows bundle identity together to 0.4.1
+- integrate the versioned Sniffles2/cuteSV consensus, annotation, observability and AML-priority
+  evidence layer into reviewer reports
+- retain the unsigned Research Use Only boundary; technical priority remains distinct from
+  analytical or clinical validation and all automated SVs remain non-reportable
+
 ## 0.4.0-engineering
 
 - advance Core, Desktop, WSL runtime directory and Windows bundle identity together to 0.4.0
