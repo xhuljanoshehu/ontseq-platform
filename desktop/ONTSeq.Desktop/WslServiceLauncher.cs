@@ -8,6 +8,7 @@ namespace ONTSeq.Desktop;
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+    private const string ReleaseVersion = "0.4.0";
     private Process? _process;
     private readonly StringBuilder _stderr = new();
     private readonly StringBuilder _stdout = new();
@@ -99,7 +100,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 return (
                     false,
                     "Die installierte ONTSeq Runtime ist veraltet. Bitte 'Runtime " +
-                    "installieren' ausführen, um sie auf Desktop/Core v0.3.5 zu aktualisieren.");
+                    $"installieren' ausführen, um sie auf Desktop/Core v{ReleaseVersion} zu aktualisieren.");
 
             var serviceCapability = await RunWslAsync(
                 settings.WslDistribution,
@@ -111,12 +112,12 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             {
                 return (
                     false,
-                    "Die installierte ONTSeq Runtime enthält nicht den vollständigen v0.3.5-" +
+                    $"Die installierte ONTSeq Runtime enthält nicht den vollständigen v{ReleaseVersion}-" +
                     "Desktop-Vertrag für Target Coverage und Komponentenauswahl. Bitte " +
                     "'Runtime installieren' erneut ausführen.");
             }
 
-            return (true, $"ONTSeq Backend v0.3.5 gefunden: {settings.BackendCommand}");
+            return (true, $"ONTSeq Backend v{ReleaseVersion} gefunden: {settings.BackendCommand}");
         }
         catch (Exception error)
         {
@@ -166,7 +167,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             throw new InvalidOperationException("WSL-Home-Verzeichnis konnte nicht bestimmt werden. " + homeResult.StdErr);
 
         var home = homeResult.StdOut.Trim();
-        var target = home + "/.local/share/ontseq/runtime-v0.3.5";
+        var target = home + $"/.local/share/ontseq/runtime-v{ReleaseVersion}";
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
@@ -192,7 +193,8 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
         if (install.ExitCode != 0)
-            throw new InvalidOperationException("ONTSeq Linux-Runtime v0.3.5 konnte nicht installiert werden.\n" + install.StdErr);
+            throw new InvalidOperationException(
+                $"ONTSeq Linux-Runtime v{ReleaseVersion} konnte nicht installiert werden.\n" + install.StdErr);
 
         settings.RuntimeBinWsl = bin;
         settings.BackendCommand = bin + "/ontseq";

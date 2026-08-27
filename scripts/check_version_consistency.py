@@ -1,12 +1,10 @@
-"""Refuse a tree whose declared versions disagree with each other.
+"""Refuse a tree whose current release identities disagree with each other.
 
-Five files state what this release is: the package metadata, the package itself, the
-citation record, the Windows desktop project and the README's status section. Nothing tied
-them together, and they drifted — the README described the desktop on ``main`` as the
-v0.2.1 engineering path while the project file, the desktop README and the changelog had
-all moved to 0.3.4. The same class of drift recurred when the package and Desktop advanced
-to 0.3.5 without a matching root README status or changelog release heading; this guard now
-catches that mismatch in CI.
+The package metadata, package, citation record, Windows project, executable Desktop label,
+WSL installer, Desktop workflow and current operator documentation all state what a release
+is. They previously drifted independently: a new build could keep an old runtime directory or
+artifact name even after the package version advanced. This guard ties those current-release
+surfaces together while leaving historical changelog entries untouched.
 
 That matters more here than in most projects. A reader deciding whether a bundle is worth
 testing against real data starts at the README, and the repository's own rule is that the
@@ -32,6 +30,12 @@ PYPROJECT = ROOT / "pyproject.toml"
 PACKAGE_INIT = ROOT / "src" / "ontseq_platform" / "__init__.py"
 CITATION = ROOT / "CITATION.cff"
 DESKTOP_PROJECT = ROOT / "desktop" / "ONTSeq.Desktop" / "ONTSeq.Desktop.csproj"
+DESKTOP_VERSION = ROOT / "desktop" / "ONTSeq.Desktop" / "Version.cs"
+DESKTOP_LAUNCHER = ROOT / "desktop" / "ONTSeq.Desktop" / "WslServiceLauncher.cs"
+DESKTOP_CHANGELOG = ROOT / "desktop" / "ONTSeq.Desktop" / "CHANGELOG.md"
+DESKTOP_README = ROOT / "desktop" / "README.md"
+DESKTOP_FIRST_RUN = ROOT / "desktop" / "README-FIRST-RUN.md"
+DESKTOP_WORKFLOW = ROOT / ".github" / "workflows" / "desktop-ci.yml"
 CHANGELOG = ROOT / "CHANGELOG.md"
 README = ROOT / "README.md"
 
@@ -87,6 +91,37 @@ def _desktop_version() -> str:
     return match.group(1)
 
 
+def _desktop_label_version() -> str:
+    match = re.search(
+        r'\bValue\s*=\s*["\'](\d+\.\d+\.\d+)-engineering["\']',
+        DESKTOP_VERSION.read_text(encoding="utf-8"),
+    )
+    if match is None:
+        raise Mismatch(f"{DESKTOP_VERSION.relative_to(ROOT)} declares no engineering version")
+    return match.group(1)
+
+
+def _desktop_runtime_version() -> str:
+    match = re.search(
+        r'\bReleaseVersion\s*=\s*["\'](\d+\.\d+\.\d+)["\']',
+        DESKTOP_LAUNCHER.read_text(encoding="utf-8"),
+    )
+    if match is None:
+        raise Mismatch(f"{DESKTOP_LAUNCHER.relative_to(ROOT)} declares no ReleaseVersion")
+    return match.group(1)
+
+
+def _desktop_workflow_version() -> str:
+    match = re.search(
+        r'^\s*ONTSEQ_VERSION:\s*["\']?(\d+\.\d+\.\d+)["\']?\s*$',
+        DESKTOP_WORKFLOW.read_text(encoding="utf-8"),
+        re.M,
+    )
+    if match is None:
+        raise Mismatch(f"{DESKTOP_WORKFLOW.relative_to(ROOT)} declares no ONTSEQ_VERSION")
+    return match.group(1)
+
+
 def _readme_status_section() -> str:
     text = README.read_text(encoding="utf-8")
     start = text.find(STATUS_HEADING)
@@ -104,6 +139,18 @@ def _problems() -> list[str]:
         (f"{PACKAGE_INIT.relative_to(ROOT)} __version__", _package_version()),
         ("CITATION.cff version", _citation_version()),
         (f"{DESKTOP_PROJECT.relative_to(ROOT)} <Version>", _desktop_version()),
+        (
+            f"{DESKTOP_VERSION.relative_to(ROOT)} engineering version",
+            _desktop_label_version(),
+        ),
+        (
+            f"{DESKTOP_LAUNCHER.relative_to(ROOT)} ReleaseVersion",
+            _desktop_runtime_version(),
+        ),
+        (
+            f"{DESKTOP_WORKFLOW.relative_to(ROOT)} ONTSEQ_VERSION",
+            _desktop_workflow_version(),
+        ),
     ):
         if actual != declared:
             found.append(f"{label} is {actual}, but pyproject.toml declares {declared}")
@@ -121,6 +168,26 @@ def _problems() -> list[str]:
             f"README.md {STATUS_HEADING!r} names version(s) {', '.join(stale)} "
             f"alongside the declared {declared}"
         )
+
+    required_markers = (
+        (DESKTOP_CHANGELOG, f"## {declared}-engineering"),
+        (DESKTOP_README, f"Current engineering build: Desktop/Core v{declared}."),
+        (DESKTOP_README, f"## v{declared} user path"),
+        (DESKTOP_README, f"runtime-v{declared}"),
+        (DESKTOP_FIRST_RUN, f"# ONTSeq Desktop v{declared}"),
+        (
+            DESKTOP_FIRST_RUN,
+            f"ontseq-desktop-v{declared}-win-x64-setup-engineering",
+        ),
+        (DESKTOP_WORKFLOW, "name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}"),
+        (
+            DESKTOP_WORKFLOW,
+            "name: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering",
+        ),
+    )
+    for path, marker in required_markers:
+        if marker not in path.read_text(encoding="utf-8"):
+            found.append(f"{path.relative_to(ROOT)} is missing current-release marker {marker!r}")
     return found
 
 

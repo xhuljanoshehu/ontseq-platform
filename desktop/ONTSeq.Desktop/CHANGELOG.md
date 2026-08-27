@@ -1,5 +1,21 @@
 # ONTSeq Desktop changelog
 
+## 0.4.0-engineering
+
+- advance Core, Desktop, WSL runtime directory and Windows bundle identity together to 0.4.0
+- allow an operator to remove a configured Adaptive Sampling BED without deleting the
+  original source file
+- decouple the Research Use Only disclaimer from the measurable QC verdict while preserving
+  the disclaimer and reportability boundaries in reports
+- harden the local service against review-path traversal, concurrent job claims, unsafe BAM
+  symlinks, unreadable directory entries and untrusted loopback Host headers
+- preflight Mosdepth, target BED, target-coverage policy and selected component policies
+  before an Adaptive Sampling run takes a run lock
+- enforce the current release number across Desktop code, runtime installation, CI artifact
+  naming and operator documentation with the repository version-consistency gate
+- retain the unsigned Research Use Only boundary; no analytical or clinical validation is
+  claimed by this engineering release
+
 ## 0.3.5-engineering
 
 - add the pinned open-source `QDNAseq.hg38` 1.2.0 annotation package to the bundled runtime, locked to upstream commit `cf7c07e39de0ac64a9c38cb030cba4626e2aae83`
