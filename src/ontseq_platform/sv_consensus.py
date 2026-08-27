@@ -121,6 +121,16 @@ def _canonical_loci(event: GenomicEvent) -> tuple[Locus, Locus | None]:
     return event.primary, event.secondary
 
 
+def _event_sort_key(event: GenomicEvent) -> tuple[object, ...]:
+    primary, secondary = _canonical_loci(event)
+    return (
+        event.event_type.value,
+        _locus_key(primary),
+        _locus_key(secondary) if secondary is not None else (),
+        event.event_id,
+    )
+
+
 def _merge_cluster(
     cluster: list[GenomicEvent], *, cluster_number: int, maximum_distance: int
 ) -> GenomicEvent:
@@ -168,15 +178,7 @@ def consolidate_sv_events(
     events: Iterable[GenomicEvent], policy: SvConsensusPolicy
 ) -> list[GenomicEvent]:
     """Greedily cluster equivalent normalized calls in deterministic genomic order."""
-    ordered = sorted(
-        events,
-        key=lambda event: (
-            event.event_type.value,
-            _locus_key(_canonical_loci(event)[0]),
-            _locus_key(_canonical_loci(event)[1]) if _canonical_loci(event)[1] else (),
-            event.event_id,
-        ),
-    )
+    ordered = sorted(events, key=_event_sort_key)
     clusters: list[list[GenomicEvent]] = []
     distances: list[int] = []
     for event in ordered:

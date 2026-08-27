@@ -690,13 +690,19 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
         if item is not None
     ]
     annotation_resources.extend(ctx.config.sv_context_resources)
-    for path, lock in annotation_resources:
-        external_inputs.append(_external_fingerprint(path, label=lock.resource_id))
-        parameters[f"resource_lock:{lock.resource_id}"] = lock.model_dump(mode="json")
+    for path, resource_lock in annotation_resources:
+        external_inputs.append(_external_fingerprint(path, label=resource_lock.resource_id))
+        parameters[f"resource_lock:{resource_lock.resource_id}"] = resource_lock.model_dump(
+            mode="json"
+        )
     if ctx.config.aml_knowledge is not None:
-        path, lock = ctx.config.aml_knowledge
-        external_inputs.append(_external_fingerprint(path, label=lock.resource_id))
-        parameters[f"knowledge_lock:{lock.resource_id}"] = lock.model_dump(mode="json")
+        knowledge_path, knowledge_lock = ctx.config.aml_knowledge
+        external_inputs.append(
+            _external_fingerprint(knowledge_path, label=knowledge_lock.resource_id)
+        )
+        parameters[f"knowledge_lock:{knowledge_lock.resource_id}"] = knowledge_lock.model_dump(
+            mode="json"
+        )
     return StagePlan(
         parameters=parameters,
         tool_versions=tool_versions,

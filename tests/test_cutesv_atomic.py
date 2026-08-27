@@ -39,8 +39,8 @@ class CuteSvRunner:
         if "--version" in normalized:
             return CommandResult(normalized, 0, "cuteSV 2.1.3\n", "")
         self.call_argv = normalized
-        self.assert_work_directory(Path(normalized[3]))
-        self.staged_vcf = Path(normalized[4])
+        self.staged_vcf = Path(normalized[3])
+        self.assert_work_directory(Path(normalized[4]))
         self.staged_vcf.write_text(self.vcf, encoding="utf-8")
         return CommandResult(normalized, self.returncode, "", "synthetic failure")
 
