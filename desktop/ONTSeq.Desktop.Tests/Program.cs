@@ -1,4 +1,5 @@
 using ONTSeq.Desktop;
+using System.Text.Json;
 
 var root = Path.Combine(Path.GetTempPath(), "ONTSeq.Desktop.Tests", Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
@@ -36,6 +37,164 @@ try
     AssertThrows<InvalidOperationException>(
         () => PathBridge.WindowsToWsl(@"\\server\share\sample.bam"),
         "UNC refusal");
+
+    var profileDefaults = new DesktopSettings();
+    AssertEqual(
+        "~/.local/share/ontseq/resources",
+        profileDefaults.ResourceRootWsl,
+        "user-writable default WSL resource root");
+    AssertEqual("AML_LCWGS_GRCh38", profileDefaults.DefaultProfile, "default analysis profile");
+    AssertEqual("2", DesktopProfiles.Supported.Count.ToString(), "exact supported profile count");
+    AssertEqual(
+        "True",
+        DesktopProfiles.Supported.All(profile => profile.GenomeBuild == "GRCh38").ToString(),
+        "all published desktop profiles are GRCh38-only");
+    AssertEqual(
+        "AML_AS_111_GRCh38",
+        DesktopProfiles.Require("AML_AS_111_GRCh38").ProfileId,
+        "adaptive sampling profile identity");
+    AssertThrows<InvalidOperationException>(
+        () => DesktopProfiles.Require("AML_AS_111_GRCh37"),
+        "GRCh37 profile refusal");
+    AssertSequenceEqual(
+        [
+            "GRCh38_GENCODE50_MANE1.5_v1",
+            "HEMATOLOGY_v1",
+            "AML_AS_111_GRCh38_v1"
+        ],
+        WslServiceLauncher.ManagedGrch38ResourceBundleIds,
+        "Desktop repair owns the complete GRCh38 profile resource family");
+    AssertEqual(
+        "/srv/ontseq",
+        DesktopSettings.NormalizeResourceRootWsl(" /srv/ontseq/ "),
+        "resource root normalization");
+    AssertEqual(
+        "~/.local/share/ontseq/resources",
+        DesktopSettings.NormalizeResourceRootWsl(" ~/.local/share/ontseq/resources/ "),
+        "home-relative resource root normalization");
+    AssertThrows<InvalidDataException>(
+        () => DesktopSettings.NormalizeResourceRootWsl("relative/resources"),
+        "relative resource root refusal");
+    AssertThrows<InvalidDataException>(
+        () => DesktopSettings.NormalizeResourceRootWsl("/opt/../mixed-build-root"),
+        "relative WSL segment refusal");
+
+    AssertSequenceEqual(
+        ["references", "status", "--resource-root", "/opt/ontseq"],
+        WslServiceLauncher.ResourceManagementArguments("status", "/opt/ontseq/"),
+        "bundle status command bridge");
+    AssertSequenceEqual(
+        [
+            "references", "status", "--resource-root",
+            "~/.local/share/ontseq/resources"
+        ],
+        WslServiceLauncher.ResourceManagementArguments(
+            "status", DesktopSettings.DefaultResourceRootWsl),
+        "home-relative Desktop bundle status command bridge");
+    AssertSequenceEqual(
+        ["references", "validate", "--resource-root", "/opt/ontseq"],
+        WslServiceLauncher.ResourceManagementArguments("validate", "/opt/ontseq"),
+        "bundle validation command bridge");
+    AssertSequenceEqual(
+        [
+            "references", "install", "GRCh38_GENCODE50_MANE1.5_v1",
+            "--resource-root", "/opt/ontseq"
+        ],
+        WslServiceLauncher.ResourceManagementArguments(
+            "install", "/opt/ontseq", "GRCh38_GENCODE50_MANE1.5_v1"),
+        "bundle install command bridge");
+    AssertSequenceEqual(
+        [
+            "references", "repair", "GRCh38_GENCODE50_MANE1.5_v1",
+            "--resource-root", "/opt/ontseq"
+        ],
+        WslServiceLauncher.ResourceManagementArguments(
+            "repair", "/opt/ontseq", "GRCh38_GENCODE50_MANE1.5_v1"),
+        "bundle repair command bridge");
+
+    const string readyResourceStatus = """
+        {
+          "references": [
+            {"bundle_id": "GRCh38_GENCODE50_MANE1.5_v1", "valid": true}
+          ],
+          "profiles": ["AML_LCWGS_GRCh38", "AML_AS_111_GRCh38"],
+          "diagnostics": []
+        }
+        """;
+    var readyStatus = WslServiceLauncher.InterpretResourceStatus(0, readyResourceStatus, "");
+    AssertEqual("True", readyStatus.Ok.ToString(), "ready GRCh38 resource status");
+    AssertEqual(
+        "True",
+        WslServiceLauncher.ManagedGrch38ResourceBundleIds.All(
+            bundle => readyStatus.Detail.Contains(bundle, StringComparison.Ordinal)).ToString(),
+        "ready status names every repair-managed bundle");
+    const string incompleteResourceStatus = """
+        {
+          "references": [
+            {"bundle_id": "GRCh38_GENCODE50_MANE1.5_v1", "valid": true}
+          ],
+          "profiles": ["AML_LCWGS_GRCh38"],
+          "diagnostics": []
+        }
+        """;
+    var incompleteStatus = WslServiceLauncher.InterpretResourceStatus(
+        0, incompleteResourceStatus, "");
+    AssertEqual("False", incompleteStatus.Ok.ToString(), "missing AS profile status refusal");
+    AssertEqual(
+        "True",
+        incompleteStatus.Detail.Contains("AML_AS_111_GRCh38", StringComparison.Ordinal).ToString(),
+        "missing AS profile is named");
+
+    const string legacySettingsJson = """
+        {
+          "wslDistribution": "Ubuntu",
+          "referenceLocksWsl": {"GRCh37": "/legacy/grch37.lock.json"},
+          "adaptiveTargetBedWsl": "/legacy/roi.bed",
+          "adaptiveTargetBedVersion": "legacy-v1"
+        }
+        """;
+    var legacySettings = JsonSerializer.Deserialize<DesktopSettings>(
+        legacySettingsJson, JsonDefaults.Options)
+        ?? throw new InvalidOperationException("legacy settings deserialization returned null");
+    legacySettings.ApplyProfileDefaults();
+    AssertEqual(
+        "/legacy/grch37.lock.json",
+        legacySettings.ReferenceLocksWsl["GRCh37"],
+        "legacy explicit reference remains readable");
+    AssertEqual("/legacy/roi.bed", legacySettings.AdaptiveTargetBedWsl, "legacy BED remains readable");
+    AssertEqual(
+        "~/.local/share/ontseq/resources",
+        legacySettings.ResourceRootWsl,
+        "legacy settings gain user-writable resource root");
+    AssertEqual(
+        "AML_LCWGS_GRCh38",
+        legacySettings.DefaultProfile,
+        "legacy settings gain GRCh38 default profile");
+
+    var requestJson = JsonSerializer.Serialize(
+        new RunStartRequest(
+            @"C:\Lab\sample.bam",
+            "SAMPLE_001",
+            null,
+            "AML_AS_111_GRCh38",
+            "GRCh38",
+            "adaptive_sampling"),
+        JsonDefaults.Options);
+    using (var requestDocument = JsonDocument.Parse(requestJson))
+    {
+        AssertEqual(
+            "AML_AS_111_GRCh38",
+            requestDocument.RootElement.GetProperty("profile").GetString(),
+            "profile API field");
+        AssertEqual(
+            "GRCh38",
+            requestDocument.RootElement.GetProperty("genome_build").GetString(),
+            "GRCh38 compatibility API field");
+        AssertEqual(
+            "False",
+            requestDocument.RootElement.TryGetProperty("run_id", out _).ToString(),
+            "run ID is omitted so Core derives sample plus UTC timestamp");
+    }
 
     const string upperHash = "E518E7131D51ABED37A7AED5DB6A031B753ADF424E867B52352B44CA4A6E7B4B";
     AssertEqual(
@@ -81,7 +240,7 @@ try
     partialAdaptiveSettings.ClearAdaptiveTargetBed();
     AssertEqual("False", partialAdaptiveSettings.HasAdaptiveTargetBedConfiguration.ToString(), "partial adaptive BED clear state");
 
-    Console.WriteLine("Desktop path, BAM index, reference identity and adaptive BED state tests passed.");
+    Console.WriteLine("Desktop profile, resource bridge, compatibility, path and BAM index tests passed.");
 }
 finally
 {
@@ -108,4 +267,16 @@ static void AssertThrows<TException>(Action action, string scenario) where TExce
         return;
     }
     throw new InvalidOperationException($"{scenario}: expected {typeof(TException).Name}.");
+}
+
+static void AssertSequenceEqual(
+    IReadOnlyList<string> expected,
+    IReadOnlyList<string> actual,
+    string scenario)
+{
+    if (!expected.SequenceEqual(actual, StringComparer.Ordinal))
+    {
+        throw new InvalidOperationException(
+            $"{scenario}: expected '{string.Join(" ", expected)}', got '{string.Join(" ", actual)}'.");
+    }
 }

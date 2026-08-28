@@ -5,6 +5,79 @@ validated release.
 
 ## Unreleased
 
+### Added
+
+- The original 111-target GRCh38 Adaptive Sampling BED and companion region list are now
+  byte-provenanced in `AML_AS_111_GRCh38_v1`; a deterministic importer creates a separate
+  0-based half-open selection BED and keeps `IGH_REVIEW_REQUIRED` unresolved.
+- A GRCh38 annotation-cache consumer compiles unbuffered gene-body ROIs and ranked panel
+  transcripts without inferring targets from the selection buffers. Both SV breakpoints can retain
+  gene, preferred transcript, exon/intron, CDS phase, cytoband, repeat, blacklist, and mappability
+  context. Fusion evidence exposes Gene A/B, orientation, and an explicit `unknown` frame default.
+- A manifest-pinned GRCh38 reference installer now stages downloads, verifies byte size and
+  SHA256, builds the FASTA dictionary/reference lock and deterministic GENCODE/MANE/cytoband
+  SQLite cache, then activates the bundle atomically. Status, checksum-limited repair and offline
+  import never query a remote service. The installable GRCh38.p14/GENCODE 50/MANE 1.5 recipe pins
+  exact sizes and SHA256 for all nine publisher artifacts; GENCODE transfers were additionally
+  checked against the publisher MD5 index. A miniature bundle exercises the same path in CI and
+  the multi-gigabyte installation smoke remains explicit opt-in.
+- A CNV cytoband engine retains raw overlaps, applies the configurable 66% fraction-of-band rule,
+  merges only adjacent same-direction bands on the same arm, and represents whole-chromosome calls
+  separately. The existing AML rearrangement resource is manifest-pinned as `HEMATOLOGY_v1`.
+
+### Validation impact
+
+- Every active panel interval starts one base earlier than a literal BED interpretation of the
+  laboratory source, increasing the locked span by 111 bases. Edge coverage and breakpoint target
+  membership can change accordingly. Transcript and cytoband summaries can also change review
+  ordering. Regression tests lock these transformations, but no analytical sensitivity,
+  specificity, LoD, negative-observability, fusion-frame, or reportability claim is introduced.
+- Reference/FAI/lock inconsistencies and coordinate-ambiguous panel manifests that older loaders
+  could accept are now rejected before analysis. The CNV affected-band cutoff remains 0.66, but is
+  now an explicit field of the versioned QDNAseq/ACE policy and recorded in stage/sidecar
+  provenance instead of being an untracked engine default.
+
+### Changed
+
+- Interactive Desktop/service profile preflight now checks every pinned Reference, Panel and
+  Knowledge resource for manifest validity, presence and declared size without re-hashing
+  multi-gigabyte files. `ontseq references validate` remains the explicit full SHA256 audit.
+- `/api/config` advertises only locally resolvable GRCh38 profiles, missing profiles fail as HTTP
+  400, and Desktop uses the Core-derived `<sample>-<UTC timestamp>` run ID returned by the service.
+- Explicit reference repair now transactionally restores the complete pinned GRCh38 profile
+  family (reference, panel, knowledge and profile manifests) with rollback, so damaged dependent
+  bundles no longer require manual deletion. Profile-backed service runs retain the configured
+  QC/SV/coverage policies, minimum depth and component-version selection.
+
+### Fixed
+
+- `ontseq references repair GRCh38_GENCODE50_MANE1.5_v1` now repairs the complete pinned
+  profile-resource family, including `HEMATOLOGY_v1`, `AML_AS_111_GRCh38_v1` and both profile
+  manifests, with staged validation, path-atomic replacement and rollback instead of requiring
+  operators to delete divergent resources manually. Repair and official-ID import also require
+  the exact catalog Source-/Generator contract; changed sources or derivations require a new
+  bundle ID/version.
+- Native UCSC hg38 cytobands now ignore the unnamed chrM placeholder instead of rejecting the
+  publisher table; named cytogenetic bands remain strictly validated.
+- Pseudoautosomal panel symbols such as `P2RY8` are disambiguated by the explicitly declared
+  source chromosome. Historical or coordinate-conflicting labels remain unresolved.
+- Result assembly fingerprints the annotated SV consensus, so a changed breakpoint annotation or
+  knowledge context cannot resume a stale `PipelineResult`. Annotated BND/translocation candidates
+  with fusion evidence now also appear in the XLSX fusion worksheet.
+- Full GRCh38 technical-context BEDs now use a path-backed, contig-lazy compact interval index with
+  bisect/block-max point queries instead of retaining every row and rescanning it for each
+  breakpoint.
+- Legacy manifest runs without `--reference-fasta` no longer activate the optional cuteSV caller
+  from its default policy path. Cramino histogram counts are written to an explicit temporary file
+  so the primary stdout stream remains valid JSON before the numeric sidecar is normalized.
+- SV and QC re-execution clears stale caller/consensus and histogram artifacts before new work;
+  failed or evidence-free reruns therefore cannot expose an earlier run's sidecars. Official-ID
+  repair/import also rejects changed source or generator contracts under an unchanged bundle
+  identity, while custom bundle IDs remain importable.
+- Wheels and containers now carry the immutable GRCh38 authority/configuration assets under the
+  installation prefix, and Windows Python 3.11 rejects junction/reparse-point resource paths at
+  the same mutation boundaries as Python 3.12.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added

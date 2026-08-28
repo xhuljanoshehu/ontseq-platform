@@ -9,7 +9,12 @@ from openpyxl import load_workbook
 
 from ontseq_platform.demo import build_demo_result
 from ontseq_platform.io import write_json
-from ontseq_platform.models import PipelineResult
+from ontseq_platform.models import (
+    EventType,
+    FusionAnnotation,
+    FusionPartnerAnnotation,
+    PipelineResult,
+)
 from ontseq_platform.report import render_html
 from ontseq_platform.workbook import render_workbook
 
@@ -44,6 +49,41 @@ class OutputTests(unittest.TestCase):
                     "10_Module_Status",
                 ],
             )
+            workbook.close()
+
+    def test_annotated_translocation_is_included_in_fusion_sheet(self) -> None:
+        result = build_demo_result()
+        candidate = next(event for event in result.events if event.event_type == EventType.FUSION)
+        annotated_bnd = candidate.model_copy(
+            update={
+                "event_type": EventType.TRANSLOCATION,
+                "fusion_evidence": FusionAnnotation(
+                    gene_a=FusionPartnerAnnotation(
+                        gene="RUNX1T1", preferred_transcript="ENST_RUNX1T1"
+                    ),
+                    gene_b=FusionPartnerAnnotation(gene="RUNX1", preferred_transcript="ENST_RUNX1"),
+                    orientation="+-",
+                    frame_status="unknown",
+                ),
+            }
+        )
+        result = result.model_copy(
+            update={
+                "events": [
+                    annotated_bnd if event.event_id == candidate.event_id else event
+                    for event in result.events
+                ]
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_workbook(result, Path(temporary) / "report.xlsx")
+            workbook = load_workbook(path, read_only=True)
+            rows = list(workbook["05_Fusions"].iter_rows(values_only=True))
+            workbook.close()
+
+        self.assertEqual(rows[1][0], "FUS-001")
+        self.assertEqual(rows[1][6], "+-")
 
 
 if __name__ == "__main__":

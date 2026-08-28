@@ -4,7 +4,7 @@ import html
 import json
 from pathlib import Path
 
-from .models import GenomicEvent, PipelineResult
+from .models import GenomicEvent, PipelineResult, ResolvedResourceContext
 from .sv_evidence import sv_review_queue
 
 
@@ -64,6 +64,72 @@ def _event_loci(event: GenomicEvent) -> tuple[str, str]:
     return primary, secondary
 
 
+def _breakpoint_transcript_context(event: GenomicEvent) -> str:
+    parts: list[str] = []
+    for annotation in event.breakpoint_annotations:
+        preferred = next((item for item in annotation.transcripts if item.preferred), None)
+        if preferred is None and annotation.transcripts:
+            preferred = annotation.transcripts[0]
+        if preferred is None:
+            parts.append(f"{annotation.label}:unannotated")
+            continue
+        location = str(preferred.region)
+        if preferred.exon_number is not None:
+            location += f" {preferred.exon_number}"
+        elif preferred.intron_number is not None:
+            location += f" {preferred.intron_number}"
+        phase = "" if preferred.cds_phase is None else f", CDS phase {preferred.cds_phase}"
+        parts.append(
+            f"{annotation.label}:{preferred.gene_name}/{preferred.transcript_id} "
+            f"({location}{phase})"
+        )
+    return "; ".join(parts) or "not annotated"
+
+
+def _fusion_context(event: GenomicEvent) -> str:
+    evidence = event.fusion_evidence
+    if evidence is None:
+        return "n/a"
+    return f"orientation={evidence.orientation or 'unknown'}; frame={evidence.frame_status}"
+
+
+def _reference_methods(result: PipelineResult) -> tuple[str, str]:
+    context = result.reference_context
+    if not isinstance(context, ResolvedResourceContext):
+        return "<tr><td>Reference context</td><td>legacy_unspecified</td></tr>", ""
+    releases = context.resource_releases
+    rows = [
+        ("Genome assembly", releases.get("reference.genome_fasta", context.genome_build.value)),
+        (
+            "ReferenceBundle",
+            f"{context.reference_bundle_id} ({context.reference_bundle_version})",
+        ),
+        ("GENCODE", releases.get("reference.gencode_gtf", "unspecified")),
+        ("MANE", releases.get("reference.mane_gff3", "unspecified")),
+        ("Cytobands", releases.get("reference.cytobands", "unspecified")),
+        (
+            "PanelBundle",
+            (
+                f"{context.panel_bundle_id} ({context.panel_bundle_version})"
+                if context.panel_bundle_id is not None
+                else "NOT_APPLICABLE"
+            ),
+        ),
+        (
+            "KnowledgeBundle",
+            f"{context.knowledge_bundle_id} ({context.knowledge_bundle_version})",
+        ),
+    ]
+    table_rows = "".join(
+        f"<tr><td>{_cell(name)}</td><td>{_cell(value)}</td></tr>" for name, value in rows
+    )
+    checksum_rows = "".join(
+        f"<tr><td>{_cell(name)}</td><td><code>{_cell(checksum)}</code></td></tr>"
+        for name, checksum in sorted(context.resource_checksums.items())
+    )
+    return table_rows, checksum_rows
+
+
 def _full_event_row(event: GenomicEvent) -> str:
     primary_locus, secondary_locus = _event_loci(event)
     return (
@@ -82,6 +148,8 @@ def _full_event_row(event: GenomicEvent) -> str:
         f"<td>{_cell(', '.join(event.technical_flags))}</td>"
         f"<td>{_cell(event.aml_relevance)}</td>"
         f"<td>{_cell(event.fusion_status.value)}</td>"
+        f"<td>{_cell(_breakpoint_transcript_context(event))}</td>"
+        f"<td>{_cell(_fusion_context(event))}</td>"
         f"<td>{_cell(_event_evidence(event))}</td>"
         "</tr>"
     )
@@ -117,7 +185,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
     event_rows = [_full_event_row(event) for event in result.events]
     if not event_rows:
         event_rows.append(
-            "<tr><td colspan='15'>No events were produced. Review module status; this is not "
+            "<tr><td colspan='17'>No events were produced. Review module status; this is not "
             "a biological negative result.</td></tr>"
         )
 
@@ -155,6 +223,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
         f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
         for tool in result.provenance.tools
     )
+    reference_rows, checksum_rows = _reference_methods(result)
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -243,11 +312,18 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       <th>Length (bp)</th><th>Locus 1</th><th>Locus 2</th><th>Band</th><th>Genes</th>
       <th>Confidence</th><th>Reportable</th><th>Validation status</th>
       <th>AS observability</th><th>Context flags</th><th>AML relevance</th><th>Fusion status</th>
+      <th>Breakpoint transcript context</th><th>Fusion orientation/frame</th>
       <th>Evidence</th></tr></thead>
       <tbody id="all-events">{"".join(event_rows)}</tbody></table></section>
     <section><h2>Warnings and limitations</h2><ul class="warn">{warnings}</ul></section>
-    <section><h2>Methods and versions</h2><table><thead><tr><th>Tool</th><th>Version</th>
-      <th>Parameters</th></tr></thead><tbody>{tool_rows}</tbody></table></section>
+    <section><h2>Methods and versions</h2>
+      <h3>Reference resources</h3><table><thead><tr><th>Resource</th><th>Release</th>
+      </tr></thead><tbody>{reference_rows}</tbody></table>
+      <h3>Tools</h3><table><thead><tr><th>Tool</th><th>Version</th>
+      <th>Parameters</th></tr></thead><tbody>{tool_rows}</tbody></table>
+      <details><summary>Resource SHA256 provenance</summary><table><thead><tr>
+      <th>Resource</th><th>SHA256</th></tr></thead><tbody>{checksum_rows}</tbody></table>
+      </details></section>
   </main>
   <script>
     for (const input of document.querySelectorAll("input[data-table]")) {{

@@ -9,6 +9,15 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
     private const string ReleaseVersion = "0.4.1";
+    public const string Grch38ReferenceBundleId = "GRCh38_GENCODE50_MANE1.5_v1";
+    public const string HematologyKnowledgeBundleId = "HEMATOLOGY_v1";
+    public const string AmlAdaptivePanelBundleId = "AML_AS_111_GRCh38_v1";
+    public static IReadOnlyList<string> ManagedGrch38ResourceBundleIds { get; } =
+        Array.AsReadOnly(new[] {
+            Grch38ReferenceBundleId,
+            HematologyKnowledgeBundleId,
+            AmlAdaptivePanelBundleId
+        });
     private Process? _process;
     private readonly StringBuilder _stderr = new();
     private readonly StringBuilder _stdout = new();
@@ -108,13 +117,26 @@ public sealed class WslServiceLauncher : IAsyncDisposable
                 cancellationToken);
             if (serviceCapability.ExitCode != 0 ||
                 !serviceCapability.StdOut.Contains("--target-coverage-policy", StringComparison.Ordinal) ||
-                !serviceCapability.StdOut.Contains("--components", StringComparison.Ordinal))
+                !serviceCapability.StdOut.Contains("--components", StringComparison.Ordinal) ||
+                !serviceCapability.StdOut.Contains("--resource-root", StringComparison.Ordinal))
             {
                 return (
                     false,
                     $"Die installierte ONTSeq Runtime enthält nicht den vollständigen v{ReleaseVersion}-" +
                     "Desktop-Vertrag für Target Coverage und Komponentenauswahl. Bitte " +
                     "'Runtime installieren' erneut ausführen.");
+            }
+
+            var resourceCapability = await RunWslAsync(
+                settings.WslDistribution,
+                BackendInvocation(settings, "references", "--help"),
+                cancellationToken);
+            if (resourceCapability.ExitCode != 0)
+            {
+                return (
+                    false,
+                    "Die installierte ONTSeq Runtime unterstützt noch keine manifestierten " +
+                    "GRCh38-Bundles. Bitte 'Runtime installieren' erneut ausführen.");
             }
 
             return (true, $"ONTSeq Backend v{ReleaseVersion} gefunden: {settings.BackendCommand}");
@@ -146,6 +168,200 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
         var detail = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
         return (false, detail.Trim());
+    }
+
+    public async Task<(bool Ok, string Detail)> CheckResourceBundlesAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken)
+    {
+        settings.ApplyProfileDefaults();
+        var args = ResourceManagementArguments(
+            "status", settings.ResourceRootWsl).ToList();
+        args.Add("--json");
+        var result = await RunWslAsync(
+            settings.WslDistribution,
+            BackendInvocation(settings, args.ToArray()),
+            cancellationToken);
+        return InterpretResourceStatus(result.ExitCode, result.StdOut, result.StdErr);
+    }
+
+    public async Task<(bool Ok, string Detail)> ValidateResourceBundlesAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken) =>
+        await RunResourceQueryAsync(settings, "validate", cancellationToken);
+
+    private async Task<(bool Ok, string Detail)> RunResourceQueryAsync(
+        DesktopSettings settings,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        settings.ApplyProfileDefaults();
+        var result = await RunWslAsync(
+            settings.WslDistribution,
+            BackendInvocation(
+                settings,
+                ResourceManagementArguments(
+                    action, settings.ResourceRootWsl).ToArray()),
+            cancellationToken);
+        var detail = string.IsNullOrWhiteSpace(result.StdOut) ? result.StdErr : result.StdOut;
+        return (result.ExitCode == 0, detail.Trim());
+    }
+
+    public static (bool Ok, string Detail) InterpretResourceStatus(
+        int exitCode,
+        string stdout,
+        string stderr)
+    {
+        if (exitCode != 0)
+            return (false, (string.IsNullOrWhiteSpace(stderr) ? stdout : stderr).Trim());
+        try
+        {
+            using var document = JsonDocument.Parse(stdout);
+            var root = document.RootElement;
+            var referenceReady = root.TryGetProperty("references", out var references) &&
+                references.ValueKind == JsonValueKind.Array &&
+                references.EnumerateArray().Any(item =>
+                    item.TryGetProperty("bundle_id", out var id) &&
+                    string.Equals(id.GetString(), Grch38ReferenceBundleId, StringComparison.Ordinal) &&
+                    item.TryGetProperty("valid", out var valid) && valid.GetBoolean());
+            var profiles = new HashSet<string>(StringComparer.Ordinal);
+            if (root.TryGetProperty("profiles", out var profileArray) &&
+                profileArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in profileArray.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String && item.GetString() is { } profileId)
+                        profiles.Add(profileId);
+                }
+            }
+            var requiredProfilesReady = DesktopProfiles.Supported.All(
+                profile => profiles.Contains(profile.ProfileId));
+            if (referenceReady && requiredProfilesReady)
+            {
+                return (
+                    true,
+                    "GRCh38-Ressourcenfamilie gültig (" +
+                    string.Join(", ", ManagedGrch38ResourceBundleIds) + ") · Profile: " +
+                    string.Join(", ", DesktopProfiles.Supported.Select(item => item.ProfileId)));
+            }
+
+            var missing = new List<string>();
+            if (!referenceReady) missing.Add(Grch38ReferenceBundleId);
+            missing.AddRange(DesktopProfiles.Supported
+                .Where(profile => !profiles.Contains(profile.ProfileId))
+                .Select(profile => profile.ProfileId));
+            return (false, "Nicht einsatzbereit: " + string.Join(", ", missing));
+        }
+        catch (JsonException error)
+        {
+            return (false, "Ungültige JSON-Antwort von 'ontseq references status': " + error.Message);
+        }
+    }
+
+    public async Task<string> InstallGrch38ProfileResourcesAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken) =>
+        await RunResourceManagementAsync(
+            settings,
+            "install",
+            Grch38ReferenceBundleId,
+            cancellationToken);
+
+    public async Task<string> RepairGrch38ProfileResourcesAsync(
+        DesktopSettings settings,
+        CancellationToken cancellationToken) =>
+        await RunResourceManagementAsync(
+            settings,
+            "repair",
+            Grch38ReferenceBundleId,
+            cancellationToken);
+
+    private async Task<string> RunResourceManagementAsync(
+        DesktopSettings settings,
+        string action,
+        string bundleId,
+        CancellationToken cancellationToken)
+    {
+        settings.ApplyProfileDefaults();
+        var result = await RunWslAsync(
+            settings.WslDistribution,
+            BackendInvocation(
+                settings,
+                ResourceManagementArguments(
+                    action, settings.ResourceRootWsl, bundleId).ToArray()),
+            cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
+            throw new InvalidOperationException(
+                $"Resource-Bundle konnte nicht mit '{action}' verarbeitet werden.\n{detail.Trim()}");
+        }
+        return (string.IsNullOrWhiteSpace(result.StdOut) ? result.StdErr : result.StdOut).Trim();
+    }
+
+    public static IReadOnlyList<string> ResourceManagementArguments(
+        string action,
+        string resourceRootWsl,
+        string? bundleId = null)
+    {
+        if (action is not ("status" or "list" or "validate" or "install" or "repair" or "import"))
+            throw new ArgumentOutOfRangeException(nameof(action), action, "Unbekannter Resource-Befehl.");
+        var requiresTarget = action is "install" or "repair" or "import";
+        if (requiresTarget != !string.IsNullOrWhiteSpace(bundleId))
+            throw new ArgumentException(
+                requiresTarget
+                    ? $"'{action}' benötigt eine Bundle-ID bzw. einen Importpfad."
+                    : $"'{action}' akzeptiert kein Bundle-Ziel.",
+                nameof(bundleId));
+
+        var args = new List<string> { "references", action };
+        if (requiresTarget) args.Add(bundleId!);
+        args.Add("--resource-root");
+        args.Add(DesktopSettings.NormalizeResourceRootWsl(resourceRootWsl));
+        return args;
+    }
+
+    public async Task VerifyProfilePrerequisitesAsync(
+        DesktopSettings settings,
+        string allowedRootWindows,
+        string profileId,
+        CancellationToken cancellationToken)
+    {
+        _ = DesktopProfiles.Require(profileId);
+        settings.ApplyProfileDefaults();
+
+        var status = await CheckWslAsync(settings, cancellationToken);
+        if (!status.Ok) throw new InvalidOperationException(status.Detail);
+        var backend = await CheckBackendAsync(settings, cancellationToken);
+        if (!backend.Ok) throw new InvalidOperationException(backend.Detail);
+
+        var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
+        var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
+        var check = await RunWslAsync(
+            settings.WslDistribution,
+            [
+                "sh", "-lc",
+                $"test -d {ShellQuote(rootWsl)} && mkdir -p {ShellQuote(outputWsl)} && " +
+                $"test -d {ShellPathExpression(settings.ResourceRootWsl)}"
+            ],
+            cancellationToken);
+        if (check.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "BAM-Speicher, Ausgabeverzeichnis oder Resource-Root sind in WSL nicht erreichbar. " +
+                "Öffne 'System einrichten', installiere das GRCh38-Bundle und prüfe bei " +
+                "Netzlaufwerken die drvfs-Einbindung.\n" +
+                $"BAM-Root: {rootWsl}\nResource-Root: {settings.ResourceRootWsl}\n{check.StdErr}");
+        }
+
+        var statusReport = await CheckResourceBundlesAsync(settings, cancellationToken);
+        if (!statusReport.Ok)
+            throw new InvalidOperationException(
+                "Die manifestierten GRCh38-Profile sind nicht vollständig einsatzbereit. " +
+                "Nutze in 'System einrichten' die vollständige Ressourcen-Reparatur für " +
+                $"{Grch38ReferenceBundleId}, {HematologyKnowledgeBundleId} und " +
+                $"{AmlAdaptivePanelBundleId}.\n" +
+                statusReport.Detail);
     }
 
     public async Task<string> InstallBundledRuntimeAsync(
@@ -188,8 +404,10 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('QDNAseq.hg38',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +
             " && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} validate-reference --help >/dev/null && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} references --help >/dev/null && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--target-coverage-policy' && " +
-            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--components'";
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--components' && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--resource-root'";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
         if (install.ExitCode != 0)
@@ -386,6 +604,11 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             serviceArgs.Add(PosixDirectoryName(settings.AdaptiveTargetBedWsl));
         }
         AddBundledPolicies(settings, serviceArgs, includeCnv: true, includeCore034: true);
+        StartProcess(settings, serviceArgs);
+    }
+
+    private void StartProcess(DesktopSettings settings, List<string> serviceArgs)
+    {
         var args = BackendInvocation(settings, serviceArgs.ToArray());
 
         var psi = new ProcessStartInfo
@@ -407,6 +630,31 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         if (!_process.Start()) throw new InvalidOperationException("ONTSeq Backend konnte nicht gestartet werden.");
         _process.BeginOutputReadLine();
         _process.BeginErrorReadLine();
+    }
+
+    public void StartProfile(
+        DesktopSettings settings,
+        string allowedRootWindows,
+        string profileId)
+    {
+        _ = DesktopProfiles.Require(profileId);
+        if (_process is { HasExited: false }) return;
+
+        settings.ApplyProfileDefaults();
+        Directory.CreateDirectory(settings.OutputDirectoryWindows);
+        var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
+        var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
+        var serviceArgs = new List<string>
+        {
+            "serve",
+            "--resource-root", settings.ResourceRootWsl,
+            "--allow-root", rootWsl,
+            "--output-dir", outputWsl,
+            "--port", settings.Port.ToString(),
+            "--no-browser"
+        };
+        AddBundledPolicies(settings, serviceArgs, includeCnv: true, includeCore034: true);
+        StartProcess(settings, serviceArgs);
     }
 
     public bool HasExited => _process is null || _process.HasExited;
@@ -501,6 +749,21 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         if (separator <= 0)
             throw new InvalidOperationException($"Kein absoluter WSL-Pfad: {path}");
         return normalized[..separator];
+    }
+
+    private static string ShellPathExpression(string path)
+    {
+        var normalized = DesktopSettings.NormalizeResourceRootWsl(path);
+        if (!normalized.StartsWith("~/", StringComparison.Ordinal)) return ShellQuote(normalized);
+
+        // Expand only the trusted $HOME prefix.  Escape every shell-significant character
+        // in the user-configurable suffix so it remains one path inside the home directory.
+        var suffix = normalized[2..]
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("$", "\\$", StringComparison.Ordinal)
+            .Replace("`", "\\`", StringComparison.Ordinal);
+        return $"\"$HOME/{suffix}\"";
     }
 
     private static IReadOnlyList<string> BackendInvocation(DesktopSettings settings, params string[] args)

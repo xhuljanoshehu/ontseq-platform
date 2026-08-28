@@ -18,13 +18,13 @@ This bootstrap mechanism is adequate for the local engineering prototype because
 
 `POST /api/runs`
 
-Request fields used by Desktop v0.1:
+Request fields used by the GRCh38 profile-backed Desktop:
 
 ```json
 {
   "bam": "P:\\Lab\\sample.bam",
   "sample_id": "SAMPLE_001",
-  "run_id": "RUN_20260819_104200",
+  "profile": "AML_LCWGS_GRCh38",
   "genome_build": "GRCh38",
   "assay": "lcwgs",
   "target_bed": null,
@@ -32,9 +32,25 @@ Request fields used by Desktop v0.1:
 }
 ```
 
-For `adaptive_sampling`, `target_bed` and `target_bed_version` are supplied from installer-owned assay configuration, not guessed by the operator.
+`profile` is authoritative for resource resolution. The published values in this work package are
+`AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38`; both are build-isolated to GRCh38. The
+`genome_build`, `assay`, `target_bed` and `target_bed_version` fields remain in the transport
+contract for one compatibility version. New profile runs derive their build and assay from the
+profile and leave the two explicit target-BED fields null.
+Desktop also omits `run_id`; Core derives the canonical `<sample>-<UTC timestamp>` value and
+returns it in the HTTP 202 job. Desktop uses that returned ID for polling and output links.
+
+The service is started with `--resource-root`, taken from `resourceRootWsl` (default
+`~/.local/share/ontseq/resources`, below the WSL user's `$HOME`). Core/CLI keeps its separate
+`/opt/ontseq` default. The service must resolve the profile's pinned bundle IDs and must not fall back to an
+explicit path or another build.
 
 Expected response: HTTP 202 with a run job whose initial `state` is `running`.
+
+`GET /api/config` advertises only profiles whose complete pinned Reference, Knowledge and optional
+Panel context passes the fast local manifest/presence/declared-size check. Starting a profile run
+uses the same bounded preflight and does not hash every multi-gigabyte resource. Full SHA256
+verification remains an explicit `ontseq references validate` operation.
 
 ## Status
 
@@ -50,6 +66,11 @@ The current backend stage vocabulary is preserved verbatim:
 - `NOT_RUN` — the stage was not attempted, including non-applicability or blocking dependencies. **Not a negative biological result.**
 
 The desktop also polls `<output>/<run>/<sample>/provenance/run.json`. That file is atomically rewritten by the runner after each stage, so it provides live stage progress before the in-memory HTTP job receives its final stage list. The desktop displays those values; it does not derive new scientific statuses.
+
+When the job response contains `detected_genome_build`, Desktop displays it. Independently,
+as soon as `provenance/run.json` exists, Desktop reads its top-level `genome_build` and labels it
+as provenance-backed. Before that point the UI shows the unambiguous GRCh38 profile expectation,
+not a claim that the BAM has already passed dictionary validation.
 
 ## Results
 

@@ -301,6 +301,22 @@ sie nicht, bricht die betroffene Stage ab und nennt beide Versionen. Details in
 Vor einem realen Run sollte immer zuerst die dokumentierte Preflight-/Reference-Lock-Logik
 verwendet werden. Für echte genomische Daten gelten die lokalen Daten- und Governance-Regeln.
 
+## GRCh38-Profile und automatische Ressourcen
+
+Der neue Profilpfad benötigt neben dem indizierten BAM keine manuelle Auswahl von FASTA,
+Cytobands, GENCODE, MANE, Panel oder Knowledge-Dateien:
+
+```bash
+ontseq references install GRCh38_GENCODE50_MANE1.5_v1
+ontseq references status
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_LCWGS_GRCh38
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_AS_111_GRCh38
+```
+
+Die Registry ist manifest- und checksumgesteuert und lehnt GRCh37-, partielle sowie gemischte
+BAM-Dictionaries vor Pipelinebeginn ab. Das vollständige Installations-, Offline- und
+Updateverfahren steht in [`docs/REFERENCE_SYSTEM.md`](docs/REFERENCE_SYSTEM.md).
+
 ## 10. Repository-Struktur
 
 | Pfad | Zweck |

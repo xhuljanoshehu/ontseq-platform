@@ -53,16 +53,17 @@
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Sample-ID" VerticalAlignment="Center" FontWeight="SemiBold" />
                 <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="SampleIdTextBox" Margin="0,0,0,10" />
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Referenzgenom" VerticalAlignment="Center" FontWeight="SemiBold" />
-                <ComboBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="GenomeBuildCombo" SelectedIndex="0" Margin="0,0,0,10">
-                    <ComboBoxItem Content="GRCh38" Tag="GRCh38" />
-                    <ComboBoxItem Content="GRCh37" Tag="GRCh37" />
-                </ComboBox>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Erkannter Build" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <Border Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Background="#EEF3F8" CornerRadius="4" Padding="9,6" Margin="0,0,0,10">
+                    <TextBlock x:Name="DetectedBuildText" Text="GRCh38 · Profilvorgabe, BAM-Prüfung beim Start"
+                               Foreground="#42556E" TextWrapping="Wrap" />
+                </Border>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Analyseprofil" VerticalAlignment="Center" FontWeight="SemiBold" />
-                <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="AssayCombo" SelectedIndex="0" Margin="0,0,0,18">
-                    <ComboBoxItem Content="Whole Genome / low-coverage WGS" Tag="lcwgs" />
-                    <ComboBoxItem Content="Adaptive Sampling" Tag="adaptive_sampling" />
+                <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ProfileCombo"
+                          SelectedIndex="0" SelectionChanged="ProfileCombo_SelectionChanged" Margin="0,0,0,18">
+                    <ComboBoxItem Content="AML low-coverage WGS · GRCh38" Tag="AML_LCWGS_GRCh38" />
+                    <ComboBoxItem Content="AML Adaptive Sampling 111 Gene · GRCh38" Tag="AML_AS_111_GRCh38" />
                 </ComboBox>
 
                 <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
@@ -111,7 +112,7 @@
 
         <Grid Grid.Row="4" Margin="0,18,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock x:Name="DetailText" Text="BAM auswählen, Referenz und Analyseprofil prüfen, dann Analyse starten." Foreground="#5F6B7A" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <TextBlock x:Name="DetailText" Text="BAM auswählen und GRCh38-Analyseprofil prüfen, dann Analyse starten." Foreground="#5F6B7A" VerticalAlignment="Center" TextWrapping="Wrap" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button x:Name="OpenReportButton" Content="HTML-Bericht öffnen" IsEnabled="False" Click="OpenReport_Click" />
                 <Button x:Name="OpenExcelButton" Content="Excel öffnen" IsEnabled="False" Click="OpenExcel_Click" />

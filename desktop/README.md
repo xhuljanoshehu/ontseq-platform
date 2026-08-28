@@ -9,20 +9,22 @@ Windows operator surface for the ONTSeq execution core. The desktop app does not
 1. Extract the complete engineering bundle and start `ONTSeq.Desktop.exe`.
 2. Open **System einrichten** on first use and install the bundled Linux runtime into WSL. The bundle contains Python, R, samtools, Cramino, Sniffles2, Mosdepth, minimap2, QDNAseq, QDNAseq.hg19, QDNAseq.hg38, ACE and the ONTSeq Core/resources.
 3. Run **Selbsttest starten**. This is a full installed-runtime system smoke, not only a package import check.
-4. Configure the exact Reference-Lock that matches the BAM (GRCh37 or GRCh38). v0.4.1 requires complete canonical chromosomes 1–22, X and Y for the selected named assembly and revalidates the stored lock before each run.
-5. For Adaptive Sampling, select the controlled target BED. The desktop copies it into its local resource store and records a SHA256-backed version string; the backend additionally checks a panel lock when one accompanies the BED.
+4. Keep the user-writable WSL resource root at `~/.local/share/ontseq/resources` or configure another absolute WSL path. Use **Installieren** or **Reparieren** to provision and validate the complete resource family: `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v1`, `AML_AS_111_GRCh38_v1` and both profiles. Repair safely replaces divergent pinned resources through the backend transaction; manual deletion is not required.
+5. Select `AML_LCWGS_GRCh38` (default) or `AML_AS_111_GRCh38`. Both resolve the pinned reference, annotation and knowledge bundles automatically; the AS profile additionally resolves `AML_AS_111_GRCh38_v1`. There is no GRCh37 fallback or cross-build resource selection in this work package.
 6. Select one aligned `.bam` file. Both `sample.bam.bai` and `sample.bai` are accepted, with deterministic precedence for `sample.bam.bai` when both exist. The declared index is checked explicitly rather than rediscovered implicitly by samtools.
 7. Sample ID is suggested from the filename and remains editable.
-8. Select GRCh38 or GRCh37 and low-coverage WGS or Adaptive Sampling.
+8. Select one of the two explicit GRCh38 analysis profiles. The expected build is shown immediately; the backend verifies the BAM sequence dictionary and the desktop replaces the display with the build persisted in run provenance when available.
 9. Click **ANALYSE STARTEN**.
-10. The application checks WSL, the v0.4.1 backend capabilities, input/index, configured reference, required runtime resources, output location and Adaptive Sampling BED when applicable.
+10. The application checks WSL, backend capabilities, input/index, resource root, required profile bundles and output location before starting the local service.
 11. It starts the canonical `ontseq serve` backend, submits the run, polls progress, and enables the HTML, XLSX and result-folder buttons when outputs are present.
 
 The UI keeps the backend's distinct stage outcomes (`COMPLETED`, `NO_CALL`, `FAILED`, `NOT_RUN`) instead of flattening them into done/pending. A technical `PASS` is not a biological negative result and is not clinical validation.
 
 ### Reference and resume integrity in v0.4.1
 
-Reference configuration is content-addressed by the selected FAI SHA-256. A new lock is first written to a temporary file, canonical assembly identity is checked, the recorded FAI digest is compared with the digest calculated before creation, and only then is the lock atomically promoted. A failed new reference setup therefore does not replace the previously active lock.
+New profile runs resolve a manifest-driven `ReferenceBundle`, `PanelBundle` and `KnowledgeBundle` beneath `resourceRootWsl`. Bundle installation and repair remain backend operations; Desktop only invokes their typed CLI contracts and displays the result. The selected profile and BAM dictionary must both resolve to GRCh38.
+
+The former explicit `referenceLocksWsl`, `adaptiveTargetBedWsl` and `adaptiveTargetBedVersion` settings remain deserializable for one compatibility release. They are labelled as legacy in setup and are never mixed into the new bundle-backed profiles.
 
 Aligned-BAM intake signs the BAM, the explicitly declared BAI, manifest reference/build claims, the complete Reference-Lock identity, Core version and git commit into the stage resume signature. BAM and BAI are hashed before intake and again after validation; a change during the intake window fails the stage rather than permitting reuse of stale results. The packed runtime also contains the exact build git commit so Desktop-started runs can record provenance rather than `UNKNOWN`.
 
@@ -43,7 +45,11 @@ The desktop setup invokes the installed-runtime system smoke through WSL and sto
 
 ### Current CNV behavior
 
-The bundled reproducible QDNAseq environment includes `QDNAseq.hg19` 1.36.0 for GRCh37 and the open-source `QDNAseq.hg38` 1.2.0 data package pinned to upstream commit `cf7c07e39de0ac64a9c38cb030cba4626e2aae83` for GRCh38. Desktop runs on either build request the integrated QDNAseq + ACE CNV stage using 100/500/1000 kbp views, a 500-kbp primary view and multi-bin consensus.
+The bundled reproducible QDNAseq environment still contains the earlier hg19 package for
+compatibility, but the two published Desktop profiles in this work package request only the
+GRCh38 QDNAseq + ACE lane. They use the open-source `QDNAseq.hg38` 1.2.0 data package pinned to
+upstream commit `cf7c07e39de0ac64a9c38cb030cba4626e2aae83`, with 100/500/1000-kbp views, a 500-kbp
+primary view and multi-bin consensus. No hg19 resource is selected as a profile fallback.
 
 The GRCh38 lane was enabled only after a canonical real-tool test recovered a deterministic synthetic chromosome 7 loss (CN~1) and chromosome 8 gain (CN~3), produced HTML/XLSX/JSON outputs, verified release checksums and resumed content-addressed on an unchanged rerun. This is engineering verification, not cohort-level analytical or clinical validation.
 
@@ -61,6 +67,15 @@ The app loads the first existing settings file from:
 - `%PROGRAMDATA%\ONTSeq\desktop.settings.json`
 
 See `desktop.settings.example.json` for the available keys. First-run setup writes the user-local settings automatically. A runtime installed by the v0.4.1 Desktop is stored under `~/.local/share/ontseq/runtime-v0.4.1` in the selected WSL distribution.
+
+The profile-resource defaults are:
+
+```json
+{
+  "resourceRootWsl": "~/.local/share/ontseq/resources",
+  "defaultProfile": "AML_LCWGS_GRCh38"
+}
+```
 
 ### Network drives
 
@@ -89,7 +104,7 @@ The **Abbrechen** control remains disabled. A backend cancellation contract must
 - first real Windows + WSL BAM run on the target workstation, including HTML/XLSX opening from the desktop;
 - mapped-network-drive verification on the actual workstation if the BAM resides on `P:` or another mapped drive;
 - service-level Windows smoke covering Desktop Start → loopback API → persisted outputs with a real `wsl.exe` host rather than Linux-container emulation;
-- analytical validation of both GRCh37 and GRCh38 CNV on controlled real/reference samples;
+- analytical validation of GRCh38 CNV on controlled real/reference samples for the active profiles;
 - backend-owned cooperative cancellation with explicit interrupted-state semantics;
 - analytical validation on controlled real/reference samples before any diagnostic use.
 

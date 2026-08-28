@@ -113,6 +113,37 @@ public sealed class OntSeqServiceClient : IDisposable
 
 public static class ProvenanceReader
 {
+    public static async Task<string?> ReadGenomeBuildAsync(
+        string outputRoot,
+        string runId,
+        string sampleId,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(outputRoot, runId, sampleId, "provenance", "run.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            return doc.RootElement.TryGetProperty("genome_build", out var build) &&
+                   build.ValueKind == JsonValueKind.String
+                ? build.GetString()
+                : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static async Task<List<StageSnapshot>> ReadStagesAsync(
         string outputRoot,
         string runId,

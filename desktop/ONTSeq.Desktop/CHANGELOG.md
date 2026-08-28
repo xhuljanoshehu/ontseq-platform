@@ -1,5 +1,22 @@
 # ONTSeq Desktop changelog
 
+## Unreleased — GRCh38 profile resources
+
+- add `resourceRootWsl` with user-writable `~/.local/share/ontseq/resources` Desktop default,
+  while Core retains `/opt/ontseq`; bridge bundle status, install and repair to the backend CLI
+- replace independent build/assay selection with the build-isolated `AML_LCWGS_GRCh38` and
+  `AML_AS_111_GRCh38` profiles; lcWGS is the default
+- show the GRCh38 profile expectation before execution and the backend/provenance-detected build
+  when it becomes available
+- retain explicit Reference-Lock and Adaptive-Sampling BED settings as legacy-readable fields
+  for one compatibility release without mixing them into profile-backed runs
+- use fast presence/size/pin checks at interactive start, advertise only locally resolvable
+  profiles, and let Core return the canonical sample-plus-UTC run ID; full SHA256 validation
+  remains available through `ontseq references validate`
+- make **Reparieren** restore the full GRCh38 profile-resource family (Reference, HEMATOLOGY,
+  AML AS panel and both profiles) through the backend transaction; no manual bundle deletion is
+  required
+
 ## 0.4.1-engineering
 
 - advance Core, Desktop, WSL runtime directory and Windows bundle identity together to 0.4.1

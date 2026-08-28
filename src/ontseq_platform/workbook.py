@@ -9,7 +9,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .models import PipelineResult
+from .models import PipelineResult, ResolvedResourceContext
 
 HEADER_FILL = PatternFill("solid", fgColor="075985")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -45,6 +45,34 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
         workbook.remove(active_sheet)
 
     summary = workbook.create_sheet("00_Summary")
+    context = result.reference_context
+    resource_summary: list[list[object]]
+    if isinstance(context, ResolvedResourceContext):
+        releases = context.resource_releases
+        resource_summary = [
+            ["Genome assembly", releases.get("reference.genome_fasta", context.genome_build.value)],
+            [
+                "ReferenceBundle",
+                f"{context.reference_bundle_id} ({context.reference_bundle_version})",
+            ],
+            ["GENCODE", releases.get("reference.gencode_gtf", "unspecified")],
+            ["MANE", releases.get("reference.mane_gff3", "unspecified")],
+            ["Cytobands", releases.get("reference.cytobands", "unspecified")],
+            [
+                "PanelBundle",
+                (
+                    f"{context.panel_bundle_id} ({context.panel_bundle_version})"
+                    if context.panel_bundle_id is not None
+                    else "NOT_APPLICABLE"
+                ),
+            ],
+            [
+                "KnowledgeBundle",
+                f"{context.knowledge_bundle_id} ({context.knowledge_bundle_version})",
+            ],
+        ]
+    else:
+        resource_summary = [["Reference context", "legacy_unspecified"]]
     _write_table(
         summary,
         ["Field", "Value"],
@@ -57,6 +85,7 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
             ["Release status", result.release_status.value],
             ["ISCN proposal", result.iscn.notation],
             ["ISCN profile", result.iscn.conformance_profile],
+            *resource_summary,
         ],
     )
 
@@ -140,6 +169,8 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
             "aml_relevance",
             "known_rearrangement",
             "fusion_status",
+            "breakpoint_annotations",
+            "fusion_evidence",
             "source_event_ids",
             "evidence",
         ],
@@ -183,6 +214,10 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
                 event.aml_relevance or "",
                 event.known_rearrangement or "",
                 event.fusion_status.value,
+                json.dumps([item.model_dump(mode="json") for item in event.breakpoint_annotations]),
+                ""
+                if event.fusion_evidence is None
+                else json.dumps(event.fusion_evidence.model_dump(mode="json")),
                 ", ".join(event.source_event_ids),
                 json.dumps([item.model_dump(mode="json") for item in event.evidence]),
             ]
@@ -191,10 +226,25 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
     )
 
     fusions = workbook.create_sheet("05_Fusions")
-    fusion_events = [event for event in result.events if event.event_type.value == "fusion"]
+    fusion_events = [
+        event
+        for event in result.events
+        if event.event_type.value == "fusion" or event.fusion_evidence is not None
+    ]
     _write_table(
         fusions,
-        ["event_id", "genes", "breakpoint_1", "breakpoint_2", "confidence", "reportable"],
+        [
+            "event_id",
+            "genes",
+            "breakpoint_1",
+            "breakpoint_2",
+            "preferred_transcript_1",
+            "preferred_transcript_2",
+            "orientation",
+            "frame_status",
+            "confidence",
+            "reportable",
+        ],
         [
             [
                 event.event_id,
@@ -203,6 +253,16 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
                 ""
                 if not event.secondary
                 else f"{event.secondary.chromosome}:{event.secondary.start}",
+                ""
+                if event.fusion_evidence is None
+                else event.fusion_evidence.gene_a.preferred_transcript or "",
+                ""
+                if event.fusion_evidence is None
+                else event.fusion_evidence.gene_b.preferred_transcript or "",
+                ""
+                if event.fusion_evidence is None
+                else event.fusion_evidence.orientation or "unknown",
+                "" if event.fusion_evidence is None else event.fusion_evidence.frame_status,
                 event.confidence,
                 event.reportable,
             ]
@@ -232,18 +292,29 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
         cell.fill = WARNING_FILL
 
     methods = workbook.create_sheet("08_Methods_Versions")
+    method_rows: list[list[object]] = [
+        [
+            tool.name,
+            tool.version,
+            json.dumps(tool.parameters, sort_keys=True),
+            tool.container_digest,
+        ]
+        for tool in result.provenance.tools
+    ]
+    if isinstance(context, ResolvedResourceContext):
+        method_rows.extend(
+            [
+                f"resource:{name}",
+                context.resource_releases.get(name, "unspecified"),
+                "",
+                checksum,
+            ]
+            for name, checksum in sorted(context.resource_checksums.items())
+        )
     _write_table(
         methods,
         ["Tool", "Version", "Parameters", "Container digest"],
-        [
-            [
-                tool.name,
-                tool.version,
-                json.dumps(tool.parameters, sort_keys=True),
-                tool.container_digest,
-            ]
-            for tool in result.provenance.tools
-        ],
+        method_rows,
     )
 
     run_log = workbook.create_sheet("09_Run_Log")

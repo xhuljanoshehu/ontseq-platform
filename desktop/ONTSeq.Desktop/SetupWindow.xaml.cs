@@ -16,6 +16,8 @@ public partial class SetupWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+        _settings.ApplyProfileDefaults();
+        ResourceRootTextBox.Text = _settings.ResourceRootWsl;
         SettingsPathText.Text = "Konfiguration: " + DesktopSettings.UserSettingsPath;
         RemoveAdaptiveBedButton.IsEnabled = _settings.HasAdaptiveTargetBedConfiguration;
     }
@@ -40,23 +42,39 @@ public partial class SetupWindow : Window
             if (!wsl.Ok)
             {
                 BackendStatusText.Text = "— WSL muss zuerst funktionieren.";
+                BundleStatusText.Text = "— WSL muss zuerst funktionieren.";
+                Grch38StatusText.Text = _settings.TryReferenceLockFor("GRCh38", out _)
+                    ? "— Legacy-Pfad gespeichert; WSL muss für die Prüfung funktionieren."
+                    : "— Kein Legacy-Pfad gespeichert";
                 AdaptiveBedStatusText.Text = _settings.HasAdaptiveTargetBedConfiguration
-                    ? "— Konfiguriert; WSL muss für die Prüfung funktionieren."
-                    : "— Nicht konfiguriert";
+                    ? "— Legacy-Pfad gespeichert; WSL muss für die Prüfung funktionieren."
+                    : "— Kein Legacy-Pfad gespeichert";
                 SelfTestStatusText.Text = "— Nicht möglich, solange WSL fehlt.";
                 return;
             }
 
             var backend = await _launcher.CheckBackendAsync(_settings, token);
             BackendStatusText.Text = Prefix(backend.Ok) + backend.Detail;
+            if (backend.Ok)
+                await RefreshBundleStatusAsync(token);
+            else
+                BundleStatusText.Text = "✕ Runtime mit Resource-Registry erforderlich";
             await RefreshReferenceAsync("GRCh38", Grch38StatusText, token);
-            await RefreshReferenceAsync("GRCh37", Grch37StatusText, token);
             await RefreshAdaptiveBedAsync(token);
 
             DetailText.Text = backend.Ok
-                ? "System ist grundsätzlich bereit. Konfiguriere den Reference-Lock des BAM; für Adaptive Sampling zusätzlich das Analyse-ROI-BED."
+                ? "System ist grundsätzlich bereit. Für neue Läufe muss der GRCh38-Bundle-Status vollständig sein; Legacy-Pfade werden nicht mit Profil-Bundles gemischt."
                 : "Das Linux-Backend fehlt. Nutze 'Runtime installieren'; danach erneut prüfen.";
         });
+    }
+
+    private async Task RefreshBundleStatusAsync(CancellationToken token)
+    {
+        var status = await _launcher.CheckResourceBundlesAsync(_settings, token);
+        BundleStatusText.Text = Prefix(status.Ok) +
+            (string.IsNullOrWhiteSpace(status.Detail)
+                ? $"Resource-Root geprüft: {_settings.ResourceRootWsl}"
+                : status.Detail);
     }
 
     private async Task RefreshReferenceAsync(
@@ -118,8 +136,60 @@ public partial class SetupWindow : Window
     private async void ConfigureGrch38_Click(object sender, RoutedEventArgs e) =>
         await ConfigureReferenceAsync("GRCh38");
 
-    private async void ConfigureGrch37_Click(object sender, RoutedEventArgs e) =>
-        await ConfigureReferenceAsync("GRCh37");
+    private async void SaveResourceRoot_Click(object sender, RoutedEventArgs e)
+    {
+        await RunBusyAsync(token =>
+        {
+            token.ThrowIfCancellationRequested();
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            ResourceRootTextBox.Text = _settings.ResourceRootWsl;
+            DetailText.Text = "Resource-Root gespeichert: " + _settings.ResourceRootWsl;
+            return Task.CompletedTask;
+        });
+        await RefreshAsync();
+    }
+
+    private async void InstallBundle_Click(object sender, RoutedEventArgs e)
+    {
+        await RunBusyAsync(async token =>
+        {
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            BundleStatusText.Text = "● GRCh38-Profilressourcen werden installiert…";
+            DetailText.Text =
+                "Installiere Referenz, HEMATOLOGY_v1, AML_AS_111_GRCh38_v1 und Profile nach " +
+                $"{_settings.ResourceRootWsl}.";
+            var detail = await _launcher.InstallGrch38ProfileResourcesAsync(_settings, token);
+            BundleStatusText.Text = "✓ Installation abgeschlossen";
+            DetailText.Text = string.IsNullOrWhiteSpace(detail)
+                ? "Die vollständige GRCh38-Ressourcenfamilie wurde installiert."
+                : detail;
+        });
+        await RefreshAsync();
+    }
+
+    private async void RepairBundle_Click(object sender, RoutedEventArgs e)
+    {
+        await RunBusyAsync(async token =>
+        {
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            BundleStatusText.Text = "● Vollständige GRCh38-Ressourcenfamilie wird repariert…";
+            DetailText.Text =
+                "Repariere Referenz, HEMATOLOGY_v1, AML_AS_111_GRCh38_v1 und Profile unter " +
+                $"{_settings.ResourceRootWsl}; manuelles Löschen ist nicht erforderlich.";
+            var detail = await _launcher.RepairGrch38ProfileResourcesAsync(_settings, token);
+            BundleStatusText.Text = "✓ Reparatur abgeschlossen";
+            DetailText.Text = string.IsNullOrWhiteSpace(detail)
+                ? "Die vollständige GRCh38-Ressourcenfamilie wurde repariert."
+                : detail;
+        });
+        await RefreshAsync();
+    }
 
     private async Task ConfigureReferenceAsync(string build)
     {
@@ -310,6 +380,10 @@ public partial class SetupWindow : Window
     {
         CheckButton.IsEnabled = !busy;
         InstallRuntimeButton.IsEnabled = !busy;
+        SaveResourceRootButton.IsEnabled = !busy;
+        InstallBundleButton.IsEnabled = !busy;
+        RepairBundleButton.IsEnabled = !busy;
+        ConfigureGrch38Button.IsEnabled = !busy;
         ConfigureAdaptiveBedButton.IsEnabled = !busy;
         RemoveAdaptiveBedButton.IsEnabled = !busy && _settings.HasAdaptiveTargetBedConfiguration;
         SelfTestButton.IsEnabled = !busy;

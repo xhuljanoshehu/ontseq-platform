@@ -11,8 +11,8 @@
 
 - [x] Native Windows WPF project on .NET 10.
 - [x] BAM picker and sample-ID suggestion.
-- [x] GRCh37/GRCh38 selector.
-- [x] lcWGS/Adaptive Sampling selector.
+- [x] Build-isolated `AML_LCWGS_GRCh38` / `AML_AS_111_GRCh38` profile selector.
+- [x] Expected GRCh38 and provenance-backed detected-build display.
 - [x] Automatic WSL backend launch; no terminal required for normal use.
 - [x] Loopback API bootstrap and Start/Status integration.
 - [x] Live stage display from atomically persisted `provenance/run.json`.
@@ -41,6 +41,8 @@ Do not enable the current disabled button until cancellation is a backend proper
 - [ ] bootstrap/check WSL2 and a supported distribution.
 - [ ] install/import the pinned offline backend image/environment.
 - [ ] install locally approved reference bundles and write `desktop.settings.json`.
+- [x] invoke manifest-bundle status/install/repair through the backend CLI using configurable
+  `resourceRootWsl` (full offline packaging and upgrade policy remain open).
 - [ ] self-test after installation.
 - [ ] deterministic upgrade and rollback.
 - [ ] code signing and SBOM attached to release artifacts.

@@ -1,12 +1,8 @@
 {
   "wslDistribution": "Ubuntu",
   "backendCommand": "ontseq",
+  "resourceRootWsl": "~/.local/share/ontseq/resources",
+  "defaultProfile": "AML_LCWGS_GRCh38",
   "outputDirectoryWindows": "C:\\ONTSeq\\results",
-  "referenceLocksWsl": {
-    "GRCh38": "/opt/ontseq/references/GRCh38/reference.lock.json",
-    "GRCh37": "/opt/ontseq/references/GRCh37/reference.lock.json"
-  },
-  "adaptiveTargetBedWsl": "/opt/ontseq/assays/aml-111-gene/analysis_roi.bed",
-  "adaptiveTargetBedVersion": "LOCAL-ASSAY-VERSION-REQUIRED",
   "port": 8765
 }
