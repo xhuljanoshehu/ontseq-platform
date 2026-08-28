@@ -1,0 +1,24 @@
+schema_version: 1.0.0
+bundle_type: knowledge
+bundle_id: HEMATOLOGY_v1
+version: v1
+genome_build: GRCh38
+coordinate_bearing: true
+resources:
+  - resource_id: aml_rearrangements
+    role: rearrangement_knowledge
+    path: aml_rearrangements.v0.1.json
+    sha256: 7499235af765c596cab17eb482a003ddccf93fa71cd9b5e1084e11f18065eba8
+    size_bytes: 3869
+    release: 0.1.0
+    generated: false
+    derived_from: []
+  - resource_id: aml_rearrangements_lock
+    role: knowledge_lock
+    path: aml_rearrangements.v0.1.lock.json
+    sha256: f4c124aa4e143532f30f81d3c34fdf6a891bf236e7ded331be1f5f06d701e77d
+    size_bytes: 367
+    release: 0.1.0
+    generated: false
+    derived_from:
+      - aml_rearrangements

@@ -1,0 +1,10 @@
+schema_version: 1.0.0
+profile_id: AML_LCWGS_GRCh38
+version: v1
+genome_build: GRCh38
+assay_mode: lcwgs
+reference_bundle: GRCh38_GENCODE50_MANE1.5_v1
+knowledge_bundle: HEMATOLOGY_v1
+panel_bundle: null
+adaptive_sampling: disabled
+description: GRCh38 low-coverage whole-genome AML analysis profile.
