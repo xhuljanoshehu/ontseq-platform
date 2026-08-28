@@ -9,8 +9,10 @@ from .models import (
     ModuleRunStatus,
     PipelineResult,
     Provenance,
+    ResolvedResourceContext,
     ReviewStatus,
     SampleManifest,
+    SidecarArtifact,
     SnifflesCallReport,
     SvConsensusReport,
     Verdict,
@@ -27,6 +29,8 @@ def assemble_aligned_bam_mvp(
     git_commit: str,
     sniffles_report: SnifflesCallReport | None = None,
     sv_consensus_report: SvConsensusReport | None = None,
+    reference_context: ResolvedResourceContext | None = None,
+    sidecars: list[SidecarArtifact] | None = None,
 ) -> PipelineResult:
     if manifest.sample_id != intake.sample_id or manifest.sample_id != qc_report.sample_id:
         raise ValueError("Manifest, intake and QC artifacts must refer to the same sample")
@@ -178,6 +182,8 @@ def assemble_aligned_bam_mvp(
             ],
             reference_checksums=reference_checksums,
         ),
+        **({"reference_context": reference_context} if reference_context is not None else {}),
+        sidecars=sidecars or [],
         modules=modules,
         warnings=warnings,
         release_status=ReviewStatus.REVIEW_REQUIRED,

@@ -4,10 +4,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
+from ontseq_platform.cnv.extension import CNV_REPORT, _assemble_plan
 from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy, run_qdnaseq_ace
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import EventType, GenomeBuild, ReferenceContig, ReferenceLock
+from ontseq_platform.pipeline.runner import SV_CONSENSUS_REPORT, SV_REPORT
 
 
 class FakeQDNAseqRunner:
@@ -34,6 +37,8 @@ class FakeQDNAseqRunner:
             fit_name = f"{sample}.{bin_size}kbp.ace-fit.png"
             copy_name = f"{sample}.{bin_size}kbp.copy-number.png"
             rds_name = f"{sample}.{bin_size}kbp.segmented.rds"
+            bins_name = f"{sample}.{bin_size}kbp.bins.tsv"
+            model_name = f"{sample}.{bin_size}kbp.ace-models.tsv"
             (out / segment_name).write_text(
                 "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall\tqnorm_log10\n"
                 f"chr7\t0\t950\t2\t1.0\t{self.event_call}\t-5.0\n",
@@ -46,6 +51,14 @@ class FakeQDNAseqRunner:
             (out / fit_name).write_bytes(b"PNG-fit")
             (out / copy_name).write_bytes(b"PNG-copy")
             (out / rds_name).write_bytes(b"RDS")
+            (out / bins_name).write_text(
+                "chromosome\tstart\tend\treads\nchr7\t0\t500\t12\n",
+                encoding="utf-8",
+            )
+            (out / model_name).write_text(
+                "cellularity\tploidy\terror\n0.57\t2.0\t0.1\n",
+                encoding="utf-8",
+            )
             runs.append(
                 {
                     "bin_size_kbp": bin_size,
@@ -62,6 +75,8 @@ class FakeQDNAseqRunner:
                     ],
                     "segment_file": segment_name,
                     "chromosome_file": chromosome_name,
+                    "bins_file": bins_name,
+                    "model_file": model_name,
                     "fit_plot": fit_name,
                     "copy_number_plot": copy_name,
                     "rds_file": rds_name,
@@ -119,6 +134,7 @@ def _lock() -> ReferenceLock:
 def _policy() -> QDNAseqPolicy:
     return QDNAseqPolicy(
         profile_id="test",
+        cytoband_affected_fraction=0.66,
         expected_qdnaseq_version="1.42.0",
         expected_ace_version="1.24.0",
         note="test policy",
@@ -126,6 +142,36 @@ def _policy() -> QDNAseqPolicy:
 
 
 class QDNAseqRuntimeTests(unittest.TestCase):
+    def test_assemble_resume_fingerprints_raw_and_consensus_sv_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sample_id = "SAMPLE_000"
+            paths = (
+                CNV_REPORT.format(sample=sample_id),
+                SV_REPORT.format(sample=sample_id),
+                SV_CONSENSUS_REPORT.format(sample=sample_id),
+            )
+            for relative in paths:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(relative, encoding="utf-8")
+            context = SimpleNamespace(
+                config=SimpleNamespace(pipeline_version="test", git_commit="0" * 40),
+                envelope=SimpleNamespace(path=lambda relative: root / relative),
+                path=lambda template: template.format(sample=sample_id),
+            )
+
+            plan = _assemble_plan(context)
+
+        self.assertEqual(
+            {name for name, _checksum in plan.external_inputs},
+            {
+                Path(CNV_REPORT.format(sample=sample_id)).name,
+                Path(SV_REPORT.format(sample=sample_id)).name,
+                Path(SV_CONSENSUS_REPORT.format(sample=sample_id)).name,
+            },
+        )
+
     def test_promotes_complete_result_and_normalizes_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -156,6 +202,8 @@ class QDNAseqRuntimeTests(unittest.TestCase):
             self.assertAlmostEqual(report.events[0].copy_number or -1, 1.0)
             self.assertEqual(report.chromosome_consensus[0].agreeing_bins, 3)
             self.assertTrue(any(name.endswith(".rds") for name in report.output_files))
+            self.assertIn(report.primary_fit.bins_file, report.output_files)
+            self.assertIn(report.primary_fit.model_file, report.output_files)
 
     def test_returns_no_call_when_ace_call_is_neutral(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

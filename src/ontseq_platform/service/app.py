@@ -61,6 +61,12 @@ from ..models import (
 from ..pipeline.components import RunComponents
 from ..pipeline.review import Decision, ReviewError
 from ..pipeline.runner import RunConfiguration, run_pipeline
+from ..profile_analysis import (
+    AnalyzeSettings,
+    ProfileRuntimeSettings,
+    build_profile_run_configuration,
+)
+from ..resource_registry import ResourceRegistry
 from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
@@ -96,6 +102,8 @@ MAX_CHUNK_LINE_BYTES = 8192
 #: hundreds of gigabytes; a search with no bound would appear to hang, and a bound that is
 #: hit must be reported rather than passed off as "not found".
 SEARCH_DIRECTORY_LIMIT = 20_000
+
+ACTIVE_GRCH38_PROFILE_IDS = ("AML_LCWGS_GRCh38", "AML_AS_111_GRCh38")
 
 
 def _read_chunked_body(stream: BufferedIOBase) -> bytes:
@@ -145,7 +153,7 @@ def _bam_is_indexed(path: Path) -> bool:
 class ServiceConfig:
     """What the service was started with. Nothing here is taken from a request."""
 
-    reference_lock: Path
+    reference_lock: Path | None
     output_dir: Path
     allowed_roots: list[Path]
     qc_policy: Path
@@ -162,6 +170,7 @@ class ServiceConfig:
     aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
     sv_minimum_mean_depth: float = 10.0
     cutesv_executable: str = "cuteSV"
+    resource_root: Path | None = None
     host: str = "127.0.0.1"
     port: int = 8765
     threads: int = 4
@@ -180,6 +189,8 @@ class RunJob:
     stages: list[dict[str, Any]] = field(default_factory=list)
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     finished_at: str | None = None
+    profile: str | None = None
+    detected_genome_build: str | None = None
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -190,6 +201,8 @@ class RunJob:
             "stages": self.stages,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "profile": self.profile,
+            "detected_genome_build": self.detected_genome_build,
         }
 
 
@@ -330,6 +343,8 @@ def _build_manifest(
 def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> None:
     """Run the pipeline and mirror its report into the job. Failures land in the job."""
     try:
+        if config.reference_lock is None:
+            raise ValueError("legacy service runs require an explicit reference lock")
         run_config = RunConfiguration(
             manifest=manifest,
             reference_lock=load_model(config.reference_lock, ReferenceLock),
@@ -375,6 +390,119 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
         traceback.print_exc()
     finally:
         job.finished_at = datetime.now(UTC).isoformat()
+
+
+def _execute_resolved(run_config: RunConfiguration, job: RunJob) -> None:
+    """Execute a profile-resolved configuration without rebuilding any resource choice."""
+
+    try:
+        report, _bundle = run_pipeline(run_config)
+        job.stages = [_stage_view(record) for record in report.stages]
+        job.state = "passed" if report.passed else "failed"
+        job.detail = _job_detail(report)
+    except Exception as error:  # noqa: BLE001 - the page must see every failure, typed or not
+        job.state = "error"
+        job.detail = f"{type(error).__name__}: {error}"
+        traceback.print_exc()
+    finally:
+        job.finished_at = datetime.now(UTC).isoformat()
+
+
+def _build_profile_configuration(
+    payload: dict[str, Any],
+    config: ServiceConfig,
+) -> RunConfiguration:
+    profile_id = str(payload.get("profile", "")).strip()
+    if profile_id not in ACTIVE_GRCH38_PROFILE_IDS:
+        raise ValueError(f"unsupported GRCh38 analysis profile: {profile_id!r}")
+    if config.resource_root is None:
+        raise ValueError("profile runs require the service to start with --resource-root")
+    registry = ResourceRegistry(config.resource_root, active_build=GenomeBuild.GRCH38)
+    if profile_id not in registry.profiles:
+        raise ValueError(f"GRCh38 analysis profile {profile_id!r} is not active")
+    raw_path = str(payload.get("bam", "")).strip()
+    if not raw_path:
+        raise GuardError("no BAM was selected")
+    bam = Path(windows_to_wsl(raw_path))
+    resolve_within(bam, config.allowed_roots)
+    index = resolve_bam_index(bam)
+    resolve_within(index, config.allowed_roots)
+    legacy_build = str(payload.get("genome_build", "")).strip()
+    if legacy_build and legacy_build != GenomeBuild.GRCH38.value:
+        raise ValueError("profile runs are strictly GRCh38; cross-build fallback is prohibited")
+    expected_assay = (
+        AssayMode.ADAPTIVE_SAMPLING.value
+        if profile_id == "AML_AS_111_GRCh38"
+        else AssayMode.LOW_COVERAGE_WGS.value
+    )
+    legacy_assay = str(payload.get("assay", "")).strip()
+    if legacy_assay and legacy_assay != expected_assay:
+        raise ValueError(
+            f"profile {profile_id!r} requires assay {expected_assay!r}, not {legacy_assay!r}"
+        )
+    return build_profile_run_configuration(
+        AnalyzeSettings(
+            bam=bam,
+            profile_id=profile_id,
+            resource_root=config.resource_root,
+            output_dir=config.output_dir,
+            sample_id=str(payload.get("sample_id", "")).strip() or None,
+            run_id=str(payload.get("run_id", "")).strip() or None,
+            pipeline_version=__version__,
+            git_commit=_runtime_git_commit(),
+            threads=config.threads,
+            executables={"cutesv": config.cutesv_executable},
+            runtime_settings=ProfileRuntimeSettings(
+                qc_policy=load_model(config.qc_policy, QCPolicy),
+                sniffles_policy=load_model(config.sniffles_policy, SnifflesPolicy),
+                cutesv_policy=(
+                    load_model(config.cutesv_policy, CuteSvPolicy)
+                    if config.cutesv_policy is not None
+                    else None
+                ),
+                sv_consensus_policy=(
+                    load_model(config.sv_consensus_policy, SvConsensusPolicy)
+                    if config.sv_consensus_policy is not None
+                    else None
+                ),
+                sv_evidence_policy=(
+                    load_model(config.sv_evidence_policy, SvEvidencePolicy)
+                    if config.sv_evidence_policy is not None
+                    else None
+                ),
+                target_coverage_policy=load_model(
+                    config.target_coverage_policy, TargetCoveragePolicy
+                ),
+                sv_minimum_mean_depth=config.sv_minimum_mean_depth,
+                components=config.components,
+            ),
+            # Starting a run checks presence, declared sizes and checksum pins.  Reading
+            # every byte of the multi-GB reference here would make a POST appear hung;
+            # operators request that deeper audit explicitly with ``references validate``.
+            verify_resource_checksums=False,
+        )
+    )
+
+
+def _resolvable_profile_ids(config: ServiceConfig) -> list[str]:
+    """Return only published profiles whose complete pinned context is locally ready."""
+
+    if config.resource_root is None:
+        return []
+    try:
+        registry = ResourceRegistry(config.resource_root, active_build=GenomeBuild.GRCH38)
+    except (OSError, ValueError):
+        return []
+    ready: list[str] = []
+    for profile_id in ACTIVE_GRCH38_PROFILE_IDS:
+        if profile_id not in registry.profiles:
+            continue
+        try:
+            registry.resolve_profile(profile_id, verify_files=False)
+        except (KeyError, OSError, ValueError):
+            continue
+        ready.append(profile_id)
+    return ready
 
 
 def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandler]:
@@ -513,6 +641,10 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 "output_dir": str(config.output_dir),
                 "busy": jobs.running(),
                 "not_wired": not_wired,
+                "resource_root": None
+                if config.resource_root is None
+                else str(config.resource_root),
+                "profiles": _resolvable_profile_ids(config),
             }
 
         def _browse(self, requested: str) -> None:
@@ -575,21 +707,31 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             )
 
         def _start_run(self, payload: dict[str, Any]) -> None:
+            profile_id = str(payload.get("profile", "")).strip()
             try:
-                lock = load_model(config.reference_lock, ReferenceLock)
-                manifest = _build_manifest(
-                    payload,
-                    reference_id=lock.reference_id,
-                    allowed_roots=config.allowed_roots,
-                )
-                if manifest.assay.genome_build != lock.genome_build:
-                    raise ValueError(
-                        "selected genome build does not match the configured reference lock"
+                resolved_config: RunConfiguration | None = None
+                if profile_id:
+                    resolved_config = _build_profile_configuration(payload, config)
+                    manifest = resolved_config.manifest
+                else:
+                    if config.reference_lock is None:
+                        raise ValueError(
+                            "the service has no legacy reference lock; select an installed profile"
+                        )
+                    lock = load_model(config.reference_lock, ReferenceLock)
+                    manifest = _build_manifest(
+                        payload,
+                        reference_id=lock.reference_id,
+                        allowed_roots=config.allowed_roots,
                     )
+                    if manifest.assay.genome_build != lock.genome_build:
+                        raise ValueError(
+                            "selected genome build does not match the configured reference lock"
+                        )
             except GuardError as error:
                 self._refuse(HTTPStatus.FORBIDDEN, str(error))
                 return
-            except (OSError, ValueError) as error:
+            except (KeyError, OSError, ValueError) as error:
                 self._refuse(HTTPStatus.BAD_REQUEST, str(error))
                 return
 
@@ -597,6 +739,8 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 run_id=manifest.run_id,
                 sample_id=manifest.sample_id,
                 envelope=config.output_dir / manifest.run_id / manifest.sample_id,
+                profile=profile_id or manifest.analysis.profile,
+                detected_genome_build=manifest.assay.genome_build.value,
             )
             try:
                 # Claimed before the thread starts, so the slot is taken by whichever
@@ -605,8 +749,14 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             except JobRejected as error:
                 self._refuse(HTTPStatus.CONFLICT, str(error))
                 return
-            args = (config, manifest, job)
-            threading.Thread(target=_execute, args=args, daemon=True).start()
+            if resolved_config is not None:
+                threading.Thread(
+                    target=_execute_resolved,
+                    args=(resolved_config, job),
+                    daemon=True,
+                ).start()
+            else:
+                threading.Thread(target=_execute, args=(config, manifest, job), daemon=True).start()
             self._json(HTTPStatus.ACCEPTED, job.snapshot())
 
         def _locate(self, name: str) -> None:
