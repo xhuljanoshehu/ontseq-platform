@@ -61,10 +61,7 @@
 
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Analyseprofil" VerticalAlignment="Center" FontWeight="SemiBold" />
                 <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ProfileCombo"
-                          SelectedIndex="0" SelectionChanged="ProfileCombo_SelectionChanged" Margin="0,0,0,18">
-                    <ComboBoxItem Content="AML low-coverage WGS · GRCh38" Tag="AML_LCWGS_GRCh38" />
-                    <ComboBoxItem Content="AML Adaptive Sampling 111 Gene · GRCh38" Tag="AML_AS_111_GRCh38" />
-                </ComboBox>
+                          SelectedIndex="0" SelectionChanged="ProfileCombo_SelectionChanged" Margin="0,0,0,18" />
 
                 <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
                     <Button x:Name="StartButton" Content="ANALYSE STARTEN" FontWeight="SemiBold" MinWidth="190" Click="Start_Click" />

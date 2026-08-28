@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from pydantic import ValidationError
 
@@ -11,6 +13,8 @@ from ontseq_platform.models import (
     GenomeBuild,
     PanelBundle,
     ReferenceBundle,
+    ReferenceDictionaryContract,
+    ResolvedResourceContext,
     ResourceFile,
     SidecarArtifact,
 )
@@ -174,6 +178,77 @@ class ResourceContractTests(unittest.TestCase):
                 panel_bundle="PANEL",
                 adaptive_sampling="disabled",
             )
+
+    def test_profiles_default_to_full_dictionary_and_canonical_25_is_grch38_only(self) -> None:
+        profile = AnalysisProfile(
+            profile_id="AML_LCWGS_GRCh38",
+            version="1",
+            genome_build=GenomeBuild.GRCH38,
+            assay_mode=AssayMode.LOW_COVERAGE_WGS,
+            reference_bundle="REF",
+            knowledge_bundle="HEMATOLOGY",
+            adaptive_sampling="disabled",
+        )
+        self.assertEqual(
+            profile.reference_dictionary_contract,
+            ReferenceDictionaryContract.EXACT_FULL,
+        )
+        with self.assertRaisesRegex(ValidationError, "valid only for GRCh38"):
+            AnalysisProfile(
+                profile_id="AML_LCWGS_GRCh37_CANONICAL25",
+                version="1",
+                genome_build=GenomeBuild.GRCH37,
+                assay_mode=AssayMode.LOW_COVERAGE_WGS,
+                reference_bundle="REF",
+                reference_dictionary_contract=(ReferenceDictionaryContract.GRCH38_CANONICAL_25),
+                knowledge_bundle="HEMATOLOGY",
+                adaptive_sampling="disabled",
+            )
+
+    def test_pre_052_resolved_context_defaults_to_exact_full(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            context = ResolvedResourceContext.model_validate(
+                {
+                    "profile_id": "AML_LCWGS_GRCh38",
+                    "profile_version": "v1",
+                    "genome_build": "GRCh38",
+                    "reference_bundle_id": "GRCh38_TEST_v1",
+                    "reference_bundle_version": "v1",
+                    "knowledge_bundle_id": "HEMATOLOGY_v1",
+                    "knowledge_bundle_version": "v1",
+                    "resource_root": str(root),
+                    "resource_paths": {"reference.genome_fasta": str(root / "genome.fa")},
+                    "resource_checksums": {"reference.genome_fasta": SHA},
+                    "resource_releases": {},
+                }
+            )
+
+            self.assertEqual(
+                context.reference_dictionary_contract,
+                ReferenceDictionaryContract.EXACT_FULL,
+            )
+
+    def test_resolved_context_rejects_canonical_25_outside_grch38(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            with self.assertRaisesRegex(ValidationError, "valid only for GRCh38"):
+                ResolvedResourceContext.model_validate(
+                    {
+                        "profile_id": "AML_LCWGS_GRCh37_CANONICAL25",
+                        "profile_version": "v1",
+                        "genome_build": "GRCh37",
+                        "reference_dictionary_contract": "grch38_canonical_25",
+                        "reference_bundle_id": "GRCh37_TEST_v1",
+                        "reference_bundle_version": "v1",
+                        "knowledge_bundle_id": "HEMATOLOGY_v1",
+                        "knowledge_bundle_version": "v1",
+                        "resource_root": str(root),
+                        "resource_paths": {"reference.genome_fasta": str(root / "genome.fa")},
+                        "resource_checksums": {"reference.genome_fasta": SHA},
+                        "resource_releases": {},
+                    }
+                )
 
     def test_sidecar_path_is_relative_and_checksum_pinned(self) -> None:
         artifact = SidecarArtifact(

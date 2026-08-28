@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.2-engineering
+
+- add explicit `AML_LCWGS_GRCh38_CANONICAL25` and
+  `AML_AS_111_GRCh38_CANONICAL25` choices for BAMs whose ordered dictionary is exactly
+  `chr1`-`chr22`, `chrX`, `chrY`, `chrM`
+- keep `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` on the existing `exact_full`
+  Primary-Assembly dictionary contract
+- derive both dictionary contracts from the same installed, checksum-pinned GRCh38 bundles;
+  no second multi-GiB download, liftover or silent profile fallback is introduced
+- keep the existing full profiles and default selection unchanged; scientific policies and
+  interpretation thresholds are unchanged
+
 ## 0.5.1-engineering
 
 - resolve every packaged Core configuration independently of the application working directory

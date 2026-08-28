@@ -29,6 +29,13 @@ class GenomeBuild(StrEnum):
     GRCH38 = "GRCh38"
 
 
+class ReferenceDictionaryContract(StrEnum):
+    """Explicit relationship between an aligned BAM and the reference bundle dictionary."""
+
+    EXACT_FULL = "exact_full"
+    GRCH38_CANONICAL_25 = "grch38_canonical_25"
+
+
 class CoordinateSystem(StrEnum):
     """Coordinate systems accepted at a resource boundary.
 
@@ -450,6 +457,9 @@ class AnalysisProfile(StrictModel):
     genome_build: GenomeBuild
     assay_mode: AssayMode
     reference_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
     knowledge_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
     panel_bundle: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
     adaptive_sampling: Literal["enabled", "disabled"]
@@ -457,6 +467,11 @@ class AnalysisProfile(StrictModel):
 
     @model_validator(mode="after")
     def assay_and_panel_are_consistent(self) -> AnalysisProfile:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 profiles")
         if self.assay_mode == AssayMode.ADAPTIVE_SAMPLING:
             if self.adaptive_sampling != "enabled" or self.panel_bundle is None:
                 raise ValueError(
@@ -474,6 +489,9 @@ class ResolvedResourceContext(StrictModel):
     profile_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     profile_version: str = Field(min_length=1)
     genome_build: GenomeBuild
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
     reference_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     reference_bundle_version: str = Field(min_length=1)
     panel_bundle_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
@@ -487,6 +505,11 @@ class ResolvedResourceContext(StrictModel):
 
     @model_validator(mode="after")
     def paths_checksums_and_optional_panel_are_consistent(self) -> ResolvedResourceContext:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 contexts")
         if (self.panel_bundle_id is None) != (self.panel_bundle_version is None):
             raise ValueError("panel bundle ID and version must either both be set or both be null")
         if set(self.resource_paths) != set(self.resource_checksums):

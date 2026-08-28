@@ -27,10 +27,12 @@ from pydantic import ValidationError
 from .io import load_mapping
 from .models import (
     AnalysisProfile,
+    AssayMode,
     GenomeBuild,
     KnowledgeBundle,
     PanelBundle,
     ReferenceBundle,
+    ReferenceDictionaryContract,
     ResourceBundle,
 )
 from .panel_compiler import MaterializedPanelSummary, materialize_and_pin_panel_derivatives
@@ -47,7 +49,32 @@ from .resource_registry import resource_root_from_environment
 REFERENCE_BUNDLE_ID = "GRCh38_GENCODE50_MANE1.5_v1"
 PANEL_BUNDLE_ID = "AML_AS_111_GRCh38_v1"
 KNOWLEDGE_BUNDLE_ID = "HEMATOLOGY_v1"
-PROFILE_IDS = ("AML_LCWGS_GRCh38", "AML_AS_111_GRCh38")
+PROFILE_CONTRACTS: dict[
+    str,
+    tuple[AssayMode, ReferenceDictionaryContract, str | None],
+] = {
+    "AML_LCWGS_GRCh38": (
+        AssayMode.LOW_COVERAGE_WGS,
+        ReferenceDictionaryContract.EXACT_FULL,
+        None,
+    ),
+    "AML_AS_111_GRCh38": (
+        AssayMode.ADAPTIVE_SAMPLING,
+        ReferenceDictionaryContract.EXACT_FULL,
+        PANEL_BUNDLE_ID,
+    ),
+    "AML_LCWGS_GRCh38_CANONICAL25": (
+        AssayMode.LOW_COVERAGE_WGS,
+        ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        None,
+    ),
+    "AML_AS_111_GRCh38_CANONICAL25": (
+        AssayMode.ADAPTIVE_SAMPLING,
+        ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        PANEL_BUNDLE_ID,
+    ),
+}
+PROFILE_IDS = tuple(PROFILE_CONTRACTS)
 
 
 class ResourceBootstrapError(ValueError):
@@ -245,7 +272,7 @@ class GRCh38ResourceBootstrapper:
 
     def _load_curated_profiles(self) -> tuple[AnalysisProfile, ...]:
         profiles: list[AnalysisProfile] = []
-        for profile_id in PROFILE_IDS:
+        for profile_id, expected in PROFILE_CONTRACTS.items():
             path = self.packaged_config_root / "profiles" / f"{profile_id}.yaml"
             try:
                 profile = AnalysisProfile.model_validate(load_mapping(path))
@@ -265,9 +292,15 @@ class GRCh38ResourceBootstrapper:
                 raise ResourceBootstrapError(
                     f"curated profile {profile_id!r} does not pin {KNOWLEDGE_BUNDLE_ID!r}"
                 )
-            if profile.panel_bundle not in {None, PANEL_BUNDLE_ID}:
+            expected_assay, expected_dictionary, expected_panel = expected
+            if (
+                profile.assay_mode != expected_assay
+                or profile.reference_dictionary_contract != expected_dictionary
+                or profile.panel_bundle != expected_panel
+            ):
                 raise ResourceBootstrapError(
-                    f"curated profile {profile_id!r} pins an unexpected panel"
+                    f"curated profile {profile_id!r} does not match its published assay, "
+                    "dictionary and panel contract"
                 )
             profiles.append(profile)
         return tuple(profiles)
@@ -537,6 +570,7 @@ __all__ = [
     "GRCh38ResourceBootstrapper",
     "KNOWLEDGE_BUNDLE_ID",
     "PANEL_BUNDLE_ID",
+    "PROFILE_CONTRACTS",
     "PROFILE_IDS",
     "REFERENCE_BUNDLE_ID",
     "ResourceBootstrapError",

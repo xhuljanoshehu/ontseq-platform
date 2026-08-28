@@ -5,9 +5,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from ontseq_platform.models import AnalysisModule
+from ontseq_platform.models import AnalysisModule, AssayMode
 from ontseq_platform.pipeline.components import RunComponents
 from ontseq_platform.service.app import (
     ServiceConfig,
@@ -131,14 +132,18 @@ class DesktopManifestTests(unittest.TestCase):
                     side_effect=lambda value: value,
                 ),
             ):
-                registry_type.return_value.profiles = {"AML_LCWGS_GRCh38": object()}
+                registry_type.return_value.profiles = {
+                    "AML_AS_111_GRCh38_CANONICAL25": SimpleNamespace(
+                        assay_mode=AssayMode.ADAPTIVE_SAMPLING
+                    )
+                }
                 result = _build_profile_configuration(
                     {
                         "bam": str(bam),
                         "sample_id": "SAMPLE_001",
-                        "profile": "AML_LCWGS_GRCh38",
+                        "profile": "AML_AS_111_GRCh38_CANONICAL25",
                         "genome_build": "GRCh38",
-                        "assay": "lcwgs",
+                        "assay": "adaptive_sampling",
                     },
                     config,
                 )

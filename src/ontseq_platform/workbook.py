@@ -55,6 +55,7 @@ def render_workbook(result: PipelineResult, output_path: Path) -> Path:
                 "ReferenceBundle",
                 f"{context.reference_bundle_id} ({context.reference_bundle_version})",
             ],
+            ["BAM dictionary contract", context.reference_dictionary_contract.value],
             ["GENCODE", releases.get("reference.gencode_gtf", "unspecified")],
             ["MANE", releases.get("reference.mane_gff3", "unspecified")],
             ["Cytobands", releases.get("reference.cytobands", "unspecified")],

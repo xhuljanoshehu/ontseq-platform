@@ -66,6 +66,7 @@ from ..profile_analysis import (
     ProfileRuntimeSettings,
     build_profile_run_configuration,
 )
+from ..resource_bootstrap import PROFILE_IDS
 from ..resource_registry import ResourceRegistry
 from ..review import inspect as inspect_review
 from ..review import record as record_review
@@ -103,7 +104,7 @@ MAX_CHUNK_LINE_BYTES = 8192
 #: hit must be reported rather than passed off as "not found".
 SEARCH_DIRECTORY_LIMIT = 20_000
 
-ACTIVE_GRCH38_PROFILE_IDS = ("AML_LCWGS_GRCh38", "AML_AS_111_GRCh38")
+ACTIVE_GRCH38_PROFILE_IDS = PROFILE_IDS
 
 
 def _read_chunked_body(stream: BufferedIOBase) -> bytes:
@@ -430,11 +431,7 @@ def _build_profile_configuration(
     legacy_build = str(payload.get("genome_build", "")).strip()
     if legacy_build and legacy_build != GenomeBuild.GRCH38.value:
         raise ValueError("profile runs are strictly GRCh38; cross-build fallback is prohibited")
-    expected_assay = (
-        AssayMode.ADAPTIVE_SAMPLING.value
-        if profile_id == "AML_AS_111_GRCh38"
-        else AssayMode.LOW_COVERAGE_WGS.value
-    )
+    expected_assay = registry.profiles[profile_id].assay_mode.value
     legacy_assay = str(payload.get("assay", "")).strip()
     if legacy_assay and legacy_assay != expected_assay:
         raise ValueError(

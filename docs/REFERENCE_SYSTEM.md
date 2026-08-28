@@ -1,7 +1,7 @@
 # GRCh38 reference, panel and knowledge system
 
 ONTSeq activates resources from manifests, not from filenames. This implementation publishes
-only the GRCh38 profiles `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38`. It contains no GRCh37
+four GRCh38 profiles with two explicit sequence-dictionary contracts. It contains no GRCh37
 fallback, liftover or cross-build resource choice.
 
 ## Resource root
@@ -16,6 +16,8 @@ different absolute root:
   knowledge/HEMATOLOGY_v1/bundle.yaml
   profiles/AML_LCWGS_GRCh38.yaml
   profiles/AML_AS_111_GRCh38.yaml
+  profiles/AML_LCWGS_GRCh38_CANONICAL25.yaml
+  profiles/AML_AS_111_GRCh38_CANONICAL25.yaml
 ```
 
 Only a directory with a valid `bundle.yaml` is discoverable. Every active file has a size and
@@ -36,13 +38,18 @@ ontseq references import /path/to/pinned-reference-tree --resource-root /opt/ont
 Install downloads only in an explicit lifecycle command. Sources land in a private staging
 directory, are checked before decompression, and the FASTA/FAI/full canonical dictionary is
 validated before activation. GENCODE, MANE and cytobands compile into a checksum-pinned SQLite
-cache. The panel Analysis ROI and transcript cache compile from that SQLite cache; the two
+cache. The panel Analysis ROI and transcript cache compile from that SQLite cache; all four
 profiles are exposed only after reference, knowledge and panel validation succeeds.
 
 The complete install is intentionally a multi-gigabyte one-time operation. Reserve at least
 15 GiB of free disk for sources, staging, SQLite/VACUUM and the activated bundle, and 6 GiB of
 available memory for GENCODE compilation. A full-release Windows smoke peaked near 4.3 GiB of
 process memory; normal analyses do not recompile or rescan the GTF.
+
+Both dictionary contracts use that same installed resource family. Canonical-25 is derived from
+the pinned full `ReferenceLock` at run resolution; it is not a second FASTA, bundle installation
+or coordinate system. Selecting a `*_CANONICAL25` profile therefore performs no additional
+multi-GiB download and consumes no second reference installation.
 
 `status` performs a fast presence/size check. `validate` computes full checksums. `repair`
 retrieves or regenerates missing and invalid reference artifacts, then stages and repairs the
@@ -89,12 +96,26 @@ ontseq analyze SAMPLE_GRCH38.bam --profile AML_LCWGS_GRCh38 \
   --resource-root /opt/ontseq
 ontseq analyze SAMPLE_GRCH38.bam --profile AML_AS_111_GRCh38 \
   --resource-root /opt/ontseq
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam \
+  --profile AML_LCWGS_GRCh38_CANONICAL25 --resource-root /opt/ontseq
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam \
+  --profile AML_AS_111_GRCh38_CANONICAL25 --resource-root /opt/ontseq
 ```
 
 The command locates `sample.bam.bai` before `sample.bai`, reads the full BAM sequence dictionary,
-detects a complete consistently named GRCh38 canonical assembly, and compares the complete
-dictionary with the profile's `ReferenceLock`. GRCh37, partial, mixed-style, reordered or
-length-mismatched dictionaries stop before the pipeline is created.
+detects a complete consistently named GRCh38 assembly, and applies the selected profile's exact
+dictionary contract:
+
+- `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` use `exact_full`. The BAM must match the complete,
+  ordered Primary-Assembly `ReferenceLock`, including all 194 entries in that installed lock.
+- `AML_LCWGS_GRCh38_CANONICAL25` and `AML_AS_111_GRCh38_CANONICAL25` require exactly
+  `chr1`-`chr22`, `chrX`, `chrY`, `chrM`, with standard GRCh38 lengths and order. Missing,
+  additional or reordered entries fail.
+
+The contracts never fall back to one another. GRCh37, partial, mixed-style, reordered,
+length-mismatched or otherwise non-matching dictionaries stop before the pipeline is created.
+All four profiles pin the same `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v1` and, for Adaptive
+Sampling, `AML_AS_111_GRCh38_v1` bundles. There is no coordinate conversion or liftover.
 
 The result contract is `PipelineResult 0.2.0`. It records the resolved bundle context, releases,
 checksums and large-table sidecars. Version 0.1.0 remains readable and is displayed as

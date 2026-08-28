@@ -44,7 +44,7 @@ try
         profileDefaults.ResourceRootWsl,
         "user-writable default WSL resource root");
     AssertEqual("AML_LCWGS_GRCh38", profileDefaults.DefaultProfile, "default analysis profile");
-    AssertEqual("2", DesktopProfiles.Supported.Count.ToString(), "exact supported profile count");
+    AssertEqual("4", DesktopProfiles.Supported.Count.ToString(), "exact supported profile count");
     AssertEqual(
         "True",
         DesktopProfiles.Supported.All(profile => profile.GenomeBuild == "GRCh38").ToString(),
@@ -53,6 +53,10 @@ try
         "AML_AS_111_GRCh38",
         DesktopProfiles.Require("AML_AS_111_GRCh38").ProfileId,
         "adaptive sampling profile identity");
+    AssertEqual(
+        "Canonical-25 (chr1–22, chrX, chrY, chrM)",
+        DesktopProfiles.Require("AML_LCWGS_GRCh38_CANONICAL25").DictionaryLabel,
+        "Canonical-25 profile exposes its exact BAM dictionary contract");
     AssertThrows<InvalidOperationException>(
         () => DesktopProfiles.Require("AML_AS_111_GRCh37"),
         "GRCh37 profile refusal");
@@ -192,7 +196,12 @@ try
           "references": [
             {"bundle_id": "GRCh38_GENCODE50_MANE1.5_v1", "valid": true}
           ],
-          "profiles": ["AML_LCWGS_GRCh38", "AML_AS_111_GRCh38"],
+          "profiles": [
+            "AML_LCWGS_GRCh38",
+            "AML_AS_111_GRCh38",
+            "AML_LCWGS_GRCh38_CANONICAL25",
+            "AML_AS_111_GRCh38_CANONICAL25"
+          ],
           "diagnostics": []
         }
         """;
@@ -208,17 +217,22 @@ try
           "references": [
             {"bundle_id": "GRCh38_GENCODE50_MANE1.5_v1", "valid": true}
           ],
-          "profiles": ["AML_LCWGS_GRCh38"],
+          "profiles": [
+            "AML_LCWGS_GRCh38",
+            "AML_AS_111_GRCh38",
+            "AML_LCWGS_GRCh38_CANONICAL25"
+          ],
           "diagnostics": []
         }
         """;
     var incompleteStatus = WslServiceLauncher.InterpretResourceStatus(
         0, incompleteResourceStatus, "");
-    AssertEqual("False", incompleteStatus.Ok.ToString(), "missing AS profile status refusal");
+    AssertEqual("False", incompleteStatus.Ok.ToString(), "missing Canonical-25 AS profile status refusal");
     AssertEqual(
         "True",
-        incompleteStatus.Detail.Contains("AML_AS_111_GRCh38", StringComparison.Ordinal).ToString(),
-        "missing AS profile is named");
+        incompleteStatus.Detail.Contains(
+            "AML_AS_111_GRCh38_CANONICAL25", StringComparison.Ordinal).ToString(),
+        "missing Canonical-25 AS profile is named");
 
     const string legacySettingsJson = """
         {

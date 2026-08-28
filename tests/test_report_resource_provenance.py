@@ -7,7 +7,11 @@ from tempfile import TemporaryDirectory
 from openpyxl import load_workbook
 
 from ontseq_platform.demo import build_demo_result
-from ontseq_platform.models import GenomeBuild, ResolvedResourceContext
+from ontseq_platform.models import (
+    GenomeBuild,
+    ReferenceDictionaryContract,
+    ResolvedResourceContext,
+)
 from ontseq_platform.report import render_html
 from ontseq_platform.workbook import render_workbook
 
@@ -22,6 +26,7 @@ class ReportResourceProvenanceTests(unittest.TestCase):
                 profile_id="AML_LCWGS_GRCh38",
                 profile_version="v1",
                 genome_build=GenomeBuild.GRCH38,
+                reference_dictionary_contract=(ReferenceDictionaryContract.GRCH38_CANONICAL_25),
                 reference_bundle_id="GRCh38_GENCODE50_MANE1.5_v1",
                 reference_bundle_version="v1",
                 knowledge_bundle_id="HEMATOLOGY_v1",
@@ -42,6 +47,7 @@ class ReportResourceProvenanceTests(unittest.TestCase):
             for expected in (
                 "GRCh38.p14",
                 "GRCh38_GENCODE50_MANE1.5_v1",
+                "grch38_canonical_25",
                 "GENCODE 50",
                 "MANE 1.5",
                 "UCSC hg38",
@@ -60,6 +66,10 @@ class ReportResourceProvenanceTests(unittest.TestCase):
                 }
                 self.assertEqual(values["Genome assembly"], "GRCh38.p14")
                 self.assertIn("GRCh38_GENCODE50", values["ReferenceBundle"])
+                self.assertEqual(
+                    values["BAM dictionary contract"],
+                    "grch38_canonical_25",
+                )
             finally:
                 workbook.close()
 

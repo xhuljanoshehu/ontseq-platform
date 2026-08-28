@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ProfileCombo.ItemsSource = DesktopProfiles.Supported;
         DataContext = this;
         SetPlaceholders();
     }
@@ -61,9 +62,9 @@ public partial class MainWindow : Window
 
     private void SelectProfile(string profileId)
     {
-        foreach (var item in ProfileCombo.Items.OfType<ComboBoxItem>())
+        foreach (var item in ProfileCombo.Items.OfType<DesktopAnalysisProfile>())
         {
-            if (!string.Equals(item.Tag?.ToString(), profileId, StringComparison.Ordinal)) continue;
+            if (!string.Equals(item.ProfileId, profileId, StringComparison.Ordinal)) continue;
             ProfileCombo.SelectedItem = item;
             return;
         }
@@ -72,10 +73,8 @@ public partial class MainWindow : Window
 
     private void ProfileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ProfileCombo.SelectedItem is not ComboBoxItem item) return;
-        var profile = DesktopProfiles.Require(item.Tag?.ToString() ?? DesktopProfiles.DefaultProfileId);
-        DetectedBuildText.Text =
-            $"{profile.GenomeBuild} · Profilvorgabe, BAM-Dictionary wird beim Start automatisch geprüft";
+        if (ProfileCombo.SelectedItem is not DesktopAnalysisProfile profile) return;
+        UpdateDetectedBuildText(profile);
         if (_loadingSettings) return;
         _settings.DefaultProfile = profile.ProfileId;
         try
@@ -112,7 +111,15 @@ public partial class MainWindow : Window
         DetailText.Text = index is not null
             ? $"BAM und BAM-Index gefunden ({Path.GetFileName(index)})."
             : "Hinweis: Erwartet wird <sample>.bam.bai oder <sample>.bai neben der BAM-Datei.";
-        DetectedBuildText.Text = "GRCh38 · Profilvorgabe, BAM-Dictionary wird beim Start automatisch geprüft";
+        if (ProfileCombo.SelectedItem is DesktopAnalysisProfile profile)
+            UpdateDetectedBuildText(profile);
+    }
+
+    private void UpdateDetectedBuildText(DesktopAnalysisProfile profile)
+    {
+        DetectedBuildText.Text =
+            $"{profile.GenomeBuild} · {profile.DictionaryLabel} · " +
+            "BAM-Dictionary wird beim Start automatisch geprüft";
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
@@ -261,7 +268,7 @@ public partial class MainWindow : Window
     {
         bam = BamPathTextBox.Text.Trim();
         sampleId = SampleIdTextBox.Text.Trim();
-        var profileId = (ProfileCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString()
+        var profileId = (ProfileCombo.SelectedItem as DesktopAnalysisProfile)?.ProfileId
                         ?? DesktopProfiles.DefaultProfileId;
         profile = DesktopProfiles.Require(profileId);
 

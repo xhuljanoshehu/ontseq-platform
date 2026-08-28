@@ -9,8 +9,12 @@ from pathlib import Path
 
 from .bam_intake import ParsedBamHeader, parse_sam_header
 from .execution import CommandRunner, SubprocessRunner, ToolExecutionError
-from .models import GenomeBuild, ReferenceLock
-from .reference import CanonicalReferenceSummary, validate_canonical_reference
+from .models import GenomeBuild, ReferenceDictionaryContract, ReferenceLock
+from .reference import (
+    CanonicalReferenceSummary,
+    reference_lock_for_dictionary_contract,
+    validate_canonical_reference,
+)
 
 _SAMPLE_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -22,6 +26,7 @@ class ResolvedBamInput:
     sample_id: str
     genome_build: GenomeBuild
     naming_style: str
+    reference_dictionary_contract: ReferenceDictionaryContract
     contigs: tuple[tuple[str, int], ...]
 
 
@@ -118,6 +123,7 @@ def resolve_bam_header(
     header_text: str,
     reference_lock: ReferenceLock,
     required_build: GenomeBuild = GenomeBuild.GRCH38,
+    dictionary_contract: ReferenceDictionaryContract = ReferenceDictionaryContract.EXACT_FULL,
     sample_id: str | None = None,
 ) -> ResolvedBamInput:
     """Resolve a BAM from an already-read SAM header (pure and fixture-friendly)."""
@@ -138,7 +144,8 @@ def resolve_bam_header(
             f"ReferenceLock is {reference_lock.genome_build.value}, but profile requires "
             f"{required_build.value}"
         )
-    validate_full_dictionary(parsed, reference_lock)
+    selected_lock = reference_lock_for_dictionary_contract(reference_lock, dictionary_contract)
+    validate_full_dictionary(parsed, selected_lock)
     resolved_sample = sample_id or sample_id_from_bam(bam)
     return ResolvedBamInput(
         bam_path=bam,
@@ -146,6 +153,7 @@ def resolve_bam_header(
         sample_id=resolved_sample,
         genome_build=detected_build,
         naming_style=summary.naming_style,
+        reference_dictionary_contract=dictionary_contract,
         contigs=parsed.contigs,
     )
 
@@ -155,6 +163,7 @@ def resolve_bam_input(
     reference_lock: ReferenceLock,
     *,
     required_build: GenomeBuild = GenomeBuild.GRCH38,
+    dictionary_contract: ReferenceDictionaryContract = ReferenceDictionaryContract.EXACT_FULL,
     sample_id: str | None = None,
     samtools: str = "samtools",
     runner: CommandRunner | None = None,
@@ -178,6 +187,7 @@ def resolve_bam_input(
         header_text=result.stdout,
         reference_lock=reference_lock,
         required_build=required_build,
+        dictionary_contract=dictionary_contract,
         sample_id=sample_id,
     )
 

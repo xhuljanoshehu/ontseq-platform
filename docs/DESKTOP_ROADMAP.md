@@ -11,7 +11,8 @@
 
 - [x] Native Windows WPF project on .NET 10.
 - [x] BAM picker and sample-ID suggestion.
-- [x] Build-isolated `AML_LCWGS_GRCh38` / `AML_AS_111_GRCh38` profile selector.
+- [x] Build-isolated selector for both `exact_full` profiles and their explicit
+  `*_CANONICAL25` variants, using the same installed GRCh38 bundles.
 - [x] Expected GRCh38 and provenance-backed detected-build display.
 - [x] Automatic WSL backend launch; no terminal required for normal use.
 - [x] Loopback API bootstrap and Start/Status integration.

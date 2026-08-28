@@ -1298,6 +1298,15 @@
       "title": "QCMetrics",
       "type": "object"
     },
+    "ReferenceDictionaryContract": {
+      "description": "Explicit relationship between an aligned BAM and the reference bundle dictionary.",
+      "enum": [
+        "exact_full",
+        "grch38_canonical_25"
+      ],
+      "title": "ReferenceDictionaryContract",
+      "type": "string"
+    },
     "ResolvedResourceContext": {
       "additionalProperties": false,
       "description": "Absolute, checksum-pinned resources selected for one analysis profile.",
@@ -1359,6 +1368,10 @@
           "minLength": 1,
           "title": "Reference Bundle Version",
           "type": "string"
+        },
+        "reference_dictionary_contract": {
+          "$ref": "#/$defs/ReferenceDictionaryContract",
+          "default": "exact_full"
         },
         "resource_checksums": {
           "additionalProperties": {

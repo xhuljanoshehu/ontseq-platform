@@ -120,15 +120,24 @@ public sealed record DesktopAnalysisProfile(
     string DisplayName,
     string GenomeBuild,
     string Assay,
+    string DictionaryContract,
     bool AdaptiveSampling)
 {
     public override string ToString() => DisplayName;
+
+    public string DictionaryLabel =>
+        string.Equals(DictionaryContract, "grch38_canonical_25", StringComparison.Ordinal)
+            ? "Canonical-25 (chr1–22, chrX, chrY, chrM)"
+            : "vollständige GRCh38 Primary Assembly";
 }
 
 public static class DesktopProfiles
 {
     public const string DefaultProfileId = "AML_LCWGS_GRCh38";
     public const string AdaptiveSamplingProfileId = "AML_AS_111_GRCh38";
+    public const string Canonical25LcwgsProfileId = "AML_LCWGS_GRCh38_CANONICAL25";
+    public const string Canonical25AdaptiveSamplingProfileId =
+        "AML_AS_111_GRCh38_CANONICAL25";
 
     public static readonly IReadOnlyList<DesktopAnalysisProfile> Supported =
     [
@@ -137,12 +146,28 @@ public static class DesktopProfiles
             "AML low-coverage WGS · GRCh38",
             "GRCh38",
             "lcwgs",
+            "exact_full",
             false),
         new(
             AdaptiveSamplingProfileId,
             "AML Adaptive Sampling 111 Gene · GRCh38",
             "GRCh38",
             "adaptive_sampling",
+            "exact_full",
+            true),
+        new(
+            Canonical25LcwgsProfileId,
+            "AML low-coverage WGS · GRCh38 Canonical-25",
+            "GRCh38",
+            "lcwgs",
+            "grch38_canonical_25",
+            false),
+        new(
+            Canonical25AdaptiveSamplingProfileId,
+            "AML Adaptive Sampling 111 Gene · GRCh38 Canonical-25",
+            "GRCh38",
+            "adaptive_sampling",
+            "grch38_canonical_25",
             true)
     ];
 

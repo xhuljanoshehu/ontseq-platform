@@ -16,6 +16,9 @@ from ontseq_platform.io import load_model
 from ontseq_platform.models import (
     GenomeBuild,
     QCPolicy,
+    ReferenceContig,
+    ReferenceDictionaryContract,
+    ReferenceLock,
     SnifflesPolicy,
     TargetBedRole,
 )
@@ -25,7 +28,7 @@ from ontseq_platform.profile_analysis import (
     ProfileRuntimeSettings,
     build_profile_run_configuration,
 )
-from ontseq_platform.reference import canonical_contigs
+from ontseq_platform.reference import canonical_contigs, grch38_canonical_25_contigs, sha256_file
 from ontseq_platform.reference_catalog import ReferenceBundleInstaller
 from ontseq_platform.resource_bootstrap import (
     REFERENCE_BUNDLE_ID,
@@ -42,9 +45,17 @@ REFERENCE_FIXTURE = ROOT / "tests" / "fixtures" / "reference_catalog" / "GRCh38_
 
 
 def _header(build: GenomeBuild) -> str:
+    return _header_from_contigs(canonical_contigs(build))
+
+
+def _header_from_contigs(contigs: tuple[tuple[str, int], ...]) -> str:
     lines = ["@HD\tVN:1.6\tSO:coordinate"]
-    lines.extend(f"@SQ\tSN:{name}\tLN:{length}" for name, length in canonical_contigs(build))
+    lines.extend(f"@SQ\tSN:{name}\tLN:{length}" for name, length in contigs)
     return "\n".join(lines) + "\n"
+
+
+def _full_fixture_contigs() -> tuple[tuple[str, int], ...]:
+    return (*grch38_canonical_25_contigs(), ("GL000008.2", 209709))
 
 
 def _resource_root(root: Path) -> Path:
@@ -54,12 +65,27 @@ def _resource_root(root: Path) -> Path:
     recipe = yaml.safe_load(recipe_path.read_text(encoding="utf-8"))
     recipe["bundle_id"] = REFERENCE_BUNDLE_ID
     recipe_path.write_text(yaml.safe_dump(recipe, sort_keys=False), encoding="utf-8")
+
     # Transaction/profile tests stay byte-small. Canonical dictionary enforcement itself is
     # covered in test_bam_resolution.py and test_reference_canonical.py; there is no runtime flag
     # that can bypass it in the product.
+    def fixture_reference_lock(fai_path: Path, **kwargs: object) -> ReferenceLock:
+        contigs = _full_fixture_contigs()
+        return ReferenceLock(
+            reference_id=str(kwargs["reference_id"]),
+            genome_build=GenomeBuild.GRCH38,
+            contigs=[ReferenceContig(name=name, length=length) for name, length in contigs],
+            allow_extra_contigs=False,
+            source_fai_sha256=sha256_file(fai_path),
+        )
+
     with (
         patch("ontseq_platform.reference.validate_canonical_reference"),
         patch("ontseq_platform.reference_catalog.validate_canonical_reference"),
+        patch(
+            "ontseq_platform.reference_catalog.reference_lock_from_fai",
+            side_effect=fixture_reference_lock,
+        ),
     ):
         ReferenceBundleInstaller(root).import_bundle(source)
         shutil.rmtree(source)
@@ -75,30 +101,48 @@ def _bam(root: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("profile_id", "adaptive"),
-    (("AML_LCWGS_GRCh38", False), ("AML_AS_111_GRCh38", True)),
+    ("profile_id", "adaptive", "dictionary_contract"),
+    (
+        ("AML_LCWGS_GRCh38", False, ReferenceDictionaryContract.EXACT_FULL),
+        ("AML_AS_111_GRCh38", True, ReferenceDictionaryContract.EXACT_FULL),
+        (
+            "AML_LCWGS_GRCh38_CANONICAL25",
+            False,
+            ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        ),
+        (
+            "AML_AS_111_GRCh38_CANONICAL25",
+            True,
+            ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        ),
+    ),
 )
 def test_profile_configuration_resolves_every_resource_without_manual_paths(
     profile_id: str,
     adaptive: bool,
+    dictionary_contract: ReferenceDictionaryContract,
 ) -> None:
     with TemporaryDirectory() as raw:
         root = Path(raw).resolve()
         resources = _resource_root(root / "resources")
         bam = _bam(root)
 
-        with patch("ontseq_platform.bam_resolution.validate_full_dictionary"):
-            config = build_profile_run_configuration(
-                AnalyzeSettings(
-                    bam=bam,
-                    profile_id=profile_id,
-                    resource_root=resources,
-                    output_dir=root / "results",
-                    configuration_root=CONFIGS,
-                    pipeline_version="test",
-                ),
-                header_text=_header(GenomeBuild.GRCH38),
-            )
+        header_contigs = (
+            grch38_canonical_25_contigs()
+            if dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            else _full_fixture_contigs()
+        )
+        config = build_profile_run_configuration(
+            AnalyzeSettings(
+                bam=bam,
+                profile_id=profile_id,
+                resource_root=resources,
+                output_dir=root / "results",
+                configuration_root=CONFIGS,
+                pipeline_version="test",
+            ),
+            header_text=_header_from_contigs(header_contigs),
+        )
 
         assert config.manifest.assay.genome_build == GenomeBuild.GRCH38
         assert config.manifest.analysis.profile == profile_id
@@ -108,6 +152,11 @@ def test_profile_configuration_resolves_every_resource_without_manual_paths(
         assert config.annotation_cache is not None
         assert config.resource_context is not None
         assert config.resource_context.reference_bundle_id == REFERENCE_BUNDLE_ID
+        assert config.resource_context.reference_dictionary_contract == dictionary_contract
+        assert tuple((item.name, item.length) for item in config.reference_lock.contigs) == (
+            header_contigs
+        )
+        assert config.reference_lock.allow_extra_contigs is False
         if adaptive:
             assert config.selection_target_bed is not None
             assert config.manifest.assay.target_bed is not None
@@ -117,6 +166,25 @@ def test_profile_configuration_resolves_every_resource_without_manual_paths(
             assert config.selection_target_bed is None
             assert config.manifest.assay.target_bed is None
             assert config.target_coverage_policy is None
+
+
+def test_full_profile_does_not_fall_back_to_canonical25_header() -> None:
+    with TemporaryDirectory() as raw:
+        root = Path(raw).resolve()
+        resources = _resource_root(root / "resources")
+        bam = _bam(root)
+
+        with pytest.raises(ValueError, match="1 missing"):
+            build_profile_run_configuration(
+                AnalyzeSettings(
+                    bam=bam,
+                    profile_id="AML_LCWGS_GRCh38",
+                    resource_root=resources,
+                    output_dir=root / "results",
+                    configuration_root=CONFIGS,
+                ),
+                header_text=_header_from_contigs(grch38_canonical_25_contigs()),
+            )
 
 
 def test_profile_configuration_rejects_grch37_header_before_pipeline() -> None:
@@ -254,6 +322,8 @@ def test_service_advertises_only_profiles_with_a_resolvable_pinned_context() -> 
         assert _resolvable_profile_ids(config) == [
             "AML_LCWGS_GRCh38",
             "AML_AS_111_GRCh38",
+            "AML_LCWGS_GRCh38_CANONICAL25",
+            "AML_AS_111_GRCh38_CANONICAL25",
         ]
 
         registry = ResourceRegistry(resources)
@@ -261,7 +331,10 @@ def test_service_advertises_only_profiles_with_a_resolvable_pinned_context() -> 
         selection = Path(context.resource_paths["panel.selection_panel_buffered"])
         selection.write_bytes(selection.read_bytes() + b"corrupt-size")
 
-        assert _resolvable_profile_ids(config) == ["AML_LCWGS_GRCh38"]
+        assert _resolvable_profile_ids(config) == [
+            "AML_LCWGS_GRCh38",
+            "AML_LCWGS_GRCh38_CANONICAL25",
+        ]
 
 
 def test_reference_status_reports_only_profiles_with_ready_panel_and_knowledge() -> None:
@@ -285,7 +358,12 @@ def test_reference_status_reports_only_profiles_with_ready_panel_and_knowledge()
             return payload
 
         ready = status_payload()
-        assert ready["profiles"] == ["AML_AS_111_GRCh38", "AML_LCWGS_GRCh38"]
+        assert ready["profiles"] == [
+            "AML_AS_111_GRCh38",
+            "AML_AS_111_GRCh38_CANONICAL25",
+            "AML_LCWGS_GRCh38",
+            "AML_LCWGS_GRCh38_CANONICAL25",
+        ]
         statuses = {item["profile_id"]: item for item in ready["profile_status"]}
         assert statuses["AML_AS_111_GRCh38"]["panel_bundle"] == "AML_AS_111_GRCh38_v1"
         assert statuses["AML_AS_111_GRCh38"]["knowledge_bundle"] == "HEMATOLOGY_v1"

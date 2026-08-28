@@ -11,6 +11,7 @@ from unittest.mock import patch
 import yaml
 
 from ontseq_platform.models import GenomeBuild, ReferenceContig, ReferenceLock
+from ontseq_platform.reference import grch38_canonical_25_contigs
 from ontseq_platform.resource_registry import (
     DEFAULT_RESOURCE_ROOT,
     RESOURCE_ROOT_ENV,
@@ -51,9 +52,15 @@ def _resource(
     }
 
 
-def _reference_bundle(root: Path, bundle_id: str, build: str = "GRCh38") -> None:
+def _reference_bundle(
+    root: Path,
+    bundle_id: str,
+    build: str = "GRCh38",
+    *,
+    contigs: tuple[tuple[str, int], ...] = (("chr1", 1),),
+) -> None:
     directory = root / "references" / bundle_id
-    fai_content = "chr1\t1\t0\t1\t2\n"
+    fai_content = "".join(f"{name}\t{length}\t0\t1\t2\n" for name, length in contigs)
     fai = {
         "resource_id": "fai",
         "role": "fasta_index",
@@ -62,7 +69,7 @@ def _reference_bundle(root: Path, bundle_id: str, build: str = "GRCh38") -> None
     reference_lock = ReferenceLock(
         reference_id=bundle_id,
         genome_build=GenomeBuild(build),
-        contigs=[ReferenceContig(name="chr1", length=1)],
+        contigs=[ReferenceContig(name=name, length=length) for name, length in contigs],
         source_fai_sha256=str(fai["sha256"]),
     )
     resources = [
@@ -149,7 +156,13 @@ def _panel_bundle(root: Path, bundle_id: str = "AML_AS_111_GRCh38_v1") -> None:
     )
 
 
-def _profile(root: Path, profile_id: str, *, adaptive: bool) -> None:
+def _profile(
+    root: Path,
+    profile_id: str,
+    *,
+    adaptive: bool,
+    dictionary_contract: str = "exact_full",
+) -> None:
     directory = root / "profiles"
     directory.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -159,6 +172,7 @@ def _profile(root: Path, profile_id: str, *, adaptive: bool) -> None:
         "genome_build": "GRCh38",
         "assay_mode": "adaptive_sampling" if adaptive else "lcwgs",
         "reference_bundle": "GRCh38_TEST_v1",
+        "reference_dictionary_contract": dictionary_contract,
         "knowledge_bundle": "HEMATOLOGY_v1",
         "panel_bundle": "AML_AS_111_GRCh38_v1" if adaptive else None,
         "adaptive_sampling": "enabled" if adaptive else "disabled",
@@ -304,6 +318,50 @@ class ResourceRegistryTests(unittest.TestCase):
                     "AML_LCWGS_GRCh38",
                     verify_files=False,
                 )
+
+    def test_canonical25_profile_requires_a_compatible_full_reference_lock(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            self._complete_root(root)
+            _profile(
+                root,
+                "AML_LCWGS_GRCh38_CANONICAL25",
+                adaptive=False,
+                dictionary_contract="grch38_canonical_25",
+            )
+
+            with self.assertRaisesRegex(ValueError, "complete Canonical-25 dictionary"):
+                ResourceRegistry(root).resolve_profile(
+                    "AML_LCWGS_GRCh38_CANONICAL25",
+                    verify_files=False,
+                )
+
+    def test_canonical25_profile_resolves_against_a_superset_reference_lock(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            contigs = (*grch38_canonical_25_contigs(), ("GL000008.2", 209709))
+            _reference_bundle(
+                root,
+                "GRCh38_TEST_v1",
+                contigs=contigs,
+            )
+            _knowledge_bundle(root)
+            _profile(
+                root,
+                "AML_LCWGS_GRCh38_CANONICAL25",
+                adaptive=False,
+                dictionary_contract="grch38_canonical_25",
+            )
+
+            context = ResourceRegistry(root).resolve_profile(
+                "AML_LCWGS_GRCh38_CANONICAL25",
+                verify_files=False,
+            )
+
+            self.assertEqual(
+                context.reference_dictionary_contract.value,
+                "grch38_canonical_25",
+            )
 
     def test_profile_cannot_fall_back_to_an_unavailable_bundle(self) -> None:
         with TemporaryDirectory() as raw:

@@ -32,8 +32,12 @@ Request fields used by the GRCh38 profile-backed Desktop:
 }
 ```
 
-`profile` is authoritative for resource resolution. The published values in this work package are
-`AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38`; both are build-isolated to GRCh38. The
+`profile` is authoritative for resource and dictionary-contract resolution. The published values
+are `AML_LCWGS_GRCh38`, `AML_AS_111_GRCh38`, `AML_LCWGS_GRCh38_CANONICAL25` and
+`AML_AS_111_GRCh38_CANONICAL25`; all are build-isolated to GRCh38. The two unsuffixed profiles
+retain the `exact_full` Primary-Assembly contract. The two Canonical-25 profiles require exactly
+`chr1`-`chr22`, `chrX`, `chrY`, `chrM`. They resolve the same installed GRCh38 bundles, with no
+additional reference download, liftover or fallback. The
 `genome_build`, `assay`, `target_bed` and `target_bed_version` fields remain in the transport
 contract for one compatibility version. New profile runs derive their build and assay from the
 profile and leave the two explicit target-BED fields null.

@@ -5,6 +5,31 @@ validated release.
 
 ## Unreleased
 
+## 0.5.2 - 2026-08-28
+
+### Added
+
+- Two explicit GRCh38 Canonical-25 profile variants now accept BAM dictionaries containing
+  exactly `chr1`-`chr22`, `chrX`, `chrY` and `chrM`: `AML_LCWGS_GRCh38_CANONICAL25` and
+  `AML_AS_111_GRCh38_CANONICAL25`.
+- Desktop exposes the dictionary contract with each profile so that the operator can select the
+  contract matching the reference used for alignment before starting a run.
+
+### Changed
+
+- The established `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` profiles remain `exact_full`: their
+  BAM dictionaries must still match the complete ordered Primary-Assembly `ReferenceLock`.
+- Canonical-25 is a profile-level projection of the same pinned GRCh38 reference, annotation,
+  panel and knowledge bundles. Selecting it performs no liftover, enables no fallback and does
+  not download or install a second multi-GiB reference bundle.
+
+### Validation impact
+
+- This release adds an explicit input-dictionary compatibility contract. It changes no caller,
+  CNV/SV threshold, panel coordinate, annotation release, evidence policy or reportability rule.
+  A BAM matching neither exact contract still fails before pipeline execution; no additional
+  analytical or clinical validation claim is introduced.
+
 ## 0.5.1 - 2026-08-28
 
 ### Fixed

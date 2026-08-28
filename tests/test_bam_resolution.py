@@ -11,8 +11,13 @@ from ontseq_platform.bam_resolution import (
     resolve_bam_header,
     sample_id_from_bam,
 )
-from ontseq_platform.models import GenomeBuild, ReferenceContig, ReferenceLock
-from ontseq_platform.reference import canonical_contigs
+from ontseq_platform.models import (
+    GenomeBuild,
+    ReferenceContig,
+    ReferenceDictionaryContract,
+    ReferenceLock,
+)
+from ontseq_platform.reference import canonical_contigs, grch38_canonical_25_contigs
 
 
 def _lock(build: GenomeBuild, contigs: tuple[tuple[str, int], ...]) -> ReferenceLock:
@@ -96,6 +101,63 @@ class BamResolutionTests(unittest.TestCase):
                     header_text=_header(canonical),
                     reference_lock=_lock(GenomeBuild.GRCH38, lock_contigs),
                 )
+
+    def test_explicit_canonical_25_profile_accepts_real_world_dictionary_shape(self) -> None:
+        canonical = grch38_canonical_25_contigs()
+        pinned_full = (*canonical, ("GL000008.2", 209709))
+        with TemporaryDirectory() as raw:
+            bam = Path(raw) / "sample.bam"
+            bam.write_bytes(b"BAM")
+            Path(f"{bam}.bai").write_bytes(b"BAI")
+
+            resolved = resolve_bam_header(
+                bam_path=bam,
+                header_text=_header(canonical),
+                reference_lock=_lock(GenomeBuild.GRCH38, pinned_full),
+                dictionary_contract=ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+            )
+
+        self.assertEqual(
+            resolved.reference_dictionary_contract,
+            ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        )
+        self.assertEqual(resolved.contigs, canonical)
+
+    def test_dictionary_contracts_never_fallback_between_25_and_full(self) -> None:
+        canonical = grch38_canonical_25_contigs()
+        pinned_full = (*canonical, ("GL000008.2", 209709))
+        cases = (
+            (
+                ReferenceDictionaryContract.EXACT_FULL,
+                canonical,
+                "exactly match",
+            ),
+            (
+                ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+                pinned_full,
+                "exactly match",
+            ),
+            (
+                ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+                canonical[:-1],
+                "exactly match",
+            ),
+        )
+        for contract, observed, message in cases:
+            with (
+                self.subTest(contract=contract, observed=len(observed)),
+                TemporaryDirectory() as raw,
+            ):
+                bam = Path(raw) / "sample.bam"
+                bam.write_bytes(b"BAM")
+                Path(f"{bam}.bai").write_bytes(b"BAI")
+                with self.assertRaisesRegex(ValueError, message):
+                    resolve_bam_header(
+                        bam_path=bam,
+                        header_text=_header(observed),
+                        reference_lock=_lock(GenomeBuild.GRCH38, pinned_full),
+                        dictionary_contract=contract,
+                    )
 
     def test_filename_and_default_run_id_are_manifest_safe(self) -> None:
         self.assertEqual(sample_id_from_bam(Path("a.bam")), "sample_a")

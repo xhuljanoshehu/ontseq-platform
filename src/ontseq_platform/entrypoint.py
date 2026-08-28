@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 
+from . import __version__
 from .runtime_cli import RUNTIME_COMMANDS
 
 _SCIENTIFIC_COMMANDS = (
@@ -69,6 +70,9 @@ def _overview() -> str:
 def main() -> None:
     """Dispatch execution commands without coupling the legacy/scientific CLI to runtime code."""
     command = sys.argv[1] if len(sys.argv) > 1 else None
+    if command in {"--version", "version"}:
+        print(__version__)
+        return
     if command is None or command in {"-h", "--help", "help"}:
         print(_overview())
         return

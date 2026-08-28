@@ -36,6 +36,7 @@ from .models import (
 )
 from .pipeline.components import RunComponents
 from .pipeline.runner import RunConfiguration
+from .reference import reference_lock_for_dictionary_contract
 from .resource_registry import ResourceRegistry
 from .target_coverage import TargetCoveragePolicy
 
@@ -184,13 +185,20 @@ def build_profile_run_configuration(
     if profile.genome_build != GenomeBuild.GRCH38:
         raise ValueError("the active implementation accepts GRCh38 analysis profiles only")
     paths = context.resource_paths
-    reference_lock = load_model(_required_path(paths, "reference.reference_lock"), ReferenceLock)
+    source_reference_lock = load_model(
+        _required_path(paths, "reference.reference_lock"), ReferenceLock
+    )
+    reference_lock = reference_lock_for_dictionary_contract(
+        source_reference_lock,
+        profile.reference_dictionary_contract,
+    )
     samtools = settings.executables.get("samtools", "samtools")
     if header_text is None:
         resolved_bam = resolve_bam_input(
             settings.bam,
-            reference_lock,
+            source_reference_lock,
             required_build=GenomeBuild.GRCH38,
+            dictionary_contract=profile.reference_dictionary_contract,
             sample_id=settings.sample_id,
             samtools=samtools,
         )
@@ -198,8 +206,9 @@ def build_profile_run_configuration(
         resolved_bam = resolve_bam_header(
             bam_path=settings.bam,
             header_text=header_text,
-            reference_lock=reference_lock,
+            reference_lock=source_reference_lock,
             required_build=GenomeBuild.GRCH38,
+            dictionary_contract=profile.reference_dictionary_contract,
             sample_id=settings.sample_id,
         )
     run_id = settings.run_id or default_run_id(resolved_bam.sample_id)

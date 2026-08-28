@@ -8,7 +8,7 @@ namespace ONTSeq.Desktop;
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-    private const string ReleaseVersion = "0.5.1";
+    private const string ReleaseVersion = "0.5.2";
 
     private static class RuntimeAssets
     {
@@ -120,6 +120,22 @@ public sealed class WslServiceLauncher : IAsyncDisposable
     {
         try
         {
+            var versionProbe = await RunWslAsync(
+                settings.WslDistribution,
+                BackendInvocation(settings, "--version"),
+                cancellationToken);
+            if (versionProbe.ExitCode != 0 ||
+                !string.Equals(versionProbe.StdOut.Trim(), ReleaseVersion, StringComparison.Ordinal))
+            {
+                var observed = string.IsNullOrWhiteSpace(versionProbe.StdOut)
+                    ? versionProbe.StdErr.Trim()
+                    : versionProbe.StdOut.Trim();
+                return (
+                    false,
+                    $"Installierte ONTSeq Runtime '{observed}' entspricht nicht v{ReleaseVersion}. " +
+                    "Bitte 'Runtime installieren' erneut ausführen.");
+            }
+
             var result = await RunWslAsync(
                 settings.WslDistribution,
                 BackendInvocation(settings, "--help"),

@@ -41,6 +41,7 @@ from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipe
 from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
 from .profile_analysis import AnalyzeSettings, build_profile_run_configuration, configuration_root
+from .resource_bootstrap import PROFILE_IDS
 from .resource_commands import add_references_parser, handle_references_command
 from .review import inspect as inspect_review
 from .review import record as record_review
@@ -384,7 +385,7 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument(
         "--profile",
         required=True,
-        choices=("AML_LCWGS_GRCh38", "AML_AS_111_GRCh38"),
+        choices=PROFILE_IDS,
     )
     analyze.add_argument("--resource-root", type=Path)
     analyze.add_argument("--config-root", type=Path)

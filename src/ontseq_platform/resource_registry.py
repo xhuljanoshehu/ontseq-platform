@@ -21,7 +21,7 @@ from .models import (
     ResolvedResourceContext,
     ResourceBundle,
 )
-from .reference import sha256_file
+from .reference import reference_lock_for_dictionary_contract, sha256_file
 
 DEFAULT_RESOURCE_ROOT = Path("/opt/ontseq")
 RESOURCE_ROOT_ENV = "ONTSEQ_RESOURCE_ROOT"
@@ -246,6 +246,7 @@ class ResourceRegistry:
             profile_id=profile.profile_id,
             profile_version=profile.version,
             genome_build=profile.genome_build,
+            reference_dictionary_contract=profile.reference_dictionary_contract,
             reference_bundle_id=reference.bundle.bundle_id,
             reference_bundle_version=reference.bundle.version,
             panel_bundle_id=panel.bundle.bundle_id if panel else None,
@@ -281,6 +282,10 @@ class ResourceRegistry:
             raise ValueError(
                 "reference lock source_fai_sha256 does not match the pinned FASTA index"
             )
+        reference_lock_for_dictionary_contract(
+            reference_lock,
+            profile.reference_dictionary_contract,
+        )
 
     @staticmethod
     def _validate_cross_bundle_derivations(bundles: list[ResourceBundle]) -> None:

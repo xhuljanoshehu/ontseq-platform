@@ -12,7 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import yaml  # type: ignore[import-untyped]
 
-from ontseq_platform.models import PanelBundle
+from ontseq_platform.models import GenomeBuild, PanelBundle, ReferenceContig, ReferenceLock
+from ontseq_platform.reference import grch38_canonical_25_contigs, sha256_file
 from ontseq_platform.reference_catalog import ReferenceBundleInstaller
 from ontseq_platform.resource_bootstrap import (
     KNOWLEDGE_BUNDLE_ID,
@@ -27,6 +28,17 @@ from ontseq_platform.resource_registry import ResourceRegistry
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGS = ROOT / "configs"
 REFERENCE_FIXTURE = ROOT / "tests" / "fixtures" / "reference_catalog" / "GRCh38_FIXTURE_v1"
+
+
+def _fixture_reference_lock(fai_path: Path, **kwargs: object) -> ReferenceLock:
+    contigs = (*grch38_canonical_25_contigs(), ("GL000008.2", 209709))
+    return ReferenceLock(
+        reference_id=str(kwargs["reference_id"]),
+        genome_build=GenomeBuild.GRCH38,
+        contigs=[ReferenceContig(name=name, length=length) for name, length in contigs],
+        allow_extra_contigs=False,
+        source_fai_sha256=sha256_file(fai_path),
+    )
 
 
 def _install_official_id_reference(resource_root: Path) -> Path:
@@ -54,12 +66,16 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
         self._canonical_patches = (
             patch("ontseq_platform.reference.validate_canonical_reference"),
             patch("ontseq_platform.reference_catalog.validate_canonical_reference"),
+            patch(
+                "ontseq_platform.reference_catalog.reference_lock_from_fai",
+                side_effect=_fixture_reference_lock,
+            ),
         )
         for canonical_patch in self._canonical_patches:
             canonical_patch.start()
             self.addCleanup(canonical_patch.stop)
 
-    def test_curated_resources_compile_activate_and_resolve_both_profiles(self) -> None:
+    def test_curated_resources_compile_activate_and_resolve_all_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             resource_root = Path(raw).resolve()
             _install_official_id_reference(resource_root)
@@ -77,7 +93,7 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
                 "IGH_REVIEW_REQUIRED",
                 result.panel_summary.compilation.unresolved_targets,
             )
-            self.assertEqual(len(result.activated_paths), 4)
+            self.assertEqual(len(result.activated_paths), 6)
             self.assertEqual(result.repaired_paths, ())
             self.assertEqual(result.already_active_paths, ())
 
@@ -122,6 +138,56 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
                 PANEL_BUNDLE_ID,
             )
 
+    def test_existing_two_profile_install_is_extended_without_replacing_bundles(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            resource_root = Path(raw).resolve()
+            _install_official_id_reference(resource_root)
+            bootstrapper = GRCh38ResourceBootstrapper(
+                resource_root,
+                packaged_config_root=CONFIGS,
+            )
+            bootstrapper.activate()
+            legacy_profiles = (
+                resource_root / "profiles" / "AML_LCWGS_GRCh38.yaml",
+                resource_root / "profiles" / "AML_AS_111_GRCh38.yaml",
+            )
+            legacy_bytes = {path: path.read_bytes() for path in legacy_profiles}
+            canonical_profiles = (
+                resource_root / "profiles" / "AML_LCWGS_GRCh38_CANONICAL25.yaml",
+                resource_root / "profiles" / "AML_AS_111_GRCh38_CANONICAL25.yaml",
+            )
+            for path in canonical_profiles:
+                path.unlink()
+
+            result = bootstrapper.activate()
+
+            self.assertEqual(set(result.activated_paths), set(canonical_profiles))
+            self.assertEqual(len(result.already_active_paths), 4)
+            self.assertEqual(result.repaired_paths, ())
+            for path, expected in legacy_bytes.items():
+                self.assertEqual(path.read_bytes(), expected)
+
+    def test_curated_profile_filename_is_bound_to_its_dictionary_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            resource_root = Path(raw).resolve()
+            packaged = resource_root / "packaged"
+            shutil.copytree(CONFIGS / "profiles", packaged / "profiles")
+            profile_path = packaged / "profiles" / "AML_LCWGS_GRCh38_CANONICAL25.yaml"
+            payload = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+            payload["reference_dictionary_contract"] = "exact_full"
+            profile_path.write_text(
+                yaml.safe_dump(payload, sort_keys=False),
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            bootstrapper = GRCh38ResourceBootstrapper(
+                resource_root / "resources",
+                packaged_config_root=packaged,
+            )
+            with self.assertRaisesRegex(ResourceBootstrapError, "published assay"):
+                bootstrapper._load_curated_profiles()
+
     def test_repeated_activation_is_idempotent_and_byte_identical(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             resource_root = Path(raw).resolve()
@@ -136,7 +202,7 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             self.assertEqual(manifest.read_bytes(), first_manifest)
             self.assertEqual(second.activated_paths, ())
             self.assertEqual(second.repaired_paths, ())
-            self.assertEqual(len(second.already_active_paths), 4)
+            self.assertEqual(len(second.already_active_paths), 6)
             self.assertEqual(
                 second.panel_summary.manifest_sha256,
                 first.panel_summary.manifest_sha256,
@@ -253,7 +319,7 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
                     profile,
                 },
             )
-            self.assertEqual(len(result.already_active_paths), 1)
+            self.assertEqual(len(result.already_active_paths), 3)
             self.assertEqual(knowledge.read_bytes(), expected_knowledge)
             self.assertEqual(panel.read_bytes(), expected_panel)
             self.assertEqual(profile.read_bytes(), expected_profile)
