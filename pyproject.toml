@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontseq-platform"
-version = "0.5.0"
+version = "0.5.1"
 description = "A safety-first foundation for automated single-sample Oxford Nanopore karyotyping workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -56,6 +56,7 @@ where = ["src"]
 "share/ontseq/configs/qc" = ["configs/qc/*"]
 "share/ontseq/configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1" = ["configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1/*"]
 "share/ontseq/configs/sv" = ["configs/sv/*"]
+"share/ontseq/scripts" = ["scripts/run_qdnaseq_ace.R"]
 
 [tool.ruff]
 line-length = 100

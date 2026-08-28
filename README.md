@@ -409,11 +409,13 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core: `0.5.0` (2026-08-28). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
+Python-Core: `0.5.1` (2026-08-28). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
 
-Windows-Desktop auf `main`: `0.5.0`, passend zum Python-Core derselben Version
+Windows-Desktop auf `main`: `0.5.1`, passend zum Python-Core derselben Version
 (`desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`), mit vollständigem installierten
-System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
+System-Selbsttest. Der 0.5.1-Patch löst gepackte Konfigurationen unabhängig vom
+Arbeitsverzeichnis auf, ergänzt das gepinnte cuteSV-Werkzeug und prüft den vollständigen Runtime-Vertrag vor
+Profilstarts; wissenschaftliche Schwellen wurden nicht geändert. Aktive Fixes und neuere Engineering-Bundles können in offenen
 Pull Requests liegen; deshalb vor einem realen Test immer `main` und die offenen PRs prüfen.
 
 Dieses Repository hat derzeit **keine Open-Source-Lizenz** und ist privat. Vor einer öffentlichen

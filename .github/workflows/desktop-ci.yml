@@ -1,7 +1,7 @@
 name: Desktop CI
 
 env:
-  ONTSEQ_VERSION: "0.5.0"
+  ONTSEQ_VERSION: "0.5.1"
 
 on:
   pull_request:
@@ -64,8 +64,12 @@ jobs:
         run: |
           set -euo pipefail
           prefix="$(micromamba run -n ontseq-qdnaseq-cnv python -c 'import sys; print(sys.prefix)')"
-          mkdir -p "$prefix/share/ontseq"
-          cp -a configs "$prefix/share/ontseq/configs"
+          mkdir -p "$prefix/share/ontseq/configs"
+          # pip has already installed the data-files tree at this location. Overlay the
+          # repository contents, not the source directory itself: copying `configs` into
+          # an existing `configs` directory creates the invalid configs/configs duplicate.
+          cp -a configs/. "$prefix/share/ontseq/configs/"
+          test ! -e "$prefix/share/ontseq/configs/configs"
           mkdir -p "$prefix/share/ontseq/scripts"
           cp scripts/run_qdnaseq_ace.R "$prefix/share/ontseq/scripts/run_qdnaseq_ace.R"
           git rev-parse HEAD > "$prefix/share/ontseq/git-commit.txt"
@@ -78,6 +82,7 @@ jobs:
           micromamba run -n ontseq-qdnaseq-cnv samtools --version | head -1
           micromamba run -n ontseq-qdnaseq-cnv cramino --version
           micromamba run -n ontseq-qdnaseq-cnv sniffles --version
+          micromamba run -n ontseq-qdnaseq-cnv cuteSV --version
           micromamba run -n ontseq-qdnaseq-cnv mosdepth --version
           micromamba run -n ontseq-qdnaseq-cnv Rscript - <<'RS'
           stopifnot(as.character(packageVersion("QDNAseq")) == "1.42.0")
@@ -118,7 +123,11 @@ jobs:
           test -f /tmp/ontseq-packed/share/ontseq/configs/qc/adaptive_target_coverage.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/components/default.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/sv/cutesv.conservative.technical.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml
+          test -f /tmp/ontseq-packed/share/ontseq/configs/sv/evidence-priority.technical.yaml
           test -f /tmp/ontseq-packed/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml
+          test ! -e /tmp/ontseq-packed/share/ontseq/configs/configs
           test -f /tmp/ontseq-packed/share/ontseq/scripts/run_qdnaseq_ace.R
           test "$(wc -c < /tmp/ontseq-packed/share/ontseq/git-commit.txt)" -ge 40
           grep -qx 'cf7c07e39de0ac64a9c38cb030cba4626e2aae83' /tmp/ontseq-packed/share/ontseq/qdnaseq-hg38-commit.txt
@@ -126,6 +135,8 @@ jobs:
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq validate-reference --help >/dev/null
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--target-coverage-policy'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve --help | grep -q -- '--components'
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/cuteSV --version | grep -q '2\.1\.3'
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/mosdepth --version | grep -q '0\.3\.14'
           PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/Rscript - <<'RS'
           stopifnot(requireNamespace("QDNAseq", quietly = TRUE))
           stopifnot(requireNamespace("QDNAseq.hg19", quietly = TRUE))
@@ -142,6 +153,42 @@ jobs:
             --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
             --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml
           test -s /tmp/ontseq-packed-smoke/local-smoke.report.json
+          mkdir -p /tmp/ontseq-packed-service-cwd /tmp/ontseq-packed-service-output
+          cd /tmp/ontseq-packed-service-cwd
+          PATH="/tmp/ontseq-packed/bin:$PATH" /tmp/ontseq-packed/bin/ontseq serve \
+            --resource-root /tmp/ontseq-packed-profile-resources \
+            --allow-root /tmp \
+            --output-dir /tmp/ontseq-packed-service-output \
+            --qc-policy /tmp/ontseq-packed/share/ontseq/configs/qc/defaults.yaml \
+            --sniffles-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml \
+            --cutesv-policy /tmp/ontseq-packed/share/ontseq/configs/sv/cutesv.conservative.technical.yaml \
+            --sv-consensus-policy /tmp/ontseq-packed/share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml \
+            --sv-evidence-policy /tmp/ontseq-packed/share/ontseq/configs/sv/evidence-priority.technical.yaml \
+            --target-coverage-policy /tmp/ontseq-packed/share/ontseq/configs/qc/adaptive_target_coverage.technical.yaml \
+            --components /tmp/ontseq-packed/share/ontseq/configs/components/default.yaml \
+            --cnv-policy /tmp/ontseq-packed/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml \
+            --qdnaseq-rscript /tmp/ontseq-packed/bin/Rscript \
+            --qdnaseq-script /tmp/ontseq-packed/share/ontseq/scripts/run_qdnaseq_ace.R \
+            --cutesv /tmp/ontseq-packed/bin/cuteSV \
+            --port 18765 \
+            --no-browser > /tmp/ontseq-packed-service.log 2>&1 &
+          service_pid=$!
+          trap 'kill "$service_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18765/ >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$service_pid" 2>/dev/null; then
+              cat /tmp/ontseq-packed-service.log >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:18765/ >/dev/null
+          grep -q 'http://127.0.0.1:18765/' /tmp/ontseq-packed-service.log
+          kill "$service_pid"
+          wait "$service_pid" || true
+          trap - EXIT
       - name: Prove full system smoke on stock Ubuntu without host Python or R
         shell: bash
         run: |
@@ -161,6 +208,12 @@ jobs:
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/conda-unpack
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/ontseq --help >/dev/null
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript --version
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/cuteSV --version | grep -q "2\.1\.3"
+              env PATH="$RUNTIME_PATH" /opt/ontseq/bin/mosdepth --version | grep -q "0\.3\.14"
+              test -f /opt/ontseq/share/ontseq/configs/sv/cutesv.conservative.technical.yaml
+              test -f /opt/ontseq/share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml
+              test -f /opt/ontseq/share/ontseq/configs/sv/evidence-priority.technical.yaml
+              test ! -e /opt/ontseq/share/ontseq/configs/configs
               grep -qx "cf7c07e39de0ac64a9c38cb030cba4626e2aae83" /opt/ontseq/share/ontseq/qdnaseq-hg38-commit.txt
               env PATH="$RUNTIME_PATH" /opt/ontseq/bin/Rscript -e "stopifnot(requireNamespace(\"QDNAseq\",quietly=TRUE), requireNamespace(\"QDNAseq.hg19\",quietly=TRUE), requireNamespace(\"QDNAseq.hg38\",quietly=TRUE), requireNamespace(\"ACE\",quietly=TRUE), as.character(packageVersion(\"QDNAseq.hg38\")) == \"1.2.0\"); for (s in c(100,500,1000)) stopifnot(nrow(Biobase::pData(QDNAseq::getBinAnnotations(binSize=s, genome=\"hg38\"))) > 0)"
 
@@ -277,6 +330,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not read embedded QDNAseq.hg38 source commit" }
           if ($hg38Commit -ne "cf7c07e39de0ac64a9c38cb030cba4626e2aae83") {
             throw "Bundled QDNAseq.hg38 commit is unexpected: $hg38Commit"
+          }
+          $runtimeMembers = @(& tar -tzf $runtime)
+          if ($LASTEXITCODE -ne 0) { throw "Could not list bundled Linux runtime" }
+          foreach ($required in @(
+            "share/ontseq/configs/sv/cutesv.conservative.technical.yaml",
+            "share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml",
+            "share/ontseq/configs/sv/evidence-priority.technical.yaml",
+            "bin/cuteSV",
+            "bin/mosdepth"
+          )) {
+            if (-not ($runtimeMembers -contains $required)) {
+              throw "Bundled Linux runtime is missing: $required"
+            }
+          }
+          if ($runtimeMembers | Where-Object { $_ -like "share/ontseq/configs/configs/*" }) {
+            throw "Bundled Linux runtime contains invalid share/ontseq/configs/configs nesting"
           }
           if (-not (Select-String -Path $buildInfo -SimpleMatch "ONTSeq Desktop ${{ env.ONTSEQ_VERSION }}-engineering" -Quiet)) {
             throw "BUILD-INFO.txt does not identify Desktop v${{ env.ONTSEQ_VERSION }}"

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.5.1-engineering
+
+- resolve every packaged Core configuration independently of the application working directory
+  and pass absolute cuteSV, consensus and evidence-policy paths to profile services
+- include cuteSV 2.1.3 in the WSL runtime and require the complete SV/CNV policy and executable
+  contract during installation and before starting a Desktop profile
+- reject duplicated packaged configuration trees and smoke-test the relocated service from an
+  unrelated directory; scientific thresholds and interpretation policies are unchanged
+
 ## 0.5.0-engineering
 
 - add `resourceRootWsl` with user-writable `~/.local/share/ontseq/resources` Desktop default,

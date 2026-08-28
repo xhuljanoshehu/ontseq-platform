@@ -40,7 +40,7 @@ from .pipeline.review import exit_code as review_exit_code
 from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
 from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
-from .profile_analysis import AnalyzeSettings, build_profile_run_configuration
+from .profile_analysis import AnalyzeSettings, build_profile_run_configuration, configuration_root
 from .resource_commands import add_references_parser, handle_references_command
 from .review import inspect as inspect_review
 from .review import record as record_review
@@ -88,8 +88,16 @@ def _selected_policy(selection: RunComponents | None, stage: StageId, fallback: 
     return fallback
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def _shipped_config(relative_path: str) -> Path:
+    """Return one release-owned config path without consulting the process cwd."""
+
+    return configuration_root() / relative_path
+
+
+def _shipped_asset(relative_path: str) -> Path:
+    """Return a non-config asset beside the canonical installed/source config tree."""
+
+    return configuration_root().parent / relative_path
 
 
 def _alignment_policy(path: Path) -> AlignmentPolicy | None:
@@ -216,17 +224,16 @@ def _components(args: argparse.Namespace) -> RunComponents | None:
 
 
 def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
-    root = _repo_root()
     parser.add_argument(
         "--cnv-policy",
         type=Path,
-        default=root / "configs/cnv/qdnaseq_ace.technical.yaml",
+        default=_shipped_config("cnv/qdnaseq_ace.technical.yaml"),
     )
     parser.add_argument("--qdnaseq-rscript", default="Rscript")
     parser.add_argument(
         "--qdnaseq-script",
         type=Path,
-        default=root / "scripts/run_qdnaseq_ace.R",
+        default=_shipped_asset("scripts/run_qdnaseq_ace.R"),
     )
 
 
@@ -267,26 +274,26 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--reference-lock", type=Path, required=True)
     if include_qc:
-        parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+        parser.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     parser.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
     )
     parser.add_argument(
         "--cutesv-policy",
         type=Path,
-        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
     )
     parser.add_argument(
         "--sv-consensus-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
     )
     parser.add_argument(
         "--sv-evidence-policy",
         type=Path,
-        default=Path("configs/sv/evidence-priority.technical.yaml"),
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
     )
     parser.add_argument("--gene-annotation", type=Path)
     parser.add_argument("--gene-annotation-lock", type=Path)
@@ -303,12 +310,12 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument(
         "--aml-knowledge",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
     )
     parser.add_argument(
         "--aml-knowledge-lock",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
     )
     parser.add_argument(
         "--sv-minimum-mean-depth",
@@ -319,12 +326,12 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument(
         "--alignment-policy",
         type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+        default=_shipped_config("alignment/minimap2.ont.technical.yaml"),
     )
     parser.add_argument(
         "--basecall-policy",
         type=Path,
-        default=Path("configs/basecalling/dorado.technical.yaml"),
+        default=_shipped_config("basecalling/dorado.technical.yaml"),
     )
     parser.add_argument("--reference-fasta", type=Path)
     parser.add_argument("--pod5-dir", type=Path)
@@ -333,7 +340,7 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument(
         "--target-coverage-policy",
         type=Path,
-        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
     )
     parser.add_argument(
         "--components",
@@ -418,26 +425,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     srv.add_argument("--allow-root", type=Path, action="append", required=True, dest="allow_roots")
     srv.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    srv.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    srv.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     srv.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
     )
     srv.add_argument(
         "--cutesv-policy",
         type=Path,
-        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
     )
     srv.add_argument(
         "--sv-consensus-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
     )
     srv.add_argument(
         "--sv-evidence-policy",
         type=Path,
-        default=Path("configs/sv/evidence-priority.technical.yaml"),
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
     )
     srv.add_argument("--reference-fasta", type=Path)
     srv.add_argument("--gene-annotation", type=Path)
@@ -455,19 +462,19 @@ def _parser() -> argparse.ArgumentParser:
     srv.add_argument(
         "--aml-knowledge",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
     )
     srv.add_argument(
         "--aml-knowledge-lock",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
     )
     srv.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
     srv.add_argument("--cutesv", default="cuteSV")
     srv.add_argument(
         "--target-coverage-policy",
         type=Path,
-        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
     )
     srv.add_argument(
         "--components",
@@ -504,31 +511,31 @@ def _parser() -> argparse.ArgumentParser:
     watcher.add_argument("--manifest-template", type=Path, required=True)
     watcher.add_argument("--reference-lock", type=Path, required=True)
     watcher.add_argument("--input-kind", required=True, choices=[item.value for item in InputKind])
-    watcher.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    watcher.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     watcher.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
     )
     watcher.add_argument(
         "--cutesv-policy",
         type=Path,
-        default=Path("configs/sv/cutesv.conservative.technical.yaml"),
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
     )
     watcher.add_argument(
         "--sv-consensus-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2_cutesv.consensus.technical.yaml"),
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
     )
     watcher.add_argument(
         "--sv-evidence-policy",
         type=Path,
-        default=Path("configs/sv/evidence-priority.technical.yaml"),
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
     )
     watcher.add_argument(
         "--target-coverage-policy",
         type=Path,
-        default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
     )
     watcher.add_argument("--gene-annotation", type=Path)
     watcher.add_argument("--gene-annotation-lock", type=Path)
@@ -545,18 +552,18 @@ def _parser() -> argparse.ArgumentParser:
     watcher.add_argument(
         "--aml-knowledge",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
     )
     watcher.add_argument(
         "--aml-knowledge-lock",
         type=Path,
-        default=Path("configs/knowledge/aml_rearrangements.v0.1.lock.json"),
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
     )
     watcher.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
     watcher.add_argument(
         "--alignment-policy",
         type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+        default=_shipped_config("alignment/minimap2.ont.technical.yaml"),
     )
     _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)

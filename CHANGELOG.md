@@ -5,6 +5,25 @@ validated release.
 
 ## Unreleased
 
+## 0.5.1 - 2026-08-28
+
+### Fixed
+
+- Packaged configuration defaults now resolve from the installed ONTSeq release rather than the
+  process working directory. Desktop profile services additionally receive absolute paths for the
+  cuteSV, Sniffles2/cuteSV consensus and SV evidence policies, preventing profile startup from
+  failing when the application is launched outside a repository checkout.
+- The Windows/WSL runtime preflight now verifies the complete policy and tool contract before a
+  run. The packed environment includes pinned cuteSV 2.1.3, retains mosdepth, rejects duplicated
+  `share/ontseq/configs/configs` trees and exercises the relocated service from an unrelated
+  working directory in CI.
+
+### Validation impact
+
+- This patch repairs runtime discovery and packaging only. It changes no scientific threshold,
+  caller policy, CNV/SV interpretation rule, profile resource identity or reportability boundary;
+  no additional analytical or clinical validation claim is introduced.
+
 ## 0.5.0 - 2026-08-28
 
 ### Added

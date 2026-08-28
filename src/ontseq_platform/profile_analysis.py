@@ -93,7 +93,12 @@ class AnalyzeSettings:
 
 
 def configuration_root(explicit: Path | None = None) -> Path:
-    """Locate the versioned runtime configs in a checkout or packed Desktop runtime."""
+    """Locate the versioned runtime configs in a checkout or packed Desktop runtime.
+
+    The operator's working directory is intentionally not a candidate.  Runtime defaults are
+    part of the installed ONTSeq release and must therefore resolve to either the wheel/conda
+    data directory or the adjacent source checkout, never to an unrelated ``./configs`` tree.
+    """
 
     if explicit is not None:
         root = explicit.expanduser().resolve()
@@ -102,9 +107,8 @@ def configuration_root(explicit: Path | None = None) -> Path:
         return root
     package = Path(__file__).resolve()
     candidates = [
-        package.parents[2] / "configs",
-        Path.cwd() / "configs",
         Path(sys.prefix) / "share" / "ontseq" / "configs",
+        package.parents[2] / "configs",
         *(parent / "share" / "ontseq" / "configs" for parent in package.parents),
     ]
     for candidate in candidates:

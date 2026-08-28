@@ -64,6 +64,81 @@ try
         ],
         WslServiceLauncher.ManagedGrch38ResourceBundleIds,
         "Desktop repair owns the complete GRCh38 profile resource family");
+
+    var installedRuntimeSettings = new DesktopSettings
+    {
+        RuntimeBinWsl = "/opt/ontseq/bin"
+    };
+    const string runtimeShare = "/opt/ontseq/share/ontseq/";
+    AssertSequenceEqual(
+        [
+            runtimeShare + "configs/qc/defaults.yaml",
+            runtimeShare + "configs/qc/adaptive_target_coverage.technical.yaml",
+            runtimeShare + "configs/components/default.yaml",
+            runtimeShare + "configs/sv/sniffles2.conservative.technical.yaml",
+            runtimeShare + "configs/sv/cutesv.conservative.technical.yaml",
+            runtimeShare + "configs/sv/sniffles2_cutesv.consensus.technical.yaml",
+            runtimeShare + "configs/sv/evidence-priority.technical.yaml",
+            runtimeShare + "configs/cnv/qdnaseq_ace.technical.yaml",
+            runtimeShare + "scripts/run_qdnaseq_ace.R"
+        ],
+        WslServiceLauncher.RequiredRuntimeFiles(installedRuntimeSettings),
+        "complete packaged runtime file contract");
+    AssertSequenceEqual(
+        [
+            "/opt/ontseq/bin/ontseq",
+            "/opt/ontseq/bin/Rscript",
+            "/opt/ontseq/bin/samtools",
+            "/opt/ontseq/bin/cramino",
+            "/opt/ontseq/bin/sniffles",
+            "/opt/ontseq/bin/cuteSV",
+            "/opt/ontseq/bin/mosdepth"
+        ],
+        WslServiceLauncher.RequiredRuntimeTools(installedRuntimeSettings),
+        "complete packaged runtime tool contract");
+    AssertSequenceEqual(
+        [
+            "--qc-policy", runtimeShare + "configs/qc/defaults.yaml",
+            "--sniffles-policy", runtimeShare + "configs/sv/sniffles2.conservative.technical.yaml",
+            "--cutesv-policy", runtimeShare + "configs/sv/cutesv.conservative.technical.yaml",
+            "--sv-consensus-policy", runtimeShare + "configs/sv/sniffles2_cutesv.consensus.technical.yaml",
+            "--sv-evidence-policy", runtimeShare + "configs/sv/evidence-priority.technical.yaml",
+            "--target-coverage-policy", runtimeShare + "configs/qc/adaptive_target_coverage.technical.yaml",
+            "--components", runtimeShare + "configs/components/default.yaml",
+            "--cnv-policy", runtimeShare + "configs/cnv/qdnaseq_ace.technical.yaml",
+            "--qdnaseq-rscript", "/opt/ontseq/bin/Rscript",
+            "--qdnaseq-script", runtimeShare + "scripts/run_qdnaseq_ace.R"
+        ],
+        WslServiceLauncher.BundledPolicyArguments(
+            installedRuntimeSettings,
+            includeCnv: true,
+            includeCore034: true),
+        "profile service receives absolute packaged policy paths");
+    AssertSequenceEqual(
+        [
+            "--qc-policy", runtimeShare + "configs/qc/defaults.yaml",
+            "--sniffles-policy", runtimeShare + "configs/sv/sniffles2.conservative.technical.yaml",
+            "--cnv-policy", runtimeShare + "configs/cnv/qdnaseq_ace.technical.yaml",
+            "--qdnaseq-rscript", "/opt/ontseq/bin/Rscript",
+            "--qdnaseq-script", runtimeShare + "scripts/run_qdnaseq_ace.R"
+        ],
+        WslServiceLauncher.BundledPolicyArguments(
+            installedRuntimeSettings,
+            includeCnv: true,
+            includeCore034: false),
+        "system smoke retains its smaller accepted argument contract");
+    AssertSequenceEqual(
+        [],
+        WslServiceLauncher.BundledPolicyArguments(
+            new DesktopSettings(),
+            includeCnv: true,
+            includeCore034: true),
+        "external development backend retains its own policy defaults");
+    AssertEqual(
+        runtimeShare + "configs/qc/defaults.yaml",
+        WslServiceLauncher.RequiredRuntimeFiles(
+            new DesktopSettings { RuntimeBinWsl = "/opt/ontseq/bin/" })[0],
+        "runtime bin trailing slash does not move the packaged asset root");
     AssertEqual(
         "/srv/ontseq",
         DesktopSettings.NormalizeResourceRootWsl(" /srv/ontseq/ "),

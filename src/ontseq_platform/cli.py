@@ -25,6 +25,7 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .profile_analysis import configuration_root
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai, validate_canonical_reference
 from .report import render_html
@@ -133,11 +134,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Exercise samtools, Cramino and Sniffles2 with generated synthetic alignments",
     )
     local_smoke.add_argument("--output-dir", type=Path, default=Path("results/local-smoke"))
-    local_smoke.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    local_smoke.add_argument(
+        "--qc-policy", type=Path, default=configuration_root() / "qc" / "defaults.yaml"
+    )
     local_smoke.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=configuration_root() / "sv" / "sniffles2.conservative.technical.yaml",
     )
     local_smoke.add_argument("--samtools", default="samtools")
     local_smoke.add_argument("--cramino", default="cramino")

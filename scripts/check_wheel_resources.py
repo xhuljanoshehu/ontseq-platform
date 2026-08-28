@@ -14,7 +14,14 @@ REQUIRED_SUFFIXES = (
     "share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/source/250611_fusion_panel_with_buffer.bed",
     "share/ontseq/configs/profiles/AML_LCWGS_GRCh38.yaml",
     "share/ontseq/configs/profiles/AML_AS_111_GRCh38.yaml",
+    "share/ontseq/configs/sv/sniffles2.conservative.technical.yaml",
+    "share/ontseq/configs/sv/cutesv.conservative.technical.yaml",
+    "share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml",
+    "share/ontseq/configs/sv/evidence-priority.technical.yaml",
+    "share/ontseq/scripts/run_qdnaseq_ace.R",
 )
+
+FORBIDDEN_PARTS = ("share/ontseq/configs/configs/",)
 
 
 def main() -> int:
@@ -28,6 +35,11 @@ def main() -> int:
     ]
     if missing:
         raise SystemExit("wheel is missing required GRCh38 authority assets: " + ", ".join(missing))
+    forbidden = [part for part in FORBIDDEN_PARTS if any(part in item for item in members)]
+    if forbidden:
+        raise SystemExit(
+            "wheel contains a duplicated nested configuration tree: " + ", ".join(forbidden)
+        )
     print(f"Wheel resource check passed: {args.wheel}")
     return 0
 

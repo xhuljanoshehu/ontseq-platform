@@ -8,7 +8,38 @@ namespace ONTSeq.Desktop;
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-    private const string ReleaseVersion = "0.5.0";
+    private const string ReleaseVersion = "0.5.1";
+
+    private static class RuntimeAssets
+    {
+        public const string QcPolicy = "configs/qc/defaults.yaml";
+        public const string TargetCoveragePolicy = "configs/qc/adaptive_target_coverage.technical.yaml";
+        public const string Components = "configs/components/default.yaml";
+        public const string SnifflesPolicy = "configs/sv/sniffles2.conservative.technical.yaml";
+        public const string CuteSvPolicy = "configs/sv/cutesv.conservative.technical.yaml";
+        public const string SvConsensusPolicy = "configs/sv/sniffles2_cutesv.consensus.technical.yaml";
+        public const string SvEvidencePolicy = "configs/sv/evidence-priority.technical.yaml";
+        public const string CnvPolicy = "configs/cnv/qdnaseq_ace.technical.yaml";
+        public const string QdnaSeqScript = "scripts/run_qdnaseq_ace.R";
+
+        public static IReadOnlyList<string> RequiredFiles { get; } = Array.AsReadOnly(
+            new[]
+            {
+                QcPolicy,
+                TargetCoveragePolicy,
+                Components,
+                SnifflesPolicy,
+                CuteSvPolicy,
+                SvConsensusPolicy,
+                SvEvidencePolicy,
+                CnvPolicy,
+                QdnaSeqScript
+            });
+
+        public static IReadOnlyList<string> RequiredTools { get; } = Array.AsReadOnly(
+            new[] { "ontseq", "Rscript", "samtools", "cramino", "sniffles", "cuteSV", "mosdepth" });
+    }
+
     public const string Grch38ReferenceBundleId = "GRCh38_GENCODE50_MANE1.5_v1";
     public const string HematologyKnowledgeBundleId = "HEMATOLOGY_v1";
     public const string AmlAdaptivePanelBundleId = "AML_AS_111_GRCh38_v1";
@@ -42,12 +73,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var checks = $"test -d {ShellQuote(rootWsl)} && test -f {ShellQuote(referenceLockWsl)} && mkdir -p {ShellQuote(outputWsl)}";
         if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
         {
-            checks += $" && test -f {ShellQuote(RuntimeResource(settings, "configs/qc/defaults.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/qc/adaptive_target_coverage.technical.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/components/default.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"))}" +
-                      $" && test -f {ShellQuote(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"))}";
+            checks += " && " + BundledRuntimePrerequisiteCommand(settings);
         }
         if (!string.IsNullOrWhiteSpace(settings.AdaptiveTargetBedWsl))
             checks += $" && test -s {ShellQuote(settings.AdaptiveTargetBedWsl)}";
@@ -118,12 +144,15 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             if (serviceCapability.ExitCode != 0 ||
                 !serviceCapability.StdOut.Contains("--target-coverage-policy", StringComparison.Ordinal) ||
                 !serviceCapability.StdOut.Contains("--components", StringComparison.Ordinal) ||
+                !serviceCapability.StdOut.Contains("--cutesv-policy", StringComparison.Ordinal) ||
+                !serviceCapability.StdOut.Contains("--sv-consensus-policy", StringComparison.Ordinal) ||
+                !serviceCapability.StdOut.Contains("--sv-evidence-policy", StringComparison.Ordinal) ||
                 !serviceCapability.StdOut.Contains("--resource-root", StringComparison.Ordinal))
             {
                 return (
                     false,
                     $"Die installierte ONTSeq Runtime enthält nicht den vollständigen v{ReleaseVersion}-" +
-                    "Desktop-Vertrag für Target Coverage und Komponentenauswahl. Bitte " +
+                    "Desktop-Vertrag für Target Coverage, Komponentenauswahl und SV-Policies. Bitte " +
                     "'Runtime installieren' erneut ausführen.");
             }
 
@@ -337,18 +366,23 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
         var rootWsl = PathBridge.WindowsToWsl(allowedRootWindows);
         var outputWsl = PathBridge.WindowsToWsl(settings.OutputDirectoryWindows);
+        var checks = new List<string>
+        {
+            $"test -d {ShellQuote(rootWsl)}",
+            $"mkdir -p {ShellQuote(outputWsl)}",
+            $"test -d {ShellPathExpression(settings.ResourceRootWsl)}"
+        };
+        if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+            checks.Add(BundledRuntimePrerequisiteCommand(settings));
         var check = await RunWslAsync(
             settings.WslDistribution,
-            [
-                "sh", "-lc",
-                $"test -d {ShellQuote(rootWsl)} && mkdir -p {ShellQuote(outputWsl)} && " +
-                $"test -d {ShellPathExpression(settings.ResourceRootWsl)}"
-            ],
+            ["sh", "-lc", string.Join(" && ", checks)],
             cancellationToken);
         if (check.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                "BAM-Speicher, Ausgabeverzeichnis oder Resource-Root sind in WSL nicht erreichbar. " +
+                "BAM-Speicher, Ausgabeverzeichnis, Resource-Root oder Linux-Runtime sind in WSL " +
+                "nicht vollständig erreichbar. " +
                 "Öffne 'System einrichten', installiere das GRCh38-Bundle und prüfe bei " +
                 "Netzlaufwerken die drvfs-Einbindung.\n" +
                 $"BAM-Root: {rootWsl}\nResource-Root: {settings.ResourceRootWsl}\n{check.StdErr}");
@@ -387,19 +421,12 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         var bin = target + "/bin";
         var runtimePath = bin + ":" + BaseLinuxPath;
         var archiveWsl = PathBridge.WindowsToWsl(runtimeArchiveWindows);
-        var qc = target + "/share/ontseq/configs/qc/defaults.yaml";
-        var targetCoverage = target + "/share/ontseq/configs/qc/adaptive_target_coverage.technical.yaml";
-        var components = target + "/share/ontseq/configs/components/default.yaml";
-        var sniffles = target + "/share/ontseq/configs/sv/sniffles2.conservative.technical.yaml";
-        var cnvPolicy = target + "/share/ontseq/configs/cnv/qdnaseq_ace.technical.yaml";
-        var cnvScript = target + "/share/ontseq/scripts/run_qdnaseq_ace.R";
+        var installedRuntime = new DesktopSettings { RuntimeBinWsl = bin };
         var command =
             $"rm -rf {ShellQuote(target)} && mkdir -p {ShellQuote(target)} && " +
             $"tar -xzf {ShellQuote(archiveWsl)} -C {ShellQuote(target)} && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/conda-unpack")} && " +
-            $"test -f {ShellQuote(qc)} && test -f {ShellQuote(targetCoverage)} && " +
-            $"test -f {ShellQuote(components)} && test -f {ShellQuote(sniffles)} && " +
-            $"test -f {ShellQuote(cnvPolicy)} && test -f {ShellQuote(cnvScript)} && " +
+            BundledRuntimePrerequisiteCommand(installedRuntime) + " && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/Rscript")} -e " +
             ShellQuote("stopifnot(requireNamespace('QDNAseq',quietly=TRUE), requireNamespace('QDNAseq.hg19',quietly=TRUE), requireNamespace('QDNAseq.hg38',quietly=TRUE), requireNamespace('ACE',quietly=TRUE))") +
             " && " +
@@ -407,6 +434,9 @@ public sealed class WslServiceLauncher : IAsyncDisposable
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} references --help >/dev/null && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--target-coverage-policy' && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--components' && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--cutesv-policy' && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--sv-consensus-policy' && " +
+            $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--sv-evidence-policy' && " +
             $"env PATH={ShellQuote(runtimePath)} {ShellQuote(bin + "/ontseq")} serve --help | grep -q -- '--resource-root'";
         var install = await RunWslAsync(
             settings.WslDistribution, ["sh", "-lc", command], cancellationToken);
@@ -711,35 +741,75 @@ public sealed class WslServiceLauncher : IAsyncDisposable
         bool includeCnv,
         bool includeCore034)
     {
-        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)) return;
+        args.AddRange(BundledPolicyArguments(settings, includeCnv, includeCore034));
+    }
+
+    internal static IReadOnlyList<string> BundledPolicyArguments(
+        DesktopSettings settings,
+        bool includeCnv,
+        bool includeCore034)
+    {
+        var args = new List<string>();
+        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)) return args;
         args.Add("--qc-policy");
-        args.Add(RuntimeResource(settings, "configs/qc/defaults.yaml"));
+        args.Add(RuntimeResource(settings, RuntimeAssets.QcPolicy));
         args.Add("--sniffles-policy");
-        args.Add(RuntimeResource(settings, "configs/sv/sniffles2.conservative.technical.yaml"));
+        args.Add(RuntimeResource(settings, RuntimeAssets.SnifflesPolicy));
         if (includeCore034)
         {
+            // These arguments belong to the runtime service parser. The engineering
+            // system-smoke command deliberately has a smaller CLI contract.
+            args.Add("--cutesv-policy");
+            args.Add(RuntimeResource(settings, RuntimeAssets.CuteSvPolicy));
+            args.Add("--sv-consensus-policy");
+            args.Add(RuntimeResource(settings, RuntimeAssets.SvConsensusPolicy));
+            args.Add("--sv-evidence-policy");
+            args.Add(RuntimeResource(settings, RuntimeAssets.SvEvidencePolicy));
             args.Add("--target-coverage-policy");
-            args.Add(RuntimeResource(settings, "configs/qc/adaptive_target_coverage.technical.yaml"));
+            args.Add(RuntimeResource(settings, RuntimeAssets.TargetCoveragePolicy));
             args.Add("--components");
-            args.Add(RuntimeResource(settings, "configs/components/default.yaml"));
+            args.Add(RuntimeResource(settings, RuntimeAssets.Components));
         }
-        if (!includeCnv) return;
-        args.Add("--cnv-policy");
-        args.Add(RuntimeResource(settings, "configs/cnv/qdnaseq_ace.technical.yaml"));
-        args.Add("--qdnaseq-rscript");
-        args.Add(settings.RuntimeBinWsl.TrimEnd('/') + "/Rscript");
-        args.Add("--qdnaseq-script");
-        args.Add(RuntimeResource(settings, "scripts/run_qdnaseq_ace.R"));
+        if (includeCnv)
+        {
+            args.Add("--cnv-policy");
+            args.Add(RuntimeResource(settings, RuntimeAssets.CnvPolicy));
+            args.Add("--qdnaseq-rscript");
+            args.Add(RuntimeTool(settings, "Rscript"));
+            args.Add("--qdnaseq-script");
+            args.Add(RuntimeResource(settings, RuntimeAssets.QdnaSeqScript));
+        }
+        return args;
+    }
+
+    internal static IReadOnlyList<string> RequiredRuntimeFiles(DesktopSettings settings) =>
+        RuntimeAssets.RequiredFiles.Select(asset => RuntimeResource(settings, asset)).ToArray();
+
+    internal static IReadOnlyList<string> RequiredRuntimeTools(DesktopSettings settings) =>
+        RuntimeAssets.RequiredTools.Select(tool => RuntimeTool(settings, tool)).ToArray();
+
+    private static string BundledRuntimePrerequisiteCommand(DesktopSettings settings)
+    {
+        var checks = RequiredRuntimeFiles(settings)
+            .Select(path => $"test -f {ShellQuote(path)}")
+            .Concat(RequiredRuntimeTools(settings).Select(path => $"test -x {ShellQuote(path)}"));
+        return string.Join(" && ", checks);
     }
 
     private static string RuntimeResource(DesktopSettings settings, string relative)
     {
         if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
             throw new InvalidOperationException("Gebündelte Runtime ist nicht konfiguriert.");
-        var root = settings.RuntimeBinWsl.EndsWith("/bin", StringComparison.Ordinal)
-            ? settings.RuntimeBinWsl[..^4]
-            : settings.RuntimeBinWsl.TrimEnd('/');
+        var bin = settings.RuntimeBinWsl.TrimEnd('/');
+        var root = bin.EndsWith("/bin", StringComparison.Ordinal) ? bin[..^4] : bin;
         return root + "/share/ontseq/" + relative.TrimStart('/');
+    }
+
+    private static string RuntimeTool(DesktopSettings settings, string tool)
+    {
+        if (string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
+            throw new InvalidOperationException("Gebündelte Runtime ist nicht konfiguriert.");
+        return settings.RuntimeBinWsl.TrimEnd('/') + "/" + tool;
     }
 
     private static string PosixDirectoryName(string path)
@@ -786,7 +856,7 @@ public sealed class WslServiceLauncher : IAsyncDisposable
     {
         var executable = string.IsNullOrWhiteSpace(settings.RuntimeBinWsl)
             ? tool
-            : settings.RuntimeBinWsl.TrimEnd('/') + "/" + tool;
+            : RuntimeTool(settings, tool);
         var command = new List<string>();
         if (!string.IsNullOrWhiteSpace(settings.RuntimeBinWsl))
         {
