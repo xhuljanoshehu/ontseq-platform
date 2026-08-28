@@ -2,9 +2,9 @@
 
 Windows operator surface for the ONTSeq execution core. The desktop app does not reimplement bioinformatics; it launches the bundled Linux runtime through WSL2, talks to the loopback service, and opens the same persisted HTML/XLSX/result artifacts produced by the canonical backend.
 
-> **Current engineering build: Desktop/Core v0.4.1. Research Use Only, unsigned, not clinically validated.**
+> **Current engineering build: Desktop/Core v0.5.0. Research Use Only, unsigned, not clinically validated.**
 
-## v0.4.1 user path
+## v0.5.0 user path
 
 1. Extract the complete engineering bundle and start `ONTSeq.Desktop.exe`.
 2. Open **System einrichten** on first use and install the bundled Linux runtime into WSL. The bundle contains Python, R, samtools, Cramino, Sniffles2, Mosdepth, minimap2, QDNAseq, QDNAseq.hg19, QDNAseq.hg38, ACE and the ONTSeq Core/resources.
@@ -20,7 +20,7 @@ Windows operator surface for the ONTSeq execution core. The desktop app does not
 
 The UI keeps the backend's distinct stage outcomes (`COMPLETED`, `NO_CALL`, `FAILED`, `NOT_RUN`) instead of flattening them into done/pending. A technical `PASS` is not a biological negative result and is not clinical validation.
 
-### Reference and resume integrity in v0.4.1
+### Reference and resume integrity in v0.5.0
 
 New profile runs resolve a manifest-driven `ReferenceBundle`, `PanelBundle` and `KnowledgeBundle` beneath `resourceRootWsl`. Bundle installation and repair remain backend operations; Desktop only invokes their typed CLI contracts and displays the result. The selected profile and BAM dictionary must both resolve to GRCh38.
 
@@ -66,7 +66,7 @@ The app loads the first existing settings file from:
 - `%LOCALAPPDATA%\ONTSeq\desktop.settings.json`
 - `%PROGRAMDATA%\ONTSeq\desktop.settings.json`
 
-See `desktop.settings.example.json` for the available keys. First-run setup writes the user-local settings automatically. A runtime installed by the v0.4.1 Desktop is stored under `~/.local/share/ontseq/runtime-v0.4.1` in the selected WSL distribution.
+See `desktop.settings.example.json` for the available keys. First-run setup writes the user-local settings automatically. A runtime installed by the v0.5.0 Desktop is stored under `~/.local/share/ontseq/runtime-v0.5.0` in the selected WSL distribution.
 
 The profile-resource defaults are:
 
@@ -95,7 +95,7 @@ dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release -r win-x6
 
 `.github/workflows/desktop-ci.yml` builds a relocatable Linux runtime from the pinned QDNAseq environment, proves the packed environment after relocation, runs the full system smoke in stock Ubuntu, then builds/tests the Windows WPF shell and creates the versioned engineering bundle. The final main-branch artifact should be preferred over a pre-merge PR artifact because its embedded runtime git commit then identifies the exact merged source revision.
 
-## Deliberate v0.4.1 limitation: cancellation
+## Deliberate v0.5.0 limitation: cancellation
 
 The **Abbrechen** control remains disabled. A backend cancellation contract must first guarantee that an interrupted external tool cannot leave a stage looking complete. Closing a progress view is not treated as cancellation.
 

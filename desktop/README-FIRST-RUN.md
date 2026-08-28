@@ -1,10 +1,10 @@
-# ONTSeq Desktop v0.4.1 — first workstation run
+# ONTSeq Desktop v0.5.0 — first workstation run
 
 This checklist is for the unsigned engineering/research build only. It is not analytical or clinical validation.
 
 1. Confirm Windows WSL2 is enabled and the configured distribution opens normally.
-2. Extract the complete `ontseq-desktop-v0.4.1-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory.
-3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime. The installed runtime must report Core v0.4.1 and expose the reference-validation, target-coverage and component-selection capabilities checked by the Desktop preflight.
+2. Extract the complete `ontseq-desktop-v0.5.0-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory.
+3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime. The installed runtime must report Core v0.5.0 and expose the reference-validation, target-coverage and component-selection capabilities checked by the Desktop preflight.
 4. Run **Selbsttest starten** before using any real sample. The self-test must finish successfully and produce its synthetic report bundle.
 5. Confirm the user-writable WSL resource root (default `~/.local/share/ontseq/resources`) and install `GRCh38_GENCODE50_MANE1.5_v1`. The fast bundle status (manifest, pins, presence and declared sizes) must pass; use **Reparieren** for damaged resources. Run `ontseq references validate` when an explicit full SHA256 audit is required.
 6. Choose `AML_LCWGS_GRCh38` or `AML_AS_111_GRCh38`. The latter resolves its controlled panel and analysis ROI automatically. Do not add a GRCh37 resource or explicit BED to these profiles.

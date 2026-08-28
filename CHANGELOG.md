@@ -5,6 +5,8 @@ validated release.
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-28
+
 ### Added
 
 - The original 111-target GRCh38 Adaptive Sampling BED and companion region list are now

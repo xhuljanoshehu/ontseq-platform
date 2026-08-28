@@ -1,6 +1,8 @@
 # ONTSeq Desktop changelog
 
-## Unreleased — GRCh38 profile resources
+## Unreleased
+
+## 0.5.0-engineering
 
 - add `resourceRootWsl` with user-writable `~/.local/share/ontseq/resources` Desktop default,
   while Core retains `/opt/ontseq`; bridge bundle status, install and repair to the backend CLI

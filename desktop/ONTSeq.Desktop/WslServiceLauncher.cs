@@ -8,7 +8,7 @@ namespace ONTSeq.Desktop;
 public sealed class WslServiceLauncher : IAsyncDisposable
 {
     private const string BaseLinuxPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-    private const string ReleaseVersion = "0.4.1";
+    private const string ReleaseVersion = "0.5.0";
     public const string Grch38ReferenceBundleId = "GRCh38_GENCODE50_MANE1.5_v1";
     public const string HematologyKnowledgeBundleId = "HEMATOLOGY_v1";
     public const string AmlAdaptivePanelBundleId = "AML_AS_111_GRCh38_v1";

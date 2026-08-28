@@ -1,7 +1,7 @@
 name: Desktop CI
 
 env:
-  ONTSEQ_VERSION: "0.4.1"
+  ONTSEQ_VERSION: "0.5.0"
 
 on:
   pull_request:
