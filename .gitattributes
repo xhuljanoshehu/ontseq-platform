@@ -1,0 +1,5 @@
+# These fixtures are checksum-pinned byte streams. Git must not rewrite line endings on Windows.
+tests/fixtures/reference_catalog/** -text
+tests/fixtures/reference_cache/** -text
+configs/panels/AML_AS_111_GRCh38_v1/** -text
+configs/knowledge_bundles/HEMATOLOGY_v1/** -text
