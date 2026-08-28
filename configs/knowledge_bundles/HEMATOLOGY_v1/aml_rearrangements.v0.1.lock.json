@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1.0",
+  "resource_id": "ontseq-aml-rearrangements",
+  "release": "0.1.0",
+  "sha256": "7499235af765c596cab17eb482a003ddccf93fa71cd9b5e1084e11f18065eba8",
+  "source_ids": ["WHO5-2022", "ICC-2022"],
+  "note": "Local review-prioritization patterns only. No record is a diagnostic rule, validated fusion assertion, or reportability criterion."
+}
