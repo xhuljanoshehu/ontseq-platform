@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from collections.abc import Sequence
+from pathlib import Path
 
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import (
@@ -16,7 +18,13 @@ from ontseq_platform.models import (
     SampleManifest,
     Verdict,
 )
-from ontseq_platform.qc import evaluate_qc_metrics, parse_cramino_json, run_cramino_qc
+from ontseq_platform.qc import (
+    evaluate_qc_metrics,
+    parse_cramino_json,
+    read_length_histogram,
+    run_cramino_qc,
+    write_read_length_histogram,
+)
 
 CRAMINO_JSON = json.dumps(
     {
@@ -50,8 +58,12 @@ CRAMINO_JSON = json.dumps(
 
 
 class FakeCraminoRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
         normalized = tuple(argv)
+        self.calls.append(normalized)
         if normalized[1:] == ("--version",):
             return CommandResult(normalized, 0, "cramino 1.3.0\n", "")
         return CommandResult(normalized, 0, CRAMINO_JSON, "")
@@ -98,6 +110,68 @@ def _manifest() -> SampleManifest:
 
 
 class CraminoQCTests(unittest.TestCase):
+    def test_histogram_count_output_is_explicit_so_stdout_stays_json(self) -> None:
+        runner = FakeCraminoRunner()
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "read_length_histogram.tsv"
+            run_cramino_qc(
+                _manifest(),
+                _policy(),
+                runner=runner,
+                histogram_output=output,
+            )
+
+            argv = runner.calls[-1]
+            option = argv.index("--hist-count")
+            raw_histogram = Path(argv[option + 1])
+            self.assertEqual(argv[option + 2 : option + 4], ("--format", "json"))
+            self.assertEqual(raw_histogram.parent, output.parent)
+            self.assertFalse(raw_histogram.exists())
+
+    def test_optional_numeric_read_length_histogram_is_written_as_tsv(self) -> None:
+        payload = json.loads(CRAMINO_JSON)
+        payload["histograms"] = {
+            "read_length": [
+                {"start": 0, "end": 2000, "count": 3, "bases": 2500},
+                {"start": 2000, "end": None, "count": 1, "bases": 5000},
+            ]
+        }
+        bins = read_length_histogram(json.dumps(payload))
+        self.assertEqual(bins[-1], (2000, None, 1, 5000))
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "hist.tsv"
+            self.assertEqual(write_read_length_histogram(bins, output), output)
+            self.assertEqual(
+                output.read_text(encoding="utf-8").splitlines()[0],
+                "start_bp\tend_bp\tread_count\tbase_count",
+            )
+
+    def test_empty_histogram_removes_stale_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "hist.tsv"
+            output.write_text("stale histogram\n", encoding="utf-8")
+
+            self.assertIsNone(write_read_length_histogram([], output))
+            self.assertFalse(output.exists())
+
+    def test_cramino_130_nested_histogram_object_is_supported(self) -> None:
+        payload = json.loads(CRAMINO_JSON)
+        payload["histograms"] = {
+            "read_length": {
+                "step": 2000,
+                "max_value": 4000,
+                "bins": [
+                    {"start": 0, "end": 2000, "count": 3, "bases": 2500},
+                    {"start": 4000, "count": 1, "bases": 5000},
+                ],
+            }
+        }
+
+        self.assertEqual(
+            read_length_histogram(json.dumps(payload)),
+            [(0, 2000, 3, 2500), (4000, None, 1, 5000)],
+        )
+
     def test_parser_normalizes_metrics_without_copying_source_path(self) -> None:
         metrics = parse_cramino_json(CRAMINO_JSON)
         self.assertEqual(metrics["number_of_reads"], 100)

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import html
+import json
+import sqlite3
 from collections.abc import MutableMapping, Sequence
-from dataclasses import dataclass, replace
+from contextlib import closing
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import cast
 
@@ -13,11 +16,14 @@ from ..models import (
     AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
+    EventType,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
+    SidecarArtifact,
     SnifflesCallReport,
+    SvConsensusReport,
 )
 from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
@@ -25,11 +31,14 @@ from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
+from ..sidecars import tabular_sidecar
 from ..workbook import render_workbook
+from .cytoband import CnvDirection, CnvSegment, Cytoband, RawBandOverlap, annotate_cnv_cytobands
 from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
 
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
+CNV_CYTOBAND_REPORT = "evidence/cnv/{sample}.cytobands.json"
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,12 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
         raise ValueError(f"QDNAseq R runner not found: {settings.script}")
     versions = _probe_r_packages(ctx)
     bam = Path(ctx.manifest.input.path)
+    external_inputs = [
+        (bam.name, sha256_file(bam)),
+        (settings.script.name, sha256_file(settings.script)),
+    ]
+    if ctx.config.annotation_cache is not None:
+        external_inputs.append(("annotation_cache", sha256_file(ctx.config.annotation_cache)))
     return StagePlan(
         parameters={
             "requested": True,
@@ -96,14 +111,117 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
             "ploidy_min": settings.policy.ploidy_min,
             "ploidy_max": settings.policy.ploidy_max,
             "ploidy_step": settings.policy.ploidy_step,
+            "cytoband_policy_schema": settings.policy.schema_version,
+            "cytoband_policy_id": settings.policy.profile_id,
+            "cytoband_affected_fraction": settings.policy.cytoband_affected_fraction,
             "threads": ctx.config.threads,
         },
         tool_versions=versions,
-        external_inputs=(
-            (bam.name, sha256_file(bam)),
-            (settings.script.name, sha256_file(settings.script)),
-        ),
+        external_inputs=tuple(external_inputs),
     )
+
+
+def _load_cytobands(annotation_cache: Path) -> list[Cytoband]:
+    with closing(sqlite3.connect(annotation_cache)) as connection:
+        row = connection.execute("SELECT value FROM metadata WHERE key = 'genome_build'").fetchone()
+        if row is None or str(row[0]) != "GRCh38":
+            raise ValueError("CNV cytoband annotation requires a GRCh38 annotation cache")
+        rows = connection.execute(
+            "SELECT chrom, start, end, name, gie_stain FROM cytobands "
+            "ORDER BY chrom, start, end, name"
+        ).fetchall()
+    return [
+        Cytoband(
+            chromosome=str(chromosome),
+            start=int(start),
+            end=int(end),
+            name=str(name),
+            gie_stain=str(stain) if stain is not None else None,
+        )
+        for chromosome, start, end, name, stain in rows
+    ]
+
+
+def _annotate_cnv_cytobands(
+    ctx: pipeline_runner.RunContext,
+    report: QDNAseqCallReport,
+) -> tuple[QDNAseqCallReport, Artifact | None]:
+    cache = ctx.config.annotation_cache
+    if cache is None or not report.events:
+        return report, None
+    directions: dict[EventType, CnvDirection] = {
+        EventType.CHROMOSOME_GAIN: "gain",
+        EventType.DUPLICATION: "gain",
+        EventType.CHROMOSOME_LOSS: "loss",
+        EventType.DELETION: "loss",
+    }
+    segments = [
+        CnvSegment(
+            event_id=event.event_id,
+            chromosome=event.primary.chromosome,
+            start=event.primary.start,
+            end=event.primary.end,
+            direction=directions[event.event_type],
+            whole_chromosome=event.event_type
+            in {EventType.CHROMOSOME_GAIN, EventType.CHROMOSOME_LOSS},
+        )
+        for event in report.events
+        if event.event_type in directions
+    ]
+    chromosome_sizes = {item.name: item.length for item in ctx.config.reference_lock.contigs}
+    annotation = annotate_cnv_cytobands(
+        segments,
+        _load_cytobands(cache),
+        affected_fraction=_settings().policy.cytoband_affected_fraction,
+        chromosome_sizes=chromosome_sizes,
+    )
+    affected: dict[str, list[RawBandOverlap]] = {}
+    for overlap in annotation.raw_overlaps:
+        if overlap.affected:
+            affected.setdefault(overlap.event_id, []).append(overlap)
+    events = []
+    for event in report.events:
+        overlaps = sorted(
+            affected.get(event.event_id, []),
+            key=lambda value: (value.band_start, value.band_end),
+        )
+        if not overlaps:
+            events.append(event)
+            continue
+        start_band = overlaps[0].band
+        end_band = overlaps[-1].band
+        locus = event.primary.model_copy(
+            update={"cytoband_start": start_band, "cytoband_end": end_band}
+        )
+        events.append(
+            event.model_copy(
+                update={
+                    "primary": locus,
+                    "notes": [
+                        *event.notes,
+                        "Cytoband affected-fraction threshold "
+                        f"{annotation.threshold:g}: {start_band}-{end_band}.",
+                    ],
+                }
+            )
+        )
+    payload = {
+        "schema_version": "1.0.0",
+        "genome_build": "GRCh38",
+        "policy": {
+            "schema_version": _settings().policy.schema_version,
+            "profile_id": _settings().policy.profile_id,
+            "cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
+        },
+        "threshold": annotation.threshold,
+        "raw_overlaps": [asdict(item) for item in annotation.raw_overlaps],
+        "affected_groups": [asdict(item) for item in annotation.affected_groups],
+        "whole_chromosome_calls": [asdict(item) for item in annotation.whole_chromosome_calls],
+    }
+    artifact = ctx.envelope.atomic_write_text(
+        ctx.path(CNV_CYTOBAND_REPORT), json.dumps(payload, indent=2) + "\n"
+    )
+    return report.model_copy(update={"events": events}), artifact
 
 
 def _record_cnv_outputs(
@@ -142,7 +260,10 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
         rscript=settings.rscript,
         threads=ctx.config.threads,
     )
+    report, cytoband_artifact = _annotate_cnv_cytobands(ctx, report)
     artifacts = _record_cnv_outputs(ctx, report)
+    if cytoband_artifact is not None:
+        artifacts.append(cytoband_artifact)
     bins = ", ".join(str(value) for value in settings.policy.bin_sizes_kbp)
     reason = (
         f"QDNAseq+ACE completed at {bins} kbp; primary "
@@ -169,7 +290,11 @@ def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
 
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
     external: list[tuple[str, str]] = []
-    for relative in (ctx.path(CNV_REPORT), ctx.path(pipeline_runner.SV_REPORT)):
+    for relative in (
+        ctx.path(CNV_REPORT),
+        ctx.path(pipeline_runner.SV_REPORT),
+        ctx.path(pipeline_runner.SV_CONSENSUS_REPORT),
+    ):
         path = ctx.envelope.path(relative)
         if path.is_file():
             external.append((Path(relative).name, sha256_file(path)))
@@ -211,6 +336,22 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         if sv_path.is_file()
         else None
     )
+    consensus_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_CONSENSUS_REPORT))
+    consensus = (
+        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
+        if consensus_path.is_file()
+        else None
+    )
+    sidecars: list[SidecarArtifact] = []
+    histogram = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
+    if histogram.is_file():
+        sidecars.append(
+            tabular_sidecar(
+                artifact_id="read_length_histogram",
+                envelope_root=ctx.envelope.root,
+                relative_path=pipeline_runner.QC_READ_LENGTH_HISTOGRAM,
+            )
+        )
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
         intake,
@@ -218,9 +359,28 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        sv_consensus_report=consensus,
+        reference_context=ctx.config.resource_context,
+        sidecars=sidecars,
     )
     cnv = _load_cnv(ctx)
     if cnv is not None:
+        primary_tables = (
+            ("cnv_bins", cnv.primary_fit.bins_file),
+            ("cnv_segments", cnv.primary_fit.segment_file),
+            ("ace_models", cnv.primary_fit.model_file),
+        )
+        for artifact_id, filename in primary_tables:
+            if filename is None:
+                continue
+            relative = f"{CNV_DIR}/{filename}"
+            sidecars.append(
+                tabular_sidecar(
+                    artifact_id=artifact_id,
+                    envelope_root=ctx.envelope.root,
+                    relative_path=relative,
+                )
+            )
         outcome = ModuleOutcome(
             module=AnalysisModule.CNV,
             status=cnv.status,
@@ -237,6 +397,7 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
                 "modules": _replace_module(result.modules, outcome),
                 "provenance": _merge_provenance(result.provenance, cnv),
                 "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
+                "sidecars": sidecars,
             }
         )
     artifact = ctx.envelope.atomic_write_text(

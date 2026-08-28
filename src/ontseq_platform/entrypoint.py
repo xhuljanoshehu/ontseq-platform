@@ -34,6 +34,8 @@ _SCIENTIFIC_COMMANDS = (
 )
 
 _RUNTIME_COMMANDS = (
+    ("analyze", "Analyze one indexed GRCh38 BAM using an installed profile"),
+    ("references", "Install and validate manifest-locked GRCh38 resources"),
     ("run", "Execute one sample into a resumable run envelope"),
     ("preflight", "Check every run precondition without creating output"),
     ("status", "Summarize run envelopes"),

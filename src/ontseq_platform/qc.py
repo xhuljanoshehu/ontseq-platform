@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import csv
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from .execution import CommandRunner, SubprocessRunner
@@ -61,6 +65,83 @@ def parse_cramino_json(text: str) -> dict[str, float | int | str | None]:
     return metrics
 
 
+def read_length_histogram(text: str) -> list[tuple[int, int | None, int, int]]:
+    """Extract numeric Cramino read-length bins when histogram output is present."""
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Cramino did not return valid JSON") from exc
+    root = _mapping(payload, "root")
+    raw_histograms = root.get("histograms")
+    if raw_histograms is None:
+        return []
+    histograms = _mapping(raw_histograms, "histograms")
+    raw_read_length = histograms.get("read_length")
+    if raw_read_length is None:
+        return []
+    # Cramino 1.3.0 serializes a Histogram object with step/max_value/bins. Retain the
+    # earlier direct-array shape as an import-compatible form for already captured fixtures.
+    raw_bins = raw_read_length.get("bins") if isinstance(raw_read_length, dict) else raw_read_length
+    if not isinstance(raw_bins, list):
+        raise ValueError("Cramino JSON field 'histograms.read_length.bins' must be an array")
+    bins: list[tuple[int, int | None, int, int]] = []
+    for index, raw_bin in enumerate(raw_bins):
+        if not isinstance(raw_bin, dict):
+            raise ValueError(f"Cramino read-length histogram bin {index} must be an object")
+        start = raw_bin.get("start")
+        end = raw_bin.get("end")
+        count = raw_bin.get("count")
+        bases = raw_bin.get("bases")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or (end is not None and (not isinstance(end, int) or isinstance(end, bool)))
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or not isinstance(bases, int)
+            or isinstance(bases, bool)
+            or start < 0
+            or (end is not None and end <= start)
+            or count < 0
+            or bases < 0
+        ):
+            raise ValueError(f"Cramino read-length histogram bin {index} is not numeric/valid")
+        bins.append((start, end, count, bases))
+    return bins
+
+
+def write_read_length_histogram(
+    bins: list[tuple[int, int | None, int, int]], output_path: Path
+) -> Path | None:
+    """Write a compact numeric TSV sidecar; absence remains explicit as no artifact."""
+
+    if not bins:
+        # This helper may be called while re-running QC in an existing envelope.  Empty
+        # current evidence must remove an earlier histogram instead of preserving stale
+        # numeric data that the new QC result no longer supports.
+        output_path.unlink(missing_ok=True)
+        return None
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(["start_bp", "end_bp", "read_count", "base_count"])
+            writer.writerows(
+                (start, "" if end is None else end, count, bases)
+                for start, end, count, bases in bins
+            )
+        os.replace(temporary, output_path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return output_path
+
+
 def evaluate_qc_metrics(
     metrics: dict[str, float | int | str | None], policy: QCPolicy
 ) -> QCMetrics:
@@ -115,6 +196,7 @@ def run_cramino_qc(
     runner: CommandRunner | None = None,
     cramino: str = "cramino",
     threads: int = 4,
+    histogram_output: Path | None = None,
 ) -> CraminoQCReport:
     if manifest.input.kind != InputKind.ALIGNED_BAM:
         raise ValueError("Cramino aligned-BAM QC requires input.kind=aligned_bam")
@@ -129,17 +211,32 @@ def run_cramino_qc(
             message += f": {diagnostic}"
         raise ValueError(message)
     version = cramino_version(version_result.stdout)
-    result = command_runner.run(
-        [cramino, "--threads", str(threads), "--format", "json", manifest.input.path],
-        timeout_seconds=3600,
-    )
-    if result.returncode != 0:
-        diagnostic = _stderr_tail(result.stderr)
-        message = f"Cramino failed with exit code {result.returncode}"
-        if diagnostic:
-            message += f": {diagnostic}"
-        raise ValueError(message)
-    metrics = parse_cramino_json(result.stdout)
+    argv = [cramino, "--threads", str(threads)]
+    raw_histogram: Path | None = None
+    if histogram_output is not None:
+        histogram_output.parent.mkdir(parents=True, exist_ok=True)
+        raw_histogram = histogram_output.with_name(f".{histogram_output.name}.cramino.tsv")
+        raw_histogram.unlink(missing_ok=True)
+        # Without an explicit FILE, cramino 1.3.0 writes the --hist-count TSV to stdout and
+        # interleaves it with --format json. Give the optional argument its own file so stdout
+        # remains one valid JSON document; the normalized sidecar below still comes from the
+        # structured JSON histogram bins.
+        argv.extend(["--hist-count", str(raw_histogram)])
+    argv.extend(["--format", "json", manifest.input.path])
+    try:
+        result = command_runner.run(argv, timeout_seconds=3600)
+        if result.returncode != 0:
+            diagnostic = _stderr_tail(result.stderr)
+            message = f"Cramino failed with exit code {result.returncode}"
+            if diagnostic:
+                message += f": {diagnostic}"
+            raise ValueError(message)
+        metrics = parse_cramino_json(result.stdout)
+        if histogram_output is not None:
+            write_read_length_histogram(read_length_histogram(result.stdout), histogram_output)
+    finally:
+        if raw_histogram is not None:
+            raw_histogram.unlink(missing_ok=True)
     qc = evaluate_qc_metrics(metrics, policy)
     return CraminoQCReport(
         sample_id=manifest.sample_id,
@@ -147,7 +244,11 @@ def run_cramino_qc(
         tool=ToolRecord(
             name="cramino",
             version=version,
-            parameters={"threads": threads, "format": "json"},
+            parameters={
+                "threads": threads,
+                "format": "json",
+                "read_length_histogram_requested": histogram_output is not None,
+            },
         ),
         limitations=[
             "Cramino metrics are descriptive until assay-specific QC gates are validated.",

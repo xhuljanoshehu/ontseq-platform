@@ -40,6 +40,8 @@ from .pipeline.review import exit_code as review_exit_code
 from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
 from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
+from .profile_analysis import AnalyzeSettings, build_profile_run_configuration
+from .resource_commands import add_references_parser, handle_references_command
 from .review import inspect as inspect_review
 from .review import record as record_review
 from .review import render_json as render_review_json
@@ -53,7 +55,18 @@ from .target_coverage import TargetCoveragePolicy
 from .watchfolder import PassResult, WatchConfigurationError, WatchSettings, watch
 
 RUNTIME_COMMANDS = frozenset(
-    {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
+    {
+        "run",
+        "analyze",
+        "references",
+        "preflight",
+        "model-lock",
+        "serve",
+        "review",
+        "status",
+        "watch",
+        "align-fixture",
+    }
 )
 
 
@@ -93,6 +106,24 @@ def _sniffles_policy(path: Path) -> SnifflesPolicy | None:
 
 def _cutesv_policy(path: Path | None) -> CuteSvPolicy | None:
     return load_model(path, CuteSvPolicy) if path is not None and path.is_file() else None
+
+
+def _cutesv_policy_for_run(
+    path: Path | None,
+    reference_fasta: Path | None,
+) -> CuteSvPolicy | None:
+    """Enable the optional second SV caller only when its required FASTA is present.
+
+    The advanced ``ontseq run`` command predates profile-managed references. Its default
+    policy path must not turn an aligned-BAM CNV-only run into a failed cuteSV invocation
+    when the operator did not provide ``--reference-fasta``. Profile runs always resolve
+    and validate the FASTA before constructing their configuration, so they continue to
+    run the pinned Sniffles+cuteSV lane.
+    """
+
+    if reference_fasta is None:
+        return None
+    return _cutesv_policy(path)
 
 
 def _sv_consensus_policy(path: Path | None) -> SvConsensusPolicy | None:
@@ -220,6 +251,7 @@ def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> 
     else:
         policy = QDNAseqPolicy(
             profile_id="qdnaseq-ace-multibin-v1",
+            cytoband_affected_fraction=0.66,
             note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
         )
     register_qdnaseq_extension(
@@ -338,6 +370,34 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--git-commit", default="UNKNOWN")
     run.add_argument("--force", action="store_true")
 
+    analyze = sub.add_parser(
+        "analyze", help="Analyze one indexed GRCh38 BAM using an installed profile"
+    )
+    analyze.add_argument("bam", type=Path)
+    analyze.add_argument(
+        "--profile",
+        required=True,
+        choices=("AML_LCWGS_GRCh38", "AML_AS_111_GRCh38"),
+    )
+    analyze.add_argument("--resource-root", type=Path)
+    analyze.add_argument("--config-root", type=Path)
+    analyze.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    analyze.add_argument("--sample-id")
+    analyze.add_argument("--run-id")
+    analyze.add_argument("--threads", type=int, default=4)
+    analyze.add_argument("--git-commit", default="UNKNOWN")
+    analyze.add_argument("--force", action="store_true")
+    analyze.add_argument("--samtools", default="samtools")
+    analyze.add_argument("--cramino", default="cramino")
+    analyze.add_argument("--sniffles", default="sniffles")
+    analyze.add_argument("--cutesv", default="cuteSV")
+    analyze.add_argument("--minimap2", default="minimap2")
+    analyze.add_argument("--mosdepth", default="mosdepth")
+    analyze.add_argument("--dorado", default="dorado")
+    _add_cnv_options(analyze)
+
+    add_references_parser(sub)
+
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
     pf.add_argument("--require-free-gb", type=float)
@@ -350,7 +410,12 @@ def _parser() -> argparse.ArgumentParser:
     lock.add_argument("--json", action="store_true", dest="as_json")
 
     srv = sub.add_parser("serve", help="Run the loopback-only local operator service")
-    srv.add_argument("--reference-lock", type=Path, required=True)
+    srv.add_argument("--reference-lock", type=Path)
+    srv.add_argument(
+        "--resource-root",
+        type=Path,
+        help="Manifested GRCh38 resource root used by profile-based Desktop runs",
+    )
     srv.add_argument("--allow-root", type=Path, action="append", required=True, dest="allow_roots")
     srv.add_argument("--output-dir", type=Path, default=Path("results/runs"))
     srv.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
@@ -537,10 +602,48 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "serve", "watch"}:
+    if args.command in {"run", "analyze", "serve", "watch"}:
         _register_cnv(args, selection)
     try:
-        if args.command == "run":
+        if handle_references_command(args):
+            return
+
+        if args.command == "analyze":
+            config = build_profile_run_configuration(
+                AnalyzeSettings(
+                    bam=args.bam,
+                    profile_id=args.profile,
+                    resource_root=args.resource_root,
+                    output_dir=args.output_dir,
+                    configuration_root=args.config_root,
+                    sample_id=args.sample_id,
+                    run_id=args.run_id,
+                    pipeline_version=__version__,
+                    git_commit=args.git_commit,
+                    threads=args.threads,
+                    force=args.force,
+                    executables=_executables(args),
+                )
+            )
+            print(
+                f"profile: {args.profile}; detected build: "
+                f"{config.manifest.assay.genome_build.value}"
+            )
+            run_report, release = run_pipeline(config)
+            for stage in run_report.stages:
+                marker = "resumed" if stage.resumed else stage.status.value
+                print(f"  {stage.stage.value:<16} {marker:<10} {stage.reason}")
+            outcome = "PASS" if run_report.passed else "FAIL"
+            print(f"verdict: {outcome} - {run_report.verdict_reason}")
+            if run_report.unverified_stages:
+                names = ", ".join(item.value for item in run_report.unverified_stages)
+                print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
+            if release is not None:
+                print(f"release bundle: {len(release.artifacts)} artifact(s), unsigned")
+            if not run_report.passed:
+                raise SystemExit(2)
+
+        elif args.command == "run":
             config = RunConfiguration(
                 manifest=load_model(args.manifest, SampleManifest),
                 reference_lock=load_model(args.reference_lock, ReferenceLock),
@@ -552,7 +655,10 @@ def main() -> None:
                 sniffles_policy=_sniffles_policy(
                     _selected_policy(selection, StageId.SV, args.sniffles_policy)
                 ),
-                cutesv_policy=_cutesv_policy(args.cutesv_policy),
+                cutesv_policy=_cutesv_policy_for_run(
+                    args.cutesv_policy,
+                    args.reference_fasta,
+                ),
                 sv_consensus_policy=_sv_consensus_policy(args.sv_consensus_policy),
                 sv_evidence_policy=_sv_evidence_policy(args.sv_evidence_policy),
                 gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
@@ -616,7 +722,10 @@ def main() -> None:
                 sniffles_policy=_sniffles_policy(
                     _selected_policy(selection, StageId.SV, args.sniffles_policy)
                 ),
-                cutesv_policy=_cutesv_policy(args.cutesv_policy),
+                cutesv_policy=_cutesv_policy_for_run(
+                    args.cutesv_policy,
+                    args.reference_fasta,
+                ),
                 target_coverage_policy=_target_coverage_policy(
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
@@ -653,6 +762,8 @@ def main() -> None:
             raise SystemExit(model_lock_exit_code(model))
 
         elif args.command == "serve":
+            if args.reference_lock is None and args.resource_root is None:
+                raise ValueError("serve requires --resource-root or legacy --reference-lock")
             serve(
                 ServiceConfig(
                     reference_lock=args.reference_lock,
@@ -675,11 +786,16 @@ def main() -> None:
                         args.cytoband_annotation, args.cytoband_annotation_lock
                     ),
                     sv_context_resources=_interval_resources(args.sv_context_resource),
-                    aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                    aml_knowledge=(
+                        _aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock)
+                        if args.reference_lock is not None
+                        else None
+                    ),
                     sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                     cutesv_executable=args.cutesv,
                     port=args.port,
                     threads=args.threads,
+                    resource_root=args.resource_root,
                 ),
                 open_browser=not args.no_browser,
             )
@@ -787,5 +903,12 @@ def main() -> None:
     except RunAlreadyRunning as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(4) from exc
-    except (OSError, ValueError, ValidationError, ToolExecutionError) as exc:
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        ValidationError,
+        ToolExecutionError,
+    ) as exc:
         raise SystemExit(f"ERROR: {exc}") from exc
