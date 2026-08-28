@@ -83,6 +83,15 @@ def _canonical_profile(genome_build: GenomeBuild, prefix: str) -> dict[str, int]
     }
 
 
+def canonical_contigs(
+    genome_build: GenomeBuild, *, chr_prefix: bool = True
+) -> tuple[tuple[str, int], ...]:
+    """Return the ordered canonical nuclear dictionary used for build detection."""
+
+    prefix = "chr" if chr_prefix else ""
+    return tuple(_canonical_profile(genome_build, prefix).items())
+
+
 def validate_canonical_reference(
     contigs: Iterable[tuple[str, int]], genome_build: GenomeBuild
 ) -> CanonicalReferenceSummary:
