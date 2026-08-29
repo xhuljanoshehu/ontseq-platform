@@ -30,6 +30,11 @@ validated release.
 - All four active GRCh38 profiles pin `HEMATOLOGY_v3`; versions 1 and 2 remain packaged for
   provenance and backward readability.
 
+### Fixed
+
+- The hematology knowledge builder now writes canonical LF JSON on every operating system, so
+  the checked-in bundle size and SHA256 remain identical on Windows and Linux.
+
 ### Validation impact
 
 - The knowledge update can move a source-matched exact pair or order-reversed

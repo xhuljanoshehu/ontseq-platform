@@ -2,7 +2,7 @@
   "schema_version": "0.1.0",
   "resource_id": "ontseq-hematology-rearrangements",
   "release": "0.3.0",
-  "sha256": "7d3bdd2816cd2b261bede782d45db29f0aff03f9bdff718b973e0fa3fe08341b",
+  "sha256": "e283161a828e5c07f0351abb4c1d84fd955cc6cc5d15610db4e5c7ec4eff36dc",
   "source_ids": [
     "WHO5-2022",
     "ICC-2022",

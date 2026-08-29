@@ -11,16 +11,16 @@ resources:
   - resource_id: hematology_rearrangements
     role: rearrangement_knowledge
     path: hematology_rearrangements.v0.3.json
-    sha256: 7d3bdd2816cd2b261bede782d45db29f0aff03f9bdff718b973e0fa3fe08341b
-    size_bytes: 49553
+    sha256: e283161a828e5c07f0351abb4c1d84fd955cc6cc5d15610db4e5c7ec4eff36dc
+    size_bytes: 48191
     release: 0.3.0
     generated: false
     derived_from: []
   - resource_id: hematology_rearrangements_lock
     role: knowledge_lock
     path: hematology_rearrangements.v0.3.lock.json
-    sha256: f9d8eeccb521ca96157967b604ec6b19fe241d1ea71476cd7c37e70237fdc78f
-    size_bytes: 538
+    sha256: 9be59323276cc88c10265f2d5d3353fe6a0d761a4467a859d6022ea72c3a4567
+    size_bytes: 524
     release: 0.3.0
     generated: false
     derived_from:
