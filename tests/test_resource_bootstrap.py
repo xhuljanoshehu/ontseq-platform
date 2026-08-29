@@ -230,7 +230,10 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             configs = Path(config_raw) / "configs"
             shutil.copytree(CONFIGS, configs)
             knowledge = (
-                configs / "knowledge_bundles" / KNOWLEDGE_BUNDLE_ID / "aml_rearrangements.v0.1.json"
+                configs
+                / "knowledge_bundles"
+                / KNOWLEDGE_BUNDLE_ID
+                / "hematology_rearrangements.v0.3.json"
             )
             knowledge.write_bytes(knowledge.read_bytes() + b"\n")
 
@@ -275,7 +278,10 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             bootstrapper = GRCh38ResourceBootstrapper(resource_root, packaged_config_root=CONFIGS)
             bootstrapper.activate()
             knowledge = (
-                resource_root / "knowledge" / KNOWLEDGE_BUNDLE_ID / "aml_rearrangements.v0.1.json"
+                resource_root
+                / "knowledge"
+                / KNOWLEDGE_BUNDLE_ID
+                / "hematology_rearrangements.v0.3.json"
             )
             knowledge.write_bytes(b"locally-divergent\n")
 
@@ -291,7 +297,10 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             bootstrapper = GRCh38ResourceBootstrapper(resource_root, packaged_config_root=CONFIGS)
             bootstrapper.activate()
             knowledge = (
-                resource_root / "knowledge" / KNOWLEDGE_BUNDLE_ID / "aml_rearrangements.v0.1.json"
+                resource_root
+                / "knowledge"
+                / KNOWLEDGE_BUNDLE_ID
+                / "hematology_rearrangements.v0.3.json"
             )
             panel = (
                 resource_root
@@ -335,7 +344,10 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             bootstrapper = GRCh38ResourceBootstrapper(resource_root, packaged_config_root=CONFIGS)
             bootstrapper.activate()
             knowledge = (
-                resource_root / "knowledge" / KNOWLEDGE_BUNDLE_ID / "aml_rearrangements.v0.1.json"
+                resource_root
+                / "knowledge"
+                / KNOWLEDGE_BUNDLE_ID
+                / "hematology_rearrangements.v0.3.json"
             )
             panel_directory = resource_root / "panels" / PANEL_BUNDLE_ID
             panel = panel_directory / "source" / "250611_fusion_panel_with_buffer.bed"
@@ -428,7 +440,7 @@ class Grch38ResourceBootstrapTests(unittest.TestCase):
             bootstrapper.activate()
             knowledge_directory = resource_root / "knowledge" / KNOWLEDGE_BUNDLE_ID
             panel_directory = resource_root / "panels" / PANEL_BUNDLE_ID
-            knowledge = knowledge_directory / "aml_rearrangements.v0.1.json"
+            knowledge = knowledge_directory / "hematology_rearrangements.v0.3.json"
             panel = panel_directory / "source" / "250611_fusion_panel_with_buffer.bed"
             knowledge.write_bytes(b"corrupt-knowledge\n")
             panel.write_bytes(b"corrupt-panel\n")

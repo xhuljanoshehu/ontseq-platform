@@ -1,4 +1,4 @@
-# ONTSeq Desktop v0.5.2 — first run (engineering / RUO)
+# ONTSeq Desktop v0.5.3 — first run (engineering / RUO)
 
 ONTSeq Desktop is deliberately fail-closed. A BAM is not analysed until the local Linux runtime and the pinned GRCh38 bundles required by its selected profile are available.
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -514,16 +514,27 @@ class ResolvedResourceContext(StrictModel):
             raise ValueError("panel bundle ID and version must either both be set or both be null")
         if set(self.resource_paths) != set(self.resource_checksums):
             raise ValueError("every resolved resource path must have exactly one checksum")
-        root = Path(self.resource_root)
+        root: PurePosixPath | PureWindowsPath
+        if self.resource_root.startswith("/"):
+            root = PurePosixPath(self.resource_root)
+        else:
+            root = PureWindowsPath(self.resource_root)
         if not root.is_absolute():
             raise ValueError("resolved resource_root must be absolute")
-        resolved_root = root.resolve()
+        if ".." in root.parts:
+            raise ValueError("resolved resource_root must not contain parent traversal")
         for key, value in self.resource_paths.items():
-            path = Path(value)
+            path: PurePosixPath | PureWindowsPath
+            if isinstance(root, PurePosixPath):
+                path = PurePosixPath(value)
+            else:
+                path = PureWindowsPath(value)
             if not path.is_absolute():
                 raise ValueError(f"resolved resource path {key!r} must be absolute")
+            if ".." in path.parts:
+                raise ValueError(f"resolved resource path {key!r} contains parent traversal")
             try:
-                path.resolve().relative_to(resolved_root)
+                path.relative_to(root)
             except ValueError as exc:
                 raise ValueError(f"resolved resource path {key!r} escapes resource_root") from exc
         return self
@@ -795,13 +806,32 @@ class AmlKnowledgeLock(StrictModel):
     note: str = Field(min_length=1)
 
 
+class PathologyAssociation(StrictModel):
+    """One source-attributed disease association for a rearrangement review pattern.
+
+    The association explains why a gene pair is surfaced to a reviewer.  It is deliberately
+    not a diagnosis, sample-level assertion, or reportability rule.
+    """
+
+    disease_id: str = Field(pattern=r"^DOID:\d+$")
+    name: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    evidence_item_count: int | None = Field(default=None, ge=0)
+    assertion_count: int | None = Field(default=None, ge=0)
+
+
 class AmlRearrangementRecord(StrictModel):
     record_id: str = Field(min_length=1)
     pattern_type: Literal["exact_pair", "gene_any_partner"]
     genes: list[str] = Field(min_length=1, max_length=2)
     display_name: str = Field(min_length=1)
-    relevance: Literal["aml_defining_pattern", "aml_relevant_pattern"]
+    relevance: Literal[
+        "aml_defining_pattern", "aml_relevant_pattern", "hematology_relevant_pattern"
+    ]
     source_ids: list[str] = Field(min_length=1)
+    pathologies: list[PathologyAssociation] = Field(default_factory=list)
     caveat: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -811,6 +841,12 @@ class AmlRearrangementRecord(StrictModel):
             raise ValueError(f"{self.pattern_type} requires exactly {expected} gene(s)")
         if len({gene.upper() for gene in self.genes}) != len(self.genes):
             raise ValueError("AML rearrangement genes must be unique")
+        pathology_ids = [item.disease_id for item in self.pathologies]
+        if len(pathology_ids) != len(set(pathology_ids)):
+            raise ValueError("rearrangement pathologies must have unique disease IDs")
+        cited_sources = {item.source_id for item in self.pathologies}
+        if not cited_sources.issubset(set(self.source_ids)):
+            raise ValueError("pathology association cites a source absent from the record")
         return self
 
 
@@ -929,6 +965,7 @@ class GenomicEvent(StrictModel):
     observability_target_role: TargetBedRole | None = None
     aml_relevance: str | None = None
     known_rearrangement: str | None = None
+    known_pathologies: list[PathologyAssociation] = Field(default_factory=list)
     fusion_status: FusionSupportStatus = FusionSupportStatus.NOT_ASSESSED
     validation_status: SvValidationStatus = SvValidationStatus.DETECTED
     breakpoint_annotations: list[BreakpointAnnotation] = Field(default_factory=list)
@@ -944,6 +981,9 @@ class GenomicEvent(StrictModel):
         labels = [item.label for item in self.breakpoint_annotations]
         if len(labels) != len(set(labels)):
             raise ValueError("breakpoint annotations must contain at most one item per label")
+        pathology_ids = [item.disease_id for item in self.known_pathologies]
+        if len(pathology_ids) != len(set(pathology_ids)):
+            raise ValueError("event pathologies must have unique disease IDs")
         return self
 
 

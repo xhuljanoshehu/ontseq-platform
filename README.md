@@ -418,9 +418,9 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core: `0.5.2` (2026-08-28). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
+Python-Core: `0.5.3` (2026-08-29). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
 
-Windows-Desktop auf `main`: `0.5.2`, passend zum Python-Core derselben Version
+Windows-Desktop auf `main`: `0.5.3`, passend zum Python-Core derselben Version
 (`desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`), mit vollständigem installierten
 System-Selbsttest. Die zwei bestehenden Profile behalten den vollständigen
 Primary-Assembly-Vertrag; zwei zusätzliche `*_CANONICAL25`-Profile prüfen exakt

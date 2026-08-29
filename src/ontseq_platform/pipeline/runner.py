@@ -49,6 +49,7 @@ from ..models import (
     AssayMode,
     CheckStatus,
     CraminoQCReport,
+    CuteSvCallReport,
     CuteSvPolicy,
     GenomicEvent,
     InputKind,
@@ -981,6 +982,12 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if sv_path.is_file()
         else None
     )
+    cutesv_path = ctx.envelope.path(ctx.path(CUTESV_REPORT))
+    cutesv = (
+        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
+        if cutesv_path.is_file()
+        else None
+    )
     consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
     consensus = (
         SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
@@ -1006,6 +1013,7 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        cutesv_report=cutesv,
         sv_consensus_report=consensus,
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
@@ -1033,8 +1041,30 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    render_html(result, ctx.envelope.path(ctx.path(REPORT_HTML)))
-    render_workbook(result, ctx.envelope.path(ctx.path(REPORT_XLSX)))
+    target_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
+    selection_path = ctx.envelope.path(SELECTION_COVERAGE_REPORT)
+    target_coverage = (
+        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
+        if target_path.is_file()
+        else None
+    )
+    selection_coverage = (
+        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
+        if selection_path.is_file()
+        else None
+    )
+    render_html(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_HTML)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
+    render_workbook(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_XLSX)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason="Reviewer artifacts rendered as HTML and Excel.",

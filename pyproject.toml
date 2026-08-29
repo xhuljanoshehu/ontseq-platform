@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontseq-platform"
-version = "0.5.2"
+version = "0.5.3"
 description = "A safety-first foundation for automated single-sample Oxford Nanopore karyotyping workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,8 @@ where = ["src"]
 "share/ontseq/configs/components" = ["configs/components/*"]
 "share/ontseq/configs/knowledge" = ["configs/knowledge/*.json"]
 "share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v1" = ["configs/knowledge_bundles/HEMATOLOGY_v1/*"]
+"share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v2" = ["configs/knowledge_bundles/HEMATOLOGY_v2/*"]
+"share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v3" = ["configs/knowledge_bundles/HEMATOLOGY_v3/*"]
 "share/ontseq/configs/panels" = ["configs/panels/*.bed", "configs/panels/*.yaml"]
 "share/ontseq/configs/panels/AML_AS_111_GRCh38_v1" = ["configs/panels/AML_AS_111_GRCh38_v1/*.yaml"]
 "share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/derived" = ["configs/panels/AML_AS_111_GRCh38_v1/derived/*"]

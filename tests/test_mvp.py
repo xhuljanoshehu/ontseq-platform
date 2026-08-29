@@ -14,9 +14,13 @@ from ontseq_platform.models import (
     AssaySpec,
     CheckStatus,
     CraminoQCReport,
+    CuteSvCallReport,
+    CuteSvPolicy,
     EventType,
     Evidence,
     FileFingerprint,
+    FusionAnnotation,
+    FusionPartnerAnnotation,
     GenomeBuild,
     GenomicEvent,
     InputKind,
@@ -27,6 +31,8 @@ from ontseq_platform.models import (
     SampleManifest,
     SnifflesCallReport,
     SnifflesPolicy,
+    SvConsensusPolicy,
+    SvConsensusReport,
     ToolRecord,
     ValidationCheck,
     Verdict,
@@ -171,6 +177,83 @@ class AlignedBamMVPTests(unittest.TestCase):
         self.assertEqual(sv_rows[1][0], event.event_id)
         reportable_index = sv_rows[0].index("reportable")
         self.assertFalse(sv_rows[1][reportable_index])
+
+    def test_fusion_module_reports_completed_breakpoint_assessment(self) -> None:
+        manifest = _manifest()
+        intake = AlignedBamIntakeReport(
+            sample_id=manifest.sample_id,
+            reference_id=manifest.assay.reference_id,
+            genome_build=manifest.assay.genome_build,
+            checks=[],
+            verdict=Verdict.PASS,
+            tool=ToolRecord(name="samtools", version="1.24"),
+        )
+        qc = CraminoQCReport(
+            sample_id=manifest.sample_id,
+            qc=QCMetrics(verdict=Verdict.WARN, metrics={}),
+            tool=ToolRecord(name="cramino", version="1.3.0"),
+        )
+        event = GenomicEvent(
+            event_id="SVCLUSTER-000001",
+            event_type=EventType.TRANSLOCATION,
+            primary=Locus(chromosome="chr10", start=21_634_899, end=21_634_900),
+            secondary=Locus(chromosome="chr11", start=85_975_045, end=85_975_046),
+            evidence=[Evidence(caller="cuteSV", caller_version="2.1.3", support_reads=39)],
+            confidence="high",
+            known_rearrangement="PICALM::MLLT10",
+            fusion_evidence=FusionAnnotation(
+                gene_a=FusionPartnerAnnotation(gene="PICALM"),
+                gene_b=FusionPartnerAnnotation(gene="MLLT10"),
+            ),
+        )
+        cutesv = CuteSvCallReport(
+            sample_id=manifest.sample_id,
+            genome_build=manifest.assay.genome_build,
+            status=ModuleRunStatus.COMPLETED,
+            policy=CuteSvPolicy(
+                profile_id="synthetic",
+                status="technical_defaults_only",
+                note="Synthetic technical defaults.",
+            ),
+            events=[event],
+            raw_record_count=1,
+            accepted_record_count=1,
+            rejected_record_count=0,
+            tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            vcf_fingerprint=FileFingerprint(size_bytes=100, sha256="b" * 64),
+        )
+        consensus = SvConsensusReport(
+            sample_id=manifest.sample_id,
+            genome_build=manifest.assay.genome_build,
+            status=ModuleRunStatus.COMPLETED,
+            policy=SvConsensusPolicy(
+                profile_id="synthetic",
+                status="technical_defaults_only",
+                note="Synthetic technical defaults.",
+            ),
+            events=[event],
+            input_event_count=1,
+            consolidated_event_count=1,
+            caller_names=["cuteSV"],
+        )
+
+        result = assemble_aligned_bam_mvp(
+            manifest,
+            intake,
+            qc,
+            pipeline_version="0.5.3",
+            git_commit="SYNTHETIC",
+            cutesv_report=cutesv,
+            sv_consensus_report=consensus,
+        )
+
+        fusion_module = next(
+            item for item in result.modules if item.module == AnalysisModule.FUSION
+        )
+        self.assertEqual(fusion_module.status, ModuleRunStatus.COMPLETED)
+        self.assertIn("1 event(s) carried fusion evidence", fusion_module.reason)
+        self.assertIn("1 matched a hematology review pattern", fusion_module.reason)
+        self.assertEqual(result.provenance.reference_checksums["cutesv_vcf"], "b" * 64)
 
     def test_failed_intake_cannot_be_assembled(self) -> None:
         manifest = _manifest()

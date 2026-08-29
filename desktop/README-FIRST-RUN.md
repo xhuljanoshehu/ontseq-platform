@@ -1,10 +1,10 @@
-# ONTSeq Desktop v0.5.2 — first workstation run
+# ONTSeq Desktop v0.5.3 — first workstation run
 
 This checklist is for the unsigned engineering/research build only. It is not analytical or clinical validation.
 
 1. Confirm Windows WSL2 is enabled and the configured distribution opens normally.
-2. Extract the complete `ontseq-desktop-v0.5.2-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory.
-3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime. The installed runtime must report Core v0.5.2 and expose the reference-validation, target-coverage, component-selection and complete SV-policy capabilities checked by the Desktop preflight.
+2. Extract the complete `ontseq-desktop-v0.5.3-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory.
+3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime. The installed runtime must report Core v0.5.3 and expose the reference-validation, target-coverage, component-selection and complete SV-policy capabilities checked by the Desktop preflight.
    The preflight also verifies pinned cuteSV 2.1.3 and absolute packaged policy paths; this
    runtime correction does not change scientific thresholds.
 4. Run **Selbsttest starten** before using any real sample. The self-test must finish successfully and produce its synthetic report bundle.

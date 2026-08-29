@@ -16,6 +16,7 @@ from ..models import (
     AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
+    CuteSvCallReport,
     EventType,
     ModuleOutcome,
     ModuleRunStatus,
@@ -32,6 +33,7 @@ from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
 from ..sidecars import tabular_sidecar
+from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
 from .cytoband import CnvDirection, CnvSegment, Cytoband, RawBandOverlap, annotate_cnv_cytobands
 from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
@@ -336,6 +338,12 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         if sv_path.is_file()
         else None
     )
+    cutesv_path = ctx.envelope.path(ctx.path(pipeline_runner.CUTESV_REPORT))
+    cutesv = (
+        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
+        if cutesv_path.is_file()
+        else None
+    )
     consensus_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_CONSENSUS_REPORT))
     consensus = (
         SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
@@ -359,6 +367,7 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        cutesv_report=cutesv,
         sv_consensus_report=consensus,
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
@@ -543,15 +552,37 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
     )
     html_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_HTML))
     xlsx_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_XLSX))
-    render_html(result, html_path)
-    render_workbook(result, xlsx_path)
+    target_path = ctx.envelope.path(pipeline_runner.TARGET_COVERAGE_REPORT)
+    selection_path = ctx.envelope.path(pipeline_runner.SELECTION_COVERAGE_REPORT)
+    target_coverage = (
+        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
+        if target_path.is_file()
+        else None
+    )
+    selection_coverage = (
+        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
+        if selection_path.is_file()
+        else None
+    )
+    render_html(
+        result,
+        html_path,
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
+    render_workbook(
+        result,
+        xlsx_path,
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
     cnv = _load_cnv(ctx)
     if cnv is not None:
         document = html_path.read_text(encoding="utf-8")
         section = _cnv_html_section(ctx, cnv)
-        marker = "<section><h2>Warnings and limitations</h2>"
+        marker = "<!-- ONTSEQ_CNV_SECTION -->"
         if marker in document:
-            document = document.replace(marker, section + marker, 1)
+            document = document.replace(marker, section, 1)
         else:
             document = document.replace("</main>", section + "</main>", 1)
         html_path.write_text(document, encoding="utf-8")

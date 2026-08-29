@@ -4,7 +4,7 @@ version: v1
 genome_build: GRCh38
 assay_mode: adaptive_sampling
 reference_bundle: GRCh38_GENCODE50_MANE1.5_v1
-knowledge_bundle: HEMATOLOGY_v1
+knowledge_bundle: HEMATOLOGY_v3
 panel_bundle: AML_AS_111_GRCh38_v1
 adaptive_sampling: enabled
 description: GRCh38 Adaptive Sampling AML profile using the locked 111-target panel.

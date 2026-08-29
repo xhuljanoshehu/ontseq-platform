@@ -13,6 +13,7 @@ from ontseq_platform.models import (
     EventType,
     FusionAnnotation,
     FusionPartnerAnnotation,
+    PathologyAssociation,
     PipelineResult,
 )
 from ontseq_platform.report import render_html
@@ -37,6 +38,8 @@ class OutputTests(unittest.TestCase):
                 workbook.sheetnames,
                 [
                     "00_Summary",
+                    "01_Key_Findings",
+                    "12_AS_Coverage",
                     "01_QC",
                     "02_CNV_Chromosomes",
                     "03_CNV_Segments",
@@ -65,6 +68,15 @@ class OutputTests(unittest.TestCase):
                     orientation="+-",
                     frame_status="unknown",
                 ),
+                "known_pathologies": [
+                    PathologyAssociation(
+                        disease_id="DOID:0081093",
+                        name="Acute Myeloid Leukemia With T(8;21); (q22; Q22.1)",
+                        source_id="CIVIC-2026-08-29",
+                        source_record_id="CIVIC-FUSION-TEST/DISEASE-TEST",
+                        source_url="https://civicdb.org/features/test",
+                    )
+                ],
             }
         )
         result = result.model_copy(
@@ -82,8 +94,9 @@ class OutputTests(unittest.TestCase):
             rows = list(workbook["05_Fusions"].iter_rows(values_only=True))
             workbook.close()
 
-        self.assertEqual(rows[1][0], "FUS-001")
-        self.assertEqual(rows[1][6], "+-")
+        self.assertEqual(rows[1][2], "FUS-001")
+        self.assertEqual(rows[1][9], "+-")
+        self.assertIn("DOID:0081093", rows[1][15])
 
 
 if __name__ == "__main__":

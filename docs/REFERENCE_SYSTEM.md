@@ -13,7 +13,7 @@ different absolute root:
 /opt/ontseq/
   references/GRCh38_GENCODE50_MANE1.5_v1/bundle.yaml
   panels/AML_AS_111_GRCh38_v1/bundle.yaml
-  knowledge/HEMATOLOGY_v1/bundle.yaml
+  knowledge/HEMATOLOGY_v3/bundle.yaml
   profiles/AML_LCWGS_GRCh38.yaml
   profiles/AML_AS_111_GRCh38.yaml
   profiles/AML_LCWGS_GRCh38_CANONICAL25.yaml
@@ -114,8 +114,17 @@ dictionary contract:
 
 The contracts never fall back to one another. GRCh37, partial, mixed-style, reordered,
 length-mismatched or otherwise non-matching dictionaries stop before the pipeline is created.
-All four profiles pin the same `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v1` and, for Adaptive
+All four profiles pin the same `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v3` and, for Adaptive
 Sampling, `AML_AS_111_GRCh38_v1` bundles. There is no coordinate conversion or liftover.
+
+`HEMATOLOGY_v3` is a panel-scoped expert-review resource. It combines locally curated AML
+patterns with exact, accepted-evidence CIViC fusion features that overlap the panel and have at
+least one Disease Ontology association below `hematologic cancer` (`DOID:2531`). The checked-in
+release contains 38 patterns and 74 pathology associations. Reports retain the pathology name,
+DOID and source record, but a database match never changes `reportable` and never establishes a
+productive transcript, diagnosis or prognosis. The deterministic maintainer tool
+`scripts/build_hematology_knowledge.py` rebuilds a new version from explicitly supplied,
+checksum-recorded source snapshots; analyses themselves remain offline.
 
 The result contract is `PipelineResult 0.2.0`. It records the resolved bundle context, releases,
 checksums and large-table sidecars. Version 0.1.0 remains readable and is displayed as

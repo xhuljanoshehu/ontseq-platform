@@ -63,7 +63,7 @@ try
     AssertSequenceEqual(
         [
             "GRCh38_GENCODE50_MANE1.5_v1",
-            "HEMATOLOGY_v1",
+            "HEMATOLOGY_v3",
             "AML_AS_111_GRCh38_v1"
         ],
         WslServiceLauncher.ManagedGrch38ResourceBundleIds,

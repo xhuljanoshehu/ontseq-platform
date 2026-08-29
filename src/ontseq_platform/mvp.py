@@ -4,6 +4,7 @@ from .models import (
     AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
+    CuteSvCallReport,
     ISCNProposal,
     ModuleOutcome,
     ModuleRunStatus,
@@ -28,6 +29,7 @@ def assemble_aligned_bam_mvp(
     pipeline_version: str,
     git_commit: str,
     sniffles_report: SnifflesCallReport | None = None,
+    cutesv_report: CuteSvCallReport | None = None,
     sv_consensus_report: SvConsensusReport | None = None,
     reference_context: ResolvedResourceContext | None = None,
     sidecars: list[SidecarArtifact] | None = None,
@@ -41,6 +43,11 @@ def assemble_aligned_bam_mvp(
             raise ValueError("Manifest and Sniffles artifact must refer to the same sample")
         if manifest.assay.genome_build != sniffles_report.genome_build:
             raise ValueError("Manifest and Sniffles artifact use different genome builds")
+    if cutesv_report is not None:
+        if manifest.sample_id != cutesv_report.sample_id:
+            raise ValueError("Manifest and cuteSV artifact must refer to the same sample")
+        if manifest.assay.genome_build != cutesv_report.genome_build:
+            raise ValueError("Manifest and cuteSV artifact use different genome builds")
 
     requested = set(manifest.analysis.modules)
     modules: list[ModuleOutcome] = []
@@ -91,16 +98,30 @@ def assemble_aligned_bam_mvp(
                 )
             )
         elif module == AnalysisModule.FUSION:
-            modules.append(
-                ModuleOutcome(
-                    module=module,
-                    status=ModuleRunStatus.NOT_RUN,
-                    reason=(
-                        "Breakend candidates require gene annotation and fusion-specific "
-                        "validation; an SV call is not a fusion assertion"
-                    ),
+            if sv_consensus_report is None:
+                status = ModuleRunStatus.NOT_RUN
+                reason = "No annotated SV consensus was available for fusion assessment"
+            elif sv_consensus_report.status == ModuleRunStatus.NO_CALL:
+                status = ModuleRunStatus.NO_CALL
+                reason = (
+                    "Fusion candidate assessment received no normalized SV candidate; this is "
+                    "not a biological negative result"
                 )
-            )
+            else:
+                fusion_evidence_count = sum(
+                    event.fusion_evidence is not None for event in sv_consensus_report.events
+                )
+                knowledge_match_count = sum(
+                    event.known_rearrangement is not None for event in sv_consensus_report.events
+                )
+                status = ModuleRunStatus.COMPLETED
+                reason = (
+                    "Breakpoint-level fusion candidate assessment completed: "
+                    f"{fusion_evidence_count} event(s) carried fusion evidence and "
+                    f"{knowledge_match_count} matched a hematology review pattern. "
+                    "Candidate assessment is not analytical validation or clinical release."
+                )
+            modules.append(ModuleOutcome(module=module, status=status, reason=reason))
         elif module == AnalysisModule.ISCN:
             modules.append(
                 ModuleOutcome(
@@ -130,6 +151,8 @@ def assemble_aligned_bam_mvp(
         reference_checksums["input_bam_index"] = intake.index_fingerprint.sha256
     if sniffles_report is not None and sniffles_report.vcf_fingerprint.sha256:
         reference_checksums["sniffles_vcf"] = sniffles_report.vcf_fingerprint.sha256
+    if cutesv_report is not None and cutesv_report.vcf_fingerprint.sha256:
+        reference_checksums["cutesv_vcf"] = cutesv_report.vcf_fingerprint.sha256
 
     source_events = (
         sv_consensus_report.events
@@ -177,6 +200,7 @@ def assemble_aligned_bam_mvp(
                     intake.tool,
                     qc_report.tool,
                     sniffles_report.tool if sniffles_report is not None else None,
+                    cutesv_report.tool if cutesv_report is not None else None,
                 )
                 if item is not None
             ],

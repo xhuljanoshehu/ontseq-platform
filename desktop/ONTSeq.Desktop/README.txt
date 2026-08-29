@@ -1,4 +1,4 @@
-ONTSeq Desktop v0.5.2 engineering shell
+ONTSeq Desktop v0.5.3 engineering shell
 
 Research use only. Not clinically validated.
 The executable starts and controls the existing ONTSeq backend; it does not replace analytical validation.

@@ -790,6 +790,13 @@
           "title": "Genes",
           "type": "array"
         },
+        "known_pathologies": {
+          "items": {
+            "$ref": "#/$defs/PathologyAssociation"
+          },
+          "title": "Known Pathologies",
+          "type": "array"
+        },
         "known_rearrangement": {
           "anyOf": [
             {
@@ -955,6 +962,72 @@
       ],
       "title": "ModuleRunStatus",
       "type": "string"
+    },
+    "PathologyAssociation": {
+      "additionalProperties": false,
+      "description": "One source-attributed disease association for a rearrangement review pattern.\n\nThe association explains why a gene pair is surfaced to a reviewer.  It is deliberately\nnot a diagnosis, sample-level assertion, or reportability rule.",
+      "properties": {
+        "assertion_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assertion Count"
+        },
+        "disease_id": {
+          "pattern": "^DOID:\\d+$",
+          "title": "Disease Id",
+          "type": "string"
+        },
+        "evidence_item_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Item Count"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_record_id": {
+          "minLength": 1,
+          "title": "Source Record Id",
+          "type": "string"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disease_id",
+        "name",
+        "source_id",
+        "source_record_id",
+        "source_url"
+      ],
+      "title": "PathologyAssociation",
+      "type": "object"
     },
     "SnifflesMode": {
       "enum": [

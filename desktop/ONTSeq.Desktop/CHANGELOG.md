@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.5.3-engineering
+
+- package `HEMATOLOGY_v3` with source-attributed pathology/DOID associations and the redesigned HTML/XLSX review reports
+- show fusion assessment and reviewable rearrangement evidence without treating a missing
+  analytical benchmark as a biological negative result
+- include Adaptive-Sampling target coverage in persisted reports and retain cuteSV provenance
+- keep all four GRCh38 dictionary-contract profiles and their input gates unchanged
+
 ## 0.5.2-engineering
 
 - add explicit `AML_LCWGS_GRCh38_CANONICAL25` and

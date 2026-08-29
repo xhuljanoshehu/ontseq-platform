@@ -5,6 +5,39 @@ validated release.
 
 ## Unreleased
 
+## 0.5.3 - 2026-08-29
+
+### Added
+
+- `HEMATOLOGY_v3` adds 38 locked rearrangement review patterns and 74 source-attributed
+  pathology associations. Exact public records are derived from a 2026-08-29 CIViC snapshot and
+  filtered through Disease Ontology v2026-07-31 under `DOID:2531`; the curated
+  `PICALM::MLLT10` literature record remains included.
+- HTML and XLSX reports now expose a dedicated key-findings layer, fusion/rearrangement
+  assessment, Adaptive-Sampling ROI coverage and separate technical SV review queues.
+- cuteSV output provenance and tool identity are retained when the result is assembled.
+
+### Changed
+
+- Fusion module status now describes the assessment actually performed on consensus breakpoint
+  evidence instead of remaining `NOT_RUN` whenever no separately validated fusion assertion exists.
+- The report displays `BENCHMARK_REQUIRED` alongside review priority instead of presenting an
+  unexplained `reportable=false` value as if it meant biologically irrelevant.
+- HTML keeps the complete result in JSON/XLSX but limits the expanded technical appendix to a
+  usable review subset. XLSX preserves all normalized events and adds focused review sheets.
+- HTML and XLSX display associated pathology names and DOIDs beside matching rearrangement
+  candidates, rather than requiring a reviewer to infer disease context from the gene pair.
+- All four active GRCh38 profiles pin `HEMATOLOGY_v3`; versions 1 and 2 remain packaged for
+  provenance and backward readability.
+
+### Validation impact
+
+- The knowledge update can move a source-matched exact pair or order-reversed
+  `MLLT10::PICALM` breakpoint candidate into the hematology review queue and attach relevant
+  disease vocabulary. It does not establish transcript productivity, pathogenicity, diagnosis,
+  prognosis, or analytical reportability. Existing SV/CNV caller thresholds are unchanged, and
+  every surfaced candidate still requires expert and assay-specific validation.
+
 ## 0.5.2 - 2026-08-28
 
 ### Added

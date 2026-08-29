@@ -229,6 +229,32 @@ class ResourceContractTests(unittest.TestCase):
                 ReferenceDictionaryContract.EXACT_FULL,
             )
 
+    def test_resolved_context_reads_wsl_paths_on_windows(self) -> None:
+        context = ResolvedResourceContext.model_validate(
+            {
+                "profile_id": "AML_AS_111_GRCh38_CANONICAL25",
+                "profile_version": "v1",
+                "genome_build": "GRCh38",
+                "reference_dictionary_contract": "grch38_canonical_25",
+                "reference_bundle_id": "GRCh38_TEST_v1",
+                "reference_bundle_version": "v1",
+                "panel_bundle_id": "AML_AS_TEST_v1",
+                "panel_bundle_version": "v1",
+                "knowledge_bundle_id": "HEMATOLOGY_v2",
+                "knowledge_bundle_version": "v2",
+                "resource_root": "/home/test/.local/share/ontseq/resources",
+                "resource_paths": {
+                    "reference.genome_fasta": (
+                        "/home/test/.local/share/ontseq/resources/references/genome.fa"
+                    )
+                },
+                "resource_checksums": {"reference.genome_fasta": SHA},
+                "resource_releases": {},
+            }
+        )
+
+        self.assertEqual(context.knowledge_bundle_id, "HEMATOLOGY_v2")
+
     def test_resolved_context_rejects_canonical_25_outside_grch38(self) -> None:
         with TemporaryDirectory() as raw:
             root = Path(raw).resolve()

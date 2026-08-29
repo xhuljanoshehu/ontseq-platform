@@ -48,7 +48,7 @@ from .resource_registry import resource_root_from_environment
 
 REFERENCE_BUNDLE_ID = "GRCh38_GENCODE50_MANE1.5_v1"
 PANEL_BUNDLE_ID = "AML_AS_111_GRCh38_v1"
-KNOWLEDGE_BUNDLE_ID = "HEMATOLOGY_v1"
+KNOWLEDGE_BUNDLE_ID = "HEMATOLOGY_v3"
 PROFILE_CONTRACTS: dict[
     str,
     tuple[AssayMode, ReferenceDictionaryContract, str | None],

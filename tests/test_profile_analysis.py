@@ -366,7 +366,7 @@ def test_reference_status_reports_only_profiles_with_ready_panel_and_knowledge()
         ]
         statuses = {item["profile_id"]: item for item in ready["profile_status"]}
         assert statuses["AML_AS_111_GRCh38"]["panel_bundle"] == "AML_AS_111_GRCh38_v1"
-        assert statuses["AML_AS_111_GRCh38"]["knowledge_bundle"] == "HEMATOLOGY_v1"
+        assert statuses["AML_AS_111_GRCh38"]["knowledge_bundle"] == "HEMATOLOGY_v3"
 
         registry = ResourceRegistry(resources)
         context = registry.resolve_profile("AML_LCWGS_GRCh38", verify_files=False)

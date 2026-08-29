@@ -160,7 +160,7 @@ public partial class SetupWindow : Window
             _settings.SaveUserSettings();
             BundleStatusText.Text = "● GRCh38-Profilressourcen werden installiert…";
             DetailText.Text =
-                "Installiere Referenz, HEMATOLOGY_v1, AML_AS_111_GRCh38_v1 und Profile nach " +
+                "Installiere Referenz, HEMATOLOGY_v3, AML_AS_111_GRCh38_v1 und Profile nach " +
                 $"{_settings.ResourceRootWsl}.";
             var detail = await _launcher.InstallGrch38ProfileResourcesAsync(_settings, token);
             BundleStatusText.Text = "✓ Installation abgeschlossen";
@@ -180,7 +180,7 @@ public partial class SetupWindow : Window
             _settings.SaveUserSettings();
             BundleStatusText.Text = "● Vollständige GRCh38-Ressourcenfamilie wird repariert…";
             DetailText.Text =
-                "Repariere Referenz, HEMATOLOGY_v1, AML_AS_111_GRCh38_v1 und Profile unter " +
+                "Repariere Referenz, HEMATOLOGY_v3, AML_AS_111_GRCh38_v1 und Profile unter " +
                 $"{_settings.ResourceRootWsl}; manuelles Löschen ist nicht erforderlich.";
             var detail = await _launcher.RepairGrch38ProfileResourcesAsync(_settings, token);
             BundleStatusText.Text = "✓ Reparatur abgeschlossen";

@@ -10,6 +10,8 @@ from zipfile import ZipFile
 REQUIRED_SUFFIXES = (
     "share/ontseq/configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1/bundle.recipe.yaml",
     "share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v1/bundle.yaml",
+    "share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v2/bundle.yaml",
+    "share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v3/bundle.yaml",
     "share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/bundle.yaml",
     "share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/source/250611_fusion_panel_with_buffer.bed",
     "share/ontseq/configs/profiles/AML_LCWGS_GRCh38.yaml",

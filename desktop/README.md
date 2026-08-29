@@ -2,14 +2,14 @@
 
 Windows operator surface for the ONTSeq execution core. The desktop app does not reimplement bioinformatics; it launches the bundled Linux runtime through WSL2, talks to the loopback service, and opens the same persisted HTML/XLSX/result artifacts produced by the canonical backend.
 
-> **Current engineering build: Desktop/Core v0.5.2. Research Use Only, unsigned, not clinically validated.**
+> **Current engineering build: Desktop/Core v0.5.3. Research Use Only, unsigned, not clinically validated.**
 
-## v0.5.2 user path
+## v0.5.3 user path
 
 1. Extract the complete engineering bundle and start `ONTSeq.Desktop.exe`.
 2. Open **System einrichten** on first use and install the bundled Linux runtime into WSL. The bundle contains Python, R, samtools, Cramino, Sniffles2, cuteSV 2.1.3, Mosdepth, minimap2, QDNAseq, QDNAseq.hg19, QDNAseq.hg38, ACE and the ONTSeq Core/resources.
 3. Run **Selbsttest starten**. This is a full installed-runtime system smoke, not only a package import check.
-4. Keep the user-writable WSL resource root at `~/.local/share/ontseq/resources` or configure another absolute WSL path. Use **Installieren** or **Reparieren** to provision and validate the complete resource family: `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v1`, `AML_AS_111_GRCh38_v1` and all four profiles. Repair safely replaces divergent pinned resources through the backend transaction; manual deletion is not required.
+4. Keep the user-writable WSL resource root at `~/.local/share/ontseq/resources` or configure another absolute WSL path. Use **Installieren** or **Reparieren** to provision and validate the complete resource family: `GRCh38_GENCODE50_MANE1.5_v1`, `HEMATOLOGY_v3`, `AML_AS_111_GRCh38_v1` and all four profiles. Repair safely replaces divergent pinned resources through the backend transaction; manual deletion is not required.
 5. Select one of the four explicit profiles. `AML_LCWGS_GRCh38` (default) and `AML_AS_111_GRCh38` require the complete Primary-Assembly dictionary (`exact_full`). `AML_LCWGS_GRCh38_CANONICAL25` and `AML_AS_111_GRCh38_CANONICAL25` require exactly `chr1`-`chr22`, `chrX`, `chrY`, `chrM`. All four resolve the same pinned reference, annotation and knowledge bundles automatically; the AS profiles additionally resolve `AML_AS_111_GRCh38_v1`.
 6. Select one aligned `.bam` file. Both `sample.bam.bai` and `sample.bai` are accepted, with deterministic precedence for `sample.bam.bai` when both exist. The declared index is checked explicitly rather than rediscovered implicitly by samtools.
 7. Sample ID is suggested from the filename and remains editable.
@@ -18,7 +18,7 @@ Windows operator surface for the ONTSeq execution core. The desktop app does not
 10. The application checks WSL, backend capabilities, input/index, resource root, required profile bundles and output location before starting the local service.
 11. It starts the canonical `ontseq serve` backend, submits the run, polls progress, and enables the HTML, XLSX and result-folder buttons when outputs are present.
 
-v0.5.2 retains the working-directory-independent packaged policies from v0.5.1 and adds the two
+v0.5.3 retains the working-directory-independent packaged policies from v0.5.1 and adds the two
 explicit Canonical-25 choices. Canonical-25 is resolved from the already installed full GRCh38
 `ReferenceLock`; it does not install or download a second multi-GiB reference. Neither contract
 uses liftover or falls back to the other. Scientific thresholds and interpretation policies are
@@ -26,7 +26,7 @@ unchanged.
 
 The UI keeps the backend's distinct stage outcomes (`COMPLETED`, `NO_CALL`, `FAILED`, `NOT_RUN`) instead of flattening them into done/pending. A technical `PASS` is not a biological negative result and is not clinical validation.
 
-### Reference and resume integrity in v0.5.2
+### Reference and resume integrity in v0.5.3
 
 New profile runs resolve a manifest-driven `ReferenceBundle`, `PanelBundle` and `KnowledgeBundle` beneath `resourceRootWsl`. Bundle installation and repair remain backend operations; Desktop only invokes their typed CLI contracts and displays the result. The selected profile and BAM dictionary must both resolve to GRCh38 and must satisfy either the selected `exact_full` or exact Canonical-25 contract.
 
@@ -72,7 +72,7 @@ The app loads the first existing settings file from:
 - `%LOCALAPPDATA%\ONTSeq\desktop.settings.json`
 - `%PROGRAMDATA%\ONTSeq\desktop.settings.json`
 
-See `desktop.settings.example.json` for the available keys. First-run setup writes the user-local settings automatically. A runtime installed by the v0.5.2 Desktop is stored under `~/.local/share/ontseq/runtime-v0.5.2` in the selected WSL distribution.
+See `desktop.settings.example.json` for the available keys. First-run setup writes the user-local settings automatically. A runtime installed by the v0.5.3 Desktop is stored under `~/.local/share/ontseq/runtime-v0.5.3` in the selected WSL distribution.
 
 The profile-resource defaults are:
 
@@ -101,7 +101,7 @@ dotnet publish desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj -c Release -r win-x6
 
 `.github/workflows/desktop-ci.yml` builds a relocatable Linux runtime from the pinned QDNAseq environment, proves the packed environment after relocation, runs the full system smoke in stock Ubuntu, then builds/tests the Windows WPF shell and creates the versioned engineering bundle. The final main-branch artifact should be preferred over a pre-merge PR artifact because its embedded runtime git commit then identifies the exact merged source revision.
 
-## Deliberate v0.5.2 limitation: cancellation
+## Deliberate v0.5.3 limitation: cancellation
 
 The **Abbrechen** control remains disabled. A backend cancellation contract must first guarantee that an interrupted external tool cannot leave a stage looking complete. Closing a progress view is not treated as cancellation.
 
