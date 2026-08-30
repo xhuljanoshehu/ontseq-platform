@@ -240,3 +240,4 @@ jobs:
             results/runs/CI_CNV_001/CNV_SYNTH_001/release/release.json
             results/runs/CI_CNV_001/CNV_SYNTH_001/release/checksums.sha256
           if-no-files-found: warn
+          retention-days: 7

@@ -1,9 +1,0 @@
-configfile: "workflow/config/demo.yaml"
-
-include: "rules/reporting.smk"
-
-rule all:
-    input:
-        config["outputs"]["json"],
-        config["outputs"]["html"],
-        config["outputs"]["xlsx"],

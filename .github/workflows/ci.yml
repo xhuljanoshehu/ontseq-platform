@@ -65,6 +65,7 @@ jobs:
           name: synthetic-report-bundle
           path: results/demo/
           if-no-files-found: warn
+          retention-days: 7
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
@@ -271,3 +272,4 @@ jobs:
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
           if-no-files-found: error
+          retention-days: 7
