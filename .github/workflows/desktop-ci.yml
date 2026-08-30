@@ -213,7 +213,7 @@ jobs:
           name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: ontseq-linux-runtime.tar.gz
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   windows-desktop:
     needs: linux-runtime
@@ -291,4 +291,4 @@ jobs:
           name: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7

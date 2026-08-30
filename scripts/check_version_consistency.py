@@ -1,10 +1,10 @@
 """Refuse a tree whose current release identities disagree with each other.
 
-The package metadata, package, citation record, Windows project, executable Desktop label,
-WSL installer, Desktop workflow and current operator documentation all state what a release
-is. They previously drifted independently: a new build could keep an old runtime directory or
-artifact name even after the package version advanced. This guard ties those current-release
-surfaces together while leaving historical changelog entries untouched.
+The package metadata, dependency lock, package, citation record, Windows project, executable
+Desktop label, WSL installer, Desktop workflow and current operator documentation all state
+what a release is. They previously drifted independently: a new build could keep an old runtime
+directory or artifact name even after the package version advanced. This guard ties those
+current-release surfaces together while leaving historical changelog entries untouched.
 
 That matters more here than in most projects. A reader deciding whether a bundle is worth
 testing against real data starts at the README, and the repository's own rule is that the
@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 PYPROJECT = ROOT / "pyproject.toml"
+UV_LOCK = ROOT / "uv.lock"
 PACKAGE_INIT = ROOT / "src" / "ontseq_platform" / "__init__.py"
 CITATION = ROOT / "CITATION.cff"
 DESKTOP_PROJECT = ROOT / "desktop" / "ONTSeq.Desktop" / "ONTSeq.Desktop.csproj"
@@ -62,6 +63,23 @@ def _declared_version() -> str:
     version = payload.get("project", {}).get("version")
     if not isinstance(version, str) or not version:
         raise Mismatch("pyproject.toml declares no [project] version")
+    return version
+
+
+def _uv_lock_version() -> str:
+    """Validate the TOML lock and read this editable project's locked version."""
+    with UV_LOCK.open("rb") as handle:
+        payload = tomllib.load(handle)
+    matches = [
+        package
+        for package in payload.get("package", [])
+        if package.get("name") == "ontseq-platform" and package.get("source") == {"editable": "."}
+    ]
+    if len(matches) != 1:
+        raise Mismatch("uv.lock must contain exactly one editable ontseq-platform package")
+    version = matches[0].get("version")
+    if not isinstance(version, str) or not version:
+        raise Mismatch("uv.lock declares no version for editable ontseq-platform")
     return version
 
 
@@ -136,6 +154,7 @@ def _problems() -> list[str]:
     found: list[str] = []
 
     for label, actual in (
+        ("uv.lock editable package version", _uv_lock_version()),
         (f"{PACKAGE_INIT.relative_to(ROOT)} __version__", _package_version()),
         ("CITATION.cff version", _citation_version()),
         (f"{DESKTOP_PROJECT.relative_to(ROOT)} <Version>", _desktop_version()),
