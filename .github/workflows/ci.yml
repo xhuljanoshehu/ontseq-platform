@@ -22,8 +22,8 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -65,17 +65,18 @@ jobs:
         run: python -m ontseq_platform demo --output-dir results/demo
       - name: Upload synthetic bundle
         if: ${{ always() && matrix.python-version == '3.12' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: synthetic-report-bundle
           path: results/demo/
           if-no-files-found: warn
+          retention-days: 7
 
   local-real-tool-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/aligned_bam.yaml
@@ -251,7 +252,7 @@ jobs:
 
       - name: Upload synthetic reviewer artifacts without BAM or VCF payloads
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: local-real-tool-smoke
           path: |
@@ -276,3 +277,4 @@ jobs:
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
             results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
           if-no-files-found: error
+          retention-days: 7

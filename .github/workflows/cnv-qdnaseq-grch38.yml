@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: mamba-org/setup-micromamba@v3
         with:
@@ -221,7 +221,7 @@ jobs:
 
       - name: Upload compact GRCh38 CNV artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qdnaseq-grch38-real-tool-smoke
           path: |
@@ -233,3 +233,4 @@ jobs:
             results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/provenance/run.json
             results/runs/CI_CNV_HG38_001/CNV_HG38_SYNTH_001/release/checksums.sha256
           if-no-files-found: warn
+          retention-days: 7

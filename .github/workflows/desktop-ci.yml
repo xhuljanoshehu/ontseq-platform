@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/cnv_qdnaseq.yaml
@@ -274,19 +274,19 @@ jobs:
               echo "stock Ubuntu full system smoke: PASS"
             '
       - name: Upload Linux runtime
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: ontseq-linux-runtime.tar.gz
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   windows-desktop:
     needs: linux-runtime
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -368,9 +368,9 @@ jobs:
           }
           Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering
           path: desktop/publish/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
