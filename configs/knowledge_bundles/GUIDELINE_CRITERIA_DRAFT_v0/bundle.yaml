@@ -1,0 +1,40 @@
+schema_version: 1.0.0
+bundle_type: knowledge
+bundle_id: GUIDELINE_CRITERIA_DRAFT_v0
+version: v0
+genome_build: GRCh38
+coordinate_bearing: false
+verification: unverified_model_draft
+description: >-
+  ELN 2022, WHO 2022 and ICC 2022 criteria, drafted by a language model from memory and NOT
+  verified against the guideline documents. It exists so a haematologist can review a
+  structured table instead of writing one from nothing. It is not a rule set, it must not
+  classify a patient, and `guideline_criteria.load_reportable_criteria` refuses to load it
+  while any record is still marked `unverified_model_draft`.
+resources:
+  - resource_id: guideline_criteria
+    role: guideline_criteria_draft
+    path: guideline_criteria.v0.1.json
+    sha256: e37928d9957e9b611c07d31061a17d6bbfc20e12a12c3215a3b06ac2ce943e3b
+    size_bytes: 22171
+    release: 0.1.0
+    generated: false
+    derived_from: []
+  - resource_id: guideline_criteria_lock
+    role: knowledge_lock
+    path: guideline_criteria.v0.1.lock.json
+    sha256: 2ad7c37d9aa414e5146bcfdca2f21924a4026698e38cbf50049c90b63a6b6cd3
+    size_bytes: 408
+    release: 0.1.0
+    generated: true
+    derived_from:
+      - guideline_criteria
+  - resource_id: review_checklist
+    role: review_checklist
+    path: REVIEW_CHECKLIST.de.md
+    sha256: 5da09bc956e793f6efcb6ba96331a9db69a56942c2893aca9ee88e927cb2b422
+    size_bytes: 8205
+    release: 0.1.0
+    generated: true
+    derived_from:
+      - guideline_criteria
