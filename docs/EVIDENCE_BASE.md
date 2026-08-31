@@ -1,7 +1,7 @@
 # Evidence base and tool-selection record
 
 **Status:** living scoping review  
-**Last searched:** 2026-08-14  
+**Last searched:** 2026-08-31  
 **Scope:** single-sample Oxford Nanopore analysis for hematologic malignancies, with emphasis
 on low-coverage whole-genome copy number, adaptive-sampling structural variants/fusions,
 reproducible reporting and expert-reviewed ISCN proposals.
@@ -58,6 +58,84 @@ Evidence level describes applicability to this project, not general publication 
 | Roy et al., *Journal of Molecular Diagnostics* (2018), [doi:10.1016/j.jmoldx.2017.11.003](https://doi.org/10.1016/j.jmoldx.2017.11.003) | C | AMP/CAP recommendations for validation and change control of NGS bioinformatics pipelines. | Written primarily around small variants, but its software-validation principles transfer. | Lock versions and fixtures; require validation-impact assessment and proportionate revalidation for every biological-output change. |
 | Hastings, Moore and Chia, [ISCN 2024](https://karger.com/books/book/6011/ISCN-2024An-International-System-for-Human) and [2026 erratum](https://doi.org/10.1159/000549238) | D | Current controlled nomenclature reference plus published corrections. | Copyrighted standard requires authorized access; coordinate conversion alone cannot establish semantic validity. | Emit only a traceable `ISCN_PROPOSAL`; validate with authorized cases, current errata and cytogenetic expert review. |
 | Snakemake, [deployment documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/deployment.html) | D | Official guidance for standardized workflow layout, environments, containers, testing and archival. | Supports reproducible engineering but does not validate scientific algorithms. | Keep Snakemake initially while making all adapters and result contracts workflow-engine neutral. |
+
+## Candidate survey 2026-08-31: small variants, methylation and clinical annotation
+
+A second search pass, prompted by the observation that the report can name *where* something
+changed but not *what* it means, and that three whole classes of evidence the instrument
+already produces are currently discarded. Candidates were additionally screened for whether
+they are **packaged and pinnable**, because an unpackaged tool is a materially larger
+provenance commitment than a conda pin.
+
+### A coverage figure in this document needs correcting
+
+The EPI2ME row above reasons against "a roughly 3x lcWGS assay". The measured local run
+`260611_RAD114_AS_S700` produced **8.8x genome-wide off-target coverage**, not 3x. Several
+conclusions below depend on which figure is right, so the assay's real off-target depth
+should be confirmed across runs and this document corrected. Published adaptive-sampling work
+reports comparable magnitudes — one clinical CNV study reports 28.4x on-target against 5.3x
+off-target and explicitly uses the off-target background for non-targeted regions — so 8.8x
+is not anomalous.
+
+### Evidence matrix additions
+
+| Source | Level | Design and principal result | Applicability and limitation | Repository decision |
+| --- | --- | --- | --- | --- |
+| Steinicke et al., *Nature Genetics* (2025), [doi:10.1038/s41588-025-02321-z](https://doi.org/10.1038/s41588-025-02321-z) | A | MARLIN: neural-network acute-leukemia classification from **sparse** nanopore methylation. Reference cohort n=2,540, 38 methylation classes. Retrospective nanopore concordance 25/26; real-time 5/5, typically within 2 h of sample receipt. | The most directly applicable new evidence found: same disease, same platform, and it consumes low-coverage genome-wide data rather than target coverage. Classes and cohort are not this laboratory's. | Evaluate as an **independent diagnostic axis** on data already generated. It is a classification complement, never a substitute for genetic findings, and its output must be a proposal under review like ISCN. |
+| Shah et al., *medRxiv* preprint (2026), [doi:10.64898/2026.06.16.26355747](https://doi.org/10.64898/2026.06.16.26355747) | D | MOSAIC. Reports that on held-out **low-purity** specimens MARLIN was concordant in 7/10 and ALMA in 5/10; MOSAIC concordant in every case, including one at 1.4% blasts. | Preprint, not peer-reviewed, single group. But it characterises the failure mode of the method in the row above, which matters more than the headline accuracy. | Treat low blast fraction as the predeclared failure mode of any methylation classifier. Blast fraction is already a mandatory manifest field; make it a hard stratum for this lane and a `NO_CALL` trigger, not a footnote. |
+| Zheng et al., *Nature Communications* (2025), [doi:10.1038/s41467-025-64547-z](https://doi.org/10.1038/s41467-025-64547-z) | B | ClairS-TO: deep-learning **tumor-only** somatic small-variant calling for long reads; ensemble of two networks trained for opposite tasks. Reported to outperform DeepSomatic, Mutect2, Octopus and Pisces across ONT, PacBio and Illumina. 50x ONT WGS in ~214 min on 24 cores. | The tumor-only design matches routine AML diagnostics, which usually has no matched normal. Not AML-specific, and the reported evaluation is at coverage far above this assay's off-target depth. | Highest-value candidate for the missing small-variant lane, scoped **to the panel**, where measured depth is roughly 80x (1.37 Gb over a 17.03 Mb design). Do not run it genome-wide at 8.8x. |
+| Blätte et al., *Leukemia* (2019), [doi:10.1038/s41375-019-0483-z](https://doi.org/10.1038/s41375-019-0483-z) | C | getITD: dedicated FLT3-ITD detection and MRD monitoring, Needleman-Wunsch based, reporting ITD length, insertion site and VAF per clone. | Developed for **short-read** amplicon/hybrid-capture data. Transfer to 500 bp+ ONT reads is unestablished. | Do not adopt on the assumption that it transfers. Benchmark it against the SV lane on ONT reads before treating it as an FLT3-ITD method. |
+| Multiclonal FLT3-ITD profiling on MinION, *OncoTargets and Therapy* (2025), [tandfonline.com/doi/full/10.2147/OTT.S526628](https://www.tandfonline.com/doi/full/10.2147/OTT.S526628) | B | ONT MinION FLT3-ITD profiling with a tailored clustering approach for subclonal detection; notes that general-purpose SV callers including Sniffles underrepresent minor clones. | Directly on-platform and on-target for a key AML marker, but the method is described rather than distributed as a maintained package. | Records that Sniffles2 alone is expected to **underrepresent FLT3-ITD subclones**. Treat low-VAF ITD as a known limitation of the current SV lane rather than an absence. |
+| Somatic SV caller comparison in lung cancer, *BMC Genomics* (2024), [doi:10.1186/s12864-024-10792-3](https://doi.org/10.1186/s12864-024-10792-3) | B | ONT somatic SV benchmark: with minimap2, SAVANA 79.5% and Severus 79.25% recall, nanomonsv 72.5%. Runtimes Sniffles2 ~16 min, nanomonsv ~2 h, SAVANA ~4.8 h, Severus ~7.3 h. | Lung cancer, not AML, and tumor/normal designs. The runtime spread is a real operational constraint for a diagnostic turnaround. | Strengthens the existing SAVANA and Severus rows with concrete recall and cost figures. Note that both assume a matched normal, which this workflow does not have. |
+| Geoffroy et al., AnnotSV, *Nucleic Acids Research* (2021), [academic.oup.com/nar/article/49/W1/W21/6281473](https://academic.oup.com/nar/article/49/W1/W21/6281473) | D | SV/CNV annotation from 20+ sources — genes, haploinsufficiency, triplosensitivity, known pathogenic and benign regions, regulatory elements — plus an ACMG/ClinGen-compliant 5-class ranking module. | **The ranking is a germline vocabulary.** ACMG/ClinGen SV classification answers a constitutional question; AML asks a somatic one. This is precisely the confusion ADR-022 already records for ClinVar. | Adopt the **annotation content**; do not adopt the ranking as a somatic classification. If the ranking is surfaced at all it must be labelled as germline-vocabulary, exactly as ClinVar assertions are. |
+| Nakken et al., PCGR, *Bioinformatics* (2018), [academic.oup.com/bioinformatics/article/34/10/1778/4764004](https://academic.oup.com/bioinformatics/article/34/10/1778/4764004) | D | Somatic variant interpretation report engine: SNVs/indels, CNAs and fusions, classified by **oncogenicity and actionability**. Extends VEP annotations via vcfanno. Python/R, distributed via Docker. | The somatic counterpart to the germline vocabulary above, and it consumes exactly the event classes this pipeline produces. Not packaged on Bioconda. | Evaluate as the interpretation layer once a small-variant lane exists. Its vocabulary — oncogenicity, actionability — is the one this project should be attaching, and it is not ACMG germline. |
+
+### Packaging audit against the live Bioconda index
+
+Checked against `noarch` and `linux-64` repodata on 2026-08-31. Version shown is the newest
+present. This determines cost, not merit: an unpackaged tool is not disqualified, it is a
+larger provenance commitment.
+
+| Purpose | Packaged and pinnable | Not on Bioconda |
+| --- | --- | --- |
+| Small variants, germline | `clair3` 2.0.2, `deepvariant` 1.10.0, `medaka` 2.2.2, `longshot`, `nanocaller` | — |
+| Small variants, somatic tumor-only | — | **ClairS-TO**, ClairS |
+| Somatic SV | `severus` 1.7, `nanomonsv` 0.9.0, `savana` 1.3.8 | — |
+| SV comparators | `cutesv` 2.1.4, `svim` 2.0.0, `dysgu` 1.9.0, `delly` 2.6.0 | — |
+| CNV comparators | `cnvkit`, `r-ichorcna` 0.5.1, `cnvpytor`, `wisecondorx` | **Spectre** |
+| Methylation | `ont-modkit` 0.6.4, `methylartist` 1.5.4 | MARLIN/MOSAIC models |
+| Phasing | `whatshap` 2.8, `longphase` 2.0.2 | — |
+| Annotation | `ensembl-vep` 116.1, `annotsv` 3.5.10, `vcfanno` 0.3.9 | ClassifyCNV |
+| Nomenclature | `hgvs` 1.5.7 | — |
+| Knowledge access | `civicpy` 5.4.0 | OncoKB annotator |
+| Clinical report | — | **PCGR** |
+| FLT3-ITD / repeats | `getitd` 1.5.17, `straglr`, `trgt`, `tandem-genotypes` | — |
+
+Note that `Spectre`, referenced in the EPI2ME row above, is **not** available on Bioconda.
+Any Spectre comparison therefore carries the same packaging cost as ClairS-TO and should not
+be treated as the cheaper option.
+
+### Working conclusions from this pass
+
+**The largest gap is small variants, not another CNV caller.** The pipeline cannot see NPM1,
+FLT3-ITD, CEBPA, TP53 or the myelodysplasia-related genes, which is most of what decides AML
+classification and risk. Ten of the twenty-four criteria drafted in
+`GUIDELINE_CRITERIA_DRAFT_v0` are unevaluable for exactly this reason. Adding a fifth CNV
+caller does not move that.
+
+**Methylation is evidence already being paid for and discarded.** The instrument emits 5mC
+from the same reads, and the published classifier consumes sparse genome-wide data rather
+than deep target coverage — which is the shape of the off-target fraction this assay already
+produces. No additional sequencing, no additional run.
+
+**Depth should be spent where it exists.** Roughly 80x on-target supports variant calling;
+8.8x off-target supports copy number and methylation and supports neither confident somatic
+SNV calling nor a complete karyotype. Any lane added should declare which depth regime it
+belongs to.
+
+**Two germline vocabularies are now on the shortlist.** AnnotSV's ACMG/ClinGen ranking joins
+ClinVar as a source whose *content* is useful and whose *classification* answers a different
+question than AML asks. The existing ADR-022 boundary applies unchanged.
 
 ## Locked implementation interfaces
 
