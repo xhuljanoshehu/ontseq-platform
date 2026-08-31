@@ -208,7 +208,7 @@ jobs:
               echo "stock Ubuntu full system smoke: PASS"
             '
       - name: Upload Linux runtime
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: ontseq-linux-runtime.tar.gz
@@ -286,7 +286,7 @@ jobs:
           }
           Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ontseq-desktop-v${{ env.ONTSEQ_VERSION }}-win-x64-setup-engineering
           path: desktop/publish/
