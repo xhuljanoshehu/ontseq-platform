@@ -1,5 +1,205 @@
 {
   "$defs": {
+    "BreakpointAnnotation": {
+      "additionalProperties": false,
+      "description": "One 0-based breakpoint with cytoband, transcript and technical context.",
+      "properties": {
+        "chromosome": {
+          "pattern": "^chr(?:[1-9]|1[0-9]|2[0-2]|X|Y|M)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "contexts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointContextAnnotation"
+          },
+          "title": "Contexts",
+          "type": "array"
+        },
+        "cytoband": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband"
+        },
+        "label": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "transcripts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointTranscriptAnnotation"
+          },
+          "title": "Transcripts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "chromosome",
+        "position"
+      ],
+      "title": "BreakpointAnnotation",
+      "type": "object"
+    },
+    "BreakpointContextAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_type": {
+          "minLength": 1,
+          "title": "Resource Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "resource_type",
+        "label"
+      ],
+      "title": "BreakpointContextAnnotation",
+      "type": "object"
+    },
+    "BreakpointTranscriptAnnotation": {
+      "additionalProperties": false,
+      "description": "Transcript-level context for one independently annotated SV breakpoint.",
+      "properties": {
+        "cds_phase": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cds Phase"
+        },
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene_id": {
+          "minLength": 1,
+          "title": "Gene Id",
+          "type": "string"
+        },
+        "gene_name": {
+          "minLength": 1,
+          "title": "Gene Name",
+          "type": "string"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred": {
+          "default": false,
+          "title": "Preferred",
+          "type": "boolean"
+        },
+        "rank_tier": {
+          "minimum": 1,
+          "title": "Rank Tier",
+          "type": "integer"
+        },
+        "region": {
+          "enum": [
+            "exon",
+            "intron",
+            "transcript"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "enum": [
+            "+",
+            "-"
+          ],
+          "title": "Strand",
+          "type": "string"
+        },
+        "transcript_id": {
+          "minLength": 1,
+          "title": "Transcript Id",
+          "type": "string"
+        },
+        "transcript_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transcript Name"
+        }
+      },
+      "required": [
+        "gene_id",
+        "gene_name",
+        "transcript_id",
+        "strand",
+        "rank_tier",
+        "region"
+      ],
+      "title": "BreakpointTranscriptAnnotation",
+      "type": "object"
+    },
     "CuteSvPolicy": {
       "additionalProperties": false,
       "properties": {
@@ -434,6 +634,135 @@
       "title": "FileFingerprint",
       "type": "object"
     },
+    "FusionAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_status": {
+          "default": "unknown",
+          "enum": [
+            "in_frame",
+            "out_of_frame",
+            "unknown"
+          ],
+          "title": "Frame Status",
+          "type": "string"
+        },
+        "gene_a": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "gene_b": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "++",
+                "+-",
+                "-+",
+                "--"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orientation"
+        }
+      },
+      "required": [
+        "gene_a",
+        "gene_b"
+      ],
+      "title": "FusionAnnotation",
+      "type": "object"
+    },
+    "FusionPartnerAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred_transcript": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preferred Transcript"
+        },
+        "region": {
+          "default": "unknown",
+          "enum": [
+            "exon",
+            "intron",
+            "transcript",
+            "unknown"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "anyOf": [
+            {
+              "enum": [
+                "+",
+                "-"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strand"
+        }
+      },
+      "title": "FusionPartnerAnnotation",
+      "type": "object"
+    },
     "FusionSupportStatus": {
       "enum": [
         "not_assessed",
@@ -472,6 +801,13 @@
             "$ref": "#/$defs/EventAnnotation"
           },
           "title": "Annotations",
+          "type": "array"
+        },
+        "breakpoint_annotations": {
+          "items": {
+            "$ref": "#/$defs/BreakpointAnnotation"
+          },
+          "title": "Breakpoint Annotations",
           "type": "array"
         },
         "breakpoint_distance_bp": {
@@ -538,6 +874,17 @@
           },
           "title": "Evidence",
           "type": "array"
+        },
+        "fusion_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FusionAnnotation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "fusion_status": {
           "$ref": "#/$defs/FusionSupportStatus",
