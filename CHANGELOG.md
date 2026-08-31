@@ -34,6 +34,10 @@ validated release.
 
 - The hematology knowledge builder now writes canonical LF JSON on every operating system, so
   the checked-in bundle size and SHA256 remain identical on Windows and Linux.
+- Git now preserves every checksum-pinned knowledge, panel and reference-fixture byte stream on
+  Windows, and repository safety rejects newly pinned resources that lack this protection.
+- The repaired dependency lock now records the 0.5.3 root-package version used by runtime
+  provenance and release checks.
 
 ### Validation impact
 
