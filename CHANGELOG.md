@@ -57,6 +57,27 @@ validated release.
   `chr`-prefix/integer normalization is bounded and conversion errors become counted rejections.
   The ALT, record ID and internal bracket form remain absent from normalized evidence.
 
+- `docs/EVIDENCE_BASE.md`: a second candidate survey (2026-08-31) covering small variants,
+  methylation and clinical annotation, plus a packaging audit against the live Bioconda index.
+  Seven new evidence-matrix rows, each with its applicability limit and the resulting decision.
+
+  Three findings change the shortlist rather than extend it. **The largest gap is small
+  variants, not another CNV caller**: ClairS-TO is tumour-only by design, which matches AML
+  diagnostics having no matched normal, and it would make ten of the twenty-four criteria in
+  `GUIDELINE_CRITERIA_DRAFT_v0` evaluable. **Methylation is evidence already being paid for
+  and discarded**: the published nanopore leukaemia classifier consumes sparse genome-wide
+  data, which is the shape of the off-target fraction this assay already produces, and a
+  preprint characterises its failure mode at low blast fraction — the stratum that matters
+  most here. **AnnotSV's ACMG/ClinGen ranking is a germline vocabulary**, joining ClinVar as a
+  source whose content is useful and whose classification answers a different question than
+  AML asks; ADR-022 applies unchanged.
+
+  The survey also corrects a figure this document reasoned from: the EPI2ME row assumed "a
+  roughly 3x lcWGS assay", but the measured local run produced 8.8x off-target. Several
+  conclusions depend on which is right, so it is flagged for confirmation across runs rather
+  than silently rewritten. And `Spectre`, referenced there as a CNV comparator, is **not** on
+  Bioconda — it carries the same packaging cost as ClairS-TO rather than being the cheap option.
+
 ### Validation impact
 
 - JSON and schema contracts are unchanged. Inputs previously accepted through a partial bracket
