@@ -5,6 +5,27 @@ validated release.
 
 ## Unreleased
 
+### Fixed
+
+- Sniffles2 and cuteSV now validate a bracketed BND ALT as exactly one of the four VCF forms
+  before using its mate coordinate. Local sequence is limited to ASCII `ACGTN`, mate positions
+  to positive ASCII digits, and whitespace, comma-separated alleles and trailing content are
+  rejected rather than partially matched. Only explicit `<BND>` and `<TRA>` alleles may use the
+  `CHR2`/`END` fallback. For a bracketed allele, `CHR2` must agree with the ALT whenever present;
+  `END` is additionally compared when the complete `CHR2`/`END` mate pair is present. Safe
+  `chr`-prefix/integer normalization is bounded and conversion errors become counted rejections.
+  The ALT, record ID and internal bracket form remain absent from normalized evidence.
+
+### Validation impact
+
+- JSON and schema contracts are unchanged. Inputs previously accepted through a partial bracket
+  match, an unsupported non-bracket ALT, or contradictory duplicate mate coordinates can now have
+  fewer accepted events and explicit rejection counts. Valid four-form BND alleles and supported
+  symbolic records retain their mate coordinates. No caller threshold, consensus-matching rule,
+  confidence, fusion assertion or `reportable` value changes. This is defensive normalization,
+  not biological validation; intended-use truth data and the open validation work remain required
+  before promotion from draft review.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added
