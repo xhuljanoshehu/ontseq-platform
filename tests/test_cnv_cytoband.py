@@ -29,6 +29,34 @@ class CytobandFractionTests(unittest.TestCase):
         self.assertFalse(overlaps["below"].affected)
         self.assertEqual(result.affected_groups[0].bands, ("p12",))
 
+    def test_exact_synthetic_band_boundary_is_zero_based_half_open(self) -> None:
+        result = annotate_cnv_cytobands(
+            [CnvSegment("right-band", "chr1", 100, 200, "gain")],
+            BANDS,
+            affected_fraction=0.66,
+        )
+
+        self.assertEqual(len(result.raw_overlaps), 1)
+        overlap = result.raw_overlaps[0]
+        self.assertEqual(overlap.band, "p11")
+        self.assertEqual(overlap.overlap_bp, 100)
+        self.assertEqual(overlap.fraction_of_band, 1.0)
+        self.assertEqual(result.affected_groups[0].bands, ("p11",))
+
+    def test_one_base_on_each_side_of_synthetic_boundary_remains_traceable(self) -> None:
+        result = annotate_cnv_cytobands(
+            [CnvSegment("boundary-span", "1", 99, 101, "loss")],
+            BANDS,
+            affected_fraction=0.66,
+        )
+
+        self.assertEqual(
+            [(item.band, item.overlap_bp) for item in result.raw_overlaps],
+            [("p12", 1), ("p11", 1)],
+        )
+        self.assertTrue(all(not item.affected for item in result.raw_overlaps))
+        self.assertEqual(result.affected_groups, ())
+
 
 class CytobandGroupingTests(unittest.TestCase):
     def test_adjacent_same_direction_bands_merge(self) -> None:
@@ -110,3 +138,4 @@ class WholeChromosomeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
