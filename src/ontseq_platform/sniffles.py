@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .breakends import BreakendParseError, resolve_breakend
 from .execution import CommandRunner, SubprocessRunner
 from .models import (
     AlignedBamIntakeReport,
@@ -30,7 +31,6 @@ from .models import (
 )
 from .reference import sha256_file
 
-_BND_MATE = re.compile(r"[\[\]]([^:\[\]]+):(\d+)[\[\]]")
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+(?:\.\d+)?)(?!\d)")
 _SV_TYPE_MAP = {
     "DEL": EventType.DELETION,
@@ -234,19 +234,20 @@ def _breakend_loci(
     alternate: str,
     info: dict[str, str | bool],
 ) -> tuple[Locus, Locus]:
-    mate = _BND_MATE.search(alternate)
-    if mate:
-        secondary_chromosome = mate.group(1)
-        secondary_position = int(mate.group(2))
-    else:
-        secondary_chromosome = _first_value(info.get("CHR2")) or ""
-        secondary_position = _integer(info.get("END"), reason="missing_breakend_mate")
+    try:
+        resolved = resolve_breakend(
+            alternate,
+            declared_chromosome=info.get("CHR2"),
+            declared_position=info.get("END"),
+        )
+    except BreakendParseError as exc:
+        raise _RejectedRecord(exc.reason) from exc
     try:
         primary = Locus(chromosome=chromosome, start=position - 1, end=position)
         secondary = Locus(
-            chromosome=secondary_chromosome,
-            start=secondary_position - 1,
-            end=secondary_position,
+            chromosome=resolved.mate_chromosome,
+            start=resolved.mate_position_0based,
+            end=resolved.mate_position_0based + 1,
         )
     except ValidationError as exc:
         raise _RejectedRecord("invalid_breakend_locus") from exc
