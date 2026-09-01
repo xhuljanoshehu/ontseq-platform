@@ -162,6 +162,85 @@ belongs to.
 ClinVar as a source whose *content* is useful and whose *classification* answers a different
 question than AML asks. The existing ADR-022 boundary applies unchanged.
 
+## Survey 2026-09-01: external validation, the pore-split architecture and the tool stack
+
+Two sources were supplied directly (Heuser et al.; Schoenung et al.) and the rest were found by
+searching from them. Full texts could not be retrieved: `biorxiv.org`, `ashpublications.org` and
+`europepmc.org` are blocked by this environment's network policy, so every row below is graded
+from abstract-level content only. Read the methods before acting on any of it.
+
+### Evidence matrix additions
+
+| Source | Level | What it shows | Limitation | What it changes here |
+| --- | --- | --- | --- | --- |
+| Heuser et al., *Blood Advances* (2026), [doi:10.1182/bloodadvances.2026019960](https://doi.org/10.1182/bloodadvances.2026019960) | A | ONT lcWGS karyotyping in 100 AML samples (50 retrospective adverse-risk, 50 prospective de novo): 93% sensitivity, specificity and accuracy; complex-karyotype AUC 0.971; cross-laboratory reproducibility R=0.99; lcWGS complex karyotype predicted shorter OS and RFS; ~34 h to bioinformatics. Clone-size estimates correlated only moderately with conventional cytogenetics (R=0.54). | Pure lcWGS, not adaptive sampling, so the read distribution differs from this assay. Clone-size correlation is the weakest reported metric. | The external benchmark this repository lacked. Its 93% sensitivity and 0.971 AUC are the obvious acceptance criteria for the CNV benchmark gate. R=0.54 is independent empirical support for refusing to report clonal fraction as a quantitative result. |
+| Capilla-Guerra et al., *Blood* (2025), ASH abstract, "Rapid diagnosis of acute leukemia with integrated epigenetic and genetic profiling" | D | Splits the flow cell: **90% of pores to adaptive sampling** over 274 genes, **10% to conventional non-adaptive sequencing** for genome-wide methylation classification and copy number. Median 133x over ROIs (75-192x); NPM1 105x, TP53 113x, FLT3 163x. 27/31 clinically reported SNVs/indels recovered, including NPM1 p.W288Cfs*12, FLT3-ITD, TP53 and IDH1; four fusions; copy number concordant including del(5q)/-7/del(12p)/del(17p). Methylation classification confident in 10/10 within two hours. Stack: Dorado, minimap2, **Clair3**, QDNAseq, Sniffles. | Conference abstract, n=10, retrospective. | The most architecturally decisive row. It answers the depth-allocation question with a pore split rather than a reliance on off-target reads, and its tool stack is this repository's stack plus Clair3. |
+| Steinicke et al., *Nature Genetics* (2025), "Rapid epigenomic classification of acute leukemia" (MARLIN) | A | Reference cohort n=2,540, 38 methylation classes; neural network classifying from **sparse** nanopore methylation; 25/26 retrospective cases concordant; 5/5 real-time cases, typically within 2 h of sample receipt. | Sparse-profile classification; rare classes underrepresented. | Confirms methylation classification as a first-class output of the same reads, not a separate assay. |
+| Steinicke et al., *Blood* (2024), ASH abstract | D | The coverage figure the peer-reviewed paper's abstract omits: confident predictions in 18/19 nanopore samples at **~3x genome coverage**, and good performance from only 3% of the input data (r=0.93). | Conference abstract. | Answers the open question directly. This assay's measured 8.8x off-target is roughly threefold above the depth reported as sufficient, so the methylation lane is viable on reads already produced. |
+| Achterberg et al., *Blood* (2025), ASH abstract (Lamprey) | D | Reference atlas >5,400 arrays, 38 subtypes spanning AML (18), BCP-ALL (10), T-ALL, low-risk MDS, MPN, JMML, CMML, BPDCN, B-PLL, CLL and two control classes. Trained on **simulated nanopore-style sparse reads**; micro-F1 0.96 on hold-out; 47/52 correct on a retrospective adaptive-sampling cohort. Confidently wrong on near-haploid/low-hypodiploid ALL, PAX5-altered ALL and KMT2A-PTD AML. | Conference abstract; named failure modes are confidently wrong, not merely uncertain. | Validated on adaptive-sampling data specifically. The enumerated high-confidence errors are a ready-made no-call list. |
+| Schoenung et al., bioRxiv (2026), DOI 10.64898/2026.07.02.735835 | D | Hierarchical classification from whole-genome nanopore sequencing: 5,420 training samples, 21 entities including healthy controls, then 44 epitypes, then integration of genetic data. Reports diagnosis-defining alterations missed by standard-of-care work-up. | Preprint, not peer reviewed. Licence is `cc_no`, so reuse permission is unstated. Coverage requirement not given in the abstract. | The broadest entity coverage found, and the closest match to a single-assay ambition. Coverage requirement and model availability must be read from the methods before this can be planned against. |
+| Marchi et al., *Nature Communications* (2025) | A | Acute Leukemia Methylome Atlas over 3,314 samples and 11 harmonized cohorts; a genome-wide prognostic model and a **targeted 38-CpG panel** both predict five-year survival; specimen-to-result nanopore protocol. | Rare karyotypes limited by training data. | Methylation carries prognostic and not only diagnostic signal, and a 38-CpG panel is a far smaller target than a genome-wide profile. |
+| crossNN, *Nature Cancer* (2025) | B | Explainable neural framework classifying tumours from **sparse methylomes across platforms and coverage depths**; pan-cancer model over 170+ tumour types validated in >5,000 tumours including nanopore; 97.8% pan-cancer precision. | Not haematology-specific. | Cross-platform and coverage-agnostic by design, which is the property a classifier needs to survive a change of chemistry or depth. |
+| Abel et al., *Journal of Molecular Diagnostics* (2025) | A | Tumour-only targeted long-read analysis of 26 AML/MDS samples at mean 52x: SNVs >96% recall and 91% precision; **indels 66% recall and 42% precision**, worst where few phased reads are available; copy number 95% accurate; all recurrent structural variants detected with no false positives. | n=26; targeted analysis of WGS rather than adaptive sampling. | The number that quantifies the NPM1 problem. A 4 bp insertion is exactly the class with 42% precision, so an NPM1 call from this assay needs orthogonal confirmation before it is reported. |
+| Aganezov et al., AACR (2026) abstract, Oxford Nanopore | D | Tumour-only adaptive sampling profiled as 100-200x on-target with 8-15 kb reads and 5-15x off-target at ~500 bp; genome-wide copy number derived **from the off-target reads**; SNV recall high to 0.05 allele fraction and precision high to 0.10-0.20; structural variants recovered with only one breakend on target. Benchmarked on COLO829 and an in-silico synthetic genome across coverage and purity ladders. | Vendor abstract; cell lines, not patients. | The read profile matches this laboratory's measured run almost exactly (80x on-target, 8.8x and 536 bp off-target). Establishes COLO829/COLO829BL and in-silico purity ladders as the benchmark design, and confirms copy number should be derived from off-target reads. |
+| Kato et al., *Journal of Clinical Oncology* (2024), ASCO abstract | D | Adaptive sampling of 466 genes on GridION in 28 paediatric leukaemias, mean on-target depth 21x. Against short-read WGS: **60.9% of SNVs, 17.6% of small indels, 89.2% of structural variants**, with poor efficiency at low allele fraction. Chromosome-level and focal copy number both detectable from off-target reads. An NPM1 frameshift outside known hotspots was missed. | Conference abstract; 21x is well below this assay's on-target depth. | The failure mode at shallow on-target depth, and a second independent warning that small indels are the weak class. |
+| Martinez-Serra et al., *OncoTargets and Therapy* (2025) | B | A dedicated clustering pipeline for FLT3-ITD on MinION resolves multiclonal ITD architecture and duplications as short as 15 bp. **Sniffles failed to call several biologically validated ITDs** that the clustering approach found. | Small cohort; bespoke pipeline. | Direct evidence that this repository's Sniffles-based structural-variant lane will not deliver FLT3-ITD. A dedicated ITD method is required, not a caller swap. |
+| ClairS-TO, *Nature Communications* (2025), [github.com/HKU-BAL/ClairS-TO](https://github.com/HKU-BAL/ClairS-TO) | B | Long-read **tumour-only** somatic small-variant calling; ensemble of two networks trained for opposite tasks; outperforms DeepSomatic and smrest on ONT and PacBio, and Mutect2/Octopus/Pisces on short reads; evaluated across coverage, allele fraction and purity. | Not AML-specific; not packaged on Bioconda. | Remains the leading tumour-only candidate. Note that Capilla-Guerra used plain Clair3, which is packaged, so the cheaper first step differs from the best endpoint. |
+| ClairS, *Nature Methods* (2026) | B | Tumour-normal long-read somatic calling. On ONT Q20+ HCC1395/HCC1395BL at 50/25x: F1 89.83% for SNVs and 73.38% for indels, improving to 96.19% and 79.67% with real cell lines added to training. Read phasing identified as the key mechanism at low allele fraction. | Requires a matched normal, which routine AML diagnostics usually lacks. | Quantifies the ceiling a matched normal would buy, and confirms indels trail SNVs by roughly fifteen F1 points even with one. |
+| SAVANA, *Nature Methods* (2025) | B | Somatic structural variants and copy-number aberrations at single-haplotype resolution **and estimation of tumour purity and ploidy**, with or without a germline control; 99 tumour-normal pairs; 13- and 82-fold higher specificity than the next two methods. | Whole-genome design; behaviour on adaptive-sampling coverage unknown. | A published long-read implementation of exactly the purity-and-ploidy problem `ontseq_platform.quantitation` models arithmetically, and it does not require a matched normal. |
+| Severus, *Nature Biotechnology* (2025) | B | Breakpoint-graph somatic structural-variant caller for long reads; supports unbalanced karyotypes and complex multi-break patterns; highest F1 against Sniffles2, nanomonsv and SAVANA on a multi-technology cell-line panel; found cryptic rearrangements missed by standard panels in paediatric leukaemia. | Uses a matched normal. | A candidate for the structural-variant benchmark, and evidence that Sniffles2 is not the ceiling. |
+| DeepSomatic, bioRxiv (2024) | D | Somatic SNV and indel calling for short and long reads with tumour-normal, **tumour-only** and FFPE modes. Publishes five matched tumour-normal cell-line pairs sequenced on Illumina, PacBio HiFi and ONT **with benchmark variant sets**. | Preprint. | The openly available truth data matters more here than the caller: it is material for the in-silico dilution series without new patient samples. |
+| Nakamura et al., *npj Genomic Medicine* (2024) | B | Adaptive-sampling workflow over 33 genomes; SNV accuracy comparable to short reads; complex structural variants resolved. **Off-target reads, normally discarded, genotyped common SNPs genome-wide** well enough to compute a polygenic risk score; allele-specific promoter hypermethylation detected. | Germline cancer predisposition, not somatic leukaemia. | Establishes that the off-target fraction supports genome-wide SNP genotyping, which is the input a B-allele-frequency route to tumour fraction would need. |
+| Furtado et al., Research Square (2026) | D | Nanopore WGS at 6.7x and adaptive sampling at 8.5x detected 94% of clinically relevant copy-number alterations in Wilms tumour with no false positives, but the depth was **insufficient for methylation assessment at the 11p15 imprinting control regions**. | Preprint; xenografts; n=15. | The counterweight to the methylation optimism above. Genome-wide sparse classification is not the same task as locus-specific methylation, and this assay's depth may support the first and not the second. |
+| Hansen et al., *Journal of Molecular Diagnostics* (2023) | B | ONT whole-genome cytogenomics in mantle cell lymphoma: ~99% copy-number reproducibility between replicates at 100 kb resolution and 98% concordance with Illumina, from 1.5-7.5 million long reads. | Cell line; lymphoma. | A concrete resolution and read-count target for copy-number reproducibility. |
+| Yang et al., *Genome Biology* (2025) | B | Benchmark of six adaptive-sampling tools across enrichment and depletion tasks; 1.50-4.86-fold coverage enrichment; basecalling plus minimap2 alignment the most accurate read-classification strategy. | Not cancer-specific. | Relevant if the selection strategy itself is ever revisited; the enrichment factors bound what a panel change can deliver. |
+| Geoffrion et al. (2025), nf-core-oncoseq | D | Adaptive-sampling whole-genome workflow for paediatric oncology over 31 samples, unifying genomic, structural and epigenomic detection, with an **open-source pipeline**. Reports clonal alterations confidently supported within the first sequencing day. | Preprint; paediatric solid tumours. | An existing open pipeline covering the same assay shape; worth reading before building further lanes. |
+| ROBIN, *Neuro-Oncology* (2025) | C | Single nanopore assay giving intraoperative methylome classification plus next-day SNV, CNV and structural-variant profiling; 50 prospective cases; 90% concordance with the final integrated diagnosis. | CNS tumours. | The staged-output pattern -- fast classification first, comprehensive profile later -- transfers directly to an AML workflow. |
+| Kuschel et al., *Neuropathology and Applied Neurobiology* (2022) | C | Shallow nanopore methylation classification across 46 brain-tumour types: **1,000 random CpG features sufficed** for high-confidence classification; cross-laboratory concordance 10/11; 100% specificity in validation at a calibrated confidence threshold; median 21.1 h. | CNS tumours. | The methodological precedent for calibrated confidence scoring and an explicit unclassifiable outcome, which is the shape a no-call policy for a classifier needs. |
+
+### Working conclusions from this pass
+
+**The depth-allocation problem has a published answer, and it is not a software change.**
+Capilla-Guerra et al. devote 90% of pores to adaptive sampling and 10% to conventional
+sequencing, so the genome-wide lane is uniform rather than being reconstructed from off-target
+reads. That removes the enrichment bias from copy number and methylation at the cost of a
+tenth of the on-target yield. It is a sequencing-setup decision for the laboratory, not an
+analysis decision, and it should be evaluated against the current off-target-only approach.
+
+**The missing caller may be smaller than assumed.** The reference stack is Dorado, minimap2,
+Clair3, QDNAseq and Sniffles. This repository already pins four of those five. Clair3 is
+packaged on Bioconda and is a germline caller pressed into service; ClairS-TO is the
+tumour-only design and is not packaged. That is a cheap first step and a better endpoint, and
+they are not the same step.
+
+**Small indels are the weak class, twice measured.** 66% recall and 42% precision at 52x, and
+17.6% of small indels at 21x. NPM1's canonical alteration is a 4 bp insertion. An NPM1 call
+from this assay is a hypothesis requiring orthogonal confirmation, not a reportable result.
+
+**FLT3-ITD needs a dedicated method.** Sniffles demonstrably misses validated ITDs that a
+clustering approach recovers, including duplications as short as 15 bp. No swap among general
+structural-variant callers fixes this.
+
+**Methylation classification is plausible at this assay's off-target depth, with a caveat.**
+Confident classification is reported at ~3x genome coverage and from 1,000 CpG features, well
+below the 8.8x measured here. But locus-specific methylation at 8.5x was reported as
+insufficient in Wilms tumour. Genome-wide sparse classification and locus-specific methylation
+are different questions and must not be promised together.
+
+**Purity and ploidy are solved elsewhere and can be borrowed.** SAVANA estimates both from
+long reads without a matched normal. `ontseq_platform.quantitation` carries the arithmetic and
+its detection limits; it does not need to carry the estimator.
+
+**Benchmark material exists and needs no patients.** COLO829/COLO829BL, HCC1395/HCC1395BL and
+the five DeepSomatic cell-line pairs are published with truth sets, and in-silico purity and
+coverage ladders are the established design. This is the in-silico dilution series, already
+standard practice rather than a novel proposal.
+
+**Acceptance criteria are now available.** 93% sensitivity and 0.971 complex-karyotype AUC
+against conventional karyotyping; ~99% copy-number reproducibility at 100 kb between
+replicates and R=0.99 across laboratories. These are external numbers to be measured against,
+not targets this project set for itself.
+
 ## Locked implementation interfaces
 
 | Dependency | Locked interface | Safety-relevant decision |
