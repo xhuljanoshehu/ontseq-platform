@@ -65,11 +65,11 @@ def _panel(*labels: str) -> Panel:
 
 class LoadPanelTests(unittest.TestCase):
     def _write(self, text: str) -> Path:
-        handle = tempfile.NamedTemporaryFile("w", suffix=".bed", delete=False, encoding="utf-8")
-        handle.write(text)
-        handle.close()
-        self.addCleanup(Path(handle.name).unlink)
-        return Path(handle.name)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "panel.bed"
+        path.write_text(text, encoding="utf-8")
+        return path
 
     def test_skips_comments_and_blank_lines(self) -> None:
         panel = load_panel(self._write(BED))
