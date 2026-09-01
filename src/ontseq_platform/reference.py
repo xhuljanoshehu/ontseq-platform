@@ -6,7 +6,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .models import GenomeBuild, ReferenceContig, ReferenceLock
+from .models import (
+    GenomeBuild,
+    ReferenceContig,
+    ReferenceDictionaryContract,
+    ReferenceLock,
+)
 
 # Nuclear chromosome lengths are stable assembly identifiers. Requiring all 24 nuclear
 # chromosomes lets the Desktop reject a tiny test or region-only dictionary without making
@@ -81,6 +86,93 @@ def _canonical_profile(genome_build: GenomeBuild, prefix: str) -> dict[str, int]
         f"{prefix}{label}": length
         for label, length in zip(labels, _CANONICAL_NUCLEAR_LENGTHS[genome_build], strict=True)
     }
+
+
+def canonical_contigs(
+    genome_build: GenomeBuild, *, chr_prefix: bool = True
+) -> tuple[tuple[str, int], ...]:
+    """Return the ordered canonical nuclear dictionary used for build detection."""
+
+    prefix = "chr" if chr_prefix else ""
+    return tuple(_canonical_profile(genome_build, prefix).items())
+
+
+def grch38_canonical_25_contigs() -> tuple[tuple[str, int], ...]:
+    """Return chr1-22, chrX, chrY and chrM in the only supported 25-contig order."""
+
+    return (*canonical_contigs(GenomeBuild.GRCH38), ("chrM", 16569))
+
+
+def validate_grch38_canonical_25(
+    contigs: Iterable[tuple[str, int]],
+) -> CanonicalReferenceSummary:
+    """Require exactly the chr-prefixed GRCh38 Canonical-25 dictionary.
+
+    Build detection deliberately tolerates additional contigs.  A profile that names this
+    contract does not: decoys, ALT loci, unplaced scaffolds, missing chrM and reordered
+    dictionaries are all distinct alignment references and therefore fail closed.
+    """
+
+    observed = tuple(contigs)
+    expected = grch38_canonical_25_contigs()
+    if observed != expected:
+        observed_map = dict(observed)
+        expected_map = dict(expected)
+        missing = [name for name in expected_map if name not in observed_map]
+        extras = [name for name in observed_map if name not in expected_map]
+        mismatched = [
+            name
+            for name, length in expected_map.items()
+            if name in observed_map and observed_map[name] != length
+        ]
+        order_mismatch = not missing and not extras and not mismatched
+        raise ValueError(
+            "GRCh38 Canonical-25 dictionary must be exactly chr1-22, chrX, chrY, chrM "
+            "with standard lengths and order: "
+            f"{len(missing)} missing, {len(extras)} extra, "
+            f"{len(mismatched)} length mismatches, order_mismatch={order_mismatch}"
+        )
+    return CanonicalReferenceSummary(
+        genome_build=GenomeBuild.GRCH38,
+        naming_style="chr-prefixed",
+        contig_count=len(expected),
+        total_reference_bases=sum(length for _, length in expected),
+    )
+
+
+def reference_lock_for_dictionary_contract(
+    reference_lock: ReferenceLock,
+    contract: ReferenceDictionaryContract,
+) -> ReferenceLock:
+    """Derive the exact run lock selected by a profile's explicit dictionary contract."""
+
+    if contract == ReferenceDictionaryContract.EXACT_FULL:
+        return reference_lock
+    if contract != ReferenceDictionaryContract.GRCH38_CANONICAL_25:
+        raise ValueError(f"unsupported reference dictionary contract: {contract.value}")
+    if reference_lock.genome_build != GenomeBuild.GRCH38:
+        raise ValueError("grch38_canonical_25 cannot be derived from a non-GRCh38 ReferenceLock")
+
+    expected = grch38_canonical_25_contigs()
+    source = tuple((item.name, item.length) for item in reference_lock.contigs)
+    source_positions = {record: index for index, record in enumerate(source)}
+    try:
+        positions = [source_positions[record] for record in expected]
+    except KeyError as exc:
+        raise ValueError(
+            "pinned GRCh38 ReferenceLock does not contain the complete Canonical-25 dictionary"
+        ) from exc
+    if positions != sorted(positions):
+        raise ValueError("pinned GRCh38 ReferenceLock orders Canonical-25 contigs incompatibly")
+
+    validate_grch38_canonical_25(expected)
+    return ReferenceLock(
+        reference_id=reference_lock.reference_id,
+        genome_build=reference_lock.genome_build,
+        contigs=[ReferenceContig(name=name, length=length) for name, length in expected],
+        allow_extra_contigs=False,
+        source_fai_sha256=reference_lock.source_fai_sha256,
+    )
 
 
 def validate_canonical_reference(

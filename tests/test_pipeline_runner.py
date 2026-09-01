@@ -35,7 +35,12 @@ from ontseq_platform.pipeline.lock import LOCK_FILENAME, RunAlreadyRunning, run_
 from ontseq_platform.pipeline.runner import (
     ALIGNED_BAI,
     ALIGNED_BAM,
+    CUTESV_REPORT,
+    CUTESV_VCF,
     IMPLEMENTATIONS,
+    SV_CONSENSUS_REPORT,
+    SV_REPORT,
+    SV_VCF,
     RunConfiguration,
     RunContext,
     StageFailure,
@@ -467,6 +472,50 @@ class AlignSettleTests(unittest.TestCase):
     def test_a_missing_bam_is_refused(self) -> None:
         with self.assertRaises(StageFailure):
             self.settle(self.context, [])
+
+
+class SvRerunCleanupTests(unittest.TestCase):
+    """A failed SV re-run must not expose caller evidence from a previous run."""
+
+    def test_sv_execute_removes_all_owned_outputs_before_later_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            envelope = RunEnvelope.create(base, run_id="R1", sample_id="FAKE_RUNNER_001")
+            config = RunConfiguration(
+                manifest=_manifest(),
+                reference_lock=_reference_lock(),
+                output_base=base,
+                run_id="R1",
+                pipeline_version="0.0.0-test",
+                git_commit="0" * 40,
+                qc_policy=QCPolicy(status="technical_defaults_only", note="test"),
+            )
+            context = RunContext(
+                config=config,
+                envelope=envelope,
+                runner=_NullRunner(),
+                manifest=_manifest(),
+            )
+            owned_templates = (
+                SV_VCF,
+                SV_REPORT,
+                CUTESV_VCF,
+                CUTESV_REPORT,
+                SV_CONSENSUS_REPORT,
+            )
+            for template in owned_templates:
+                envelope.atomic_write_text(context.path(template), "stale\n")
+
+            # There is deliberately no intake report.  The resulting failure proves the
+            # cleanup occurs before any caller, parser, or consensus work can fail.
+            with self.assertRaises(FileNotFoundError):
+                IMPLEMENTATIONS[StageId.SV].execute(
+                    context,
+                    StagePlan(parameters={}, tool_versions={}),
+                )
+
+            for template in owned_templates:
+                self.assertFalse(envelope.path(context.path(template)).exists(), template)
 
 
 if __name__ == "__main__":

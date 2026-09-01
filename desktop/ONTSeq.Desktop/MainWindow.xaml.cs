@@ -17,12 +17,14 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _analysisCts;
     private string? _currentRunId;
     private string? _currentSampleId;
+    private bool _loadingSettings = true;
 
     public ObservableCollection<StageDisplay> StageItems { get; } = [];
 
     public MainWindow()
     {
         InitializeComponent();
+        ProfileCombo.ItemsSource = DesktopProfiles.Supported;
         DataContext = this;
         SetPlaceholders();
     }
@@ -36,17 +38,14 @@ public partial class MainWindow : Window
     {
         try
         {
+            _loadingSettings = true;
             _settings = DesktopSettings.Load();
-            var configured = new List<string>();
-            if (_settings.TryReferenceLockFor("GRCh38", out _)) configured.Add("GRCh38");
-            if (_settings.TryReferenceLockFor("GRCh37", out _)) configured.Add("GRCh37");
-
-            BackendStateText.Text = configured.Count == 0
-                ? "Einrichtung erforderlich"
-                : $"WSL: {_settings.WslDistribution} · Ref: {string.Join(", ", configured)}";
-
-            if (configured.Count == 0)
-                DetailText.Text = "Vor der ersten Analyse bitte 'System einrichten' öffnen: Linux-Runtime installieren, passende Referenz konfigurieren und Selbsttest ausführen.";
+            SelectProfile(_settings.DefaultProfile);
+            BackendStateText.Text =
+                $"WSL: {_settings.WslDistribution} · Ressourcen: {_settings.ResourceRootWsl}";
+            DetailText.Text =
+                "ONTSeq löst FASTA, Annotation, Knowledge und gegebenenfalls Panel " +
+                "automatisch aus dem gewählten GRCh38-Profil auf. Bundle-Status unter 'System einrichten' prüfen.";
             StartButton.IsEnabled = true;
         }
         catch (Exception error)
@@ -54,6 +53,37 @@ public partial class MainWindow : Window
             BackendStateText.Text = "Konfigurationsfehler";
             DetailText.Text = error.Message;
             StartButton.IsEnabled = false;
+        }
+        finally
+        {
+            _loadingSettings = false;
+        }
+    }
+
+    private void SelectProfile(string profileId)
+    {
+        foreach (var item in ProfileCombo.Items.OfType<DesktopAnalysisProfile>())
+        {
+            if (!string.Equals(item.ProfileId, profileId, StringComparison.Ordinal)) continue;
+            ProfileCombo.SelectedItem = item;
+            return;
+        }
+        ProfileCombo.SelectedIndex = 0;
+    }
+
+    private void ProfileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ProfileCombo.SelectedItem is not DesktopAnalysisProfile profile) return;
+        UpdateDetectedBuildText(profile);
+        if (_loadingSettings) return;
+        _settings.DefaultProfile = profile.ProfileId;
+        try
+        {
+            _settings.SaveUserSettings();
+        }
+        catch (Exception error)
+        {
+            DetailText.Text = "Profil konnte nicht als Standard gespeichert werden: " + error.Message;
         }
     }
 
@@ -81,34 +111,20 @@ public partial class MainWindow : Window
         DetailText.Text = index is not null
             ? $"BAM und BAM-Index gefunden ({Path.GetFileName(index)})."
             : "Hinweis: Erwartet wird <sample>.bam.bai oder <sample>.bai neben der BAM-Datei.";
+        if (ProfileCombo.SelectedItem is DesktopAnalysisProfile profile)
+            UpdateDetectedBuildText(profile);
+    }
+
+    private void UpdateDetectedBuildText(DesktopAnalysisProfile profile)
+    {
+        DetectedBuildText.Text =
+            $"{profile.GenomeBuild} · {profile.DictionaryLabel} · " +
+            "BAM-Dictionary wird beim Start automatisch geprüft";
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryValidateForm(out var bam, out var sampleId, out var genomeBuild, out var assay)) return;
-
-        if (!_settings.TryReferenceLockFor(genomeBuild, out var referenceLock))
-        {
-            RunStateText.Text = "EINRICHTUNG";
-            DetailText.Text = $"Für {genomeBuild} fehlt der Reference-Lock. Die Analyse wurde noch nicht gestartet.";
-            var openSetup = MessageBox.Show(
-                this,
-                $"Für {genomeBuild} ist noch keine passende Referenz eingerichtet. Jetzt 'System einrichten' öffnen?",
-                "ONTSeq Einrichtung erforderlich",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information);
-            if (openSetup != MessageBoxResult.Yes) return;
-
-            var setup = new SetupWindow(_settings) { Owner = this };
-            setup.ShowDialog();
-            ReloadSettingsState();
-            if (!_settings.TryReferenceLockFor(genomeBuild, out referenceLock))
-            {
-                RunStateText.Text = "EINRICHTUNG";
-                DetailText.Text = $"{genomeBuild}-Referenz ist weiterhin nicht konfiguriert; es wurde keine Analyse gestartet.";
-                return;
-            }
-        }
+        if (!TryValidateForm(out var bam, out var sampleId, out var profile)) return;
 
         StartButton.IsEnabled = false;
         BrowseButton.IsEnabled = false;
@@ -134,48 +150,51 @@ public partial class MainWindow : Window
             var allowedRoot = Path.GetDirectoryName(bam)
                               ?? throw new InvalidOperationException("BAM-Verzeichnis konnte nicht bestimmt werden.");
 
-            BackendStateText.Text = "WSL, Backend und Referenz werden geprüft…";
-            DetailText.Text = "Vorprüfung: WSL2, ONTSeq-Runtime, BAM-Speicher, Ausgabeverzeichnis und Reference-Lock.";
-            await _launcher.VerifyPrerequisitesAsync(
+            BackendStateText.Text = "WSL, Backend und GRCh38-Bundles werden geprüft…";
+            DetectedBuildText.Text = "GRCh38 · BAM-Dictionary-Prüfung läuft im Backend…";
+            DetailText.Text =
+                "Vorprüfung: WSL2, ONTSeq-Runtime, BAM-Speicher, Resource-Root sowie Referenz-, Knowledge- und Panel-Bundles.";
+            await _launcher.VerifyProfilePrerequisitesAsync(
                 _settings,
                 allowedRoot,
-                referenceLock,
-                genomeBuild,
+                profile.ProfileId,
                 cancellationToken);
 
             BackendStateText.Text = "Backend startet…";
-            _launcher.Start(_settings, allowedRoot, referenceLock);
+            _launcher.StartProfile(_settings, allowedRoot, profile.ProfileId);
             _client = new OntSeqServiceClient(_settings.Port);
             var config = await _client.BootstrapAsync(
                 TimeSpan.FromSeconds(30),
                 () => _launcher.HasExited,
                 () => _launcher.DiagnosticLog,
                 cancellationToken);
+            if (config.Profiles is null || !config.Profiles.Contains(
+                    profile.ProfileId, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Das Backend kann das Profil {profile.ProfileId} aus dem Resource-Root " +
+                    "nicht vollständig auflösen. Bitte in 'System einrichten' die vollständige " +
+                    "Profilressourcen-Reparatur ausführen.");
+            }
             BackendStateText.Text = $"ONTSeq {config.Version} · lokal verbunden";
 
-            _currentRunId = $"RUN_{DateTime.Now:yyyyMMdd_HHmmss}";
             _currentSampleId = sampleId;
             var request = new RunStartRequest(
                 bam,
                 sampleId,
-                _currentRunId,
-                genomeBuild,
-                assay,
-                assay == "adaptive_sampling" ? _settings.AdaptiveTargetBedWsl : null,
-                assay == "adaptive_sampling" ? _settings.AdaptiveTargetBedVersion : null);
+                null,
+                profile.ProfileId,
+                profile.GenomeBuild,
+                profile.Assay);
 
-            if (assay == "adaptive_sampling" &&
-                (string.IsNullOrWhiteSpace(request.TargetBed) || string.IsNullOrWhiteSpace(request.TargetBedVersion)))
-            {
-                throw new InvalidOperationException(
-                    "Adaptive Sampling benötigt das freigegebene Analyse-ROI-BED und dessen Version. " +
-                    "Diese Ressource ist noch nicht konfiguriert; der Lauf wird fail-closed gestoppt.");
-            }
-
-            await _client.StartRunAsync(request, cancellationToken);
+            var started = await _client.StartRunAsync(request, cancellationToken);
+            var runId = started.RunId;
+            _currentRunId = runId;
             RunStateText.Text = "RUNNING";
-            DetailText.Text = $"Analyse {_currentRunId} läuft. Die Bioinformatik arbeitet in WSL; dieses Fenster liest den geprüften Laufstatus.";
-            await PollUntilFinishedAsync(_currentRunId, sampleId, cancellationToken);
+            DetailText.Text =
+                $"Analyse {runId} läuft mit {profile.ProfileId}. " +
+                "Die Bioinformatik arbeitet in WSL; dieses Fenster liest den geprüften Laufstatus.";
+            await PollUntilFinishedAsync(runId, sampleId, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -207,8 +226,14 @@ public partial class MainWindow : Window
             var persisted = await ProvenanceReader.ReadStagesAsync(
                 _settings.OutputDirectoryWindows, runId, sampleId, cancellationToken);
             if (persisted.Count > 0) UpdateStages(persisted);
+            var persistedBuild = await ProvenanceReader.ReadGenomeBuildAsync(
+                _settings.OutputDirectoryWindows, runId, sampleId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(persistedBuild))
+                DetectedBuildText.Text = persistedBuild + " · automatisch geprüft und in Provenienz gespeichert";
 
             var job = await _client.GetRunAsync(runId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(job.DetectedGenomeBuild))
+                DetectedBuildText.Text = job.DetectedGenomeBuild + " · automatisch aus BAM-Dictionary erkannt";
             if (persisted.Count == 0 && job.Stages.Count > 0) UpdateStages(job.Stages);
             RunStateText.Text = job.State.ToUpperInvariant();
 
@@ -236,12 +261,16 @@ public partial class MainWindow : Window
         RunProgress.Value = stages.Count == 0 ? 0 : 100.0 * concluded / stages.Count;
     }
 
-    private bool TryValidateForm(out string bam, out string sampleId, out string build, out string assay)
+    private bool TryValidateForm(
+        out string bam,
+        out string sampleId,
+        out DesktopAnalysisProfile profile)
     {
         bam = BamPathTextBox.Text.Trim();
         sampleId = SampleIdTextBox.Text.Trim();
-        build = ((ComboBoxItem)GenomeBuildCombo.SelectedItem).Tag?.ToString() ?? "GRCh38";
-        assay = ((ComboBoxItem)AssayCombo.SelectedItem).Tag?.ToString() ?? "lcwgs";
+        var profileId = (ProfileCombo.SelectedItem as DesktopAnalysisProfile)?.ProfileId
+                        ?? DesktopProfiles.DefaultProfileId;
+        profile = DesktopProfiles.Require(profileId);
 
         if (!File.Exists(bam) || !bam.EndsWith(".bam", StringComparison.OrdinalIgnoreCase))
         {

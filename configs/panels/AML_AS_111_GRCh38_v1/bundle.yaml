@@ -1,0 +1,56 @@
+schema_version: 1.0.0
+bundle_type: panel
+bundle_id: AML_AS_111_GRCh38_v1
+version: v1
+genome_build: GRCh38
+assay_mode: adaptive_sampling
+resources:
+  - resource_id: panel_source_bed
+    role: source_panel
+    path: source/250611_fusion_panel_with_buffer.bed
+    sha256: f454644f18d8728c03678f4c6e969da7067879367c894c274e8c44be9352ef7e
+    size_bytes: 3320
+    coordinate_system: one_based_inclusive
+    release: '2025-06-11'
+    generated: false
+    derived_from: []
+  - resource_id: panel_source_regions
+    role: source_regions
+    path: source/250611_fusion_panel_with_buffer.interval_list
+    sha256: f9ebbfbaa555b05d42fdd9edfda93eb9556661a8c940dbbd64b938769c40b441
+    size_bytes: 2664
+    coordinate_system: one_based_inclusive
+    release: '2025-06-11'
+    generated: false
+    derived_from: []
+  - resource_id: selection_panel_normalized
+    role: selection_panel_buffered
+    path: derived/selection_panel.normalized.bed
+    sha256: 9338e66a52310d4181e2eb121d2f3954c16bb7bf482a8c5d2ec3c7b1e5381ee1
+    size_bytes: 3336
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from:
+      - panel_source_bed
+      - panel_source_regions
+  - resource_id: analysis_roi
+    role: analysis_roi_unbuffered
+    path: derived/analysis_roi.bed
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from:
+      - selection_panel_normalized
+      - GRCh38_GENCODE50_MANE1.5_v1:annotation_cache
+  - resource_id: panel_transcript_cache
+    role: transcript_cache
+    path: derived/transcripts.tsv
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from:
+      - selection_panel_normalized
+      - GRCh38_GENCODE50_MANE1.5_v1:annotation_cache
+selection_panel_resource_id: selection_panel_normalized
+analysis_roi_resource_id: analysis_roi
+transcript_cache_resource_id: panel_transcript_cache
+unresolved_targets:
+  - IGH_REVIEW_REQUIRED

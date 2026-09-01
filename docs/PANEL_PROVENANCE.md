@@ -1,80 +1,116 @@
-# Where the Adaptive Sampling panel came from
+# GRCh38 Adaptive Sampling panel provenance
 
-`configs/panels/aml_fusion_adaptive_sampling.grch38.buffered.bed` is the first target design
-in this repository that is not synthetic. This document records exactly what it is, what
-evidence supports that, and what has to be resolved before it may be treated as locked.
+## Active bundle
 
-## What it is
+The manifest at `configs/panels/AML_AS_111_GRCh38_v1/bundle.yaml` is the source definition
+for the GRCh38 AML Adaptive Sampling panel. Loose panel files elsewhere under `configs/`
+are legacy compatibility artifacts and are not registry-activated resources.
 
-111 intervals covering 17,028,377 bases on GRCh38, one per gene of an AML fusion and
-karyotyping panel. It is a **buffered selection panel**: each interval extends roughly
-10 kb beyond the gene it names.
+The bundle contains two immutable laboratory source artifacts:
 
-## Where it came from
+| Artifact | Actual format | SHA256 |
+| --- | --- | --- |
+| `250611_fusion_panel_with_buffer.bed` | four-column, 1-based inclusive target table | `f454644f18d8728c03678f4c6e969da7067879367c894c274e8c44be9352ef7e` |
+| `250611_fusion_panel_with_buffer.interval_list` | plain `chr:start-end` lines, not Picard/GATK IntervalList | `f9ebbfbaa555b05d42fdd9edfda93eb9556661a8c940dbbd64b938769c40b441` |
 
-Two laboratory workbooks, neither of which is in this repository and neither of which may
-be: they carry sample identifiers.
+Both sources contain the same 111 numeric intervals in the same order. They contain target
+coordinates and labels only; no sample, patient, run, or read data is committed.
 
-* an Adaptive Sampling coverage and fusion workbook, which lists the targets together with
-  per-run coverage;
-* an ONT experiments workbook, which lists the same targets with mean coverage across
-  further runs.
+## Coordinate contract
 
-`scripts/build_adaptive_sampling_panel.py` reads both from paths the operator supplies and
-writes only coordinates and aggregated numbers. The lock file records the SHA256 of each
-source workbook, so a later reviewer can prove which revision produced the committed BED.
+The `.bed` suffix does not establish BED semantics. Comparison with GRCh38 gene locations
+and the exact 10 kb flanks establishes that both laboratory artifacts record 1-based
+inclusive gene coordinates with a buffer. The source bytes are never used directly by an
+analysis.
 
-## Why we believe the build and the role
+`panel_bundle.import_panel_sources` applies exactly one conversion:
 
-Four independent observations agree, which is the only reason this file exists at all
-rather than a request to the laboratory:
+```text
+source [start, end] -> active [start - 1, end)
+```
 
-1. **Both workbooks describe an identical set of 111 intervals.** They were produced by
-   different people at different times.
-2. **The chromosome set matches the legacy pipeline exactly.** A released Sniffles VCF from
-   the historical Hannover pipeline carries contigs for chr1–chr19, chr21, chr22 and chrX —
-   no chr20, no chrY. The panel contains no chr20 or chrY gene. That VCF was produced with
-   `--regions data/reference/fusion_panel_with_buffer.bed`, so the interval set in these
-   workbooks is the region file that run was restricted to.
-3. **The contig lengths in that VCF are GRCh38**, not GRCh37 (chr1 = 248,956,422).
-4. **Interval ends sit exactly 10,000 bp beyond the Ensembl GRCh38 gene end** for MYC,
-   ABL1, KMT2A and PRDM16. Starts vary by a few hundred bases, consistent with a different
-   transcript source for the gene start. Together with the legacy file name, this is what
-   makes the design buffered rather than an analysis ROI.
+The resulting `derived/selection_panel.normalized.bed` is a standard 0-based half-open BED:
 
-Every interval was additionally checked against the GRCh38 primary assembly lengths, for
-duplicates, for overlaps and for non-positive length. None was found.
+- 111 intervals;
+- 17,028,488 total bases;
+- one-base reduction of every source start;
+- unchanged source end and interval order;
+- build `GRCh38`;
+- role `selection_panel_buffered`.
 
-## What is not established
+The original 1-based source and normalized derivative have separate checksums and resource
+IDs. No liftover or GRCh37 fallback exists.
 
-* **That this file is byte-identical to the panel the sequencer selected on.** It is
-  reconstructed from coverage tables, not copied from `fusion_panel_with_buffer.bed`.
-  Obtaining that file remains the correct next step; this BED is what allows work to
-  continue in the meantime.
-* **The coordinate convention.** The source is a region-string column, so whether the start
-  is 0-based half-open or 1-based inclusive is unverified. The difference is one base per
-  interval — immaterial to a coverage mean, material to a locked contract.
-* **Any threshold.** The panel says where to look. It says nothing about how much depth is
-  enough.
+## Build and role evidence
 
-## The open question that blocks promotion
+The coordinates match GRCh38 rather than GRCh37, including loci such as `ABL1`, `ALK`, and
+`RUNX1T1`. The interval boundaries are approximately 10 kb outside the named genes, so this
+resource describes the regions selected by Adaptive Sampling. It does not describe an
+unbuffered analysis ROI and cannot be used as one.
 
-One row is labelled **IGH** and placed at `chr5:143,396,959-143,417,420`. IGH is on chr14q32
-in GRCh38; that chr5 interval lies inside the NR3C1 region. Both workbooks carry the same
-value, so the error is upstream of this repository — it is not a transcription mistake made
-here. The interval is kept in the BED, renamed `IGH_REVIEW_REQUIRED`, and named in the lock
-file's `open_questions`. Nothing is silently dropped and nothing is silently accepted.
+The Analysis ROI and panel transcript cache are generated only after the locked
+`GRCh38_GENCODE50_MANE1.5_v1` SQLite annotation cache is installed:
 
-Until somebody in the laboratory says which of the two is wrong, the label or the interval,
-this panel stays `status: derived_unconfirmed`.
+- a target label must resolve to exactly one GENCODE gene on its declared source chromosome;
+- its Analysis ROI is the GENCODE gene body, not an interval inferred by trimming 10 kb;
+- every transcript is retained and ranked deterministically;
+- MANE Select precedes MANE Plus Clinical, canonical/APPRIS principal,
+  protein-coding/basic, and all remaining transcripts;
+- CDS length, transcript length, and transcript ID break ties.
 
-## Coverage expectations
+Pending generated resources keep the panel bundle incomplete and therefore unresolvable for
+analysis. The registry activates it only after the derivative paths and checksums exist.
 
-`configs/qc/target_coverage_expectations.grch38.tsv` gives the observed per-target mean
-depth across nine historical runs, as minimum, median and maximum. Run labels are reduced
-to a count so no sample can be identified from the file.
+## Unresolved `IGH` source row
 
-It is a sanity reference: a new run whose per-target depths fall far outside these ranges is
-worth investigating before its results are believed. It is **not** an adequacy gate, a
-reportability threshold or a no-call definition, and it must not become one without
-pre-specified validation.
+The source label `IGH` is paired with `chr5:143396959-143417420`. IGH is located on chr14q32
+in GRCh38. The software does not reinterpret the chr5 coordinate as IGH or as a different
+gene.
+
+The source label remains byte-for-byte unchanged in source provenance. Every active
+derivative uses `IGH_REVIEW_REQUIRED`; the transcript/ROI compiler omits it. This means:
+
+- no invented IGH Analysis ROI;
+- no negative observability statement for this unresolved target;
+- no automatic correction to `NR3C1` or another chr5 label.
+
+Resolution requires an authoritative corrected laboratory target definition.
+
+## Other generated open issues
+
+Compilation against the complete GENCODE 50 cache records every unresolved source label in the
+activated panel manifest. In addition to `IGH_REVIEW_REQUIRED`, the current official release
+leaves `GPR128` and `MKL1` unresolved:
+
+- the source `GPR128` interval is on chr17 and does not match the current GENCODE `ADGRG7`
+  (`GPR128`) locus on chr3;
+- `MKL1` is a historical symbol for `MRTFA`, but ONTSeq does not silently substitute gene aliases
+  without a curated, versioned alias resource.
+
+`P2RY8` occurs on both chrX and chrY in the pseudoautosomal region. Its source row explicitly
+declares chrX, so label plus source chromosome resolves it uniquely to the chrX GENCODE record.
+The generated open-issue list is provenance, not a negative biological finding; unresolved rows
+produce neither Analysis ROI nor observability claims.
+
+## Selection coverage versus Analysis ROI
+
+Selection coverage measures whether enrichment worked across the buffered sequencing
+design. Analysis-ROI coverage measures observability over resolved GENCODE gene bodies.
+They are separate resource roles, separate files, and separate report concepts. A missing or
+unresolved Analysis ROI is not a biological negative and must remain visible as unresolved.
+
+Historical values in `configs/qc/target_coverage_expectations.grch38.tsv` remain descriptive
+technical observations only. They do not establish an adequacy, reportability, or no-call
+threshold.
+
+## Validation impact
+
+The coordinate correction changes every active interval start by one base and changes the
+total target span by 111 bases compared with treating the source as standard BED. Panel
+coverage and breakpoint-in-target boundary results can therefore change at interval edges.
+
+The new ROI/transcript compiler and CNV cytoband summarizer can change gene/transcript/band
+annotations and review order. Tests lock the conversion, source checksums, unresolved target
+behavior, transcript ranking, minus-strand exon/intron logic, CDS phase, the 66% cytoband
+threshold, centromere separation, and whole-chromosome handling. These are deterministic
+software contracts, not validated analytical performance claims.

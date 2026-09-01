@@ -241,6 +241,8 @@ for (bin_size in bin_sizes) {
   )
 
   fd <- Biobase::fData(segmented)
+  bins_path <- file.path(out_dir, sprintf("%s.%skbp.bins.tsv", sample_id, bin_size))
+  utils::write.table(fd, bins_path, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
   segments <- collapse_segments(called$calledtemplate, fd)
   segment_path <- file.path(out_dir, sprintf("%s.%skbp.segments.tsv", sample_id, bin_size))
   utils::write.table(segments, segment_path, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
@@ -256,6 +258,15 @@ for (bin_size in bin_sizes) {
   ggplot2::ggsave(cn_plot, called$calledplot, width = 14, height = 7, dpi = 140)
 
   candidate_rows <- head(candidates, 12L)
+  model_path <- file.path(out_dir, sprintf("%s.%skbp.ace-models.tsv", sample_id, bin_size))
+  utils::write.table(
+    candidates,
+    model_path,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    na = ""
+  )
   runs[[length(runs) + 1L]] <- list(
     bin_size_kbp = bin_size,
     cellularity = cellularity_fraction,
@@ -269,6 +280,8 @@ for (bin_size in bin_sizes) {
     )),
     segment_file = basename(segment_path),
     chromosome_file = basename(chromosome_path),
+    bins_file = basename(bins_path),
+    model_file = basename(model_path),
     fit_plot = basename(fit_plot),
     copy_number_plot = basename(cn_plot),
     rds_file = basename(rds_path),

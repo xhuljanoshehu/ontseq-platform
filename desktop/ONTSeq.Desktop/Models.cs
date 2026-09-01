@@ -5,11 +5,19 @@ namespace ONTSeq.Desktop;
 
 public sealed class DesktopSettings
 {
+    // Desktop installs must not require root privileges.  Core/CLI deliberately retains
+    // /opt/ontseq as its independent server-style default.
+    public const string DefaultResourceRootWsl = "~/.local/share/ontseq/resources";
+
     public string WslDistribution { get; set; } = "Ubuntu";
     public string BackendCommand { get; set; } = "ontseq";
     public string? RuntimeBinWsl { get; set; }
+    public string ResourceRootWsl { get; set; } = DefaultResourceRootWsl;
+    public string DefaultProfile { get; set; } = DesktopProfiles.DefaultProfileId;
     public string OutputDirectoryWindows { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONTSeq", "results");
+    // Compatibility fields for one release. New profile runs resolve their resources from
+    // ResourceRootWsl and never combine these explicit paths with a bundle context.
     public Dictionary<string, string> ReferenceLocksWsl { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string? AdaptiveTargetBedWsl { get; set; }
     public string? AdaptiveTargetBedVersion { get; set; }
@@ -42,15 +50,43 @@ public sealed class DesktopSettings
         {
             if (!File.Exists(file)) continue;
             var json = File.ReadAllText(file);
-            return JsonSerializer.Deserialize<DesktopSettings>(json, JsonDefaults.Options)
-                   ?? throw new InvalidDataException($"Leere Desktop-Konfiguration: {file}");
+            var settings = JsonSerializer.Deserialize<DesktopSettings>(json, JsonDefaults.Options)
+                           ?? throw new InvalidDataException($"Leere Desktop-Konfiguration: {file}");
+            settings.ApplyProfileDefaults();
+            return settings;
         }
 
         return new DesktopSettings();
     }
 
+    public void ApplyProfileDefaults()
+    {
+        ResourceRootWsl = NormalizeResourceRootWsl(ResourceRootWsl);
+        ReferenceLocksWsl ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!DesktopProfiles.IsSupported(DefaultProfile))
+            DefaultProfile = DesktopProfiles.DefaultProfileId;
+    }
+
+    public static string NormalizeResourceRootWsl(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value)
+            ? DefaultResourceRootWsl
+            : value.Trim().Replace('\\', '/').TrimEnd('/');
+        var isHomeRelative = normalized.StartsWith("~/", StringComparison.Ordinal);
+        if ((!normalized.StartsWith("/", StringComparison.Ordinal) && !isHomeRelative) ||
+            normalized is "/" or "~")
+            throw new InvalidDataException(
+                "Der Resource-Root muss unter dem WSL-Home (z. B. ~/.local/share/ontseq/resources) " +
+                "oder als absoluter WSL-Pfad angegeben werden.");
+        if (normalized.Any(char.IsControl) || normalized.Split('/').Any(part => part is "." or ".."))
+            throw new InvalidDataException(
+                "Der Resource-Root darf keine Steuerzeichen oder relativen Pfadsegmente enthalten.");
+        return normalized;
+    }
+
     public void SaveUserSettings()
     {
+        ApplyProfileDefaults();
         var path = UserSettingsPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temp = path + ".tmp";
@@ -79,6 +115,74 @@ public sealed class DesktopSettings
     }
 }
 
+public sealed record DesktopAnalysisProfile(
+    string ProfileId,
+    string DisplayName,
+    string GenomeBuild,
+    string Assay,
+    string DictionaryContract,
+    bool AdaptiveSampling)
+{
+    public override string ToString() => DisplayName;
+
+    public string DictionaryLabel =>
+        string.Equals(DictionaryContract, "grch38_canonical_25", StringComparison.Ordinal)
+            ? "Canonical-25 (chr1–22, chrX, chrY, chrM)"
+            : "vollständige GRCh38 Primary Assembly";
+}
+
+public static class DesktopProfiles
+{
+    public const string DefaultProfileId = "AML_LCWGS_GRCh38";
+    public const string AdaptiveSamplingProfileId = "AML_AS_111_GRCh38";
+    public const string Canonical25LcwgsProfileId = "AML_LCWGS_GRCh38_CANONICAL25";
+    public const string Canonical25AdaptiveSamplingProfileId =
+        "AML_AS_111_GRCh38_CANONICAL25";
+
+    public static readonly IReadOnlyList<DesktopAnalysisProfile> Supported =
+    [
+        new(
+            DefaultProfileId,
+            "AML low-coverage WGS · GRCh38",
+            "GRCh38",
+            "lcwgs",
+            "exact_full",
+            false),
+        new(
+            AdaptiveSamplingProfileId,
+            "AML Adaptive Sampling 111 Gene · GRCh38",
+            "GRCh38",
+            "adaptive_sampling",
+            "exact_full",
+            true),
+        new(
+            Canonical25LcwgsProfileId,
+            "AML low-coverage WGS · GRCh38 Canonical-25",
+            "GRCh38",
+            "lcwgs",
+            "grch38_canonical_25",
+            false),
+        new(
+            Canonical25AdaptiveSamplingProfileId,
+            "AML Adaptive Sampling 111 Gene · GRCh38 Canonical-25",
+            "GRCh38",
+            "adaptive_sampling",
+            "grch38_canonical_25",
+            true)
+    ];
+
+    public static bool IsSupported(string? profileId) =>
+        Supported.Any(profile => string.Equals(
+            profile.ProfileId, profileId, StringComparison.Ordinal));
+
+    public static DesktopAnalysisProfile Require(string profileId) =>
+        Supported.SingleOrDefault(profile => string.Equals(
+            profile.ProfileId, profileId, StringComparison.Ordinal))
+        ?? throw new InvalidOperationException(
+            $"Nicht unterstütztes Desktop-Profil: {profileId}. " +
+            "Dieser Arbeitsstand aktiviert ausschließlich die getrennten GRCh38-Profile.");
+}
+
 public static class JsonDefaults
 {
     public static readonly JsonSerializerOptions Options = new()
@@ -97,7 +201,8 @@ public static class JsonDefaults
 public sealed record RunStartRequest(
     [property: JsonPropertyName("bam")] string Bam,
     [property: JsonPropertyName("sample_id")] string SampleId,
-    [property: JsonPropertyName("run_id")] string RunId,
+    [property: JsonPropertyName("run_id")] string? RunId,
+    [property: JsonPropertyName("profile")] string Profile,
     [property: JsonPropertyName("genome_build")] string GenomeBuild,
     [property: JsonPropertyName("assay")] string Assay,
     [property: JsonPropertyName("target_bed")] string? TargetBed = null,
@@ -120,13 +225,16 @@ public sealed record RunJobResponse(
     [property: JsonPropertyName("detail")] string Detail,
     [property: JsonPropertyName("stages")] List<StageSnapshot> Stages,
     [property: JsonPropertyName("started_at")] string StartedAt,
-    [property: JsonPropertyName("finished_at")] string? FinishedAt);
+    [property: JsonPropertyName("finished_at")] string? FinishedAt,
+    [property: JsonPropertyName("profile")] string? Profile = null,
+    [property: JsonPropertyName("detected_genome_build")] string? DetectedGenomeBuild = null);
 
 public sealed record ServiceConfigResponse(
     [property: JsonPropertyName("version")] string Version,
     [property: JsonPropertyName("output_dir")] string OutputDir,
     [property: JsonPropertyName("busy")] bool Busy,
-    [property: JsonPropertyName("not_wired")] List<string> NotWired);
+    [property: JsonPropertyName("not_wired")] List<string> NotWired,
+    [property: JsonPropertyName("profiles")] List<string>? Profiles = null);
 
 public sealed record StageDisplay(string Title, string Status, string Reason)
 {

@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import __version__
+from .aml_rearrangements import prioritize_aml_rearrangements
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
 from .demo import build_demo_result
@@ -13,9 +14,12 @@ from .execution import ToolExecutionError
 from .io import load_model, write_json
 from .models import (
     AlignedBamIntakeReport,
+    AmlKnowledgeLock,
+    AnalysisModule,
     BenchmarkCase,
     CraminoQCReport,
     GenomeBuild,
+    ModuleRunStatus,
     PipelineResult,
     QCPolicy,
     ReferenceLock,
@@ -25,24 +29,89 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .profile_analysis import configuration_root
 from .qc import run_cramino_qc
 from .reference import reference_lock_from_fai, validate_canonical_reference
 from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
-from .target_coverage import TargetCoveragePolicy, run_target_coverage
+from .target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
 from .workbook import render_workbook
 
 
-def _render(result: PipelineResult, output_dir: Path) -> list[Path]:
+def _render(
+    result: PipelineResult,
+    output_dir: Path,
+    *,
+    target_coverage: TargetCoverageReport | None = None,
+    selection_coverage: TargetCoverageReport | None = None,
+) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = result.manifest.sample_id
     outputs = [
         write_json(result, output_dir / f"{stem}.result.json"),
-        render_html(result, output_dir / f"{stem}.report.html"),
-        render_workbook(result, output_dir / f"{stem}.results.xlsx"),
+        render_html(
+            result,
+            output_dir / f"{stem}.report.html",
+            target_coverage=target_coverage,
+            selection_coverage=selection_coverage,
+        ),
+        render_workbook(
+            result,
+            output_dir / f"{stem}.results.xlsx",
+            target_coverage=target_coverage,
+            selection_coverage=selection_coverage,
+        ),
     ]
     return outputs
+
+
+def _apply_render_knowledge_overlay(
+    result: PipelineResult,
+    *,
+    resource_path: Path,
+    lock_path: Path,
+) -> PipelineResult:
+    """Re-evaluate locked knowledge matches without rerunning scientific callers.
+
+    The source result's bundle provenance is deliberately preserved. The emitted result records
+    that this is a report-only overlay rather than pretending the original run used the new bundle.
+    """
+    lock = load_model(lock_path, AmlKnowledgeLock)
+    events = prioritize_aml_rearrangements(
+        result.events,
+        resource_path=resource_path,
+        lock=lock,
+    )
+    fusion_evidence_count = sum(event.fusion_evidence is not None for event in events)
+    knowledge_match_count = sum(event.known_rearrangement is not None for event in events)
+    modules = [
+        outcome.model_copy(
+            update={
+                "status": ModuleRunStatus.COMPLETED,
+                "reason": (
+                    "Report-only locked knowledge reassessment completed: "
+                    f"{fusion_evidence_count} event(s) carried fusion evidence and "
+                    f"{knowledge_match_count} matched a hematology review pattern. "
+                    "Scientific callers were not rerun."
+                ),
+            }
+        )
+        if outcome.module == AnalysisModule.FUSION
+        else outcome
+        for outcome in result.modules
+    ]
+    warning = (
+        f"Report-only AML knowledge overlay {lock.resource_id} release {lock.release} was applied "
+        "after the original run. Caller outputs and original bundle provenance are unchanged."
+    )
+    return result.model_copy(
+        update={
+            "events": events,
+            "modules": modules,
+            "warnings": [*result.warnings, warning],
+        }
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -61,6 +130,16 @@ def _parser() -> argparse.ArgumentParser:
     render = subparsers.add_parser("render", help="Render HTML and Excel from a result JSON")
     render.add_argument("result", type=Path)
     render.add_argument("--output-dir", type=Path, required=True)
+    render.add_argument(
+        "--knowledge-resource",
+        type=Path,
+        help="Optional locked AML knowledge JSON for a report-only reassessment",
+    )
+    render.add_argument(
+        "--knowledge-lock",
+        type=Path,
+        help="Lock matching --knowledge-resource; both options are required together",
+    )
 
     reference_lock = subparsers.add_parser(
         "reference-lock", help="Create a versioned reference lock from a FASTA .fai index"
@@ -133,11 +212,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Exercise samtools, Cramino and Sniffles2 with generated synthetic alignments",
     )
     local_smoke.add_argument("--output-dir", type=Path, default=Path("results/local-smoke"))
-    local_smoke.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    local_smoke.add_argument(
+        "--qc-policy", type=Path, default=configuration_root() / "qc" / "defaults.yaml"
+    )
     local_smoke.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=configuration_root() / "sv" / "sniffles2.conservative.technical.yaml",
     )
     local_smoke.add_argument("--samtools", default="samtools")
     local_smoke.add_argument("--cramino", default="cramino")
@@ -197,7 +278,33 @@ def main() -> None:
             print(f"VALID result: {result.manifest.sample_id}")
         elif args.command == "render":
             result = load_model(args.result, PipelineResult)
-            for path in _render(result, args.output_dir):
+            if (args.knowledge_resource is None) != (args.knowledge_lock is None):
+                raise ValueError(
+                    "--knowledge-resource and --knowledge-lock must be supplied together"
+                )
+            if args.knowledge_resource is not None and args.knowledge_lock is not None:
+                result = _apply_render_knowledge_overlay(
+                    result,
+                    resource_path=args.knowledge_resource,
+                    lock_path=args.knowledge_lock,
+                )
+            envelope_root = args.result.parent.parent
+            target_path = envelope_root / "qc" / "target-coverage.json"
+            selection_path = envelope_root / "qc" / "selection-coverage.json"
+            target_coverage = (
+                load_model(target_path, TargetCoverageReport) if target_path.is_file() else None
+            )
+            selection_coverage = (
+                load_model(selection_path, TargetCoverageReport)
+                if selection_path.is_file()
+                else None
+            )
+            for path in _render(
+                result,
+                args.output_dir,
+                target_coverage=target_coverage,
+                selection_coverage=selection_coverage,
+            ):
                 print(path)
         elif args.command == "reference-lock":
             lock = reference_lock_from_fai(

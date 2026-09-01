@@ -4,11 +4,19 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ontseq_platform.models import GenomeBuild
+from ontseq_platform.models import (
+    GenomeBuild,
+    ReferenceContig,
+    ReferenceDictionaryContract,
+    ReferenceLock,
+)
 from ontseq_platform.reference import (
+    grch38_canonical_25_contigs,
+    reference_lock_for_dictionary_contract,
     reference_lock_from_fai,
     reference_lock_signature,
     validate_canonical_reference,
+    validate_grch38_canonical_25,
 )
 
 GRCH38_NUCLEAR: tuple[int, ...] = (
@@ -124,6 +132,53 @@ class CanonicalReferenceTests(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             validate_canonical_reference(contigs, GenomeBuild.GRCH38)
         self.assertIn("duplicate contig names", str(raised.exception))
+
+    def test_exact_grch38_canonical_25_contract_includes_mitochondrial_reference(self) -> None:
+        contigs = grch38_canonical_25_contigs()
+
+        summary = validate_grch38_canonical_25(contigs)
+
+        self.assertEqual(summary.contig_count, 25)
+        self.assertEqual(summary.total_reference_bases, 3_088_286_401)
+        self.assertEqual(contigs[-1], ("chrM", 16569))
+
+    def test_exact_grch38_canonical_25_rejects_every_dictionary_variant(self) -> None:
+        canonical = grch38_canonical_25_contigs()
+        variants = (
+            canonical[:-1],
+            (*canonical, ("chrUn_TEST", 100)),
+            (*canonical[:-1], ("chrM", 16570)),
+            (canonical[1], canonical[0], *canonical[2:]),
+            tuple((name.removeprefix("chr"), length) for name, length in canonical),
+        )
+        for contigs in variants:
+            with (
+                self.subTest(contigs=contigs[-1][0]),
+                self.assertRaisesRegex(ValueError, "Canonical-25"),
+            ):
+                validate_grch38_canonical_25(contigs)
+
+    def test_canonical_25_run_lock_is_an_explicit_subset_of_the_pinned_grch38_lock(self) -> None:
+        source_contigs = (*grch38_canonical_25_contigs(), ("GL000008.2", 209709))
+        source_lock = ReferenceLock(
+            reference_id="GRCh38_FULL_TEST",
+            genome_build=GenomeBuild.GRCH38,
+            contigs=[ReferenceContig(name=name, length=length) for name, length in source_contigs],
+            allow_extra_contigs=True,
+            source_fai_sha256="a" * 64,
+        )
+
+        selected = reference_lock_for_dictionary_contract(
+            source_lock,
+            ReferenceDictionaryContract.GRCH38_CANONICAL_25,
+        )
+
+        self.assertEqual(
+            tuple((item.name, item.length) for item in selected.contigs),
+            grch38_canonical_25_contigs(),
+        )
+        self.assertFalse(selected.allow_extra_contigs)
+        self.assertEqual(selected.source_fai_sha256, source_lock.source_fai_sha256)
 
 
 class ReferenceLockFromFaiTests(unittest.TestCase):

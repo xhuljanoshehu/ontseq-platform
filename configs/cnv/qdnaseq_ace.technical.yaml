@@ -11,6 +11,7 @@ ploidy_max: 4.5
 ploidy_step: 0.05
 minimum_segment_bins: 1
 whole_chromosome_fraction: 0.90
+cytoband_affected_fraction: 0.66
 timeout_seconds: 7200
 expected_qdnaseq_version: "1.42.0"
 expected_ace_version: "1.24.0"
@@ -19,7 +20,7 @@ note: >-
   1000 kbp. ACE squaremodel searches purity and ploidy automatically; the 0.6
   low-cellularity penalty is carried forward from the Lea Evers ONTseq evaluation.
   Segment-level calls use 500 kbp as the primary view while chromosome-level
-  agreement is retained across all three resolutions. GRCh37 uses the pinned
-  QDNAseq.hg19 1.36.0 annotations. GRCh38 runtime builds use QDNAseq.hg38 1.2.0
-  pinned to upstream commit cf7c07e39de0ac64a9c38cb030cba4626e2aae83; both
-  assembly lanes remain Research Use Only pending real-cohort analytical validation.
+  agreement is retained across all three resolutions. This active profile is GRCh38-only
+  and uses QDNAseq.hg38 1.2.0 pinned to upstream commit
+  cf7c07e39de0ac64a9c38cb030cba4626e2aae83. The affected-cytoband threshold is
+  versioned in this policy rather than being an untracked engine default.

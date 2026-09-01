@@ -301,6 +301,31 @@ sie nicht, bricht die betroffene Stage ab und nennt beide Versionen. Details in
 Vor einem realen Run sollte immer zuerst die dokumentierte Preflight-/Reference-Lock-Logik
 verwendet werden. Für echte genomische Daten gelten die lokalen Daten- und Governance-Regeln.
 
+## GRCh38-Profile und automatische Ressourcen
+
+Der neue Profilpfad benötigt neben dem indizierten BAM keine manuelle Auswahl von FASTA,
+Cytobands, GENCODE, MANE, Panel oder Knowledge-Dateien:
+
+```bash
+ontseq references install GRCh38_GENCODE50_MANE1.5_v1
+ontseq references status
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_LCWGS_GRCh38
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_AS_111_GRCh38
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam --profile AML_LCWGS_GRCh38_CANONICAL25
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam --profile AML_AS_111_GRCh38_CANONICAL25
+```
+
+`AML_LCWGS_GRCh38` und `AML_AS_111_GRCh38` behalten den bestehenden `exact_full`-Vertrag:
+Das BAM-Dictionary muss dem vollständigen, geordneten Primary-Assembly-`ReferenceLock`
+entsprechen. Die beiden expliziten `*_CANONICAL25`-Profile verlangen dagegen exakt
+`chr1`-`chr22`, `chrX`, `chrY`, `chrM` in dieser Reihenfolge und mit den GRCh38-Standardlängen.
+Alle vier Profile verwenden dieselben installierten GRCh38-Referenz-, Annotations-, Panel- und
+Knowledge-Bundles. Die Auswahl eines Canonical-25-Profils führt daher weder zu einem erneuten
+Mehr-GiB-Download noch zu Liftover oder stillem Fallback. GRCh37-, partielle, gemischte oder zu
+keinem Profil passende Dictionaries werden vor Pipelinebeginn abgelehnt. Das vollständige
+Installations-, Offline- und Updateverfahren steht in
+[`docs/REFERENCE_SYSTEM.md`](docs/REFERENCE_SYSTEM.md).
+
 ## 10. Repository-Struktur
 
 | Pfad | Zweck |
@@ -393,11 +418,15 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core: `0.4.1` (2026-08-27). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
+Python-Core: `0.5.3` (2026-08-29). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
 
-Windows-Desktop auf `main`: `0.4.1`, passend zum Python-Core derselben Version
+Windows-Desktop auf `main`: `0.5.3`, passend zum Python-Core derselben Version
 (`desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`), mit vollständigem installierten
-System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
+System-Selbsttest. Die zwei bestehenden Profile behalten den vollständigen
+Primary-Assembly-Vertrag; zwei zusätzliche `*_CANONICAL25`-Profile prüfen exakt
+`chr1`-`chr22`, `chrX`, `chrY`, `chrM` gegen dieselben installierten GRCh38-Bundles. Es gibt
+keinen zweiten Referenzdownload, kein Liftover und keinen Fallback; wissenschaftliche Schwellen
+wurden nicht geändert. Aktive Fixes und neuere Engineering-Bundles können in offenen
 Pull Requests liegen; deshalb vor einem realen Test immer `main` und die offenen PRs prüfen.
 
 Dieses Repository hat derzeit **keine Open-Source-Lizenz** und ist privat. Vor einer öffentlichen

@@ -122,6 +122,206 @@
       "title": "AssaySpec",
       "type": "object"
     },
+    "BreakpointAnnotation": {
+      "additionalProperties": false,
+      "description": "One 0-based breakpoint with cytoband, transcript and technical context.",
+      "properties": {
+        "chromosome": {
+          "pattern": "^chr(?:[1-9]|1[0-9]|2[0-2]|X|Y|M)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "contexts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointContextAnnotation"
+          },
+          "title": "Contexts",
+          "type": "array"
+        },
+        "cytoband": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband"
+        },
+        "label": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "transcripts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointTranscriptAnnotation"
+          },
+          "title": "Transcripts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "chromosome",
+        "position"
+      ],
+      "title": "BreakpointAnnotation",
+      "type": "object"
+    },
+    "BreakpointContextAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_type": {
+          "minLength": 1,
+          "title": "Resource Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "resource_type",
+        "label"
+      ],
+      "title": "BreakpointContextAnnotation",
+      "type": "object"
+    },
+    "BreakpointTranscriptAnnotation": {
+      "additionalProperties": false,
+      "description": "Transcript-level context for one independently annotated SV breakpoint.",
+      "properties": {
+        "cds_phase": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cds Phase"
+        },
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene_id": {
+          "minLength": 1,
+          "title": "Gene Id",
+          "type": "string"
+        },
+        "gene_name": {
+          "minLength": 1,
+          "title": "Gene Name",
+          "type": "string"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred": {
+          "default": false,
+          "title": "Preferred",
+          "type": "boolean"
+        },
+        "rank_tier": {
+          "minimum": 1,
+          "title": "Rank Tier",
+          "type": "integer"
+        },
+        "region": {
+          "enum": [
+            "exon",
+            "intron",
+            "transcript"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "enum": [
+            "+",
+            "-"
+          ],
+          "title": "Strand",
+          "type": "string"
+        },
+        "transcript_id": {
+          "minLength": 1,
+          "title": "Transcript Id",
+          "type": "string"
+        },
+        "transcript_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transcript Name"
+        }
+      },
+      "required": [
+        "gene_id",
+        "gene_name",
+        "transcript_id",
+        "strand",
+        "rank_tier",
+        "region"
+      ],
+      "title": "BreakpointTranscriptAnnotation",
+      "type": "object"
+    },
     "EventAnnotation": {
       "additionalProperties": false,
       "description": "A knowledge-base record attached to a finding \u2014 evidence, never a verdict.\n\nCarries the source's assertion verbatim together with the vocabulary it belongs to, so\nClinVar's germline *Pathogenic* cannot be read as a claim about a somatic finding. No\nfield here influences ``reportable`` or ``confidence``, and none may be added that does:\nthat decision needs somatic criteria this repository does not have.",
@@ -421,6 +621,135 @@
       "title": "Evidence",
       "type": "object"
     },
+    "FusionAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_status": {
+          "default": "unknown",
+          "enum": [
+            "in_frame",
+            "out_of_frame",
+            "unknown"
+          ],
+          "title": "Frame Status",
+          "type": "string"
+        },
+        "gene_a": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "gene_b": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "++",
+                "+-",
+                "-+",
+                "--"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orientation"
+        }
+      },
+      "required": [
+        "gene_a",
+        "gene_b"
+      ],
+      "title": "FusionAnnotation",
+      "type": "object"
+    },
+    "FusionPartnerAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred_transcript": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preferred Transcript"
+        },
+        "region": {
+          "default": "unknown",
+          "enum": [
+            "exon",
+            "intron",
+            "transcript",
+            "unknown"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "anyOf": [
+            {
+              "enum": [
+                "+",
+                "-"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strand"
+        }
+      },
+      "title": "FusionPartnerAnnotation",
+      "type": "object"
+    },
     "FusionSupportStatus": {
       "enum": [
         "not_assessed",
@@ -459,6 +788,13 @@
             "$ref": "#/$defs/EventAnnotation"
           },
           "title": "Annotations",
+          "type": "array"
+        },
+        "breakpoint_annotations": {
+          "items": {
+            "$ref": "#/$defs/BreakpointAnnotation"
+          },
+          "title": "Breakpoint Annotations",
           "type": "array"
         },
         "breakpoint_distance_bp": {
@@ -526,6 +862,17 @@
           "title": "Evidence",
           "type": "array"
         },
+        "fusion_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FusionAnnotation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "fusion_status": {
           "$ref": "#/$defs/FusionSupportStatus",
           "default": "not_assessed"
@@ -535,6 +882,13 @@
             "type": "string"
           },
           "title": "Genes",
+          "type": "array"
+        },
+        "known_pathologies": {
+          "items": {
+            "$ref": "#/$defs/PathologyAssociation"
+          },
+          "title": "Known Pathologies",
           "type": "array"
         },
         "known_rearrangement": {
@@ -727,6 +1081,20 @@
       "title": "InputSpec",
       "type": "object"
     },
+    "LegacyResourceContext": {
+      "additionalProperties": false,
+      "description": "Marker used when a PipelineResult 0.1 artifact had no bundle provenance.",
+      "properties": {
+        "status": {
+          "const": "legacy_unspecified",
+          "default": "legacy_unspecified",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "LegacyResourceContext",
+      "type": "object"
+    },
     "Locus": {
       "additionalProperties": false,
       "properties": {
@@ -828,6 +1196,72 @@
       ],
       "title": "ModuleRunStatus",
       "type": "string"
+    },
+    "PathologyAssociation": {
+      "additionalProperties": false,
+      "description": "One source-attributed disease association for a rearrangement review pattern.\n\nThe association explains why a gene pair is surfaced to a reviewer.  It is deliberately\nnot a diagnosis, sample-level assertion, or reportability rule.",
+      "properties": {
+        "assertion_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assertion Count"
+        },
+        "disease_id": {
+          "pattern": "^DOID:\\d+$",
+          "title": "Disease Id",
+          "type": "string"
+        },
+        "evidence_item_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Item Count"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_record_id": {
+          "minLength": 1,
+          "title": "Source Record Id",
+          "type": "string"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disease_id",
+        "name",
+        "source_id",
+        "source_record_id",
+        "source_url"
+      ],
+      "title": "PathologyAssociation",
+      "type": "object"
     },
     "PrivacySpec": {
       "additionalProperties": false,
@@ -937,6 +1371,127 @@
       "title": "QCMetrics",
       "type": "object"
     },
+    "ReferenceDictionaryContract": {
+      "description": "Explicit relationship between an aligned BAM and the reference bundle dictionary.",
+      "enum": [
+        "exact_full",
+        "grch38_canonical_25"
+      ],
+      "title": "ReferenceDictionaryContract",
+      "type": "string"
+    },
+    "ResolvedResourceContext": {
+      "additionalProperties": false,
+      "description": "Absolute, checksum-pinned resources selected for one analysis profile.",
+      "properties": {
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "knowledge_bundle_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Knowledge Bundle Id",
+          "type": "string"
+        },
+        "knowledge_bundle_version": {
+          "minLength": 1,
+          "title": "Knowledge Bundle Version",
+          "type": "string"
+        },
+        "panel_bundle_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Panel Bundle Id"
+        },
+        "panel_bundle_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Panel Bundle Version"
+        },
+        "profile_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "profile_version": {
+          "minLength": 1,
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "reference_bundle_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Reference Bundle Id",
+          "type": "string"
+        },
+        "reference_bundle_version": {
+          "minLength": 1,
+          "title": "Reference Bundle Version",
+          "type": "string"
+        },
+        "reference_dictionary_contract": {
+          "$ref": "#/$defs/ReferenceDictionaryContract",
+          "default": "exact_full"
+        },
+        "resource_checksums": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Checksums",
+          "type": "object"
+        },
+        "resource_paths": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Paths",
+          "type": "object"
+        },
+        "resource_releases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Releases",
+          "type": "object"
+        },
+        "resource_root": {
+          "minLength": 1,
+          "title": "Resource Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0.0",
+          "default": "1.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_id",
+        "profile_version",
+        "genome_build",
+        "reference_bundle_id",
+        "reference_bundle_version",
+        "knowledge_bundle_id",
+        "knowledge_bundle_version",
+        "resource_root"
+      ],
+      "title": "ResolvedResourceContext",
+      "type": "object"
+    },
     "ReviewStatus": {
       "enum": [
         "DRAFT",
@@ -986,6 +1541,72 @@
         "analysis"
       ],
       "title": "SampleManifest",
+      "type": "object"
+    },
+    "SidecarArtifact": {
+      "additionalProperties": false,
+      "description": "A checksum-pinned large table kept outside ``PipelineResult``.",
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "media_type": {
+          "default": "text/tab-separated-values",
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "schema_version": {
+          "minLength": 1,
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "schema_version",
+        "sha256",
+        "row_count"
+      ],
+      "title": "SidecarArtifact",
       "type": "object"
     },
     "SvObservability": {
@@ -1094,15 +1715,36 @@
     "qc": {
       "$ref": "#/$defs/QCMetrics"
     },
+    "reference_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResolvedResourceContext"
+        },
+        {
+          "$ref": "#/$defs/LegacyResourceContext"
+        }
+      ],
+      "title": "Reference Context"
+    },
     "release_status": {
       "$ref": "#/$defs/ReviewStatus",
       "default": "REVIEW_REQUIRED"
     },
     "schema_version": {
-      "const": "0.1.0",
-      "default": "0.1.0",
+      "default": "0.2.0",
+      "enum": [
+        "0.1.0",
+        "0.2.0"
+      ],
       "title": "Schema Version",
       "type": "string"
+    },
+    "sidecars": {
+      "items": {
+        "$ref": "#/$defs/SidecarArtifact"
+      },
+      "title": "Sidecars",
+      "type": "array"
     },
     "warnings": {
       "items": {

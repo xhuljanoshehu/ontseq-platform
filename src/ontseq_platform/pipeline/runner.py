@@ -34,6 +34,13 @@ from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
 from ..aml_rearrangements import prioritize_aml_rearrangements
 from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
+from ..breakpoint_annotation import (
+    ContextInterval,
+    ContextIntervalIndex,
+    ContextIntervalQuery,
+    PathBackedContextIntervalIndex,
+    annotate_events_from_cache,
+)
 from ..cutesv import run_cutesv
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
 from ..models import (
@@ -42,6 +49,7 @@ from ..models import (
     AssayMode,
     CheckStatus,
     CraminoQCReport,
+    CuteSvCallReport,
     CuteSvPolicy,
     GenomicEvent,
     InputKind,
@@ -50,12 +58,14 @@ from ..models import (
     ModuleRunStatus,
     QCPolicy,
     ReferenceLock,
+    ResolvedResourceContext,
     SampleManifest,
     SnifflesCallReport,
     SnifflesPolicy,
     SvConsensusPolicy,
     SvConsensusReport,
     SvEvidencePolicy,
+    TargetBedRole,
     ToolRecord,
     ValidationCheck,
     Verdict,
@@ -65,7 +75,7 @@ from ..qc import run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
 from ..sniffles import run_sniffles
-from ..sv_annotation import annotate_sv_events
+from ..sv_annotation import annotate_sv_events, load_interval_resource
 from ..sv_consensus import build_consensus_report
 from ..sv_evidence import prioritize_sv_events
 from ..sv_observability import apply_sv_observability
@@ -96,8 +106,11 @@ ALIGNED_BAI = "alignment/{sample}.bam.bai"
 ALIGN_REPORT = "provenance/alignment.json"
 INTAKE_REPORT = "manifest/intake.json"
 QC_REPORT = "qc/cramino.json"
+QC_READ_LENGTH_HISTOGRAM = "qc/read_length_histogram.tsv"
 TARGET_COVERAGE_REPORT = "qc/target-coverage.json"
 TARGET_COVERAGE_DIR = "qc/target-coverage"
+SELECTION_COVERAGE_REPORT = "qc/selection-coverage.json"
+SELECTION_COVERAGE_DIR = "qc/selection-coverage"
 COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
@@ -165,6 +178,10 @@ class RunConfiguration:
     )
     #: Ignore any previous run state and execute every stage again.
     force: bool = False
+    resource_context: ResolvedResourceContext | None = None
+    annotation_cache: Path | None = None
+    selection_target_bed: Path | None = None
+    context_resource_paths: Mapping[str, Path] = field(default_factory=dict)
 
     def executable(self, name: str) -> str:
         return self.executables.get(name, name)
@@ -543,16 +560,20 @@ def _qc_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         runner=ctx.runner,
         cramino=ctx.config.executable("cramino"),
         threads=ctx.config.threads,
+        histogram_output=ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM),
     )
     artifact = ctx.envelope.atomic_write_text(QC_REPORT, report.model_dump_json(indent=2) + "\n")
     if report.qc.verdict == Verdict.FAIL:
         raise StageFailure(
             "QC gate failed: " + ", ".join(report.qc.failed_gates or ["unspecified gate"])
         )
+    outputs = [artifact]
+    if ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM).is_file():
+        outputs.append(ctx.envelope.fingerprint(QC_READ_LENGTH_HISTOGRAM))
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason=f"Descriptive read QC returned {report.qc.verdict.value}.",
-        outputs=[artifact],
+        outputs=outputs,
         tools=[report.tool],
         warnings=report.qc.warnings,
         limitations=report.limitations,
@@ -575,6 +596,17 @@ def _target_coverage_plan(ctx: RunContext) -> StagePlan:
     if not target_bed:
         raise StageFailure("adaptive sampling requires assay.target_bed")
     mosdepth = ctx.config.executable("mosdepth")
+    external_inputs = [
+        _external_fingerprint(Path(target_bed)),
+        _external_fingerprint(Path(ctx.manifest.input.path)),
+    ]
+    if ctx.config.selection_target_bed is not None:
+        external_inputs.append(
+            _external_fingerprint(
+                ctx.config.selection_target_bed,
+                label="selection_panel_buffered",
+            )
+        )
     return StagePlan(
         parameters={
             "applicable": True,
@@ -589,10 +621,7 @@ def _target_coverage_plan(ctx: RunContext) -> StagePlan:
         tool_versions={
             "mosdepth": _probe(ctx.runner, mosdepth, [mosdepth, "--version"], tool="mosdepth")
         },
-        external_inputs=(
-            _external_fingerprint(Path(target_bed)),
-            _external_fingerprint(Path(ctx.manifest.input.path)),
-        ),
+        external_inputs=tuple(external_inputs),
     )
 
 
@@ -628,6 +657,45 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     artifact = ctx.envelope.atomic_write_text(
         TARGET_COVERAGE_REPORT, report.model_dump_json(indent=2) + "\n"
     )
+    outputs = [artifact]
+    warnings = list(report.warnings)
+    limitations = list(report.limitations)
+    selection_summary = ""
+    if ctx.config.selection_target_bed is not None:
+        selection_dir = ctx.envelope.path(SELECTION_COVERAGE_DIR)
+        if selection_dir.exists():
+            shutil.rmtree(selection_dir)
+        selection_assay = ctx.manifest.assay.model_copy(
+            update={
+                "target_bed": str(ctx.config.selection_target_bed),
+                "target_bed_role": TargetBedRole.SELECTION_PANEL_BUFFERED,
+            }
+        )
+        selection_manifest = ctx.manifest.model_copy(update={"assay": selection_assay})
+        selection_report = run_target_coverage(
+            selection_manifest,
+            intake,
+            policy,
+            output_dir=selection_dir,
+            runner=ctx.runner,
+            mosdepth=ctx.config.executable("mosdepth"),
+            threads=ctx.config.threads,
+        )
+        outputs.append(
+            ctx.envelope.atomic_write_text(
+                SELECTION_COVERAGE_REPORT,
+                selection_report.model_dump_json(indent=2) + "\n",
+            )
+        )
+        warnings.extend(selection_report.warnings)
+        limitations.extend(selection_report.limitations)
+        selection_weighted = selection_report.summary_metrics.get(
+            "interval_weighted_mean_depth", 0.0
+        )
+        selection_summary = (
+            f" Buffered selection coverage was measured separately at "
+            f"{float(selection_weighted):.1f}x."
+        )
     weighted = report.summary_metrics.get("interval_weighted_mean_depth", 0.0)
     minimum = report.summary_metrics.get("minimum_region_mean_depth", 0.0)
     return StageResult(
@@ -635,13 +703,46 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         reason=(
             f"Measured {len(report.regions)} target(s) at {float(weighted):.1f}x "
             f"interval-weighted mean depth; the least-covered target reached "
-            f"{float(minimum):.1f}x."
+            f"{float(minimum):.1f}x.{selection_summary}"
         ),
-        outputs=[artifact],
+        outputs=outputs,
         tools=[report.tool],
-        warnings=report.warnings,
-        limitations=report.limitations,
+        warnings=warnings,
+        limitations=limitations,
     )
+
+
+def _breakpoint_context_resources(
+    resources: Sequence[tuple[Path, IntervalResourceLock]],
+) -> dict[str, ContextIntervalQuery]:
+    contexts: dict[str, ContextIntervalQuery] = {}
+    for path, lock in resources:
+        loaded = load_interval_resource(path, lock)
+        contexts[lock.resource_type] = ContextIntervalIndex(
+            ContextInterval(
+                chromosome=interval.chromosome,
+                start=interval.start,
+                end=interval.end,
+                label=interval.label,
+            )
+            for chromosome in sorted(loaded)
+            for interval in loaded[chromosome]
+        )
+    return contexts
+
+
+def _bundle_breakpoint_context_resources(
+    resources: Mapping[str, Path],
+) -> dict[str, ContextIntervalQuery]:
+    """Index verified bundle BEDs without retaining every GRCh38 row as an object."""
+
+    contexts: dict[str, ContextIntervalQuery] = {}
+    for resource_type, path in sorted(resources.items()):
+        contexts[resource_type] = PathBackedContextIntervalIndex(
+            path,
+            resource_type=resource_type,
+        )
+    return contexts
 
 
 def _sv_plan(ctx: RunContext) -> StagePlan:
@@ -695,6 +796,14 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
         parameters[f"resource_lock:{resource_lock.resource_id}"] = resource_lock.model_dump(
             mode="json"
         )
+    if ctx.config.annotation_cache is not None:
+        external_inputs.append(
+            _external_fingerprint(ctx.config.annotation_cache, label="annotation_cache")
+        )
+        parameters["annotation_cache"] = "GRCh38 compiled SQLite"
+    for resource_type, path in sorted(ctx.config.context_resource_paths.items()):
+        external_inputs.append(_external_fingerprint(path, label=resource_type))
+        parameters[f"context_bundle:{resource_type}"] = str(path)
     if ctx.config.aml_knowledge is not None:
         knowledge_path, knowledge_lock = ctx.config.aml_knowledge
         external_inputs.append(
@@ -711,6 +820,18 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
 
 
 def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    # A stage re-execution owns these paths.  Remove every prior caller and consensus
+    # artifact before doing any work so a failed/forced run cannot leave ASSEMBLE with
+    # evidence from an earlier successful invocation (including a now-disabled caller).
+    for template in (
+        SV_VCF,
+        SV_REPORT,
+        CUTESV_VCF,
+        CUTESV_REPORT,
+        SV_CONSENSUS_REPORT,
+    ):
+        ctx.envelope.path(ctx.path(template)).unlink(missing_ok=True)
+
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -721,7 +842,6 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     limitations: list[str] = []
     if ctx.config.sniffles_policy is not None:
         vcf_path = ctx.envelope.path(ctx.path(SV_VCF))
-        vcf_path.unlink(missing_ok=True)
         report = run_sniffles(
             ctx.manifest,
             intake,
@@ -747,7 +867,6 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         assert ctx.config.reference_fasta is not None
         assert ctx.config.sv_consensus_policy is not None
         cutesv_vcf = ctx.envelope.path(ctx.path(CUTESV_VCF))
-        cutesv_vcf.unlink(missing_ok=True)
         cute_report = run_cutesv(
             ctx.manifest,
             intake,
@@ -788,6 +907,16 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         cytoband_resource=ctx.config.cytoband_annotation,
         context_resources=list(ctx.config.sv_context_resources),
     )
+    if ctx.config.annotation_cache is not None:
+        context_resources = _breakpoint_context_resources(ctx.config.sv_context_resources)
+        context_resources.update(
+            _bundle_breakpoint_context_resources(ctx.config.context_resource_paths)
+        )
+        consolidated = annotate_events_from_cache(
+            consolidated,
+            ctx.config.annotation_cache,
+            context_resources=context_resources,
+        )
     coverage_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
     coverage_report = (
         TargetCoverageReport.model_validate_json(coverage_path.read_text(encoding="utf-8"))
@@ -853,12 +982,30 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if sv_path.is_file()
         else None
     )
+    cutesv_path = ctx.envelope.path(ctx.path(CUTESV_REPORT))
+    cutesv = (
+        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
+        if cutesv_path.is_file()
+        else None
+    )
     consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
     consensus = (
         SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
         if consensus_path.is_file()
         else None
     )
+    sidecars = []
+    histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
+    if histogram_path.is_file():
+        from ..sidecars import tabular_sidecar
+
+        sidecars.append(
+            tabular_sidecar(
+                artifact_id="read_length_histogram",
+                envelope_root=ctx.envelope.root,
+                relative_path=QC_READ_LENGTH_HISTOGRAM,
+            )
+        )
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
         intake,
@@ -866,7 +1013,10 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        cutesv_report=cutesv,
         sv_consensus_report=consensus,
+        reference_context=ctx.config.resource_context,
+        sidecars=sidecars,
     )
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
@@ -891,8 +1041,30 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    render_html(result, ctx.envelope.path(ctx.path(REPORT_HTML)))
-    render_workbook(result, ctx.envelope.path(ctx.path(REPORT_XLSX)))
+    target_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
+    selection_path = ctx.envelope.path(SELECTION_COVERAGE_REPORT)
+    target_coverage = (
+        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
+        if target_path.is_file()
+        else None
+    )
+    selection_coverage = (
+        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
+        if selection_path.is_file()
+        else None
+    )
+    render_html(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_HTML)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
+    render_workbook(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_XLSX)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason="Reviewer artifacts rendered as HTML and Excel.",
@@ -1102,6 +1274,11 @@ def _run_locked(
     envelope.atomic_write_text(
         "manifest/reference.lock.json", config.reference_lock.model_dump_json(indent=2) + "\n"
     )
+    if config.resource_context is not None:
+        envelope.atomic_write_text(
+            "manifest/resource-context.json",
+            config.resource_context.model_dump_json(indent=2) + "\n",
+        )
     if config.components is not None:
         # Written before the first stage so that an interrupted run still records which
         # components it was asked to use.

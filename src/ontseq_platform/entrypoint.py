@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 
+from . import __version__
 from .runtime_cli import RUNTIME_COMMANDS
 
 _SCIENTIFIC_COMMANDS = (
@@ -34,6 +35,8 @@ _SCIENTIFIC_COMMANDS = (
 )
 
 _RUNTIME_COMMANDS = (
+    ("analyze", "Analyze one indexed GRCh38 BAM using an installed profile"),
+    ("references", "Install and validate manifest-locked GRCh38 resources"),
     ("run", "Execute one sample into a resumable run envelope"),
     ("preflight", "Check every run precondition without creating output"),
     ("status", "Summarize run envelopes"),
@@ -67,6 +70,9 @@ def _overview() -> str:
 def main() -> None:
     """Dispatch execution commands without coupling the legacy/scientific CLI to runtime code."""
     command = sys.argv[1] if len(sys.argv) > 1 else None
+    if command in {"--version", "version"}:
+        print(__version__)
+        return
     if command is None or command in {"-h", "--help", "help"}:
         print(_overview())
         return

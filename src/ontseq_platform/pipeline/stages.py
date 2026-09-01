@@ -106,8 +106,10 @@ class StageSpec:
     not_applicable_reason: str = ""
 
 
-_ALL_KINDS = frozenset(InputKindName)
-_FROM_UNALIGNED = frozenset({InputKindName.POD5, InputKindName.UNALIGNED_BAM})
+_ALL_KINDS: frozenset[InputKindName] = frozenset(InputKindName)
+_FROM_UNALIGNED: frozenset[InputKindName] = frozenset(
+    {InputKindName.POD5, InputKindName.UNALIGNED_BAM}
+)
 
 STAGE_SPECS: tuple[StageSpec, ...] = (
     StageSpec(

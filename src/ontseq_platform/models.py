@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, date, datetime
 from enum import StrEnum
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -25,6 +27,25 @@ class AssayMode(StrEnum):
 class GenomeBuild(StrEnum):
     GRCH37 = "GRCh37"
     GRCH38 = "GRCh38"
+
+
+class ReferenceDictionaryContract(StrEnum):
+    """Explicit relationship between an aligned BAM and the reference bundle dictionary."""
+
+    EXACT_FULL = "exact_full"
+    GRCH38_CANONICAL_25 = "grch38_canonical_25"
+
+
+class CoordinateSystem(StrEnum):
+    """Coordinate systems accepted at a resource boundary.
+
+    Analysis code uses only ``zero_based_half_open``. The other values exist so a source
+    artifact can state what it actually contains before it is normalized.
+    """
+
+    ZERO_BASED_HALF_OPEN = "zero_based_half_open"
+    ONE_BASED_INCLUSIVE = "one_based_inclusive"
+    ONE_BASED_POSITION = "one_based_position"
 
 
 class AnalysisModule(StrEnum):
@@ -220,6 +241,327 @@ class ReferenceLock(StrictModel):
         if len(names) != len(set(names)):
             raise ValueError("reference lock contains duplicate contig names")
         return self
+
+
+_RESOURCE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+_RESOURCE_ROLE_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+_SHA256_PATTERN = r"^[0-9a-f]{64}$"
+
+
+def _validate_relative_artifact_path(value: str) -> str:
+    """Keep every manifest path inside its bundle or run envelope.
+
+    Manifests use POSIX separators on every host. Rejecting Windows separators avoids a
+    path meaning one thing under WSL and another thing in the Desktop process.
+    """
+
+    if "\\" in value:
+        raise ValueError("artifact paths must use portable POSIX separators")
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if value in {"", "."} or posix.is_absolute() or windows.is_absolute() or windows.drive:
+        raise ValueError("artifact path must be relative")
+    if ".." in posix.parts or ".." in windows.parts:
+        raise ValueError("artifact path cannot traverse outside its bundle")
+    return posix.as_posix()
+
+
+def _valid_resource_reference(value: str) -> bool:
+    """Accept a local ID or an explicit immutable ``bundle_id:resource_id`` reference."""
+
+    parts = value.split(":")
+    return len(parts) in {1, 2} and all(
+        re.fullmatch(_RESOURCE_ID_PATTERN, part) is not None for part in parts
+    )
+
+
+class ResourceFile(StrictModel):
+    """One source or derived file declared by a bundle manifest.
+
+    Source files are checksum-pinned. A generated file may omit its checksum in a catalog
+    manifest, but it then remains unresolved until an installer has materialized and pinned
+    it in the activated manifest.
+    """
+
+    resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    role: str = Field(pattern=_RESOURCE_ROLE_PATTERN)
+    path: str = Field(min_length=1)
+    sha256: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    size_bytes: int | None = Field(default=None, ge=0)
+    source_url: str | None = Field(default=None, min_length=1)
+    release: str | None = Field(default=None, min_length=1)
+    source_date: date | None = None
+    coordinate_system: CoordinateSystem | None = None
+    generated: bool = False
+    derived_from: list[str] = Field(default_factory=list)
+    required: bool = True
+    description: str = ""
+
+    @field_validator("path")
+    @classmethod
+    def path_stays_inside_bundle(cls, value: str) -> str:
+        return _validate_relative_artifact_path(value)
+
+    @field_validator("derived_from")
+    @classmethod
+    def derivation_ids_are_unique(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("derived_from contains duplicate resource IDs")
+        for resource_id in value:
+            if not _valid_resource_reference(resource_id):
+                raise ValueError(f"invalid derived resource ID: {resource_id!r}")
+        return value
+
+    @model_validator(mode="after")
+    def source_and_generated_files_are_explicit(self) -> ResourceFile:
+        if not self.generated and self.sha256 is None:
+            raise ValueError("source resource files require a SHA256 checksum")
+        if self.generated and not self.derived_from:
+            raise ValueError("generated resource files require derived_from provenance")
+        if self.resource_id in self.derived_from:
+            raise ValueError("a resource cannot be derived from itself")
+        return self
+
+
+class ResourceBundle(StrictModel):
+    """Fields shared by all manifest-activated bundle types."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    bundle_type: Literal["reference", "panel", "knowledge"]
+    bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    version: str = Field(min_length=1)
+    genome_build: GenomeBuild | None = None
+    resources: list[ResourceFile] = Field(min_length=1)
+    description: str = ""
+
+    @model_validator(mode="after")
+    def resource_ids_and_roles_are_unique(self) -> ResourceBundle:
+        resource_ids = [item.resource_id for item in self.resources]
+        if len(resource_ids) != len(set(resource_ids)):
+            raise ValueError("bundle contains duplicate resource IDs")
+        roles = [item.role for item in self.resources]
+        if len(roles) != len(set(roles)):
+            raise ValueError("bundle contains duplicate resource roles")
+        known = set(resource_ids)
+        for resource in self.resources:
+            local_references = {item for item in resource.derived_from if ":" not in item}
+            missing = local_references.difference(known)
+            if missing:
+                raise ValueError(
+                    f"resource {resource.resource_id!r} has unknown derived_from IDs: "
+                    f"{', '.join(sorted(missing))}"
+                )
+        return self
+
+    def resource(self, resource_id: str) -> ResourceFile:
+        for resource in self.resources:
+            if resource.resource_id == resource_id:
+                return resource
+        raise ValueError(f"bundle {self.bundle_id!r} does not declare resource {resource_id!r}")
+
+
+class ReferenceBundle(ResourceBundle):
+    bundle_type: Literal["reference"] = "reference"
+    genome_build: GenomeBuild
+    reference_lock_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    fasta_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    fai_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    annotation_cache_resource_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+
+    @model_validator(mode="after")
+    def required_reference_resources_exist(self) -> ReferenceBundle:
+        required_ids = [
+            self.reference_lock_resource_id,
+            self.fasta_resource_id,
+            self.fai_resource_id,
+        ]
+        if self.annotation_cache_resource_id is not None:
+            required_ids.append(self.annotation_cache_resource_id)
+        if len(required_ids) != len(set(required_ids)):
+            raise ValueError("reference bundle required resource IDs must be distinct")
+        expected_roles = {
+            self.reference_lock_resource_id: "reference_lock",
+            self.fasta_resource_id: "genome_fasta",
+            self.fai_resource_id: "fasta_index",
+        }
+        if self.annotation_cache_resource_id is not None:
+            expected_roles[self.annotation_cache_resource_id] = "annotation_cache"
+        for resource_id, role in expected_roles.items():
+            resource = self.resource(resource_id)
+            if resource.role != role:
+                raise ValueError(
+                    f"reference resource {resource_id!r} must have role {role!r}, "
+                    f"not {resource.role!r}"
+                )
+        return self
+
+
+class PanelBundle(ResourceBundle):
+    bundle_type: Literal["panel"] = "panel"
+    genome_build: GenomeBuild
+    assay_mode: AssayMode
+    selection_panel_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    analysis_roi_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    transcript_cache_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    unresolved_targets: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def required_panel_resources_exist(self) -> PanelBundle:
+        expected_roles = {
+            self.selection_panel_resource_id: TargetBedRole.SELECTION_PANEL_BUFFERED.value,
+            self.analysis_roi_resource_id: TargetBedRole.ANALYSIS_ROI_UNBUFFERED.value,
+            self.transcript_cache_resource_id: "transcript_cache",
+        }
+        for resource_id, role in expected_roles.items():
+            resource = self.resource(resource_id)
+            if resource.role != role:
+                raise ValueError(
+                    f"panel resource {resource_id!r} must have role {role!r}, not {resource.role!r}"
+                )
+            if (
+                role
+                in {
+                    TargetBedRole.SELECTION_PANEL_BUFFERED.value,
+                    TargetBedRole.ANALYSIS_ROI_UNBUFFERED.value,
+                }
+                and resource.coordinate_system != CoordinateSystem.ZERO_BASED_HALF_OPEN
+            ):
+                raise ValueError(
+                    f"panel resource {resource_id!r} with role {role!r} must declare "
+                    "coordinate_system='zero_based_half_open'"
+                )
+        if len(self.unresolved_targets) != len(set(self.unresolved_targets)):
+            raise ValueError("panel unresolved_targets must be unique")
+        return self
+
+
+class KnowledgeBundle(ResourceBundle):
+    bundle_type: Literal["knowledge"] = "knowledge"
+    coordinate_bearing: bool = True
+
+    @model_validator(mode="after")
+    def coordinate_resources_require_a_build(self) -> KnowledgeBundle:
+        if self.coordinate_bearing and self.genome_build is None:
+            raise ValueError("coordinate-bearing knowledge bundles require a genome build")
+        if self.genome_build is None and any(
+            resource.coordinate_system is not None for resource in self.resources
+        ):
+            raise ValueError("knowledge resources with coordinates require a genome build")
+        return self
+
+
+class AnalysisProfile(StrictModel):
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    profile_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    version: str = Field(min_length=1)
+    genome_build: GenomeBuild
+    assay_mode: AssayMode
+    reference_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
+    knowledge_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    panel_bundle: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    adaptive_sampling: Literal["enabled", "disabled"]
+    description: str = ""
+
+    @model_validator(mode="after")
+    def assay_and_panel_are_consistent(self) -> AnalysisProfile:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 profiles")
+        if self.assay_mode == AssayMode.ADAPTIVE_SAMPLING:
+            if self.adaptive_sampling != "enabled" or self.panel_bundle is None:
+                raise ValueError(
+                    "adaptive-sampling profiles require adaptive_sampling=enabled and a panel"
+                )
+        elif self.adaptive_sampling != "disabled" or self.panel_bundle is not None:
+            raise ValueError("lcWGS profiles require adaptive_sampling=disabled and no panel")
+        return self
+
+
+class ResolvedResourceContext(StrictModel):
+    """Absolute, checksum-pinned resources selected for one analysis profile."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    profile_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    profile_version: str = Field(min_length=1)
+    genome_build: GenomeBuild
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
+    reference_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    reference_bundle_version: str = Field(min_length=1)
+    panel_bundle_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    panel_bundle_version: str | None = None
+    knowledge_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    knowledge_bundle_version: str = Field(min_length=1)
+    resource_root: str = Field(min_length=1)
+    resource_paths: dict[str, str] = Field(default_factory=dict)
+    resource_checksums: dict[str, str] = Field(default_factory=dict)
+    resource_releases: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def paths_checksums_and_optional_panel_are_consistent(self) -> ResolvedResourceContext:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 contexts")
+        if (self.panel_bundle_id is None) != (self.panel_bundle_version is None):
+            raise ValueError("panel bundle ID and version must either both be set or both be null")
+        if set(self.resource_paths) != set(self.resource_checksums):
+            raise ValueError("every resolved resource path must have exactly one checksum")
+        root: PurePosixPath | PureWindowsPath
+        if self.resource_root.startswith("/"):
+            root = PurePosixPath(self.resource_root)
+        else:
+            root = PureWindowsPath(self.resource_root)
+        if not root.is_absolute():
+            raise ValueError("resolved resource_root must be absolute")
+        if ".." in root.parts:
+            raise ValueError("resolved resource_root must not contain parent traversal")
+        for key, value in self.resource_paths.items():
+            path: PurePosixPath | PureWindowsPath
+            if isinstance(root, PurePosixPath):
+                path = PurePosixPath(value)
+            else:
+                path = PureWindowsPath(value)
+            if not path.is_absolute():
+                raise ValueError(f"resolved resource path {key!r} must be absolute")
+            if ".." in path.parts:
+                raise ValueError(f"resolved resource path {key!r} contains parent traversal")
+            try:
+                path.relative_to(root)
+            except ValueError as exc:
+                raise ValueError(f"resolved resource path {key!r} escapes resource_root") from exc
+        return self
+
+
+class LegacyResourceContext(StrictModel):
+    """Marker used when a PipelineResult 0.1 artifact had no bundle provenance."""
+
+    status: Literal["legacy_unspecified"] = "legacy_unspecified"
+
+
+class SidecarArtifact(StrictModel):
+    """A checksum-pinned large table kept outside ``PipelineResult``."""
+
+    artifact_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    relative_path: str = Field(min_length=1)
+    schema_version: str = Field(min_length=1)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    row_count: int = Field(ge=0)
+    size_bytes: int | None = Field(default=None, ge=0)
+    media_type: str = Field(default="text/tab-separated-values", min_length=1)
+    columns: list[str] = Field(default_factory=list)
+
+    @field_validator("relative_path")
+    @classmethod
+    def path_stays_inside_run_envelope(cls, value: str) -> str:
+        return _validate_relative_artifact_path(value)
 
 
 class QCMetrics(StrictModel):
@@ -464,13 +806,32 @@ class AmlKnowledgeLock(StrictModel):
     note: str = Field(min_length=1)
 
 
+class PathologyAssociation(StrictModel):
+    """One source-attributed disease association for a rearrangement review pattern.
+
+    The association explains why a gene pair is surfaced to a reviewer.  It is deliberately
+    not a diagnosis, sample-level assertion, or reportability rule.
+    """
+
+    disease_id: str = Field(pattern=r"^DOID:\d+$")
+    name: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    evidence_item_count: int | None = Field(default=None, ge=0)
+    assertion_count: int | None = Field(default=None, ge=0)
+
+
 class AmlRearrangementRecord(StrictModel):
     record_id: str = Field(min_length=1)
     pattern_type: Literal["exact_pair", "gene_any_partner"]
     genes: list[str] = Field(min_length=1, max_length=2)
     display_name: str = Field(min_length=1)
-    relevance: Literal["aml_defining_pattern", "aml_relevant_pattern"]
+    relevance: Literal[
+        "aml_defining_pattern", "aml_relevant_pattern", "hematology_relevant_pattern"
+    ]
     source_ids: list[str] = Field(min_length=1)
+    pathologies: list[PathologyAssociation] = Field(default_factory=list)
     caveat: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -480,6 +841,12 @@ class AmlRearrangementRecord(StrictModel):
             raise ValueError(f"{self.pattern_type} requires exactly {expected} gene(s)")
         if len({gene.upper() for gene in self.genes}) != len(self.genes):
             raise ValueError("AML rearrangement genes must be unique")
+        pathology_ids = [item.disease_id for item in self.pathologies]
+        if len(pathology_ids) != len(set(pathology_ids)):
+            raise ValueError("rearrangement pathologies must have unique disease IDs")
+        cited_sources = {item.source_id for item in self.pathologies}
+        if not cited_sources.issubset(set(self.source_ids)):
+            raise ValueError("pathology association cites a source absent from the record")
         return self
 
 
@@ -529,6 +896,55 @@ class EventAnnotation(StrictModel):
         return self
 
 
+class BreakpointTranscriptAnnotation(StrictModel):
+    """Transcript-level context for one independently annotated SV breakpoint."""
+
+    gene_id: str = Field(min_length=1)
+    gene_name: str = Field(min_length=1)
+    transcript_id: str = Field(min_length=1)
+    transcript_name: str | None = None
+    strand: Literal["+", "-"]
+    preferred: bool = False
+    rank_tier: int = Field(ge=1)
+    region: Literal["exon", "intron", "transcript"]
+    exon_number: int | None = Field(default=None, ge=1)
+    intron_number: int | None = Field(default=None, ge=1)
+    cds_phase: int | None = Field(default=None, ge=0, le=2)
+
+
+class BreakpointContextAnnotation(StrictModel):
+    resource_type: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    value: float | None = None
+
+
+class BreakpointAnnotation(StrictModel):
+    """One 0-based breakpoint with cytoband, transcript and technical context."""
+
+    label: Literal["primary", "secondary"]
+    chromosome: str = Field(pattern=r"^chr(?:[1-9]|1[0-9]|2[0-2]|X|Y|M)$")
+    position: int = Field(ge=0)
+    cytoband: str | None = None
+    transcripts: list[BreakpointTranscriptAnnotation] = Field(default_factory=list)
+    contexts: list[BreakpointContextAnnotation] = Field(default_factory=list)
+
+
+class FusionPartnerAnnotation(StrictModel):
+    gene: str | None = None
+    preferred_transcript: str | None = None
+    region: Literal["exon", "intron", "transcript", "unknown"] = "unknown"
+    exon_number: int | None = Field(default=None, ge=1)
+    intron_number: int | None = Field(default=None, ge=1)
+    strand: Literal["+", "-"] | None = None
+
+
+class FusionAnnotation(StrictModel):
+    gene_a: FusionPartnerAnnotation
+    gene_b: FusionPartnerAnnotation
+    orientation: Literal["++", "+-", "-+", "--"] | None = None
+    frame_status: Literal["in_frame", "out_of_frame", "unknown"] = "unknown"
+
+
 class GenomicEvent(StrictModel):
     event_id: str
     event_type: EventType
@@ -549,8 +965,11 @@ class GenomicEvent(StrictModel):
     observability_target_role: TargetBedRole | None = None
     aml_relevance: str | None = None
     known_rearrangement: str | None = None
+    known_pathologies: list[PathologyAssociation] = Field(default_factory=list)
     fusion_status: FusionSupportStatus = FusionSupportStatus.NOT_ASSESSED
     validation_status: SvValidationStatus = SvValidationStatus.DETECTED
+    breakpoint_annotations: list[BreakpointAnnotation] = Field(default_factory=list)
+    fusion_evidence: FusionAnnotation | None = None
     #: Knowledge-base records matching this event. Evidence for a reviewer; deliberately
     #: without influence on ``confidence`` or ``reportable``.
     annotations: list[EventAnnotation] = Field(default_factory=list)
@@ -559,6 +978,12 @@ class GenomicEvent(StrictModel):
     def paired_events_require_secondary_locus(self) -> GenomicEvent:
         if self.event_type in {EventType.TRANSLOCATION, EventType.FUSION} and not self.secondary:
             raise ValueError(f"{self.event_type.value} requires secondary locus")
+        labels = [item.label for item in self.breakpoint_annotations]
+        if len(labels) != len(set(labels)):
+            raise ValueError("breakpoint annotations must contain at most one item per label")
+        pathology_ids = [item.disease_id for item in self.known_pathologies]
+        if len(pathology_ids) != len(set(pathology_ids)):
+            raise ValueError("event pathologies must have unique disease IDs")
         return self
 
 
@@ -795,12 +1220,16 @@ class Provenance(StrictModel):
 
 
 class PipelineResult(StrictModel):
-    schema_version: Literal["0.1.0"] = "0.1.0"
+    schema_version: Literal["0.1.0", "0.2.0"] = "0.2.0"
     manifest: SampleManifest
     qc: QCMetrics
     events: list[GenomicEvent]
     iscn: ISCNProposal
     provenance: Provenance
+    reference_context: ResolvedResourceContext | LegacyResourceContext = Field(
+        default_factory=LegacyResourceContext
+    )
+    sidecars: list[SidecarArtifact] = Field(default_factory=list)
     modules: list[ModuleOutcome] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     release_status: ReviewStatus = ReviewStatus.REVIEW_REQUIRED

@@ -1,0 +1,70 @@
+schema_version: 1.0.0
+bundle_type: reference
+bundle_id: GRCh38_FIXTURE_v1
+version: fixture-v1
+genome_build: GRCh38
+description: >-
+  Tiny coordinate-only GRCh38-shaped installer fixture. It is not a biological reference and
+  must never be used for an analysis.
+reference_lock_resource_id: reference_lock
+fasta_resource_id: genome
+fai_resource_id: fai
+annotation_cache_resource_id: annotation_cache
+resources:
+  - resource_id: genome
+    role: genome_fasta
+    path: genome.fa
+    sha256: f8150f1ddacb6623f83c304530699161ded29f02b133389fdd990dbfd7139b1a
+    size_bytes: 11
+    source_url: https://fixtures.invalid/genome
+    release: fixture-v1
+    description: Non-scientific four-base FASTA used only to exercise file installation.
+  - resource_id: fai
+    role: fasta_index
+    path: genome.fa.fai
+    sha256: 3c5c82b3f0d5e9f0550836f5c3eb5fb9928db3b10c8b426c83461b358419cb10
+    size_bytes: 13
+    source_url: https://fixtures.invalid/fai
+    release: fixture-v1
+    description: Exact index of the tiny FASTA; canonical GRCh38 validation is mocked only in tests.
+  - resource_id: gencode
+    role: gencode_gtf
+    path: sources/gencode.gtf
+    sha256: f78720a0b145fcf849615bcf21c674585deebdb58345151bd5a5fefe9c754724
+    size_bytes: 2271
+    source_url: https://fixtures.invalid/gencode
+    release: GENCODE-50-fixture
+    coordinate_system: one_based_inclusive
+  - resource_id: mane
+    role: mane_gff3
+    path: sources/mane.gff3
+    sha256: 777340592ce103df16f14471aae85db00e7f302c61436bc4bf694fb9601d643a
+    size_bytes: 378
+    source_url: https://fixtures.invalid/mane
+    release: MANE-1.5-fixture
+    coordinate_system: one_based_inclusive
+  - resource_id: cytobands
+    role: cytobands
+    path: sources/cytobands.tsv
+    sha256: 5c1cfa56e8c705f38e7c9e2606c03837ac5a47602940be4d66c435151e8c0f31
+    size_bytes: 149
+    source_url: https://fixtures.invalid/cytobands
+    release: UCSC-hg38-fixture
+    coordinate_system: zero_based_half_open
+  - resource_id: reference_lock
+    role: reference_lock
+    path: reference.lock.json
+    generated: true
+    derived_from: [fai]
+  - resource_id: chromosome_sizes
+    role: chromosome_sizes
+    path: chromosome-sizes.tsv
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [fai]
+  - resource_id: annotation_cache
+    role: annotation_cache
+    path: annotation.sqlite
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [gencode, mane, cytobands]

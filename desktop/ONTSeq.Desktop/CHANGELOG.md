@@ -1,5 +1,53 @@
 # ONTSeq Desktop changelog
 
+## Unreleased
+
+## 0.5.3-engineering
+
+- package `HEMATOLOGY_v3` with source-attributed pathology/DOID associations and the redesigned HTML/XLSX review reports
+- show fusion assessment and reviewable rearrangement evidence without treating a missing
+  analytical benchmark as a biological negative result
+- include Adaptive-Sampling target coverage in persisted reports and retain cuteSV provenance
+- keep all four GRCh38 dictionary-contract profiles and their input gates unchanged
+
+## 0.5.2-engineering
+
+- add explicit `AML_LCWGS_GRCh38_CANONICAL25` and
+  `AML_AS_111_GRCh38_CANONICAL25` choices for BAMs whose ordered dictionary is exactly
+  `chr1`-`chr22`, `chrX`, `chrY`, `chrM`
+- keep `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` on the existing `exact_full`
+  Primary-Assembly dictionary contract
+- derive both dictionary contracts from the same installed, checksum-pinned GRCh38 bundles;
+  no second multi-GiB download, liftover or silent profile fallback is introduced
+- keep the existing full profiles and default selection unchanged; scientific policies and
+  interpretation thresholds are unchanged
+
+## 0.5.1-engineering
+
+- resolve every packaged Core configuration independently of the application working directory
+  and pass absolute cuteSV, consensus and evidence-policy paths to profile services
+- include cuteSV 2.1.3 in the WSL runtime and require the complete SV/CNV policy and executable
+  contract during installation and before starting a Desktop profile
+- reject duplicated packaged configuration trees and smoke-test the relocated service from an
+  unrelated directory; scientific thresholds and interpretation policies are unchanged
+
+## 0.5.0-engineering
+
+- add `resourceRootWsl` with user-writable `~/.local/share/ontseq/resources` Desktop default,
+  while Core retains `/opt/ontseq`; bridge bundle status, install and repair to the backend CLI
+- replace independent build/assay selection with the build-isolated `AML_LCWGS_GRCh38` and
+  `AML_AS_111_GRCh38` profiles; lcWGS is the default
+- show the GRCh38 profile expectation before execution and the backend/provenance-detected build
+  when it becomes available
+- retain explicit Reference-Lock and Adaptive-Sampling BED settings as legacy-readable fields
+  for one compatibility release without mixing them into profile-backed runs
+- use fast presence/size/pin checks at interactive start, advertise only locally resolvable
+  profiles, and let Core return the canonical sample-plus-UTC run ID; full SHA256 validation
+  remains available through `ontseq references validate`
+- make **Reparieren** restore the full GRCh38 profile-resource family (Reference, HEMATOLOGY,
+  AML AS panel and both profiles) through the backend transaction; no manual bundle deletion is
+  required
+
 ## 0.4.1-engineering
 
 - advance Core, Desktop, WSL runtime directory and Windows bundle identity together to 0.4.1

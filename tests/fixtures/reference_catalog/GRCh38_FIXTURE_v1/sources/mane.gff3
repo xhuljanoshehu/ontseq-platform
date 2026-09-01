@@ -1,0 +1,4 @@
+##gff-version 3
+##description synthetic MANE-v1.5-shaped fragment for ONTSeq tests
+chr22	MANE	mRNA	23280184	23318037	.	+	.	ID=transcript:ENST00000305877.13;gene_id=ENSG00000186716.22;tag=MANE%20Select;Dbxref=RefSeq:NM_004327.4
+chr9	MANE	mRNA	130713043	130887675	.	-	.	ID=transcript:ENST00000318560;gene_id=ENSG00000097007.19;tag=MANE%20Plus%20Clinical;Dbxref=RefSeq:NM_005157.6

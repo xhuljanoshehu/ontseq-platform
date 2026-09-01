@@ -112,6 +112,7 @@ class SystemSmokeTruthTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = QDNAseqPolicy(
             profile_id="system-smoke-test",
+            cytoband_affected_fraction=0.66,
             bin_sizes_kbp=[100, 500, 1000],
             primary_bin_size_kbp=500,
             note="test policy",

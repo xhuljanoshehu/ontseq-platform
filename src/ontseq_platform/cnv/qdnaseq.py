@@ -38,6 +38,7 @@ class QDNAseqPolicy(StrictModel):
     ploidy_step: float = Field(default=0.05, gt=0)
     minimum_segment_bins: int = Field(default=1, ge=1)
     whole_chromosome_fraction: float = Field(default=0.90, gt=0, le=1)
+    cytoband_affected_fraction: float = Field(gt=0, le=1)
     cellularity_review_fraction: float = Field(default=0.20, gt=0, le=1)
     cellularity_critical_fraction: float = Field(default=0.10, gt=0, le=1)
     timeout_seconds: int = Field(default=7200, ge=60)
@@ -72,6 +73,8 @@ class CnvFit(StrictModel):
     alternatives: list[dict[str, float]] = Field(default_factory=list)
     segment_file: str
     chromosome_file: str
+    bins_file: str | None = None
+    model_file: str | None = None
     fit_plot: str
     copy_number_plot: str
     rds_file: str
@@ -141,7 +144,7 @@ def _int(row: Mapping[str, str], key: str) -> int:
 
 
 def _as_float(value: object, key: str) -> float:
-    if not isinstance(value, (int, float, str)):
+    if not isinstance(value, int | float | str):
         raise ValueError(f"invalid numeric value for {key}: {value!r}")
     try:
         parsed = float(value)
@@ -285,6 +288,16 @@ def _parse_fit(raw: Mapping[str, object]) -> CnvFit:
         alternatives=alternatives,
         segment_file=_as_text(raw.get("segment_file"), "segment_file"),
         chromosome_file=_as_text(raw.get("chromosome_file"), "chromosome_file"),
+        bins_file=(
+            _as_text(raw.get("bins_file"), "bins_file")
+            if raw.get("bins_file") is not None
+            else None
+        ),
+        model_file=(
+            _as_text(raw.get("model_file"), "model_file")
+            if raw.get("model_file") is not None
+            else None
+        ),
         fit_plot=_as_text(raw.get("fit_plot"), "fit_plot"),
         copy_number_plot=_as_text(raw.get("copy_number_plot"), "copy_number_plot"),
         rds_file=_as_text(raw.get("rds_file"), "rds_file"),
@@ -521,6 +534,10 @@ def run_qdnaseq_ace(
                     fit.rds_file,
                 }
             )
+            if fit.bins_file is not None:
+                expected_names.add(fit.bins_file)
+            if fit.model_file is not None:
+                expected_names.add(fit.model_file)
         missing = sorted(name for name in expected_names if not (staged / name).is_file())
         if missing:
             raise ValueError("QDNAseq result is incomplete; missing: " + ", ".join(missing))

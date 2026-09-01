@@ -1,6 +1,6 @@
-# ONTSeq Desktop v0.1.1 — first run (engineering / RUO)
+# ONTSeq Desktop v0.5.3 — first run (engineering / RUO)
 
-ONTSeq Desktop is deliberately fail-closed. A BAM is not analysed until the local Linux runtime and an explicit reference lock are available.
+ONTSeq Desktop is deliberately fail-closed. A BAM is not analysed until the local Linux runtime and the pinned GRCh38 bundles required by its selected profile are available.
 
 ## What the bundle contains
 
@@ -22,21 +22,33 @@ WSL2 and the configured Linux distribution (`Ubuntu` by default) must already be
 3. Choose **System einrichten**.
 4. Choose **System prüfen**.
 5. If the backend is missing, choose **Runtime installieren**.
-6. Configure the reference build needed for the BAM by selecting the **exact FASTA or FAI used for alignment**.
-7. Run **Selbsttest starten**. This creates a synthetic alignment and runs the real bundled samtools/Cramino/Sniffles2 path before any research BAM is used.
-8. Return to the main window, select BAM + `.bam.bai`, choose the matching build/profile, and start the analysis.
+6. Confirm `resourceRootWsl` (default `~/.local/share/ontseq/resources`, below the WSL user's `$HOME`) and choose **Installieren** for `GRCh38_GENCODE50_MANE1.5_v1`. Interactive status checks manifests, pins, presence and declared sizes; `ontseq references validate` performs the explicit full SHA256 audit. Use **Reparieren** for damaged resources.
+7. Run **Selbsttest starten** before any research BAM is used.
+8. Return to the main window, select BAM + `.bam.bai`, choose the profile whose dictionary label
+   matches the alignment reference, and start the analysis. The two unsuffixed profiles require
+   the full Primary-Assembly lock; the two `*_CANONICAL25` profiles require exactly
+   `chr1`-`chr22`, `chrX`, `chrY`, `chrM`.
 
 ## Reference safety
 
-`GRCh38` and `GRCh37` are assembly labels, not sufficient reference identity. Different FASTA distributions can differ in contig names, alternative/decoy contigs and sequence content. ONTSeq therefore does **not** download an arbitrary reference when a build is selected.
+This work package publishes only GRCh38 profiles. The registry activates manifest-bearing bundles,
+the profile pins their exact IDs, and aligned-BAM intake compares the complete BAM dictionary with
+the selected contract before analysis. `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` remain
+`exact_full`; `AML_LCWGS_GRCh38_CANONICAL25` and `AML_AS_111_GRCh38_CANONICAL25` accept only the
+ordered 25-contig dictionary. All four derive from the same installed GRCh38 bundles, so no second
+multi-GiB reference is downloaded. GRCh37, partial and mixed dictionaries fail before the
+pipeline starts; there is no liftover, cross-build or dictionary-contract fallback.
 
-The setup wizard creates a versioned reference lock from the chosen FASTA index. The aligned-BAM intake subsequently compares the BAM header against that lock and fails closed on incompatible reference structure.
-
-For a public benchmark such as HG002, use the exact reference distribution documented for the downloaded alignment. For local laboratory data, use the locally authorised reference bundle used to create the BAM.
+Existing settings containing explicit GRCh37/GRCh38 Reference-Locks or Adaptive-Sampling BEDs
+remain readable for one compatibility release. They are not combined with a new profile-resolved
+resource context.
 
 ## Adaptive Sampling
 
-Adaptive Sampling additionally requires the approved analysis ROI BED and its version. The MinKNOW selection BED and the downstream analysis ROI are not assumed to be interchangeable. Until an authorised ROI is configured, an Adaptive Sampling run is stopped rather than silently falling back to WGS semantics.
+`AML_AS_111_GRCh38` and `AML_AS_111_GRCh38_CANONICAL25` resolve the same controlled selection
+panel and downstream analysis ROI as separate artifacts from `AML_AS_111_GRCh38_v1`. The
+operator does not browse for either file.
+Unresolved targets stay unresolved and are not turned into negative observability statements.
 
 ## Local files written by the desktop app
 

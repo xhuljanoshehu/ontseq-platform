@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontseq-platform"
-version = "0.4.1"
+version = "0.5.3"
 description = "A safety-first foundation for automated single-sample Oxford Nanopore karyotyping workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,29 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "ontseq_platform.service" = ["*.html"]
+
+# Install the immutable configuration/authority tree with ordinary wheels.  Runtime lookup uses
+# <sys.prefix>/share/ontseq/configs, so official reference IDs never depend on the caller's cwd or
+# a mutable --config-root.  Editable/source installs continue to use the adjacent repository tree.
+[tool.setuptools.data-files]
+"share/ontseq/configs/alignment" = ["configs/alignment/*"]
+"share/ontseq/configs/analysis_profiles" = ["configs/analysis_profiles/*"]
+"share/ontseq/configs/basecalling" = ["configs/basecalling/*"]
+"share/ontseq/configs/cnv" = ["configs/cnv/*"]
+"share/ontseq/configs/components" = ["configs/components/*"]
+"share/ontseq/configs/knowledge" = ["configs/knowledge/*.json"]
+"share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v1" = ["configs/knowledge_bundles/HEMATOLOGY_v1/*"]
+"share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v2" = ["configs/knowledge_bundles/HEMATOLOGY_v2/*"]
+"share/ontseq/configs/knowledge_bundles/HEMATOLOGY_v3" = ["configs/knowledge_bundles/HEMATOLOGY_v3/*"]
+"share/ontseq/configs/panels" = ["configs/panels/*.bed", "configs/panels/*.yaml"]
+"share/ontseq/configs/panels/AML_AS_111_GRCh38_v1" = ["configs/panels/AML_AS_111_GRCh38_v1/*.yaml"]
+"share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/derived" = ["configs/panels/AML_AS_111_GRCh38_v1/derived/*"]
+"share/ontseq/configs/panels/AML_AS_111_GRCh38_v1/source" = ["configs/panels/AML_AS_111_GRCh38_v1/source/*"]
+"share/ontseq/configs/profiles" = ["configs/profiles/*"]
+"share/ontseq/configs/qc" = ["configs/qc/*"]
+"share/ontseq/configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1" = ["configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1/*"]
+"share/ontseq/configs/sv" = ["configs/sv/*"]
+"share/ontseq/scripts" = ["scripts/run_qdnaseq_ace.R"]
 
 [tool.ruff]
 line-length = 100

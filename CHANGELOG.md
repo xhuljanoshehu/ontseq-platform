@@ -5,6 +5,167 @@ validated release.
 
 ## Unreleased
 
+## 0.5.3 - 2026-08-29
+
+### Added
+
+- `HEMATOLOGY_v3` adds 38 locked rearrangement review patterns and 74 source-attributed
+  pathology associations. Exact public records are derived from a 2026-08-29 CIViC snapshot and
+  filtered through Disease Ontology v2026-07-31 under `DOID:2531`; the curated
+  `PICALM::MLLT10` literature record remains included.
+- HTML and XLSX reports now expose a dedicated key-findings layer, fusion/rearrangement
+  assessment, Adaptive-Sampling ROI coverage and separate technical SV review queues.
+- cuteSV output provenance and tool identity are retained when the result is assembled.
+
+### Changed
+
+- Fusion module status now describes the assessment actually performed on consensus breakpoint
+  evidence instead of remaining `NOT_RUN` whenever no separately validated fusion assertion exists.
+- The report displays `BENCHMARK_REQUIRED` alongside review priority instead of presenting an
+  unexplained `reportable=false` value as if it meant biologically irrelevant.
+- HTML keeps the complete result in JSON/XLSX but limits the expanded technical appendix to a
+  usable review subset. XLSX preserves all normalized events and adds focused review sheets.
+- HTML and XLSX display associated pathology names and DOIDs beside matching rearrangement
+  candidates, rather than requiring a reviewer to infer disease context from the gene pair.
+- All four active GRCh38 profiles pin `HEMATOLOGY_v3`; versions 1 and 2 remain packaged for
+  provenance and backward readability.
+
+### Fixed
+
+- The hematology knowledge builder now writes canonical LF JSON on every operating system, so
+  the checked-in bundle size and SHA256 remain identical on Windows and Linux.
+- Git now preserves every checksum-pinned knowledge, panel and reference-fixture byte stream on
+  Windows, and repository safety rejects newly pinned resources that lack this protection.
+- The repaired dependency lock now records the 0.5.3 root-package version used by runtime
+  provenance and release checks.
+
+### Validation impact
+
+- The knowledge update can move a source-matched exact pair or order-reversed
+  `MLLT10::PICALM` breakpoint candidate into the hematology review queue and attach relevant
+  disease vocabulary. It does not establish transcript productivity, pathogenicity, diagnosis,
+  prognosis, or analytical reportability. Existing SV/CNV caller thresholds are unchanged, and
+  every surfaced candidate still requires expert and assay-specific validation.
+
+## 0.5.2 - 2026-08-28
+
+### Added
+
+- Two explicit GRCh38 Canonical-25 profile variants now accept BAM dictionaries containing
+  exactly `chr1`-`chr22`, `chrX`, `chrY` and `chrM`: `AML_LCWGS_GRCh38_CANONICAL25` and
+  `AML_AS_111_GRCh38_CANONICAL25`.
+- Desktop exposes the dictionary contract with each profile so that the operator can select the
+  contract matching the reference used for alignment before starting a run.
+
+### Changed
+
+- The established `AML_LCWGS_GRCh38` and `AML_AS_111_GRCh38` profiles remain `exact_full`: their
+  BAM dictionaries must still match the complete ordered Primary-Assembly `ReferenceLock`.
+- Canonical-25 is a profile-level projection of the same pinned GRCh38 reference, annotation,
+  panel and knowledge bundles. Selecting it performs no liftover, enables no fallback and does
+  not download or install a second multi-GiB reference bundle.
+
+### Validation impact
+
+- This release adds an explicit input-dictionary compatibility contract. It changes no caller,
+  CNV/SV threshold, panel coordinate, annotation release, evidence policy or reportability rule.
+  A BAM matching neither exact contract still fails before pipeline execution; no additional
+  analytical or clinical validation claim is introduced.
+
+## 0.5.1 - 2026-08-28
+
+### Fixed
+
+- Packaged configuration defaults now resolve from the installed ONTSeq release rather than the
+  process working directory. Desktop profile services additionally receive absolute paths for the
+  cuteSV, Sniffles2/cuteSV consensus and SV evidence policies, preventing profile startup from
+  failing when the application is launched outside a repository checkout.
+- The Windows/WSL runtime preflight now verifies the complete policy and tool contract before a
+  run. The packed environment includes pinned cuteSV 2.1.3, retains mosdepth, rejects duplicated
+  `share/ontseq/configs/configs` trees and exercises the relocated service from an unrelated
+  working directory in CI.
+
+### Validation impact
+
+- This patch repairs runtime discovery and packaging only. It changes no scientific threshold,
+  caller policy, CNV/SV interpretation rule, profile resource identity or reportability boundary;
+  no additional analytical or clinical validation claim is introduced.
+
+## 0.5.0 - 2026-08-28
+
+### Added
+
+- The original 111-target GRCh38 Adaptive Sampling BED and companion region list are now
+  byte-provenanced in `AML_AS_111_GRCh38_v1`; a deterministic importer creates a separate
+  0-based half-open selection BED and keeps `IGH_REVIEW_REQUIRED` unresolved.
+- A GRCh38 annotation-cache consumer compiles unbuffered gene-body ROIs and ranked panel
+  transcripts without inferring targets from the selection buffers. Both SV breakpoints can retain
+  gene, preferred transcript, exon/intron, CDS phase, cytoband, repeat, blacklist, and mappability
+  context. Fusion evidence exposes Gene A/B, orientation, and an explicit `unknown` frame default.
+- A manifest-pinned GRCh38 reference installer now stages downloads, verifies byte size and
+  SHA256, builds the FASTA dictionary/reference lock and deterministic GENCODE/MANE/cytoband
+  SQLite cache, then activates the bundle atomically. Status, checksum-limited repair and offline
+  import never query a remote service. The installable GRCh38.p14/GENCODE 50/MANE 1.5 recipe pins
+  exact sizes and SHA256 for all nine publisher artifacts; GENCODE transfers were additionally
+  checked against the publisher MD5 index. A miniature bundle exercises the same path in CI and
+  the multi-gigabyte installation smoke remains explicit opt-in.
+- A CNV cytoband engine retains raw overlaps, applies the configurable 66% fraction-of-band rule,
+  merges only adjacent same-direction bands on the same arm, and represents whole-chromosome calls
+  separately. The existing AML rearrangement resource is manifest-pinned as `HEMATOLOGY_v1`.
+
+### Validation impact
+
+- Every active panel interval starts one base earlier than a literal BED interpretation of the
+  laboratory source, increasing the locked span by 111 bases. Edge coverage and breakpoint target
+  membership can change accordingly. Transcript and cytoband summaries can also change review
+  ordering. Regression tests lock these transformations, but no analytical sensitivity,
+  specificity, LoD, negative-observability, fusion-frame, or reportability claim is introduced.
+- Reference/FAI/lock inconsistencies and coordinate-ambiguous panel manifests that older loaders
+  could accept are now rejected before analysis. The CNV affected-band cutoff remains 0.66, but is
+  now an explicit field of the versioned QDNAseq/ACE policy and recorded in stage/sidecar
+  provenance instead of being an untracked engine default.
+
+### Changed
+
+- Interactive Desktop/service profile preflight now checks every pinned Reference, Panel and
+  Knowledge resource for manifest validity, presence and declared size without re-hashing
+  multi-gigabyte files. `ontseq references validate` remains the explicit full SHA256 audit.
+- `/api/config` advertises only locally resolvable GRCh38 profiles, missing profiles fail as HTTP
+  400, and Desktop uses the Core-derived `<sample>-<UTC timestamp>` run ID returned by the service.
+- Explicit reference repair now transactionally restores the complete pinned GRCh38 profile
+  family (reference, panel, knowledge and profile manifests) with rollback, so damaged dependent
+  bundles no longer require manual deletion. Profile-backed service runs retain the configured
+  QC/SV/coverage policies, minimum depth and component-version selection.
+
+### Fixed
+
+- `ontseq references repair GRCh38_GENCODE50_MANE1.5_v1` now repairs the complete pinned
+  profile-resource family, including `HEMATOLOGY_v1`, `AML_AS_111_GRCh38_v1` and both profile
+  manifests, with staged validation, path-atomic replacement and rollback instead of requiring
+  operators to delete divergent resources manually. Repair and official-ID import also require
+  the exact catalog Source-/Generator contract; changed sources or derivations require a new
+  bundle ID/version.
+- Native UCSC hg38 cytobands now ignore the unnamed chrM placeholder instead of rejecting the
+  publisher table; named cytogenetic bands remain strictly validated.
+- Pseudoautosomal panel symbols such as `P2RY8` are disambiguated by the explicitly declared
+  source chromosome. Historical or coordinate-conflicting labels remain unresolved.
+- Result assembly fingerprints the annotated SV consensus, so a changed breakpoint annotation or
+  knowledge context cannot resume a stale `PipelineResult`. Annotated BND/translocation candidates
+  with fusion evidence now also appear in the XLSX fusion worksheet.
+- Full GRCh38 technical-context BEDs now use a path-backed, contig-lazy compact interval index with
+  bisect/block-max point queries instead of retaining every row and rescanning it for each
+  breakpoint.
+- Legacy manifest runs without `--reference-fasta` no longer activate the optional cuteSV caller
+  from its default policy path. Cramino histogram counts are written to an explicit temporary file
+  so the primary stdout stream remains valid JSON before the numeric sidecar is normalized.
+- SV and QC re-execution clears stale caller/consensus and histogram artifacts before new work;
+  failed or evidence-free reruns therefore cannot expose an earlier run's sidecars. Official-ID
+  repair/import also rejects changed source or generator contracts under an unchanged bundle
+  identity, while custom bundle IDs remain importable.
+- Wheels and containers now carry the immutable GRCh38 authority/configuration assets under the
+  installation prefix, and Windows Python 3.11 rejects junction/reparse-point resource paths at
+  the same mutation boundaries as Python 3.12.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added
