@@ -123,6 +123,31 @@ classification and risk. Ten of the twenty-four criteria drafted in
 `GUIDELINE_CRITERIA_DRAFT_v0` are unevaluable for exactly this reason. Adding a fifth CNV
 caller does not move that.
 
+**Refined 2026-09-01, and the refinement matters.** The sentence above conflates two gaps
+that have different owners. Checking the criteria bundle against the shipped panel BED --
+now automated in `ontseq_platform.panel_reachability` and reported in
+[`PANEL_REACHABILITY.md`](PANEL_REACHABILITY.md) -- separates them:
+
+* **A software gap, for three of the seven small-variant criteria.** NPM1 (43.1 kb), FLT3
+  (117.3 kb) and RUNX1 (281.5 kb) are already panel targets and already sequenced at roughly
+  80x on every run. Nothing is missing from the assay for these; no caller is wired in. Note
+  that FLT3-ITD is a tandem duplication rather than a small variant, so a SNV/indel caller
+  alone does not deliver it.
+* **A design gap, for the other four.** CEBPA and TP53 are not targeted at all, and eight of
+  the nine myelodysplasia-related genes are absent -- only RUNX1 is present. At 8.8x
+  off-target, no caller makes these criteria evaluable. Ten genes would have to be added to
+  the design: ASXL1, BCOR, CEBPA, EZH2, SF3B1, SRSF2, STAG2, TP53, U2AF1, ZRSR2.
+
+The partially covered myelodysplasia-related criterion is the one to watch. Evaluated
+against the single gene that happens to be targeted it can report no myelodysplasia-related
+mutation having never looked at the other eight, and that error runs towards favourable.
+`panel_reachability` therefore reports partial coverage as unreachable rather than folding it
+in with the reachable criteria.
+
+Extending an adaptive-sampling design costs no reagent per added region; it costs depth,
+because the same yield is divided across a larger enriched territory. That is a laboratory
+decision about assay design, and nothing in this repository makes it.
+
 **Methylation is evidence already being paid for and discarded.** The instrument emits 5mC
 from the same reads, and the published classifier consumes sparse genome-wide data rather
 than deep target coverage — which is the shape of the off-target fraction this assay already
