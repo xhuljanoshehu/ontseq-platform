@@ -5,6 +5,22 @@ validated release.
 
 ## Unreleased
 
+### Changed
+
+- The HTML report now states the distinct meanings of `NO_CALL`, `FAILED` and `NOT_RUN`, and
+  keeps event-level release flags explicitly inside the research-use-only boundary.
+
+### Fixed
+
+- Missing QC and coverage values render as `not available` instead of numeric zero. Portable
+  HTML redacts explicit paths and path-key assignments in warning/module text while preserving
+  slash-delimited scientific terms. Tool-specific allowlists retain path-free structured provenance.
+
+### Validation impact
+
+- This is presentation and provenance hardening only. It changes no caller, prioritization,
+  pathology-match, fusion-assessment, ISCN-generation or analytical reportability logic.
+
 ## 0.5.3 - 2026-08-29
 
 ### Added
