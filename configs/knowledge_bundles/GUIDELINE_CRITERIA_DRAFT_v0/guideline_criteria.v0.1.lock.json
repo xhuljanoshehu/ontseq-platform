@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "resource_id": "guideline_criteria",
+  "sha256": "e37928d9957e9b611c07d31061a17d6bbfc20e12a12c3215a3b06ac2ce943e3b",
+  "size_bytes": 22171,
+  "record_count": 24,
+  "verification": "unverified_model_draft",
+  "reviewer": null,
+  "review_date": null,
+  "note": "Locked so the draft cannot change unnoticed. The lock records that it is a draft; it does not make it verified."
+}

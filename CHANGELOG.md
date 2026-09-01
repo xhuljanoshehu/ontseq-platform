@@ -5,6 +5,65 @@ validated release.
 
 ## Unreleased
 
+### Added
+
+- `configs/knowledge_bundles/GUIDELINE_CRITERIA_DRAFT_v0`: ELN 2022, WHO 2022 and ICC 2022
+  criteria as a structured table, together with `guideline_criteria.py` and a German review
+  checklist. 24 records, of which 14 are evaluable by the current assay and 10 are not.
+
+  **The table is a draft written by a language model from memory and has not been checked
+  against the guideline documents.** It exists because a haematologist corrects a structured
+  table far faster than they write one from nothing, and it is shipped in a form that makes
+  that review the only way it can ever be used. Every record carries
+  `verification: unverified_model_draft`, a `reviewer_note` naming what to check, and an
+  empty `guideline_reference` for the reviewer to fill. Five records where the 2022 revision
+  is believed to differ from 2017 are flagged and listed first in the checklist.
+
+  `load_reportable_criteria()` refuses a bundle while any record is still a draft, and names
+  the offending records rather than returning a quietly shortened list — a silently smaller
+  criteria table produces a silently wrong classification. It also refuses a bundle that
+  records no reviewer. Review tooling uses `load_for_review()`, which is named rather than
+  offered as a flag so no call site reaches unverified content by accident.
+
+- `risk_group_determinable()`, which reports whether the assay can evaluate *every* criterion
+  and refuses to derive a group from the subset it happens to see. The criteria this pipeline
+  cannot evaluate — NPM1, FLT3-ITD, CEBPA, TP53 and the myelodysplasia-related genes, all of
+  which need small-variant calling that is not implemented — are overwhelmingly the adverse
+  ones, so a group derived from the remainder would be biased towards favourable. Complex and
+  monosomal karyotype are marked as lower bounds for the same reason: balanced rearrangements
+  outside the panel are invisible to this assay.
+
+- `docs/EVIDENCE_BASE.md`: a second candidate survey (2026-08-31) covering small variants,
+  methylation and clinical annotation, plus a packaging audit against the live Bioconda index.
+  Seven new evidence-matrix rows, each with its applicability limit and the resulting decision.
+
+  Three findings change the shortlist rather than extend it. **The largest gap is small
+  variants, not another CNV caller**: ClairS-TO is tumour-only by design, which matches AML
+  diagnostics having no matched normal, and it would make ten of the twenty-four criteria in
+  `GUIDELINE_CRITERIA_DRAFT_v0` evaluable. **Methylation is evidence already being paid for
+  and discarded**: the published nanopore leukaemia classifier consumes sparse genome-wide
+  data, which is the shape of the off-target fraction this assay already produces, and a
+  preprint characterises its failure mode at low blast fraction — the stratum that matters
+  most here. **AnnotSV's ACMG/ClinGen ranking is a germline vocabulary**, joining ClinVar as a
+  source whose content is useful and whose classification answers a different question than
+  AML asks; ADR-022 applies unchanged.
+
+  The survey also corrects a figure this document reasoned from: the EPI2ME row assumed "a
+  roughly 3x lcWGS assay", but the measured local run produced 8.8x off-target. Several
+  conclusions depend on which is right, so it is flagged for confirmation across runs rather
+  than silently rewritten. And `Spectre`, referenced there as a CNV comparator, is **not** on
+  Bioconda — it carries the same packaging cost as ClairS-TO rather than being the cheap option.
+
+### Validation impact
+
+None, and deliberately so. No record can reach a report while it is a draft; the loader
+enforces it and a test asserts that the shipped bundle cannot be loaded for reporting. No
+threshold, status vocabulary or reported value changes. Verifying the table against the
+guideline documents is a clinical task, not a software one, and the result must be signed by
+whoever performed it.
+
+## Unreleased
+
 ## 0.4.1 - 2026-08-27
 
 ### Added
