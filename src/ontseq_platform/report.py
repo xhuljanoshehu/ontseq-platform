@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import html
 import json
-from pathlib import Path
+import math
+import re
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from .models import AnalysisModule, GenomicEvent, PipelineResult, ResolvedResourceContext
+from .models import (
+    AnalysisModule,
+    GenomicEvent,
+    ModuleOutcome,
+    ModuleRunStatus,
+    PipelineResult,
+    ResolvedResourceContext,
+)
 from .reporting import (
     caller_count,
     fusion_assessment,
@@ -14,9 +23,7 @@ from .reporting import (
     gene_pair_label,
     is_structural_variant,
     key_findings,
-    maximum_support,
     pathology_label,
-    release_state,
     review_priority,
 )
 from .sv_evidence import sv_review_queue
@@ -27,10 +34,134 @@ def _cell(value: object) -> str:
     return html.escape("" if value is None else str(value))
 
 
+def _parameter_keys(raw: str) -> frozenset[str]:
+    return frozenset(raw.split())
+
+
+_QDNASEQ_ACE_PARAMETER_KEYS = _parameter_keys(
+    "profile bin_sizes_kbp primary_bin_size_kbp ace_penalty ploidy_min ploidy_max ploidy_step"
+)
+_TOOL_PARAMETER_ALLOWLIST: dict[str, frozenset[str]] = {
+    "sniffles2": _parameter_keys(
+        "threads minsupport minsvlen mapq caller_pass_only normalizer_pass_only symbolic mosaic "
+        "output_read_names expected_version"
+    ),
+    "cutesv": _parameter_keys(
+        "threads min_support min_size max_cluster_bias_INS diff_ratio_merging_INS "
+        "max_cluster_bias_DEL diff_ratio_merging_DEL expected_version normalizer_pass_only"
+    ),
+    "mosdepth": _parameter_keys(
+        "threads no_per_base thresholds mapq exclude_flags target_bed_role expected_version"
+    ),
+    "qdnaseq": _QDNASEQ_ACE_PARAMETER_KEYS | {"bins_kb"},
+    "ace": _QDNASEQ_ACE_PARAMETER_KEYS | {"penalty"},
+    "cramino": _parameter_keys("threads format read_length_histogram_requested"),
+    "minimap2": _parameter_keys("preset threads md_tag soft_clip_supplementary carry_fastq_tags"),
+    "samtools": _parameter_keys("checks threads fastq_tags read_groups_reattached"),
+    "dorado": _parameter_keys(
+        "model model_sha256 device modified_bases minimum_qscore emit_moves adapter_verification"
+    ),
+}
+_PATH_SUFFIX = re.compile(
+    r"\.(?:bam|bai|bcf|bed|bgz|bigwig|bin|bw|cfg|cram|crai|csi|csv|db|dict|fa|fai|fasta|fastq|gff3|gtf|gz|ini|json|lock|onnx|pod5|pt|pth|rdata|rds|sqlite3?|tbi|toml|tsv|txt|vcf|wig|ya?ml)$",
+    re.IGNORECASE,
+)
+_URI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
+_PATH_KEY_VALUE = re.compile(
+    r"""(?ix)
+    (?<![A-Za-z0-9_])
+    ["']?
+    (?:
+        input|output|resource|path|paths|file|files|dir|directory|root|
+        [A-Za-z0-9_]+_(?:path|paths|file|files|dir|directory|root)
+    )
+    ["']?
+    \s*(?:=|:)\s*
+    (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;}\]]+)
+    """,
+)
+_REDACTED = object()
+
+
+def _looks_path_like(token: str) -> bool:
+    candidate = token.strip("\"'()[]{}<>,;:").rstrip(".!?")
+    return (
+        _URI.fullmatch(candidate) is not None
+        or PureWindowsPath(candidate).is_absolute()
+        or PurePosixPath(candidate).is_absolute()
+        or _PATH_SUFFIX.search(candidate) is not None
+    )
+
+
+def _portable_text(value: str) -> str:
+    """Redact explicit paths and path-key assignments without hiding slash terminology."""
+    redacted = _PATH_KEY_VALUE.sub("[redacted path-like token]", value)
+    return re.sub(
+        r"\S+",
+        lambda match: (
+            "[redacted path-like token]" if _looks_path_like(match.group()) else match.group()
+        ),
+        redacted,
+    )
+
+
+def _safe_parameter_scalar(value: object) -> bool:
+    if isinstance(value, bool | int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return (
+        isinstance(value, str)
+        and len(value) <= 160
+        and value.isprintable()
+        and "/" not in value
+        and "\\" not in value
+        and _portable_text(value) == value
+    )
+
+
+def _safe_parameter_value(value: object) -> object:
+    if _safe_parameter_scalar(value):
+        return value
+    if (
+        isinstance(value, list | tuple)
+        and len(value) <= 64
+        and all(_safe_parameter_scalar(item) for item in value)
+    ):
+        return list(value)
+    return _REDACTED
+
+
+def _safe_tool_parameters(tool_name: str, parameters: dict[str, object]) -> str:
+    tool_key = re.sub(r"[^a-z0-9]+", "", tool_name.casefold())
+    allowlist = _TOOL_PARAMETER_ALLOWLIST.get(tool_key, frozenset())
+    projected: dict[str, object] = {}
+    for key, value in parameters.items():
+        safe_value = _safe_parameter_value(value)
+        if key in allowlist and safe_value is not _REDACTED:
+            projected[key] = safe_value
+    rendered = json.dumps(projected, sort_keys=True)
+    if len(projected) != len(parameters):
+        rendered += " · unsafe or path-like parameters redacted"
+    return rendered
+
+
+def _display(value: object | None) -> str:
+    return "not available" if value is None else str(value)
+
+
+def _depth(value: float | int | None) -> str:
+    return "not available" if value is None else f"{float(value):.1f}×"
+
+
+def _fraction(value: float | int | None) -> str:
+    return "not available" if value is None else f"{100 * float(value):.1f}%"
+
+
 def _event_evidence(event: GenomicEvent) -> str:
     return ", ".join(
         f"{item.caller} {item.caller_version} "
-        f"(support={item.support_reads}, vaf={item.variant_allele_fraction})"
+        f"(support={_display(item.support_reads)}, vaf={_display(item.variant_allele_fraction)})"
         for item in event.evidence
     )
 
@@ -40,6 +171,11 @@ def _caller_support(event: GenomicEvent) -> str:
         f"{item.caller}={item.support_reads if item.support_reads is not None else 'n/a'}"
         for item in event.evidence
     )
+
+
+def _maximum_support(event: GenomicEvent) -> str:
+    support = [item.support_reads for item in event.evidence if item.support_reads is not None]
+    return str(max(support)) if support else "not available"
 
 
 def _cytobands(event: GenomicEvent) -> str:
@@ -130,6 +266,12 @@ def _status_pill(value: str, *, css_class: str = "neutral") -> str:
     return f"<span class='pill {css_class}'>{_cell(value)}</span>"
 
 
+def _release_state_text(event: GenomicEvent) -> str:
+    if event.reportable:
+        return "REPORTABLE — pipeline flag only; this RUO report is not clinically validated"
+    return "BENCHMARK_REQUIRED — release gate not satisfied; not a biological negative result"
+
+
 def _key_finding_row(event: GenomicEvent) -> str:
     primary, secondary = _event_loci(event)
     priority = review_priority(event)
@@ -144,12 +286,12 @@ def _key_finding_row(event: GenomicEvent) -> str:
         f"<td>{_cell(primary)}<br>{_cell(secondary)}</td>"
         f"<td>{_cell(_cytobands(event))}</td>"
         f"<td>{_status_pill(event.confidence, css_class=confidence_class)}</td>"
-        f"<td>{caller_count(event)} caller(s); max support {maximum_support(event)}<br>"
+        f"<td>{caller_count(event)} caller(s); max support {_maximum_support(event)}<br>"
         f"<span class='muted'>{_cell(_caller_support(event))}</span></td>"
         f"<td>{_cell(_local_coverage(event))}</td>"
         f"<td>{_cell(pathology_label(event))}</td>"
         f"<td>{_cell(fusion_assessment(event))}</td>"
-        f"<td>{_status_pill(release_state(event), css_class='locked')}</td>"
+        f"<td>{_status_pill(_release_state_text(event), css_class='locked')}</td>"
         "</tr>"
     )
 
@@ -171,7 +313,7 @@ def _fusion_row(event: GenomicEvent) -> str:
         f"<td>{_cell(pathology_label(event))}</td>"
         f"<td>{_cell(fusion_assessment(event))}</td>"
         f"<td>{_cell(event.confidence)}</td>"
-        f"<td>{_cell(release_state(event))}</td>"
+        f"<td>{_cell(_release_state_text(event))}</td>"
         "</tr>"
     )
 
@@ -190,7 +332,7 @@ def _review_event_row(event: GenomicEvent) -> str:
         f"<td>{_cell(pathology_label(event))}</td>"
         f"<td>{_cell(fusion_assessment(event))}</td>"
         f"<td><strong>{_cell(event.confidence)}</strong></td>"
-        f"<td>{_cell(release_state(event))}</td></tr>"
+        f"<td>{_cell(_release_state_text(event))}</td></tr>"
     )
 
 
@@ -199,9 +341,9 @@ def _full_event_row(event: GenomicEvent) -> str:
     return (
         "<tr>"
         f"<td>{_cell(event.event_id)}</td><td>{_cell(event.event_type.value)}</td>"
-        f"<td>{_cell(event.length_bp)}</td><td>{_cell(primary)}</td><td>{_cell(secondary)}</td>"
+        f"<td>{_cell(_display(event.length_bp))}</td><td>{_cell(primary)}</td><td>{_cell(secondary)}</td>"
         f"<td>{_cell(gene_pair_label(event))}</td><td>{_cell(event.confidence)}</td>"
-        f"<td>{_cell(review_priority(event))}</td><td>{_cell(release_state(event))}</td>"
+        f"<td>{_cell(review_priority(event))}</td><td>{_cell(_release_state_text(event))}</td>"
         f"<td>{_cell(event.validation_status.value)}</td><td>{_cell(event.observability.value)}</td>"
         f"<td>{_cell(', '.join(event.technical_flags))}</td>"
         f"<td>{_cell(event.known_rearrangement or '')}</td>"
@@ -227,14 +369,14 @@ def _coverage_section(
         "<tr>"
         f"<td>{_cell(region.region_id)}</td><td>{_cell(region.chromosome)}</td>"
         f"<td>{region.mean_depth:.2f}×</td>"
-        f"<td>{100 * region.fraction_at_threshold.get('20x', 0):.1f}%</td>"
-        f"<td>{100 * region.fraction_at_threshold.get('30x', 0):.1f}%</td></tr>"
+        f"<td>{_fraction(region.fraction_at_threshold.get('20x'))}</td>"
+        f"<td>{_fraction(region.fraction_at_threshold.get('30x'))}</td></tr>"
         for region in low_regions
     )
     selection_mean = (
         selection.summary_metrics.get("interval_weighted_mean_depth") if selection else None
     )
-    selection_mean_text = "n/a" if selection_mean is None else f"{float(selection_mean):.1f}×"
+    selection_mean_text = _depth(selection_mean)
     return f"""
     <section id="coverage">
       <div class="section-heading"><div><span class="eyebrow">Assay</span>
@@ -242,10 +384,10 @@ def _coverage_section(
         <span class="pill neutral">{_cell(target.target_bed_role.value)}</span></div>
       <div class="grid metrics">
         <div class="card"><span>Targets assessed</span><strong>{_cell(metrics.get("region_count"))}</strong></div>
-        <div class="card"><span>Target-weighted mean</span><strong>{float(metrics.get("interval_weighted_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Median target mean</span><strong>{float(metrics.get("median_region_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Least-covered target</span><strong>{float(metrics.get("minimum_region_mean_depth", 0)):.1f}×</strong></div>
-        <div class="card"><span>Target bases ≥20×</span><strong>{100 * float(metrics.get("interval_bases_at_20x_fraction", 0)):.1f}%</strong></div>
+        <div class="card"><span>Target-weighted mean</span><strong>{_depth(metrics.get("interval_weighted_mean_depth"))}</strong></div>
+        <div class="card"><span>Median target mean</span><strong>{_depth(metrics.get("median_region_mean_depth"))}</strong></div>
+        <div class="card"><span>Least-covered target</span><strong>{_depth(metrics.get("minimum_region_mean_depth"))}</strong></div>
+        <div class="card"><span>Target bases ≥20×</span><strong>{_fraction(metrics.get("interval_bases_at_20x_fraction"))}</strong></div>
         <div class="card"><span>Buffered selection mean</span><strong>{selection_mean_text}</strong></div>
       </div>
       <p class="muted">Coverage values are descriptive technical evidence. The table lists the ten
@@ -259,6 +401,30 @@ def _coverage_section(
 def _module_status(result: PipelineResult, module: AnalysisModule) -> str:
     outcome = next((item for item in result.modules if item.module == module), None)
     return outcome.status.value if outcome is not None else "NOT_RECORDED"
+
+
+_MODULE_STATUS_MEANING = {
+    ModuleRunStatus.COMPLETED: "Analysis completed; interpretation remains RUO.",
+    ModuleRunStatus.NO_CALL: (
+        "Analysis ran without an interpretable call; this is not a biological negative result."
+    ),
+    ModuleRunStatus.FAILED: (
+        "Execution failed; affected findings are unavailable and not biologically interpretable."
+    ),
+    ModuleRunStatus.NOT_RUN: "Module did not run; this is not a biological negative result.",
+}
+
+
+def _module_row(module: ModuleOutcome) -> str:
+    css_class = "critical" if module.status == ModuleRunStatus.FAILED else ""
+    if module.status in {ModuleRunStatus.NO_CALL, ModuleRunStatus.NOT_RUN}:
+        css_class = "review"
+    return (
+        f"<tr class='{css_class}'><td>{_cell(module.module.value)}</td>"
+        f"<td>{_cell(module.status.value)}</td>"
+        f"<td>{_cell(_portable_text(module.reason))}</td>"
+        f"<td>{_cell(_MODULE_STATUS_MEANING[module.status])}</td></tr>"
+    )
 
 
 def render_html(
@@ -310,7 +476,7 @@ def render_html(
     ]
     metric_cards = "".join(
         f"<div class='card'><span>{_cell(key.replace('_', ' ').title())}</span>"
-        f"<strong>{_cell(result.qc.metrics[key])}</strong></div>"
+        f"<strong>{_cell(_display(result.qc.metrics[key]))}</strong></div>"
         for key in preferred_metrics
         if key in result.qc.metrics
     )
@@ -320,20 +486,17 @@ def render_html(
     }
     raw_sv_count = sum(max(1, len(event.source_event_ids)) for event in structural_events)
     warnings = "".join(
-        f"<li>{_cell(item)}</li>"
+        f"<li>{_cell(_portable_text(item))}</li>"
         for item in result.warnings + result.qc.warnings + result.iscn.warnings
     )
     module_rows = (
-        "".join(
-            f"<tr><td>{_cell(module.module.value)}</td><td>{_cell(module.status.value)}</td>"
-            f"<td>{_cell(module.reason)}</td></tr>"
-            for module in result.modules
-        )
-        or "<tr><td colspan='3'>No module outcomes were recorded.</td></tr>"
+        "".join(_module_row(module) for module in result.modules)
+        or "<tr><td colspan='4'>No module outcomes were recorded.</td></tr>"
     )
     tool_rows = "".join(
-        f"<tr><td>{_cell(tool.name)}</td><td>{_cell(tool.version)}</td>"
-        f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
+        f"<tr><td>{_cell(_portable_text(tool.name))}</td>"
+        f"<td>{_cell(_portable_text(tool.version))}</td>"
+        f"<td><code>{_cell(_safe_tool_parameters(tool.name, tool.parameters))}</code></td></tr>"
         for tool in result.provenance.tools
     )
     reference_rows, checksum_rows = _reference_methods(result)
@@ -451,8 +614,9 @@ def render_html(
         <h2>Fusion and rearrangement assessment</h2></div><span class="pill neutral">{len(fusion_events)} candidates</span></div>
       <div class="notice info">BREAKPOINT_EVIDENCE means both breakpoints were gene/transcript
       annotated. KNOWLEDGE_MATCH_CANDIDATE additionally matched a locked hematology pattern.
-      Neither state asserts a productive transcript or clinical reportability. Associated
-      pathology names and DOIDs describe the source record, not the sample.</div>
+      Neither state asserts an expressed, in-frame or functional fusion transcript,
+      pathogenicity or clinical reportability. Associated pathology names and DOIDs describe
+      the source record, not the sample.</div>
       <input class="table-filter" data-table="fusion-events" placeholder="Filter gene, locus, band, status…">
       <div class="table-wrap"><table><thead><tr><th>Gene pair</th><th>Loci</th><th>Cytobands</th>
       <th>Caller support</th><th>Coverage</th><th>Observability</th><th>Transcript context</th>
@@ -485,7 +649,7 @@ def render_html(
         <tbody id="all-events">{event_rows}</tbody></table></div></details></section>
     <section><div class="section-heading"><div><span class="eyebrow">Pipeline state</span>
       <h2>Module status</h2></div></div><div class="table-wrap"><table><thead><tr><th>Module</th>
-      <th>Status</th><th>Reason</th></tr></thead><tbody>{module_rows}</tbody></table></div></section>
+      <th>Status</th><th>Reason</th><th>Meaning</th></tr></thead><tbody>{module_rows}</tbody></table></div></section>
     <section><div class="section-heading"><div><span class="eyebrow">Nomenclature</span>
       <h2>Proposed ISCN notation</h2></div></div><div class="iscn">{_cell(result.iscn.notation)}</div>
       <p>{_cell(result.iscn.standard_edition)} · {_cell(result.iscn.conformance_profile)} ·
@@ -496,10 +660,12 @@ def render_html(
       <h2>Warnings and limitations</h2></div></div><ul>{warnings}</ul></section>
     <section id="methods"><div class="section-heading"><div><span class="eyebrow">Provenance</span>
       <h2>Methods and versions</h2></div></div>
+      <p class="muted">This self-contained HTML has no CDN or remote runtime dependency. Raw
+      input and resolved-resource paths are intentionally omitted.</p>
       <h3>Reference resources</h3><div class="table-wrap"><table><thead><tr><th>Resource</th>
       <th>Release</th></tr></thead><tbody>{reference_rows}</tbody></table></div>
       <h3>Tools</h3><div class="table-wrap"><table><thead><tr><th>Tool</th><th>Version</th>
-      <th>Parameters</th></tr></thead><tbody>{tool_rows}</tbody></table></div>
+      <th>Safe parameters</th></tr></thead><tbody>{tool_rows}</tbody></table></div>
       <details><summary>Resource SHA256 provenance</summary><div class="table-wrap"><table><thead><tr>
       <th>Resource</th><th>SHA256</th></tr></thead><tbody>{checksum_rows}</tbody></table></div></details></section>
   </main>

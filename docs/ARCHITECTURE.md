@@ -105,3 +105,16 @@ not a substitute for the authorized ISCN 2024 standard. Full implementation requ
 - authorized positive, negative and edge-case test cases;
 - clone/mosaicism and uncertainty semantics;
 - expert cytogenetic review and controlled change management.
+
+## Portable HTML boundary
+
+The HTML renderer still consumes the versioned `PipelineResult` directly; it is not a separate
+clinical or persistence contract. Dynamic values are HTML-escaped. Warning text and module reasons
+redact complete URIs, absolute paths, recognized file-suffixed relative path tokens and exact
+path-key assignments. A slash alone is not treated as a path, so terms such as `CNV/SV` remain
+intact. Recognized tools have separate exact parameter allowlists for path-free booleans, integers,
+finite floats, short strings and flat lists; unknown tools, keys or path-like values are omitted and
+marked as redacted. Raw input paths, resolved-resource roots/paths and sidecar relative paths are
+not rendered. The report uses only inline CSS and JavaScript and therefore needs no CDN or remote
+runtime resource. These syntactic filters are defense in depth for the portable HTML, not general
+de-identification of the JSON result or of identifiers that do not look like paths.
