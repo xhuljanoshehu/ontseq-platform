@@ -122,9 +122,7 @@ def load_for_review(path: Path) -> CriteriaBundle:
         bundle_id=str(document.get("bundle_id", "UNKNOWN")),
         schema_version=str(document.get("schema_version", "0")),
         reviewer=(str(provenance.get("reviewer")) if provenance.get("reviewer") else None),
-        review_date=(
-            str(provenance.get("review_date")) if provenance.get("review_date") else None
-        ),
+        review_date=(str(provenance.get("review_date")) if provenance.get("review_date") else None),
         criteria=tuple(_criterion(item) for item in records),
     )
 
