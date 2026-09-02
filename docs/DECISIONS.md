@@ -71,3 +71,41 @@ performance does not constitute AML, tumor-only, low-coverage or adaptive-sampli
 **Privacy and interpretation constraints:** Request symbolic alleles, never request read-name
 output, count rejected records, map an empty accepted set to `NO_CALL`, and never infer a fusion or
 ISCN assertion directly from a BND record.
+
+## ADR-008: Add Clair3 as a germline caller whose output is never somatic
+
+**Decision:** Pin Clair3 v2.0.2 as the small-variant candidate and gate its records per
+variant against the detection floor at that variant's own depth, but make a somatic label
+structurally unreachable: `SomaticStatus` has exactly one member, `NOT_DETERMINED`, and every
+accepted call is `reportable: false` under the technical policy.
+
+**Reason:** The reference architecture for this assay shape (Capilla-Guerra et al., *Blood*
+2025) uses Dorado, minimap2, Clair3, QDNAseq and Sniffles; this repository already pins four
+of those five, so Clair3 is the cheapest step that closes the small-variant gap. But Clair3
+is a germline caller. On a tumour sample without a matched normal it produces variants, not
+somatic variants, and a germline heterozygous SNP is indistinguishable from a clonal somatic
+mutation by read counts alone. A boundary that relies on future callers remembering to
+respect it is not a boundary, so the somatic label is absent from the type system rather than
+merely withheld. This is ADR-022's ClinVar trap arriving from the other direction: there a
+germline vocabulary was attached to a somatic question, here a germline caller would answer
+one. ClairS-TO is the correct tumour-only design and was verified absent from Bioconda on
+2026-09-02, so it is a later step, not this one.
+
+**Depth constraint:** The detection floor is computed per variant, never per run. An
+adaptive-sampling BAM carries roughly 80x inside the panel and 9x outside it, and one global
+threshold would be too lax in one place and too strict in the other.
+
+**Indel constraint:** Indels carry `requires_orthogonal_confirmation`. Long-read indel
+performance is measurably poor -- 66% recall and 42% precision at 52x (Abel et al., *J Mol
+Diagn* 2025), 17.6% recovered at 21x (Kato et al., ASCO 2024) -- and NPM1's canonical
+alteration is a 4 bp insertion, squarely in that class. The flag travels with the call rather
+than living in a document nobody reads at the bench.
+
+**Model constraint:** Clair3 requires a model matched to the basecaller chemistry. A
+mismatched model degrades calls silently, so the model is a pinned assay component exactly as
+the Dorado model is, and a run without it must fail closed rather than fall back to a default.
+No model is pinned yet.
+
+**Not decided here:** no subprocess adapter, no version probe, no stage in the graph, and no
+verification status. Nothing in the pipeline calls this policy. Verification is claimed only
+once CI has run the real binary (ADR-015).
