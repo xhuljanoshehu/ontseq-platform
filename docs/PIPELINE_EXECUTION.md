@@ -30,6 +30,7 @@ about without executing anything.
 | `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
 | `sv` | Sniffles2 + cuteSV, consensus and annotations | all | no | adapters verified with synthetic contracts; real-tool CI |
+| `methylation` | modkit | all | no | **unverified adapter** |
 | `assemble` | — | all | yes | pure Python |
 | `report` | — | all | yes | pure Python |
 | `release` | — | all | yes | pure Python |
@@ -200,9 +201,13 @@ and any run that completes a basecalling stage carries an explicit warning in it
 and release bundle. Treat POD5 runs as untested until someone executes one against a real
 GPU and a real model.
 
-**Modified-base tags are carried, not interpreted.** CI proves `MM`/`ML` survive alignment,
-including on reverse-strand records. It does not prove that a downstream methylation caller
-reads them correctly, because there is no methylation lane yet to read them.
+**The methylation lane has never met modkit.** There is now a lane that reads the `MM`/`ML`
+tags CI proves survive alignment (`docs/METHYLATION_LANE.md`), but no modkit binary exists in
+this repository's CI or development environment, so the adapter is marked `unverified_adapter`
+and a run completing that stage says so. Its bedMethyl parsing, region aggregation and refusals
+are unit tested against synthetic pileups; its behaviour on real modkit output is an assumption.
+What CI still does not prove is that a caller interprets modified-base tags on reverse-strand
+records correctly — that needs a real run, not a lane.
 
 **No stage output has clinical meaning.** Tool versions are pinned for reproducibility.
 Thresholds are technical defaults. `qc` gates are `null` pending analytical validation. A

@@ -27,9 +27,13 @@ _SCIENTIFIC_COMMANDS = (
     ("qc-cramino", "Run Cramino and normalize descriptive BAM QC"),
     ("qc-target-coverage", "Run Mosdepth over a target design"),
     ("call-sniffles", "Run Sniffles2 and normalize candidate SV evidence"),
+    ("call-methylation", "Run modkit pileup and normalize modified-base fractions"),
     ("local-smoke", "Exercise the real toolchain on generated synthetic alignments"),
     ("system-smoke", "Full installed-system self-test including QDNAseq/ACE"),
     ("benchmark", "Score a benchmark case"),
+    ("dilution-plan", "Lay out an in-silico tumour dilution series"),
+    ("dilution-mix", "Materialize the mixed BAMs of a planned dilution series"),
+    ("lod", "Derive a technical detection limit from a dilution series"),
     ("assemble-aligned-mvp", "Assemble a result from existing adapter outputs"),
 )
 

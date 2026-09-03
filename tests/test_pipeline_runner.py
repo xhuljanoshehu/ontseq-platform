@@ -178,7 +178,10 @@ class HappyPathTests(RunnerCase):
     def test_every_planned_stage_is_recorded(self) -> None:
         report, bundle = self._run()
         recorded = {record.stage for record in report.stages}
-        self.assertEqual(recorded, set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV})
+        self.assertEqual(
+            recorded,
+            set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION},
+        )
         self.assertTrue(report.passed)
         self.assertIsNotNone(bundle)
 

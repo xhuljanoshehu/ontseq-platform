@@ -4,6 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
+from ontseq_platform.dilution import (
+    DilutionPolicy,
+    DilutionSeriesPlan,
+    DilutionSeriesReport,
+    LodPolicy,
+    LodReport,
+)
+from ontseq_platform.methylation import MethylationPolicy, MethylationReport
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     AmlKnowledgeLock,
@@ -93,6 +101,34 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/benchmark-report.schema.json"): json.dumps(
             BenchmarkReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/methylation-policy.schema.json"): json.dumps(
+            MethylationPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/methylation-report.schema.json"): json.dumps(
+            MethylationReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/dilution-policy.schema.json"): json.dumps(
+            DilutionPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/dilution-series-plan.schema.json"): json.dumps(
+            DilutionSeriesPlan.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/dilution-series-report.schema.json"): json.dumps(
+            DilutionSeriesReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/lod-policy.schema.json"): json.dumps(
+            LodPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/lod-report.schema.json"): json.dumps(
+            LodReport.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
     }

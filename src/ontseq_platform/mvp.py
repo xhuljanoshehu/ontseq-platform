@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .methylation import MethylationReport
 from .models import (
     AlignedBamIntakeReport,
     AnalysisModule,
@@ -27,6 +28,7 @@ def assemble_aligned_bam_mvp(
     git_commit: str,
     sniffles_report: SnifflesCallReport | None = None,
     sv_consensus_report: SvConsensusReport | None = None,
+    methylation_report: MethylationReport | None = None,
 ) -> PipelineResult:
     if manifest.sample_id != intake.sample_id or manifest.sample_id != qc_report.sample_id:
         raise ValueError("Manifest, intake and QC artifacts must refer to the same sample")
@@ -37,6 +39,11 @@ def assemble_aligned_bam_mvp(
             raise ValueError("Manifest and Sniffles artifact must refer to the same sample")
         if manifest.assay.genome_build != sniffles_report.genome_build:
             raise ValueError("Manifest and Sniffles artifact use different genome builds")
+    if methylation_report is not None:
+        if manifest.sample_id != methylation_report.sample_id:
+            raise ValueError("Manifest and methylation artifact must refer to the same sample")
+        if manifest.assay.genome_build != methylation_report.genome_build:
+            raise ValueError("Manifest and methylation artifact use different genome builds")
 
     requested = set(manifest.analysis.modules)
     modules: list[ModuleOutcome] = []
@@ -86,6 +93,29 @@ def assemble_aligned_bam_mvp(
                     reason="Scientific caller selection remains benchmark_required",
                 )
             )
+        elif module == AnalysisModule.METHYLATION and methylation_report is not None:
+            if methylation_report.status == ModuleRunStatus.COMPLETED:
+                measured = sum(
+                    item.sites_at_minimum_coverage for item in methylation_report.regions
+                )
+                reason = (
+                    f"modkit aggregated {measured} modified-base site observation(s) into "
+                    f"{len(methylation_report.regions)} region row(s); fractions are "
+                    "descriptive and no methylation threshold here is validated"
+                )
+            else:
+                reason = (
+                    "No modified-base site reached the configured coverage floor; this "
+                    "NO_CALL reports an unmeasurable sample, not unmethylated DNA"
+                )
+            modules.append(
+                ModuleOutcome(
+                    module=module,
+                    status=methylation_report.status,
+                    reason=reason,
+                    tools=[methylation_report.tool],
+                )
+            )
         elif module == AnalysisModule.FUSION:
             modules.append(
                 ModuleOutcome(
@@ -126,6 +156,8 @@ def assemble_aligned_bam_mvp(
         reference_checksums["input_bam_index"] = intake.index_fingerprint.sha256
     if sniffles_report is not None and sniffles_report.vcf_fingerprint.sha256:
         reference_checksums["sniffles_vcf"] = sniffles_report.vcf_fingerprint.sha256
+    if methylation_report is not None and methylation_report.bedmethyl_fingerprint.sha256:
+        reference_checksums["bedmethyl"] = methylation_report.bedmethyl_fingerprint.sha256
 
     source_events = (
         sv_consensus_report.events
@@ -154,6 +186,9 @@ def assemble_aligned_bam_mvp(
         )
         warnings.extend(sniffles_report.warnings)
         warnings.extend(sniffles_report.limitations)
+    if methylation_report is not None:
+        warnings.extend(methylation_report.warnings)
+        warnings.extend(methylation_report.limitations)
 
     return PipelineResult(
         manifest=manifest,
@@ -173,6 +208,7 @@ def assemble_aligned_bam_mvp(
                     intake.tool,
                     qc_report.tool,
                     sniffles_report.tool if sniffles_report is not None else None,
+                    methylation_report.tool if methylation_report is not None else None,
                 )
                 if item is not None
             ],

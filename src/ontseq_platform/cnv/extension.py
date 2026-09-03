@@ -169,7 +169,11 @@ def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
 
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
     external: list[tuple[str, str]] = []
-    for relative in (ctx.path(CNV_REPORT), ctx.path(pipeline_runner.SV_REPORT)):
+    for relative in (
+        ctx.path(CNV_REPORT),
+        ctx.path(pipeline_runner.SV_REPORT),
+        ctx.path(pipeline_runner.METHYLATION_REPORT),
+    ):
         path = ctx.envelope.path(relative)
         if path.is_file():
             external.append((Path(relative).name, sha256_file(path)))
@@ -218,6 +222,7 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        methylation_report=pipeline_runner.load_methylation_report(ctx),
     )
     cnv = _load_cnv(ctx)
     if cnv is not None:

@@ -47,7 +47,9 @@ against a comparison VCF. Thresholds must be locked before viewing comparative r
 1. **CI fixtures:** deterministic synthetic positive, discordant and negative cases.
 2. **Public technical truth:** version-pinned GIAB HG002 and draft HG008 tumor/normal resources.
 3. **Analytical stress tests:** coverage and tumor/blast-fraction dilution, event size/class,
-   reference build and target observability.
+   reference build and target observability. The dilution half of this rung is implemented; see
+   [`DILUTION_SERIES.md`](DILUTION_SERIES.md) for the planning, mixing and detection-limit
+   commands and for what an in-silico mixture cannot establish.
 4. **Intended-use validation:** orthogonally characterized AML specimens on the locked wet-lab
    and computational workflow.
 

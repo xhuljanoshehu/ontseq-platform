@@ -5,6 +5,54 @@ validated release.
 
 ## Unreleased
 
+### Added
+
+- A modified-base (methylation) lane. `modkit pileup` is wired into the canonical run graph as
+  the version-locked `methylation` stage, aggregating `MM`/`ML` calls into per-region 5mC
+  fractions over either canonical chromosomes or the locked target design. It runs only when the
+  manifest requests the module, is deselectable like any other component, and its normalized
+  report is a validated artifact in the run envelope with its own module outcome, tool record and
+  release-bundle checksum. See [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md).
+- A deterministic in-silico tumour dilution series. `plan_dilution_series` lays out the whole
+  titration as reviewable data — per-level read budgets, derived seeds, exact subsample arguments
+  — without touching a BAM; `execute_dilution_series` materialises it with version-locked
+  samtools and verifies every level against the fraction it claims.
+- A technical limit-of-detection evaluation over the benchmark reports of a series, reusing the
+  `tumor_fraction`/`replicate` strata the benchmark cases already carry. It reports per-level
+  detection rates, whether the limit is bracketed by an observed failing level, and refuses to
+  report a low level that passed while a higher one failed.
+- CLI: `call-methylation`, `dilution-plan`, `dilution-mix` and `lod`; `ontseq run` and
+  `ontseq preflight` accept `--methylation-policy` and `--modkit`.
+- Technical policies `configs/methylation/modkit.technical.yaml`,
+  `configs/benchmark/dilution_series.technical.yaml` and `configs/benchmark/lod.technical.yaml`,
+  plus seven exported schemas for the new contracts.
+
+### Changed
+
+- Preflight answers the methylation lane's preconditions before an envelope exists: policy
+  present, reference FASTA present when the pileup is CpG-restricted, target BED present when
+  aggregation is over the design, and a warning that MM/ML tag presence can only be established
+  by reading the BAM.
+- The unverified-adapter warning is no longer raised for a methylation stage the run never
+  requested, so the line keeps meaning something.
+
+### Validation impact
+
+- Both lanes are new evidence surfaces and neither is validated. The modkit adapter has **never**
+  been executed against the real binary here or in CI; it is declared `unverified_adapter` and a
+  run completing that stage is reported as such. Fail-closed behaviour is deliberate and load
+  bearing: a BAM without `MM` tags fails the stage rather than producing an empty pileup that
+  would read as unmethylated DNA, a region with no site above the coverage floor reports `null`
+  rather than `0.0`, and the modkit confidence threshold is pinned in policy rather than
+  estimated from the sample.
+- A detection limit from an in-silico series characterises software behaviour on one pair of
+  BAMs. It reproduces read-fraction effects and nothing about library preparation, input mass or
+  capture behaviour at low tumour content, its replicates are not independent specimens, and an
+  unbracketed limit is reported as a bound rather than a limit. No number from this lane is an
+  analytical or clinical sensitivity.
+- No existing lane's output changes. Assembly gains an optional methylation module outcome;
+  results without the lane are byte-identical apart from that absence.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added

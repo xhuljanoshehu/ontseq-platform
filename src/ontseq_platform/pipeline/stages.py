@@ -35,6 +35,7 @@ class StageId(StrEnum):
     TARGET_COVERAGE = "target_coverage"
     CNV = "cnv"
     SV = "sv"
+    METHYLATION = "methylation"
     ASSEMBLE = "assemble"
     REPORT = "report"
     RELEASE = "release"
@@ -186,6 +187,22 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose="Conservative, non-reportable candidate SV evidence.",
+    ),
+    StageSpec(
+        stage=StageId.METHYLATION,
+        title="modkit modified-base pileup",
+        depends_on=(StageId.INTAKE,),
+        applicable_for=_ALL_KINDS,
+        # modkit is not installed in continuous integration and no synthetic fixture in
+        # this repository carries real MM/ML tags, so the adapter has never met the real
+        # binary. Saying so here is the point of this field.
+        verification=VerificationStatus.UNVERIFIED_ADAPTER,
+        required=False,
+        purpose=(
+            "Aggregate modified-base calls that alignment already carries into per-region "
+            "fractions. Runs only when the manifest requests the methylation module; a BAM "
+            "without MM/ML tags fails the stage rather than producing an empty pileup."
+        ),
     ),
     StageSpec(
         stage=StageId.ASSEMBLE,

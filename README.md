@@ -103,6 +103,8 @@ Diagnostiksoftware.
 | Komponentenauswahl | Provider und exakte Tool-Version je Stage pro Lauf wählbar, fail-closed gegen die installierte Version geprüft und in der Provenienz protokolliert |
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
 | SV | Sniffles2 2.8.0 + cuteSV 2.1.3, Breakpoint-Konsens, build-gelockte Annotation, Adaptive-Sampling-Observability, AML-Priorisierung und filterbare Review Queue; weiterhin nicht reportable |
+| Methylierung | modkit-Pileup-Lane als Stage im kanonischen Runner; MM/ML-Tags werden fail-closed geprüft, ein leerer Pileup wird nie als "unmethyliert" berichtet. Adapter noch **nicht** gegen die reale modkit-Binary ausgeführt, siehe [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md) |
+| Verdünnungsreihe / LoD | Deterministische In-silico-Tumorverdünnung (Planung, Mischung, Drift-Prüfung) und technische Detektionsgrenze mit explizitem Bracketing, siehe [`docs/DILUTION_SERIES.md`](docs/DILUTION_SERIES.md); keine analytische Sensitivität |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
 | ISCN | Nur begrenzte, explizit unvalidierte Proposal-/Demo-Logik; kein klinisch konformer automatischer ISCN-Endpunkt |
 | Output | Validiertes JSON, HTML, XLSX und checksummed release bundle |
@@ -415,6 +417,8 @@ Datenschutz, Validierung und gegebenenfalls Medizinprodukterecht separat geklär
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
 - [Desktop](desktop/README.md)
 - [Benchmarking](docs/BENCHMARKING.md)
+- [Methylation lane](docs/METHYLATION_LANE.md)
+- [Dilution series and detection limit](docs/DILUTION_SERIES.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md)

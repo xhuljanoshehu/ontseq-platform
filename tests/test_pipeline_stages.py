@@ -203,14 +203,15 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn(StageId.ALIGN, stages)
 
     def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
-        """Below POD5 every wired adapter is exercised by CI; only stubs remain.
+        """Below POD5, only adapters CI has never executed against the real tool remain.
 
         Target coverage left this set when its adapter was wired into the runner. CNV is
-        the last stage whose implementation still arrives by registration rather than by
-        being part of the graph.
+        still the stage whose implementation arrives by registration rather than by being
+        part of the graph, and methylation is in the graph but has never met real modkit:
+        CI installs no modkit and no fixture here carries real MM/ML tags.
         """
         specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
-        self.assertEqual({spec.stage for spec in specs}, {StageId.CNV})
+        self.assertEqual({spec.stage for spec in specs}, {StageId.CNV, StageId.METHYLATION})
 
 
 if __name__ == "__main__":

@@ -26,7 +26,8 @@
 - [x] Filterable evidence-tiering review queue with the complete technical call table retained
 - [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
 - [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
-- [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
+- [x] Deterministic in-silico tumor dilution series and technical detection-limit evaluation, with explicit bracketing and no-call handling
+- [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series on real characterized material
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results
 - [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
@@ -68,7 +69,7 @@
 ## Optional research lanes
 
 - [ ] Small variants/indels
-- [ ] Modified-base and methylation analysis
+- [x] Modified-base and methylation analysis: version-locked modkit pileup lane wired into the run graph, fail-closed on missing MM/ML tags, not yet run against real modkit
 - [ ] RNA fusion confirmation
 - [ ] cfDNA tissue-of-origin research
 

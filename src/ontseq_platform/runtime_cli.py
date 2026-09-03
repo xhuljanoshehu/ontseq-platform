@@ -14,6 +14,7 @@ from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
 from .execution import ToolExecutionError
 from .io import load_model
+from .methylation import MethylationPolicy
 from .model_lock import ModelLockError
 from .model_lock import exit_code as model_lock_exit_code
 from .model_lock import fingerprint as model_fingerprint
@@ -64,6 +65,7 @@ SELECTABLE_STAGES = (
     StageId.TARGET_COVERAGE,
     StageId.CNV,
     StageId.SV,
+    StageId.METHYLATION,
 )
 
 
@@ -138,6 +140,10 @@ def _aml_knowledge(
 
 def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
     return load_model(path, TargetCoveragePolicy) if path.is_file() else None
+
+
+def _methylation_policy(path: Path) -> MethylationPolicy | None:
+    return load_model(path, MethylationPolicy) if path.is_file() else None
 
 
 def _resolve_component_policies(selection: RunComponents, source: Path) -> RunComponents:
@@ -304,6 +310,11 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
     )
     parser.add_argument(
+        "--methylation-policy",
+        type=Path,
+        default=Path("configs/methylation/modkit.technical.yaml"),
+    )
+    parser.add_argument(
         "--components",
         type=Path,
         help="Component selection for this run: which provider and version runs each stage",
@@ -321,6 +332,7 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("--cutesv", default="cuteSV")
     parser.add_argument("--minimap2", default="minimap2")
     parser.add_argument("--mosdepth", default="mosdepth")
+    parser.add_argument("--modkit", default="modkit")
     parser.add_argument("--dorado", default="dorado")
 
 
@@ -520,6 +532,7 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "cutesv": args.cutesv,
         "minimap2": args.minimap2,
         "mosdepth": getattr(args, "mosdepth", "mosdepth"),
+        "modkit": getattr(args, "modkit", "modkit"),
         "dorado": args.dorado,
     }
 
@@ -566,6 +579,9 @@ def main() -> None:
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
                 alignment_policy=_alignment_policy(
                     _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
@@ -621,6 +637,9 @@ def main() -> None:
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
                 require_free_gb=args.require_free_gb,
             )
