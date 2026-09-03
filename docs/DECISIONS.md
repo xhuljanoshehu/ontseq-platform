@@ -106,6 +106,16 @@ mismatched model degrades calls silently, so the model is a pinned assay compone
 the Dorado model is, and a run without it must fail closed rather than fall back to a default.
 No model is pinned yet.
 
-**Not decided here:** no subprocess adapter, no version probe, no stage in the graph, and no
-verification status. Nothing in the pipeline calls this policy. Verification is claimed only
+**Reading and probing:** `clair3_vcf` reads the VCF into policy inputs and gates the run. A
+record reaches policy only if it carries both `DP` and `AD`; one missing either cannot be
+depth-gated and is counted as malformed rather than accepted with an assumed depth or dropped
+in silence. Multi-allelic records are refused rather than split, because one `AD` pair cannot
+be attributed to two alternates without guessing. Alternate support is read from `AD` rather
+than derived as depth minus reference, which would overstate it at a site with a third allele.
+The version probe and the model gate return their reason instead of raising, so preflight can
+report every blocked stage in one pass; the model gate runs first and blocks before the binary
+is probed.
+
+**Not decided here:** no subprocess invocation of Clair3, no stage in the graph, and no
+verification status. Nothing in the pipeline calls any of this. Verification is claimed only
 once CI has run the real binary (ADR-015).
