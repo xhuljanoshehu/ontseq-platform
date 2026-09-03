@@ -1,0 +1,40 @@
+schema_version: 0.1.0
+profile_id: clair3-tumour-only-technical-v1
+status: technical_defaults_only
+
+# Clair3 is a GERMLINE small-variant caller. Running it on a tumour sample yields
+# variants, not somatic variants. Nothing downstream may read this profile's output
+# as a somatic call set. See ADR-008.
+caller: clair3
+caller_vocabulary: germline
+expected_version: 2.0.2
+
+# Clair3 requires a model matched to the basecaller chemistry and Dorado model. A
+# mismatched model degrades calls silently, so the model is a pinned assay component
+# exactly like the Dorado model, and a run without it must fail closed rather than
+# fall back to a default.
+required_model_id: null
+required_model_sha256: null
+
+# Acceptance thresholds. Engineering defaults for reproducible execution only.
+pass_only: true
+min_quality: 10
+min_depth: 30
+min_variant_reads: 4
+
+# Indels are the measured weak class for long reads: 66% recall and 42% precision at
+# 52x (Abel et al., J Mol Diagn 2025), and 17.6% of small indels recovered at 21x
+# (Kato et al., ASCO 2024). NPM1's canonical alteration is a 4 bp insertion, so it
+# falls squarely in this class.
+indels_require_orthogonal_confirmation: true
+
+# Detection-floor parameters, passed to ontseq_platform.quantitation.
+error_rate: 0.01
+alpha: 0.01
+power: 0.95
+
+note: >-
+  Conservative engineering defaults for reproducible research execution only. These are
+  not assay-specific clinical thresholds, not a somatic calling policy, and not a basis
+  for reportability or for concluding a biological negative. No variant produced under
+  this profile may be reported, classified, or read as somatic.
