@@ -357,9 +357,19 @@ def _expected_version(request: PreflightRequest, tool: str) -> str | None:
             return request.alignment_policy.expected_minimap2_version
         if tool == "samtools":
             return request.alignment_policy.expected_samtools_version
-    if tool == "sniffles" and request.sniffles_policy is not None and StageId.SV in planned:
+    if (
+        tool == "sniffles"
+        and request.sniffles_policy is not None
+        and StageId.SV in planned
+        and _analyses_structural_variants(request)
+    ):
         return request.sniffles_policy.expected_version
-    if tool == "cutesv" and request.cutesv_policy is not None and StageId.SV in planned:
+    if (
+        tool == "cutesv"
+        and request.cutesv_policy is not None
+        and StageId.SV in planned
+        and _analyses_structural_variants(request)
+    ):
         return request.cutesv_policy.expected_version
     if tool == "dorado" and request.basecall_policy is not None and StageId.BASECALL in planned:
         return request.basecall_policy.expected_version
@@ -425,6 +435,8 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
         # manifest asks for it, so an absent binary is not news to a run that never
         # wanted one.
         requirements = [item for item in requirements if item.name != "modkit"]
+    if not _analyses_structural_variants(request):
+        requirements = [item for item in requirements if item.name not in {"sniffles", "cutesv"}]
     if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
         requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
     for requirement in requirements:
@@ -481,6 +493,9 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
 
 def _check_sv_configuration(request: PreflightRequest, checks: CheckList) -> None:
     if StageId.SV not in planned_stages(request.input_kind):
+        return
+    if not _analyses_structural_variants(request):
+        checks.skipped("sv.callers", "the manifest does not request the structural-variant module")
         return
     if request.sniffles_policy is None and request.cutesv_policy is None:
         checks.warning(
@@ -569,6 +584,16 @@ def _check_basecalling(request: PreflightRequest, checks: CheckList) -> None:
             remedy="set modified_bases in the basecalling policy if methylation is wanted",
             stage=StageId.BASECALL,
         )
+
+
+def _analyses_structural_variants(request: PreflightRequest) -> bool:
+    """Whether this run asked for structural variants at all.
+
+    The stage is planned for every input kind but invokes its callers only when the
+    manifest requests the module, so a CNV-only run needs neither the binaries nor the
+    advice about them.
+    """
+    return AnalysisModule.SV in request.manifest.analysis.modules
 
 
 def _analyses_methylation(request: PreflightRequest) -> bool:

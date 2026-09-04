@@ -27,12 +27,28 @@ validated release.
   `configs/benchmark/dilution_series.technical.yaml` and `configs/benchmark/lod.technical.yaml`,
   plus seven exported schemas for the new contracts.
 
+### Fixed
+
+- The structural-variant stage now runs only when the manifest requests the `sv` module, the
+  way CNV and methylation already do. It previously gated on *which policies were supplied*
+  rather than on *what the run asked for*, so a manifest declaring `modules: [qc, cnv, report]`
+  still drove an SV attempt — and a CNV-only run died with "cuteSV requires --reference-fasta"
+  on a reference it had no reason to supply. A run that did not request the module now records
+  `NOT_RUN` with the reason naming it a scope statement; a run that *did* request it with no
+  caller policy still fails closed.
+
 ### Changed
 
 - Preflight answers the methylation lane's preconditions before an envelope exists: policy
   present, reference FASTA present when the pileup is CpG-restricted, target BED present when
   aggregation is over the design, and a warning that MM/ML tag presence can only be established
   by reading the BAM.
+- Preflight applies the same scope rule to the SV callers: a run that does not request the
+  module is neither told about a missing sniffles or cuteSV nor held to their version locks,
+  so the tool section keeps meaning something.
+- Stage skip vocabulary is now consistent and distinct: `applicable: false` means the assay has
+  nothing for the stage to measure, `requested: false` means the manifest did not ask for it.
+  `docs/PIPELINE_EXECUTION.md` documents the three gates side by side.
 - The unverified-adapter warning is no longer raised for a methylation stage the run never
   requested, so the line keeps meaning something.
 
@@ -52,6 +68,13 @@ validated release.
   analytical or clinical sensitivity.
 - No existing lane's output changes. Assembly gains an optional methylation module outcome;
   results without the lane are byte-identical apart from that absence.
+- The SV gating fix does change behaviour for one case, deliberately: a run whose manifest
+  omits `sv` but whose configuration supplied caller policies previously produced structural
+  variant evidence and now records `NOT_RUN`. That evidence was outside the declared analysis
+  scope; a run asking for CNV was never asking for SV. The change is visible rather than
+  silent — the module outcome, run report, HTML and XLSX all carry the reason — and a manifest
+  that lists `sv` behaves exactly as before. Runs already in an envelope are unaffected: the
+  stage signature change re-runs the stage rather than reinterpreting an existing artifact.
 
 ## 0.4.1 - 2026-08-27
 

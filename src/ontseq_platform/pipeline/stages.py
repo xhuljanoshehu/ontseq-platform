@@ -186,7 +186,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         applicable_for=_ALL_KINDS,
         verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
-        purpose="Conservative, non-reportable candidate SV evidence.",
+        purpose=(
+            "Conservative, non-reportable candidate SV evidence. Runs only when the "
+            "manifest requests the structural-variant module; for any other run the stage "
+            "records that it was not asked for, which is a scope statement rather than a "
+            "negative structural-variant result."
+        ),
     ),
     StageSpec(
         stage=StageId.METHYLATION,

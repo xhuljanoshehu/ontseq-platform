@@ -101,6 +101,7 @@ class PreflightCase(unittest.TestCase):
         kind: str = "aligned_bam",
         *,
         assay: dict[str, object] | None = None,
+        modules: list[str] | None = None,
     ) -> SampleManifest:
         payload: dict[str, object] = {
             "schema_version": "0.1.0",
@@ -108,7 +109,7 @@ class PreflightCase(unittest.TestCase):
             "run_id": "RUN_001",
             "input": {"kind": kind, "path": str(self.bam)},
             "assay": assay or {"mode": "lcwgs", "genome_build": "GRCh38", "reference_id": "REF_V1"},
-            "analysis": {"profile": "lcwgs", "modules": ["qc"]},
+            "analysis": {"profile": "lcwgs", "modules": modules or ["qc"]},
         }
         if kind == "aligned_bam":
             payload["input"] = {"kind": kind, "path": str(self.bam), "index_path": str(self.bai)}
@@ -281,9 +282,23 @@ class ToolTests(PreflightCase):
     def test_a_missing_optional_tool_only_warns(self) -> None:
         """Sniffles serves the optional SV stage, so the run completes without it."""
         (self.bin / "sniffles").unlink()
-        check = self.results()["tool.sniffles"]
+        request = self.request(manifest=self.manifest(modules=["qc", "sv"]))
+        check = self.results(request)["tool.sniffles"]
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("NOT_RUN", check.detail)
+
+    def test_a_run_that_did_not_ask_for_sv_is_not_told_about_its_callers(self) -> None:
+        """A CNV-only run needs neither the SV binaries nor advice about them.
+
+        Reporting a missing sniffles to a run whose manifest never requested structural
+        variants trains an operator to ignore the tool section, which is the one section
+        that has to keep meaning something.
+        """
+        (self.bin / "sniffles").unlink()
+        results = self.results()
+        self.assertNotIn("tool.sniffles", results)
+        self.assertNotIn("tool.cutesv", results)
+        self.assertIs(results["sv.callers"].status, CheckStatus.SKIPPED)
 
     def test_a_tool_whose_probe_fails_is_reported_as_unidentifiable(self) -> None:
         versions = {name: text for name, text in DEFAULT_VERSIONS.items() if name != "minimap2"}

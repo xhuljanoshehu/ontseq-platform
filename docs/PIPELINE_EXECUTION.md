@@ -45,6 +45,28 @@ happens to exist on disk. An aligned-BAM run does not "skip" basecalling; baseca
 not apply to it. This distinction is load-bearing: a stage that does not apply must not
 appear in the report as something that failed to happen.
 
+### Three ways a stage can be out of scope
+
+Applicability is not one question but three, and the run report keeps them apart because a
+reader tracing an absent result needs to know which one they are looking at.
+
+| Gate | Decided by | Records | Example |
+| --- | --- | --- | --- |
+| Input kind | `StageSpec.applicable_for` | absent from the plan entirely | `basecall` on an aligned-BAM run |
+| Assay | the manifest's `assay.mode` | `applicable: false` | `target_coverage` on an lcWGS run |
+| Requested analysis | the manifest's `analysis.modules` | `requested: false` | `sv` and `methylation` on a CNV-only run |
+
+The third gate is the manifest acting as the run's scope contract. A stage that runs
+anyway produces evidence nobody asked for and — the failure that motivated the gate — can
+kill a run over a tool the operator had no reason to configure: a manifest declaring
+`modules: [qc, cnv, report]` used to drive a structural-variant attempt regardless, so a
+CNV-only run died on a missing cuteSV reference FASTA.
+
+Skipping is never silent. Each of the three records a reason saying it is a scope
+statement rather than a negative result, and a stage that *was* requested but cannot be
+configured still fails closed: asking for SV evidence with no caller policy is an error,
+not a skip.
+
 ### Bridging skipped stages
 
 `intake` depends on `align`, and `align` depends on `basecall`. For an aligned-BAM run

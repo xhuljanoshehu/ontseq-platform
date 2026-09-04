@@ -256,6 +256,18 @@ def _probe(
     return match.group(1)
 
 
+def _module_requested(ctx: RunContext, module: AnalysisModule) -> bool:
+    """Whether the manifest asked for this analysis at all.
+
+    The manifest is the run's scope contract. A stage that runs anyway produces evidence
+    nobody asked for, and — worse — can fail a run over a tool the operator had no reason
+    to configure, which is exactly how a CNV-only run came to die on a missing cuteSV
+    reference. Two vocabularies are deliberate and distinct: a stage gated on the assay
+    records ``applicable``, a stage gated on the requested analysis records ``requested``.
+    """
+    return module in ctx.manifest.analysis.modules
+
+
 def _stable_digest(path: Path) -> tuple[str, bool]:
     """Hash a regular file and report whether its size/mtime stayed fixed while reading."""
     if not path.is_file():
@@ -656,9 +668,16 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _sv_plan(ctx: RunContext) -> StagePlan:
+    if not _module_requested(ctx, AnalysisModule.SV):
+        # Probing sniffles and cuteSV here would make a CNV-only run depend on callers it
+        # never invokes, and a missing cuteSV reference would fail a run that asked for no
+        # structural variants at all.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
     sniffles_policy = ctx.config.sniffles_policy
     cute_policy = ctx.config.cutesv_policy
     if sniffles_policy is None and cute_policy is None:
+        # Requested and unconfigurable is a real error: the run asked for SV evidence and
+        # cannot produce any. That still fails closed.
         raise StageFailure("structural-variant calling requires Sniffles2 and/or cuteSV policy")
     parameters: dict[str, object] = {
         "threads": ctx.config.threads,
@@ -722,6 +741,14 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
 
 
 def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the structural-variant module. This is a "
+                "scope statement, not a finding about the sample's structural variants."
+            ),
+        )
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -848,9 +875,9 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
     rather than of the assay mode: an lcWGS run and an Adaptive Sampling run can both
     carry MM/ML tags, and neither should pay for a pileup it did not ask for.
     """
-    if AnalysisModule.METHYLATION not in ctx.manifest.analysis.modules:
+    if not _module_requested(ctx, AnalysisModule.METHYLATION):
         # Probing modkit here would make every run depend on a tool most runs never use.
-        return StagePlan(parameters={"applicable": False}, tool_versions={})
+        return StagePlan(parameters={"requested": False}, tool_versions={})
     policy = ctx.config.methylation_policy
     if policy is None:
         raise StageFailure(
@@ -875,7 +902,7 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
         external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
     return StagePlan(
         parameters={
-            "applicable": True,
+            "requested": True,
             "methylation_policy": policy.model_dump(mode="json"),
             "threads": ctx.config.threads,
         },
@@ -885,7 +912,7 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
 
 
 def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    if plan.parameters.get("applicable") is False:
+    if plan.parameters.get("requested") is False:
         return StageResult(
             status=ModuleRunStatus.NOT_RUN,
             reason=(
