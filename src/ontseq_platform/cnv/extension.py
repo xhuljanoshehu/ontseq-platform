@@ -10,14 +10,11 @@ from typing import cast
 from openpyxl import load_workbook
 
 from ..models import (
-    AlignedBamIntakeReport,
     AnalysisModule,
-    CraminoQCReport,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
-    SnifflesCallReport,
 )
 from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
@@ -168,15 +165,13 @@ def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
 
 
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
-    external: list[tuple[str, str]] = []
-    for relative in (
-        ctx.path(CNV_REPORT),
-        ctx.path(pipeline_runner.SV_REPORT),
-        ctx.path(pipeline_runner.METHYLATION_REPORT),
-    ):
-        path = ctx.envelope.path(relative)
-        if path.is_file():
-            external.append((Path(relative).name, sha256_file(path)))
+    # The evidence reports come from the shared list so this copy of the stage cannot drift
+    # from the runner's; only the CNV report is this extension's own to add.
+    external: list[tuple[str, str]] = list(pipeline_runner.assemble_source_fingerprints(ctx))
+    cnv_relative = ctx.path(CNV_REPORT)
+    cnv_path = ctx.envelope.path(cnv_relative)
+    if cnv_path.is_file():
+        external.append((Path(cnv_relative).name, sha256_file(cnv_path)))
     return StagePlan(
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
@@ -203,26 +198,21 @@ def _merge_provenance(base: Provenance, cnv: QDNAseqCallReport) -> Provenance:
 
 def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
     del plan
-    intake = AlignedBamIntakeReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.INTAKE_REPORT).read_text(encoding="utf-8")
-    )
-    qc = CraminoQCReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.QC_REPORT).read_text(encoding="utf-8")
-    )
-    sv_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_REPORT))
-    sniffles = (
-        SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
-        else None
-    )
+    # Read through the shared loader rather than re-implementing it. This copy of assemble
+    # previously read only intake, QC and the raw Sniffles report, so the consensus layer -
+    # which is what carries cuteSV, gene and cytoband annotation, artifact context flags,
+    # observability and AML prioritization - never reached the result of any run with CNV
+    # registered, which is every `ontseq run`.
+    inputs = pipeline_runner.load_assemble_inputs(ctx)
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
-        intake,
-        qc,
+        inputs.intake,
+        inputs.qc,
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
-        sniffles_report=sniffles,
-        methylation_report=pipeline_runner.load_methylation_report(ctx),
+        sniffles_report=inputs.sniffles,
+        sv_consensus_report=inputs.sv_consensus,
+        methylation_report=inputs.methylation,
     )
     cnv = _load_cnv(ctx)
     if cnv is not None:

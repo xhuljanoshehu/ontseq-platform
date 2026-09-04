@@ -29,6 +29,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
 from ..aml_rearrangements import prioritize_aml_rearrangements
@@ -126,6 +129,10 @@ STANDING_LIMITATIONS = (
     "Tool versions are locked for reproducibility; none of the thresholds involved is a "
     "validated clinical limit.",
 )
+
+
+#: Bound for the optional-report loader below: every one is a pydantic model.
+_ReportT = TypeVar("_ReportT", bound=BaseModel)
 
 
 class StageFailure(RuntimeError):
@@ -967,17 +974,74 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
 
 
-def load_methylation_report(ctx: RunContext) -> MethylationReport | None:
-    """Read the methylation artifact of this run, if the stage produced one.
+#: The evidence reports the assemble stage reads out of the envelope.
+#:
+#: One list drives both loading and resume fingerprinting, in both implementations of the
+#: stage, because the CNV lane arrives by registration and *replaces* assemble — leaving two
+#: copies of one contract. Adding a report to one copy and forgetting the other fails
+#: silently: the artifact stays in the envelope looking as though it was used, while the
+#: result is built without it. That is exactly how the SV consensus, which landed after the
+#: extension was written, was left out of every result the extension assembled.
+ASSEMBLE_SOURCE_ARTIFACTS: tuple[str, ...] = (
+    SV_REPORT,
+    SV_CONSENSUS_REPORT,
+    METHYLATION_REPORT,
+)
 
-    Public because the CNV extension replaces the assemble stage wholesale. Two copies of
-    this lookup would be two places for the lane to fall out of a result, and a missing
-    module outcome is indistinguishable from a module that was never requested.
+
+@dataclass(frozen=True)
+class AssembleInputs:
+    """Every normalized report the result contract is assembled from."""
+
+    intake: AlignedBamIntakeReport
+    qc: CraminoQCReport
+    sniffles: SnifflesCallReport | None
+    sv_consensus: SvConsensusReport | None
+    methylation: MethylationReport | None
+
+
+def load_assemble_inputs(ctx: RunContext) -> AssembleInputs:
+    """Read everything assemble needs, once, for whichever implementation is running.
+
+    Intake and QC are required — assemble depends on QC and cannot run without them. The
+    evidence reports are optional: a stage that did not run leaves no artifact, and that
+    absence is a scope statement the result records rather than an error.
     """
-    path = ctx.envelope.path(ctx.path(METHYLATION_REPORT))
-    if not path.is_file():
-        return None
-    return MethylationReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def _optional(relative: str, model: type[_ReportT]) -> _ReportT | None:
+        path = ctx.envelope.path(ctx.path(relative))
+        if not path.is_file():
+            return None
+        return model.model_validate_json(path.read_text(encoding="utf-8"))
+
+    return AssembleInputs(
+        intake=AlignedBamIntakeReport.model_validate_json(
+            ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+        ),
+        qc=CraminoQCReport.model_validate_json(
+            ctx.envelope.path(QC_REPORT).read_text(encoding="utf-8")
+        ),
+        sniffles=_optional(SV_REPORT, SnifflesCallReport),
+        sv_consensus=_optional(SV_CONSENSUS_REPORT, SvConsensusReport),
+        methylation=_optional(METHYLATION_REPORT, MethylationReport),
+    )
+
+
+def assemble_source_fingerprints(ctx: RunContext) -> tuple[tuple[str, str], ...]:
+    """Fingerprint the evidence reports assemble reads, for the resume signature.
+
+    ``stage_signature`` hashes the artifacts of a stage's *declared* dependencies, and
+    assemble declares only QC. The SV, consensus and methylation reports are read without
+    being depended on, so without these fingerprints a run could resume a result assembled
+    before one of them changed.
+    """
+    fingerprints: list[tuple[str, str]] = []
+    for relative in ASSEMBLE_SOURCE_ARTIFACTS:
+        resolved = ctx.path(relative)
+        path = ctx.envelope.path(resolved)
+        if path.is_file():
+            fingerprints.append((Path(resolved).name, sha256_file(path)))
+    return tuple(fingerprints)
 
 
 def _assemble_plan(ctx: RunContext) -> StagePlan:
@@ -987,37 +1051,22 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
             "git_commit": ctx.config.git_commit,
         },
         tool_versions={},
+        external_inputs=assemble_source_fingerprints(ctx),
     )
 
 
 def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    intake = AlignedBamIntakeReport.model_validate_json(
-        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
-    )
-    qc = CraminoQCReport.model_validate_json(
-        ctx.envelope.path(QC_REPORT).read_text(encoding="utf-8")
-    )
-    sv_path = ctx.envelope.path(ctx.path(SV_REPORT))
-    sniffles = (
-        SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
-        else None
-    )
-    consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
-    consensus = (
-        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
-        if consensus_path.is_file()
-        else None
-    )
+    inputs = load_assemble_inputs(ctx)
+    sniffles = inputs.sniffles
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
-        intake,
-        qc,
+        inputs.intake,
+        inputs.qc,
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
-        sv_consensus_report=consensus,
-        methylation_report=load_methylation_report(ctx),
+        sv_consensus_report=inputs.sv_consensus,
+        methylation_report=inputs.methylation,
     )
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"

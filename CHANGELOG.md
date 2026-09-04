@@ -29,6 +29,21 @@ validated release.
 
 ### Fixed
 
+- **The SV consensus never reached any reviewer artifact.** The CNV lane arrives by
+  registration and replaces the assemble stage; its copy read intake, QC and the raw Sniffles
+  report only, so `assemble_aligned_bam_mvp` fell back to `sniffles_report.events`. Since the
+  consensus layer landed in `6ce5d8f`, every `ontseq run` — the extension is registered for
+  `run`, `serve` and `watch` — produced result JSON, HTML and XLSX built from raw Sniffles
+  calls, silently dropping cuteSV entirely along with consensus merging, gene and cytoband
+  annotation, repeat/blacklist/mappability context, Adaptive Sampling observability and AML
+  rearrangement prioritization. The consensus artifact was still written to the envelope, so
+  nothing looked wrong. Both implementations now read through one shared
+  `load_assemble_inputs`, driven by a single `ASSEMBLE_SOURCE_ARTIFACTS` list.
+- **Assemble could resume a stale result.** `stage_signature` hashes the artifacts of a
+  stage's *declared* dependencies and assemble depends only on QC, so the SV, consensus and
+  methylation reports it reads were outside its resume signature — the runner's copy
+  fingerprinted none of them and the extension's copy missed the consensus. Both now
+  fingerprint every artifact in `ASSEMBLE_SOURCE_ARTIFACTS`.
 - The structural-variant stage now runs only when the manifest requests the `sv` module, the
   way CNV and methylation already do. It previously gated on *which policies were supplied*
   rather than on *what the run asked for*, so a manifest declaring `modules: [qc, cnv, report]`
@@ -68,6 +83,12 @@ validated release.
   analytical or clinical sensitivity.
 - No existing lane's output changes. Assembly gains an optional methylation module outcome;
   results without the lane are byte-identical apart from that absence.
+- The consensus fix changes what every run with CNV registered reports: results now carry
+  the consolidated, annotated, prioritized events instead of raw Sniffles calls. This is a
+  correction, not a new capability — the evidence was already being computed and written to
+  the envelope, only not read back. Reviewers of runs produced since `6ce5d8f` should know
+  their reports understated the SV layer: single-caller, unannotated, without observability
+  or AML relevance. Envelopes can be re-assembled by re-running with `--force`.
 - The SV gating fix does change behaviour for one case, deliberately: a run whose manifest
   omits `sv` but whose configuration supplied caller policies previously produced structural
   variant evidence and now records `NOT_RUN`. That evidence was outside the declared analysis

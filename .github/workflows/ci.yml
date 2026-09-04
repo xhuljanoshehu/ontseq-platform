@@ -217,6 +217,48 @@ jobs:
           test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/release.json
           test -s results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001/release/checksums.sha256
 
+      - name: Prove the consensus evidence reaches the reviewer result
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("results/runs/CI_ALIGN_001/SYNTHETIC_ALIGN_001")
+          consensus = json.loads(
+              (root / "evidence/sv/SYNTHETIC_ALIGN_001.consensus.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          result = json.loads(
+              (root / "normalized/SYNTHETIC_ALIGN_001.result.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = {event["event_id"] for event in consensus["events"]}
+          produced = {event["event_id"] for event in result["events"]}
+          # The consensus assigns its own SVCLUSTER-* ids, so a result assembled from the
+          # raw Sniffles report instead carries entirely different ones. Asserting only
+          # that the consensus artifact exists is what let that regression run unnoticed.
+          #
+          # Not asserted: that the consensus found anything. This fixture carries a
+          # deletion so the aligner has to place a real gap, not so the SV caller is
+          # asserted on (see align_fixture's module docstring), and turning CI red over an
+          # empty truth set would test the fixture rather than the pipeline. The
+          # deterministic guard is tests/test_assemble_inputs.py; this is the end-to-end
+          # confirmation on real tools.
+          missing = sorted(expected - produced)
+          assert not missing, (
+              f"consensus event(s) {missing} never reached the result; the reviewer "
+              "artifacts were assembled from something other than the consensus"
+          )
+          if expected:
+              print(f"OK: all {len(expected)} consensus event(s) reached the result")
+          else:
+              print("NOTE: the consensus produced no event here; nothing to carry through")
+          PY
+
       - name: Verify the release bundle checksums independently
         shell: micromamba-shell {0}
         run: |

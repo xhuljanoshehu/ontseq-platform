@@ -67,6 +67,22 @@ statement rather than a negative result, and a stage that *was* requested but ca
 configured still fails closed: asking for SV evidence with no caller policy is an error,
 not a skip.
 
+### The assemble stage has two implementations
+
+The CNV lane is registered at runtime and *replaces* `assemble` and `report` rather than
+joining the graph as a stage — the outstanding architectural debt `runtime_cli` names. The
+practical consequence is that one contract has two implementations, and a report added to
+one and forgotten in the other disappears from the result while its artifact stays in the
+envelope looking as though it was used. That is not hypothetical: the SV consensus was left
+out of the extension's copy from the moment the consensus layer landed.
+
+Both copies therefore read through `load_assemble_inputs` and fingerprint
+`ASSEMBLE_SOURCE_ARTIFACTS`. Adding a new evidence report means adding it to that one list.
+The fingerprints are not redundant with the resume signature: `stage_signature` hashes the
+artifacts of a stage's *declared* dependencies, and assemble depends only on `qc`, so
+everything else it reads has to be named explicitly or a changed report resumes a stale
+result.
+
 ### Bridging skipped stages
 
 `intake` depends on `align`, and `align` depends on `basecall`. For an aligned-BAM run
