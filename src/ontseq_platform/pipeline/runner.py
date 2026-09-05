@@ -97,6 +97,7 @@ from .stages import (
     blocking_dependency,
     planned_stages,
     summarize,
+    verification_of,
 )
 from .state import ArtifactRecord, ReleaseBundle, RunReport, StageRecord
 
@@ -281,7 +282,10 @@ class ReportContribution:
     extension_id: str
     source_artifacts: tuple[str, ...]
     #: Receives the already-rendered HTML and workbook paths and edits them in place.
-    enrich: Callable[[RunContext, Path, Path], None]
+    #: Returns ``True`` when it actually wrote to them; a contribution whose evidence is
+    #: absent this run returns ``False`` so the stage records no enrichment that never
+    #: happened.
+    enrich: Callable[[RunContext, Path, Path], bool]
 
 
 #: Registered in import order and applied in that order. Deliberately module-level state,
@@ -1195,12 +1199,17 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     xlsx_path = ctx.envelope.path(ctx.path(REPORT_XLSX))
     render_html(result, html_path)
     render_workbook(result, xlsx_path)
+    contributed: list[str] = []
     for contribution in REPORT_CONTRIBUTIONS:
-        contribution.enrich(ctx, html_path, xlsx_path)
+        # A contribution reports whether it actually touched the artifacts. Claiming
+        # enrichment because one is *registered* would credit a CNV section to every report,
+        # including runs where the stage recorded NOT_RUN and the extension returned without
+        # writing anything — the provenance would describe a report nobody rendered.
+        if contribution.enrich(ctx, html_path, xlsx_path):
+            contributed.append(contribution.extension_id)
     reason = "Reviewer artifacts rendered as HTML and Excel."
-    if REPORT_CONTRIBUTIONS:
-        names = ", ".join(item.extension_id for item in REPORT_CONTRIBUTIONS)
-        reason += f" Enriched by: {names}."
+    if contributed:
+        reason += f" Enriched by: {', '.join(contributed)}."
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason=reason,
@@ -1466,7 +1475,13 @@ def _execute_stage(
     base = {
         "stage": stage,
         "title": spec.title,
-        "verification": spec.verification,
+        # Resolved through the registered implementation, not read off the declared spec:
+        # an extension supplies a real adapter for a stage the graph declares
+        # ``not_implemented``, and ``summarize`` already judges the verdict that way. Taking
+        # the spec verbatim here would put a stage the run verified with a real tool into
+        # ``RunReport.unverified_stages`` and print "UNVERIFIED ADAPTERS COMPLETED" for it,
+        # contradicting the verdict in the same report.
+        "verification": verification_of(stage, implementation_verification()),
         "required": spec.required,
     }
 

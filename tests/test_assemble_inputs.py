@@ -296,6 +296,32 @@ class ExtensionsMayNotReplaceTests(AssembleCase):
             self.assertEqual(ids, [cnv_extension.EXTENSION_ID])
 
 
+class ReportEnrichmentClaimTests(AssembleCase):
+    """The report stage names the extensions that changed the artifacts, not the registered ones."""
+
+    def _render(self) -> str:
+        pipeline_runner._assemble_execute(self.ctx, self._plan())
+        return pipeline_runner._report_execute(self.ctx, self._plan()).reason
+
+    def test_a_contribution_that_wrote_nothing_is_not_credited(self) -> None:
+        # A registered CNV lane with no CNV report in the envelope — the manifest omitted the
+        # module, or the stage recorded NOT_RUN. `_enrich_reports` returns without touching
+        # either artifact, so the run report must not claim a CNV section that is not there.
+        with _CnvRegistration():
+            reason = self._render()
+        self.assertNotIn("Enriched by", reason)
+
+    def test_a_contribution_that_wrote_is_credited(self) -> None:
+        contribution = pipeline_runner.ReportContribution(
+            extension_id="writes-something",
+            source_artifacts=(),
+            enrich=lambda ctx, html, xlsx: True,
+        )
+        pipeline_runner.REPORT_CONTRIBUTIONS.append(contribution)
+        self.addCleanup(pipeline_runner.REPORT_CONTRIBUTIONS.remove, contribution)
+        self.assertIn("Enriched by: writes-something.", self._render())
+
+
 class LoaderTests(AssembleCase):
     def test_the_loader_returns_every_evidence_report_present(self) -> None:
         inputs = load_assemble_inputs(self.ctx)

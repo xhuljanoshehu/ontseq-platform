@@ -319,11 +319,16 @@ def _enrich_result(ctx: pipeline_runner.RunContext, result: PipelineResult) -> P
     )
 
 
-def _enrich_reports(ctx: pipeline_runner.RunContext, html_path: Path, xlsx_path: Path) -> None:
-    """Add the CNV section to the already-rendered reviewer artifacts."""
+def _enrich_reports(ctx: pipeline_runner.RunContext, html_path: Path, xlsx_path: Path) -> bool:
+    """Add the CNV section to the already-rendered reviewer artifacts.
+
+    Returns whether anything was written. A run that did not request CNV, or whose CNV stage
+    recorded NOT_RUN or FAILED, leaves no report to fold in — and must not be described as
+    carrying a CNV section it does not have.
+    """
     cnv = _load_cnv(ctx)
     if cnv is None:
-        return
+        return False
     document = html_path.read_text(encoding="utf-8")
     section = _cnv_html_section(ctx, cnv)
     marker = "<section><h2>Warnings and limitations</h2>"
@@ -333,6 +338,7 @@ def _enrich_reports(ctx: pipeline_runner.RunContext, html_path: Path, xlsx_path:
         document = document.replace("</main>", section + "</main>", 1)
     html_path.write_text(document, encoding="utf-8")
     _enrich_workbook(xlsx_path, ctx, cnv)
+    return True
 
 
 def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:

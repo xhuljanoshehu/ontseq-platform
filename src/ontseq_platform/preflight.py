@@ -288,6 +288,13 @@ def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
     fatal = {stage for stage in planned_stages(request.input_kind) if SPEC_BY_STAGE[stage].required}
     if _measures_targets(request):
         fatal.add(StageId.TARGET_COVERAGE)
+    if _analyses_methylation(request):
+        # Methylation is optional in the graph and a run that never asked for it records
+        # NOT_RUN. But a run that *did* ask does not skip a missing modkit: the stage probes
+        # the binary, raises, and ``summarize`` fails the run on any FAILED stage regardless
+        # of whether the graph called it required. Reporting that as a warning would clear a
+        # run that cannot succeed.
+        fatal.add(StageId.METHYLATION)
     return frozenset(fatal)
 
 
@@ -445,7 +452,15 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
         requirements = [item for item in requirements if item.name != "modkit"]
     if not _analyses_structural_variants(request):
         requirements = [item for item in requirements if item.name not in {"sniffles", "cutesv"}]
-    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
+    if (
+        request.cutesv_policy is not None
+        and StageId.SV in planned_stages(request.input_kind)
+        # Same scope rule as the filter above: a cuteSV policy is loaded from a default path
+        # on essentially every invocation, so appending it unconditionally re-added the tool
+        # the SV scope filter had just removed and told a CNV-only run about a caller its
+        # run will never reach.
+        and _analyses_structural_variants(request)
+    ):
         requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
     for requirement in requirements:
         name = f"tool.{requirement.name}"

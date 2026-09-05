@@ -44,7 +44,7 @@ from ontseq_platform.pipeline.runner import (
     StageResult,
     run_pipeline,
 )
-from ontseq_platform.pipeline.stages import StageId
+from ontseq_platform.pipeline.stages import SPEC_BY_STAGE, StageId, VerificationStatus
 
 
 class _NullRunner:
@@ -70,12 +70,14 @@ class _FakeStage:
         fail: bool = False,
         parameter: str = "v1",
         status: ModuleRunStatus = ModuleRunStatus.COMPLETED,
+        verification: VerificationStatus | None = None,
     ) -> None:
         self.stage = stage
         self.relative_path = relative_path
         self.fail = fail
         self.parameter = parameter
         self.status = status
+        self.verification = verification
         self.executions = 0
 
     def plan(self, ctx: RunContext) -> StagePlan:
@@ -99,7 +101,7 @@ class _FakeStage:
         )
 
     def implementation(self) -> StageImplementation:
-        return StageImplementation(self.plan, self.execute)
+        return StageImplementation(self.plan, self.execute, verification=self.verification)
 
 
 #: One artifact per stage, chosen so the release bundle has both exportable and withheld
@@ -215,6 +217,35 @@ class HappyPathTests(RunnerCase):
         for line in bundle.checksum_manifest().splitlines():
             digest, relative = line.split("  ", 1)
             self.assertEqual(hashlib.sha256((root / relative).read_bytes()).hexdigest(), digest)
+
+
+class RecordedVerificationTests(RunnerCase):
+    """A stage's recorded verification describes the adapter that actually ran it."""
+
+    def test_a_registered_real_tool_adapter_is_not_reported_as_unverified(self) -> None:
+        # The graph declares CNV ``not_implemented``; the QDNAseq extension supplies a real
+        # adapter at registration. Reading the declared spec here put a stage the run had
+        # verified with a real tool into ``unverified_stages`` and printed "UNVERIFIED
+        # ADAPTERS COMPLETED: cnv" — while the verdict, which resolves through the
+        # implementation, said the opposite in the same report.
+        self.stages[StageId.CNV] = _FakeStage(
+            StageId.CNV,
+            relative_path="cnv/{sample}.cnv.json",
+            verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
+        )
+        report, _ = self._run()
+        record = report.record_for(StageId.CNV)
+        assert record is not None
+        self.assertEqual(record.status, ModuleRunStatus.COMPLETED)
+        self.assertIs(record.verification, VerificationStatus.VERIFIED_WITH_REAL_TOOL)
+        self.assertNotIn(StageId.CNV, report.unverified_stages)
+        self.assertNotIn("cnv", " ".join(report.warnings))
+
+    def test_an_unregistered_stage_keeps_the_verification_the_graph_declares(self) -> None:
+        report, _ = self._run()
+        record = report.record_for(StageId.SV)
+        assert record is not None
+        self.assertIs(record.verification, SPEC_BY_STAGE[StageId.SV].verification)
 
 
 class ExportBoundaryTests(RunnerCase):
