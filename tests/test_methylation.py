@@ -240,6 +240,39 @@ class RegionAggregationTests(unittest.TestCase):
         self.assertAlmostEqual(by_id["B"].mean_modified_fraction or 0.0, 10 / 20)
         self.assertIsNotNone(report.target_bed_fingerprint)
 
+    def test_two_intervals_sharing_a_name_stay_separate_rows(self) -> None:
+        """A panel names intervals; it does not promise the names are unique.
+
+        Two exons of one gene are routinely both called TP53. Bucketing on the name merged
+        them, then emitted one row per interval reading the merged bucket — each row
+        counting sites from outside its own range, and the totals double-counted.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bed = root / "targets.bed"
+            bed.write_text("chr1\t100\t200\tTP53\nchr1\t300\t400\tTP53\n", encoding="utf-8")
+            path = root / "sample.bedmethyl"
+            path.write_text(
+                "\n".join([_row("chr1", 150, "m", 10, 5), _row("chr1", 350, "m", 10, 9)]) + "\n",
+                encoding="utf-8",
+            )
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(region_source="target_bed"),
+                tool=ToolRecord(name="modkit", version="0.4.1"),
+                regions=_bed_regions(bed),
+                target_bed=bed,
+            )
+        self.assertEqual(len(report.regions), 2)
+        for row in report.regions:
+            self.assertEqual(row.region_id, "TP53")
+            self.assertEqual(row.sites_total, 1)
+        by_start = {row.start: row for row in report.regions}
+        self.assertAlmostEqual(by_start[100].mean_modified_fraction or 0.0, 5 / 10)
+        self.assertAlmostEqual(by_start[300].mean_modified_fraction or 0.0, 9 / 10)
+
     def test_a_site_outside_every_target_reaches_no_region(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -329,6 +362,43 @@ class AdapterTests(unittest.TestCase):
                     runner=_FakeRunner(tagged_reads="0"),
                 )
         self.assertIn("no MM modified-base tags", str(raised.exception))
+
+    def test_an_enriched_run_aggregating_over_chromosomes_says_the_bed_did_not_apply(
+        self,
+    ) -> None:
+        """The report records the design; it must not let that read as a restriction.
+
+        With region_source=chromosome the BED never reaches modkit, so the pileup covers the
+        whole genome — but the report still carries the design's checksum, which reads as
+        though the fractions came from the targets.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            bed = root / "targets.bed"
+            bed.write_text("chr1\t100\t200\tA\n", encoding="utf-8")
+            manifest = manifest.model_copy(
+                update={
+                    "assay": manifest.assay.model_copy(
+                        update={
+                            "mode": AssayMode.ADAPTIVE_SAMPLING,
+                            "target_bed": str(bed),
+                        }
+                    )
+                }
+            )
+            report = run_methylation(
+                manifest,
+                intake,
+                _policy(cpg_only=False, combine_strands=False),
+                output_dir=root / "out",
+                runner=_FakeRunner(),
+            )
+        self.assertIsNotNone(report.target_bed_fingerprint)
+        self.assertTrue(
+            any("was not restricted to that design" in item for item in report.warnings),
+            report.warnings,
+        )
 
     def test_a_version_outside_the_lock_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

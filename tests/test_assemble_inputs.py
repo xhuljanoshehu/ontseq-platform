@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from ontseq_platform.cnv import extension as cnv_extension
@@ -294,6 +295,64 @@ class ExtensionsMayNotReplaceTests(AssembleCase):
         with _CnvRegistration(), _CnvRegistration():
             ids = [item.extension_id for item in pipeline_runner.RESULT_CONTRIBUTIONS]
             self.assertEqual(ids, [cnv_extension.EXTENSION_ID])
+
+
+class ModuleOutcomeHonestyTests(AssembleCase):
+    """What the result says about a module matches the evidence it carries."""
+
+    def _result(self) -> PipelineResult:
+        pipeline_runner._assemble_execute(self.ctx, self._plan())
+        payload = self.ctx.envelope.path(self.ctx.path(pipeline_runner.RESULT_JSON))
+        return PipelineResult.model_validate_json(payload.read_text(encoding="utf-8"))
+
+    def test_a_cutesv_only_run_reports_sv_as_run(self) -> None:
+        """cuteSV without Sniffles is a supported configuration, not an absent SV lane.
+
+        The stage writes a consensus and no Sniffles report. Reading only the latter, the
+        result recorded SV as NOT_RUN and warned "SV calling was not run in this artifact."
+        while carrying the consensus events in the very same document.
+        """
+        self.ctx.envelope.path(self.ctx.path(pipeline_runner.SV_REPORT)).unlink()
+        result = self._result()
+        self.assertEqual([item.event_id for item in result.events], [CONSENSUS_EVENT_ID])
+        status = {item.module: item.status for item in result.modules}
+        self.assertEqual(status[AnalysisModule.SV], ModuleRunStatus.COMPLETED)
+        self.assertNotIn(
+            "SV calling was not run in this artifact.",
+            result.warnings,
+        )
+
+    def test_a_run_with_no_sv_evidence_at_all_still_says_so(self) -> None:
+        self.ctx.envelope.path(self.ctx.path(pipeline_runner.SV_REPORT)).unlink()
+        self.ctx.envelope.path(self.ctx.path(pipeline_runner.SV_CONSENSUS_REPORT)).unlink()
+        result = self._result()
+        status = {item.module: item.status for item in result.modules}
+        self.assertEqual(status[AnalysisModule.SV], ModuleRunStatus.NOT_RUN)
+        self.assertIn("SV calling was not run in this artifact.", result.warnings)
+
+    def test_a_requested_methylation_module_without_a_report_is_not_out_of_scope(self) -> None:
+        """The lane is inside the MVP; a missing report means the stage refused, not that
+        the module does not exist here."""
+        manifest = self.manifest.model_copy(
+            update={
+                "analysis": self.manifest.analysis.model_copy(
+                    update={
+                        "modules": [
+                            AnalysisModule.QC,
+                            AnalysisModule.SV,
+                            AnalysisModule.METHYLATION,
+                        ]
+                    }
+                )
+            }
+        )
+        self.ctx = replace(self.ctx, manifest=manifest)
+        result = self._result()
+        reason = next(
+            item.reason for item in result.modules if item.module == AnalysisModule.METHYLATION
+        )
+        self.assertNotIn("outside the aligned-BAM MVP", reason)
+        self.assertIn("produced no report", reason)
 
 
 class ReportEnrichmentClaimTests(AssembleCase):

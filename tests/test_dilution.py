@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ontseq_platform import dilution
 from ontseq_platform.dilution import (
     DilutionDetection,
     DilutionPolicy,
@@ -182,6 +183,24 @@ class PlanTests(unittest.TestCase):
             )
 
 
+class SubsampleArgumentTests(unittest.TestCase):
+    """The samtools argument must mean what the plan says, at every fraction."""
+
+    def test_a_fraction_just_below_one_is_taken_whole_not_at_a_tenth(self) -> None:
+        # round(0.9999995 * 1e6) is 1000000, which formats as ".1000000" — seven digits.
+        # samtools reads that back as 0.1, so the level would silently keep a tenth of the
+        # reads while the plan and the observed-fraction check both still looked right.
+        self.assertIsNone(dilution._subsample_argument(42, 0.9999995))
+
+    def test_a_representable_fraction_still_renders(self) -> None:
+        self.assertEqual(dilution._subsample_argument(42, 0.05), "42.050000")
+
+    def test_a_fraction_too_small_to_express_is_refused(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            dilution._subsample_argument(42, 1e-9)
+        self.assertIn("keep no reads at all", str(raised.exception))
+
+
 class DetectionTests(unittest.TestCase):
     def test_an_undefined_recall_is_a_no_call_not_a_failure(self) -> None:
         report = _report(0.1, 1, true_positive=0, false_negative=0)
@@ -235,6 +254,37 @@ class LodTests(unittest.TestCase):
             any("bounded from above and not located" in item for item in result.warnings),
             result.warnings,
         )
+
+    def test_the_negative_control_does_not_make_a_limit_look_bracketed(self) -> None:
+        """A pure-normal control is not a dilution step, and must not bracket a limit.
+
+        `include_normal_only_control` is on by default, so a benchmarked series carries a
+        fraction-0.0 level with an empty truth set. Reading it as the lowest tested dilution
+        made every limit look located from below and silenced the warning that says it is not.
+        """
+        reports = [
+            _report(0.5, 1, true_positive=2, false_negative=0),
+            _report(0.05, 1, true_positive=2, false_negative=0),
+            _report(0.0, 1, true_positive=0, false_negative=0),
+        ]
+        result = self._evaluate(reports)
+        self.assertEqual(result.detection_limit_fraction, 0.05)
+        self.assertFalse(result.bracketed)
+        self.assertTrue(
+            any("bounded from above and not located" in item for item in result.warnings),
+            result.warnings,
+        )
+
+    def test_a_control_below_a_genuinely_bracketed_limit_leaves_it_bracketed(self) -> None:
+        reports = [
+            _report(0.5, 1, true_positive=2, false_negative=0),
+            _report(0.2, 1, true_positive=2, false_negative=0),
+            _report(0.05, 1, true_positive=0, false_negative=2),
+            _report(0.0, 1, true_positive=0, false_negative=0),
+        ]
+        result = self._evaluate(reports)
+        self.assertEqual(result.detection_limit_fraction, 0.2)
+        self.assertTrue(result.bracketed)
 
     def test_no_passing_level_yields_no_limit_and_no_impossibility_claim(self) -> None:
         reports = [_report(0.5, 1, true_positive=0, false_negative=2)]

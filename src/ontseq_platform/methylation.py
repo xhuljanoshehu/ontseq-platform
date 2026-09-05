@@ -399,7 +399,7 @@ def _bed_regions(target_bed: Path) -> list[_Region]:
 
 def _assign_sites(
     sites: Sequence[_Site], regions: Sequence[_Region]
-) -> dict[tuple[str, ModificationCode], list[_Site]]:
+) -> dict[tuple[_Region, ModificationCode], list[_Site]]:
     """Bucket sites by region and code.
 
     Regions may overlap — a buffered panel routinely does — so a site is counted in every
@@ -407,7 +407,13 @@ def _assign_sites(
     about one design interval, exactly as the target-coverage lane treats overlapping
     intervals.
     """
-    buckets: dict[tuple[str, ModificationCode], list[_Site]] = {}
+    # Keyed by the region itself, not by ``region_id``: a BED names intervals and a panel
+    # routinely gives several the same name (two exons of one gene). ``load_target_bed``
+    # rejects duplicate *coordinates*, not duplicate names, so keying on the name merged
+    # those intervals into one bucket and then reported it once per interval — each row
+    # carrying sites from outside its own declared range, with the counts double-counted
+    # across the report.
+    buckets: dict[tuple[_Region, ModificationCode], list[_Site]] = {}
     bounded = [region for region in regions if region.start is not None]
     unbounded = {region.chromosome: region for region in regions if region.start is None}
 
@@ -422,7 +428,7 @@ def _assign_sites(
     for site in sites:
         whole = unbounded.get(site.chromosome)
         if whole is not None:
-            buckets.setdefault((whole.region_id, site.code), []).append(site)
+            buckets.setdefault((whole, site.code), []).append(site)
         candidates = by_chromosome.get(site.chromosome)
         if not candidates:
             continue
@@ -432,7 +438,7 @@ def _assign_sites(
         limit = bisect_right(starts[site.chromosome], site.start)
         for region in candidates[:limit]:
             if region.end is not None and site.start < region.end:
-                buckets.setdefault((region.region_id, site.code), []).append(site)
+                buckets.setdefault((region, site.code), []).append(site)
     return buckets
 
 
@@ -518,7 +524,7 @@ def normalize_methylation(
                 _summarize_region(
                     region,
                     code,
-                    assigned.get((region.region_id, code), []),
+                    assigned.get((region, code), []),
                     minimum_valid_coverage=policy.minimum_valid_coverage,
                 )
             )
@@ -675,6 +681,7 @@ def run_methylation(
     if reference_fasta is not None and not reference_fasta.is_file():
         raise ValueError("Reference FASTA is missing or unreadable")
 
+    warnings: list[str] = []
     target_bed: Path | None = None
     regions: list[_Region] | None = None
     if policy.region_source == MethylationRegionSource.TARGET_BED:
@@ -688,8 +695,17 @@ def run_methylation(
         regions = _bed_regions(target_bed)
     elif manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and manifest.assay.target_bed:
         # Enrichment leaves the off-target genome at a depth where a chromosome-wide
-        # fraction mixes measured targets with barely-observed background.
+        # fraction mixes measured targets with barely-observed background. The design is
+        # recorded because it is real context for the run, but it did not constrain this
+        # pileup — and a bare checksum in the report reads as though it had, so say so.
         target_bed = Path(manifest.assay.target_bed)
+        warnings.append(
+            "This run is enriched and the report records its target design, but the policy "
+            "aggregates over chromosomes, so the pileup was not restricted to that design. "
+            "Every fraction here mixes enriched targets with off-target background at a "
+            "depth the design never intended. Set region_source=target_bed to aggregate "
+            "over the design instead."
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     bedmethyl_path = output_dir / f"{manifest.sample_id}.modkit.bedmethyl"
@@ -707,7 +723,6 @@ def run_methylation(
             f"modkit version {version!r} does not match policy lock {policy.expected_version!r}"
         )
 
-    warnings: list[str] = []
     tagged_reads: int | None = None
     if policy.verify_modified_base_tags:
         tagged_reads = count_reads_with_modified_base_tags(

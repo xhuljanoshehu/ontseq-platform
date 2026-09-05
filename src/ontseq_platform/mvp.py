@@ -65,32 +65,49 @@ def assemble_aligned_bam_mvp(
                     reason="Structured MVP result is ready for JSON, HTML and XLSX rendering",
                 )
             )
-        elif module == AnalysisModule.SV and sniffles_report is not None:
-            if sniffles_report.status == ModuleRunStatus.COMPLETED:
-                reason = (
-                    "Sniffles2 candidates were normalized and technically prioritized into "
-                    "high/moderate/low review tiers; clinical reportability remains "
-                    "benchmark_required"
-                )
+        elif module == AnalysisModule.SV and (
+            sv_consensus_report is not None or sniffles_report is not None
+        ):
+            # Keyed on the evidence that actually reached the result, not on Sniffles alone.
+            # A cuteSV-only run is a supported configuration: it writes a consensus and no
+            # Sniffles report, and reading only the latter recorded SV as NOT_RUN while the
+            # very same result carried the consensus events.
+            if sv_consensus_report is not None:
+                callers = ", ".join(sv_consensus_report.caller_names) or "no caller"
+                if sv_consensus_report.status == ModuleRunStatus.COMPLETED:
+                    reason = (
+                        f"{sv_consensus_report.input_event_count} normalized call(s) from "
+                        f"{callers} were consolidated into "
+                        f"{sv_consensus_report.consolidated_event_count} candidate event(s) and "
+                        "technically prioritized into high/moderate/low review tiers; clinical "
+                        "reportability remains benchmark_required"
+                    )
+                else:
+                    reason = (
+                        f"No candidate from {callers} passed the technical policy; this NO_CALL "
+                        "is not a biological negative"
+                    )
+                status = sv_consensus_report.status
             else:
-                reason = (
-                    "Sniffles2 produced no candidate passing the technical policy; this NO_CALL "
-                    "is not a biological negative"
-                )
+                assert sniffles_report is not None  # the branch condition guarantees it
+                if sniffles_report.status == ModuleRunStatus.COMPLETED:
+                    reason = (
+                        "Sniffles2 candidates were normalized and technically prioritized into "
+                        "high/moderate/low review tiers; clinical reportability remains "
+                        "benchmark_required"
+                    )
+                else:
+                    reason = (
+                        "Sniffles2 produced no candidate passing the technical policy; this "
+                        "NO_CALL is not a biological negative"
+                    )
+                status = sniffles_report.status
             modules.append(
                 ModuleOutcome(
                     module=module,
-                    status=sniffles_report.status,
+                    status=status,
                     reason=reason,
-                    tools=[sniffles_report.tool],
-                )
-            )
-        elif module in {AnalysisModule.CNV, AnalysisModule.SV}:
-            modules.append(
-                ModuleOutcome(
-                    module=module,
-                    status=ModuleRunStatus.NOT_RUN,
-                    reason="Scientific caller selection remains benchmark_required",
+                    tools=[sniffles_report.tool] if sniffles_report is not None else [],
                 )
             )
         elif module == AnalysisModule.METHYLATION and methylation_report is not None:
@@ -138,6 +155,22 @@ def assemble_aligned_bam_mvp(
                     ),
                 )
             )
+        elif module == AnalysisModule.METHYLATION and module in requested:
+            # The lane is inside the MVP, so "outside the aligned-BAM MVP" would be false.
+            # A requested module with no report means the stage did not produce one — it
+            # failed closed on a missing tag, a version lock or a policy — and the run
+            # report carries which. Saying it is out of scope would hide a refusal.
+            modules.append(
+                ModuleOutcome(
+                    module=module,
+                    status=ModuleRunStatus.NOT_RUN,
+                    reason=(
+                        "The methylation module was requested but produced no report; see the "
+                        "run report for why the stage did not complete. This is not a finding "
+                        "about the sample's methylation"
+                    ),
+                )
+            )
         elif module in requested:
             modules.append(
                 ModuleOutcome(
@@ -176,7 +209,7 @@ def assemble_aligned_bam_mvp(
         "CNV and fusion interpretation remain disabled until benchmark acceptance criteria pass.",
         "No output may be used for diagnosis or treatment decisions.",
     ]
-    if sniffles_report is None:
+    if sv_consensus_report is None and sniffles_report is None:
         warnings.insert(1, "SV calling was not run in this artifact.")
     else:
         warnings.insert(
@@ -184,8 +217,14 @@ def assemble_aligned_bam_mvp(
             "SV confidence tiers are automated technical prioritization only; all candidates "
             "remain non-reportable until assay-specific validation criteria pass.",
         )
-        warnings.extend(sniffles_report.warnings)
-        warnings.extend(sniffles_report.limitations)
+        # Both sources contribute: a cuteSV-only run has a consensus and no Sniffles report,
+        # and its caveats belong in the result either way.
+        if sniffles_report is not None:
+            warnings.extend(sniffles_report.warnings)
+            warnings.extend(sniffles_report.limitations)
+        if sv_consensus_report is not None:
+            warnings.extend(sv_consensus_report.warnings)
+            warnings.extend(sv_consensus_report.limitations)
     if methylation_report is not None:
         warnings.extend(methylation_report.warnings)
         warnings.extend(methylation_report.limitations)

@@ -337,6 +337,20 @@ def _subsample_argument(seed: int, fraction: float) -> str | None:
     if fraction <= 0 or fraction >= 1:
         return None
     digits = round(fraction * 10**_FRACTION_DIGITS)
+    if digits >= 10**_FRACTION_DIGITS:
+        # A fraction just below 1.0 rounds up to a seventh digit, and the format has no
+        # place for it: "42.1000000" is read back as seed 42 keeping 10 %, so the level
+        # would silently end up at a tenth of its intended depth. At this precision the
+        # fraction is indistinguishable from taking the source whole, which is what it means.
+        return None
+    if digits == 0:
+        # Rounding down to ".000000" is samtools for "keep nothing", which is not what a
+        # positive fraction asked for. Refuse rather than emit an argument that says the
+        # opposite of the plan.
+        raise ValueError(
+            f"Subsample fraction {fraction!r} is smaller than this format can express "
+            f"({_FRACTION_DIGITS} decimal places); the level would keep no reads at all"
+        )
     return f"{seed}.{digits:0{_FRACTION_DIGITS}d}"
 
 
@@ -785,8 +799,14 @@ def evaluate_lod(
         passing = [item.nominal_tumor_fraction for item in outcomes if item.meets_criterion]
         limit = min(passing) if passing else None
 
-    lowest = outcomes[-1].nominal_tumor_fraction
-    bracketed = limit is not None and limit > lowest
+    # A fraction of 0.0 is the pure-normal negative control, not a dilution step: the policy
+    # keeps it out of ``tumor_fractions`` for exactly that reason. Measuring "bracketed"
+    # against it made every series look bracketed — the control cannot meet a detection
+    # criterion it has no truth set for, so it always sat below the limit and always
+    # suppressed the "bounded from above, not located" warning that is the whole point.
+    dilution_steps = [item for item in outcomes if item.nominal_tumor_fraction > 0]
+    lowest = dilution_steps[-1].nominal_tumor_fraction if dilution_steps else None
+    bracketed = limit is not None and lowest is not None and limit > lowest
     warnings: list[str] = [policy.note]
     if limit is None:
         warnings.append(
@@ -795,7 +815,7 @@ def evaluate_lod(
         )
     elif not bracketed:
         warnings.append(
-            f"The lowest fraction tested ({lowest}) still met the criterion, so the limit is "
+            f"The lowest dilution tested ({lowest}) still met the criterion, so the limit is "
             "bounded from above and not located. Extend the series downwards before quoting "
             "this number as a limit."
         )

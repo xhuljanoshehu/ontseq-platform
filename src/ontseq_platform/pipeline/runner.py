@@ -995,6 +995,11 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
                 "declares no target BED"
             )
         external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
+    elif ctx.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and ctx.manifest.assay.target_bed:
+        # The BED does not constrain this pileup, but the report records its checksum, so it
+        # belongs in the signature too — otherwise a changed design would leave a resumed
+        # run carrying the fingerprint of a BED that is no longer the one on disk.
+        external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
     return StagePlan(
         parameters={
             "requested": True,

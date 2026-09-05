@@ -62,6 +62,57 @@ validated release.
   `NOT_RUN` with the reason naming it a scope statement; a run that *did* request it with no
   caller policy still fails closed.
 
+- **A methylation region row could report sites from outside its own interval.** Sites were
+  bucketed by the BED's `region_id`, but `load_target_bed` rejects duplicate *coordinates*,
+  not duplicate *names* — and a panel routinely names several intervals for one gene. Two
+  such intervals collapsed into one bucket and were then emitted once per interval, each row
+  carrying the union of both and the totals double-counted across the report. Buckets are
+  keyed by the interval itself now.
+- **An enriched run recorded a target design that had not constrained its pileup.** With
+  `region_source: chromosome` on an Adaptive Sampling run, modkit pileups the whole genome
+  while the report still carried the design's checksum, which reads as a restriction. The
+  report now warns in so many words that the fractions mix enriched targets with off-target
+  background, and the stage plan fingerprints the BED it records so a changed design cannot
+  be resumed over.
+- **Every detection limit looked bracketed.** `bracketed` was measured against the lowest
+  level present, and with `include_normal_only_control` on that is the pure-normal control —
+  which has no truth set, can never meet the criterion, and therefore always sat below the
+  limit. The "bounded from above and not located" warning was suppressed for every series.
+  The control is no longer read as a dilution step.
+- **A subsample fraction just below 1.0 rendered as a ten-times-smaller one.** `0.9999995`
+  rounds to a seventh digit, and `42.1000000` is read by samtools as seed 42 keeping 10 %, so
+  the level silently ended up at a tenth of its intended depth — invisible to the drift check,
+  which only sees the ratio between the sources. Such a fraction is now taken whole, and one
+  too small to express at all is refused rather than rendered as "keep nothing".
+- **A cuteSV-only run reported that SV calling had not happened.** The configuration is
+  supported — preflight drops the Sniffles requirement — and writes a consensus with no
+  Sniffles report. The module outcome and the run's warnings both keyed on Sniffles alone, so
+  a result carrying consolidated SV events stated three times over that no SV calling
+  occurred. Both now follow the evidence that actually reached the result, and the consensus's
+  own warnings and limitations are surfaced with it.
+- **A requested methylation module with no report was called out of scope.** It fell through
+  to "Requested module is outside the aligned-BAM MVP", which is false: the lane is inside the
+  MVP and a missing report means the stage failed closed — on an untagged BAM, a version lock
+  or a missing policy. The reason now says the module produced no report and points at the run
+  report, rather than describing a refusal as a scope statement.
+- **The stage record described the declared adapter, not the one that ran.** Reading
+  `SPEC_BY_STAGE[stage].verification` was correct while registration rewrote the spec; since
+  the graph became immutable it put a CNV stage that had executed real QDNAseq into
+  `unverified_stages` and printed "UNVERIFIED ADAPTERS COMPLETED" for it, contradicting the
+  verdict in the same report.
+- **The report stage credited contributions that wrote nothing.** It named every registered
+  contribution rather than every contribution that changed an artifact, so a run whose CNV
+  stage recorded NOT_RUN still claimed "Enriched by: qdnaseq-ace-v1". Report contributions now
+  report whether they wrote, as result contributions already did.
+- **Preflight re-added a caller it had just taken out of scope.** The cuteSV requirement was
+  appended after the SV scope filter and did not share its rule, and a cuteSV policy resolves
+  from a repository default on essentially every invocation — so the CNV-only run this release
+  fixes was still probed for cuteSV.
+- **Preflight cleared a methylation run that could not succeed.** A missing modkit was
+  reported as a warning because the stage is optional in the graph. It is not optional for a
+  run that requested the module: the stage probes the binary, raises, and a FAILED stage fails
+  the run. It is a fatal tool for such a run now.
+
 ### Changed
 
 - Extensions contribute instead of replacing. An extension may supply the implementation of
