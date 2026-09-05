@@ -37,8 +37,9 @@ validated release.
   calls, silently dropping cuteSV entirely along with consensus merging, gene and cytoband
   annotation, repeat/blacklist/mappability context, Adaptive Sampling observability and AML
   rearrangement prioritization. The consensus artifact was still written to the envelope, so
-  nothing looked wrong. Both implementations now read through one shared
-  `load_assemble_inputs`, driven by a single `ASSEMBLE_SOURCE_ARTIFACTS` list.
+  nothing looked wrong. There is now one assemble implementation, reading through one shared
+  `load_assemble_inputs` driven by a single `ASSEMBLE_SOURCE_ARTIFACTS` list; the CNV lane adds
+  its module to that result instead of building a second one.
 - **Preflight described a different run than the one it cleared.** Registering the CNV
   extension rewrote `SPEC_BY_STAGE` in place, flipping the CNV stage's `verification` from
   `not_implemented` to `verified_with_real_tool`. `runtime_cli` registered for `run`,
@@ -49,9 +50,10 @@ validated release.
   resolved through `verification_of()`, and preflight registers the same way the run does.
 - **Assemble could resume a stale result.** `stage_signature` hashes the artifacts of a
   stage's *declared* dependencies and assemble depends only on QC, so the SV, consensus and
-  methylation reports it reads were outside its resume signature — the runner's copy
-  fingerprinted none of them and the extension's copy missed the consensus. Both now
-  fingerprint every artifact in `ASSEMBLE_SOURCE_ARTIFACTS`.
+  methylation reports it reads were outside its resume signature and were fingerprinted by
+  neither assemble implementation. Assemble now fingerprints every artifact in
+  `ASSEMBLE_SOURCE_ARTIFACTS`, and a registered contribution folds the artifacts it declares
+  into the signature of the stage it enriches.
 - The structural-variant stage now runs only when the manifest requests the `sv` module, the
   way CNV and methylation already do. It previously gated on *which policies were supplied*
   rather than on *what the run asked for*, so a manifest declaring `modules: [qc, cnv, report]`
