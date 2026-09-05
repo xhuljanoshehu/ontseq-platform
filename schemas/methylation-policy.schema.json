@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "MethylationRegionSource": {
+      "description": "What the rows of the report are aggregated over.",
+      "enum": [
+        "target_bed",
+        "chromosome"
+      ],
+      "title": "MethylationRegionSource",
+      "type": "string"
+    },
+    "ModificationCode": {
+      "description": "The modified-base codes this adapter is prepared to normalize.\n\nDeliberately a closed set. modkit reports whatever the basecalling model emitted, and\na code nobody planned for must surface as a refusal rather than be dropped on the\nfloor: silently discarding ``h`` rows from a 5mC+5hmC model would understate total\nmodification without anything in the report saying so.",
+      "enum": [
+        "m",
+        "h",
+        "a"
+      ],
+      "title": "ModificationCode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "combine_strands": {
+      "default": true,
+      "title": "Combine Strands",
+      "type": "boolean"
+    },
+    "cpg_only": {
+      "default": true,
+      "title": "Cpg Only",
+      "type": "boolean"
+    },
+    "expected_version": {
+      "default": "0.4.1",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Expected Version",
+      "type": "string"
+    },
+    "filter_threshold": {
+      "default": 0.8,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Filter Threshold",
+      "type": "number"
+    },
+    "ignored_codes": {
+      "items": {
+        "$ref": "#/$defs/ModificationCode"
+      },
+      "title": "Ignored Codes",
+      "type": "array"
+    },
+    "minimum_valid_coverage": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Minimum Valid Coverage",
+      "type": "integer"
+    },
+    "modification_codes": {
+      "items": {
+        "$ref": "#/$defs/ModificationCode"
+      },
+      "minItems": 1,
+      "title": "Modification Codes",
+      "type": "array"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "region_source": {
+      "$ref": "#/$defs/MethylationRegionSource",
+      "default": "chromosome"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "verify_modified_base_tags": {
+      "default": true,
+      "title": "Verify Modified Base Tags",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "MethylationPolicy",
+  "type": "object"
+}

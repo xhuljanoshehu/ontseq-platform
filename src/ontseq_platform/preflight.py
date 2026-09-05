@@ -39,7 +39,9 @@ from .align import AlignmentPolicy, parse_version
 from .basecall import BasecallPolicy, dorado_version, model_signature
 from .cutesv import cutesv_version
 from .execution import CommandRunner, SubprocessRunner
+from .methylation import MethylationPolicy, MethylationRegionSource, modkit_version
 from .models import (
+    AnalysisModule,
     AssayMode,
     CuteSvPolicy,
     InputKind,
@@ -53,9 +55,11 @@ from .pipeline.stages import (
     SPEC_BY_STAGE,
     InputKindName,
     StageId,
+    StageSpec,
     VerificationStatus,
     planned_stages,
     unverified_specs,
+    verification_of,
 )
 from .qc import cramino_version
 from .reference import sha256_file
@@ -81,6 +85,14 @@ class PreflightRequest:
     sniffles_policy: SnifflesPolicy | None = None
     cutesv_policy: CuteSvPolicy | None = None
     target_coverage_policy: TargetCoveragePolicy | None = None
+    methylation_policy: MethylationPolicy | None = None
+    #: What each stage's *registered implementation* says it has been verified against,
+    #: overriding the declared graph. Supplied by the caller because it is a property of
+    #: what the run will install, not of the manifest. Without it a preflight reports the
+    #: bare graph while the run it is checking installs adapters the graph knows nothing
+    #: about — which is how CNV came to be announced as having no adapter for runs that
+    #: then executed a real QDNAseq analysis.
+    stage_verification: Mapping[StageId, VerificationStatus] = field(default_factory=dict)
     #: Free space the caller knows this run needs. Without it, space is reported, not judged.
     require_free_gb: float | None = None
 
@@ -277,6 +289,13 @@ def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
     fatal = {stage for stage in planned_stages(request.input_kind) if SPEC_BY_STAGE[stage].required}
     if _measures_targets(request):
         fatal.add(StageId.TARGET_COVERAGE)
+    if _analyses_methylation(request):
+        # Methylation is optional in the graph and a run that never asked for it records
+        # NOT_RUN. But a run that *did* ask does not skip a missing modkit: the stage probes
+        # the binary, raises, and ``summarize`` fails the run on any FAILED stage regardless
+        # of whether the graph called it required. Reporting that as a warning would clear a
+        # run that cannot succeed.
+        fatal.add(StageId.METHYLATION)
     return frozenset(fatal)
 
 
@@ -354,9 +373,19 @@ def _expected_version(request: PreflightRequest, tool: str) -> str | None:
             return request.alignment_policy.expected_minimap2_version
         if tool == "samtools":
             return request.alignment_policy.expected_samtools_version
-    if tool == "sniffles" and request.sniffles_policy is not None and StageId.SV in planned:
+    if (
+        tool == "sniffles"
+        and request.sniffles_policy is not None
+        and StageId.SV in planned
+        and _analyses_structural_variants(request)
+    ):
         return request.sniffles_policy.expected_version
-    if tool == "cutesv" and request.cutesv_policy is not None and StageId.SV in planned:
+    if (
+        tool == "cutesv"
+        and request.cutesv_policy is not None
+        and StageId.SV in planned
+        and _analyses_structural_variants(request)
+    ):
         return request.cutesv_policy.expected_version
     if tool == "dorado" and request.basecall_policy is not None and StageId.BASECALL in planned:
         return request.basecall_policy.expected_version
@@ -368,6 +397,12 @@ def _expected_version(request: PreflightRequest, tool: str) -> str | None:
         and _measures_targets(request)
     ):
         return request.target_coverage_policy.expected_version
+    if (
+        tool == "modkit"
+        and request.methylation_policy is not None
+        and _analyses_methylation(request)
+    ):
+        return request.methylation_policy.expected_version
     return None
 
 
@@ -395,6 +430,8 @@ def _probe_version(runner: CommandRunner, tool: str, executable: str) -> str:
         return dorado_version(combined)
     if tool == "mosdepth":
         return mosdepth_version(combined)
+    if tool == "modkit":
+        return modkit_version(combined)
     raise ValueError(f"no version parser for {tool!r}")
 
 
@@ -409,7 +446,22 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
     requirements = list(required_tools(request.input_kind))
     if request.sniffles_policy is None and request.cutesv_policy is not None:
         requirements = [item for item in requirements if item.name != "sniffles"]
-    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
+    if not _analyses_methylation(request):
+        # The stage is planned for every input kind but invokes modkit only when the
+        # manifest asks for it, so an absent binary is not news to a run that never
+        # wanted one.
+        requirements = [item for item in requirements if item.name != "modkit"]
+    if not _analyses_structural_variants(request):
+        requirements = [item for item in requirements if item.name not in {"sniffles", "cutesv"}]
+    if (
+        request.cutesv_policy is not None
+        and StageId.SV in planned_stages(request.input_kind)
+        # Same scope rule as the filter above: a cuteSV policy is loaded from a default path
+        # on essentially every invocation, so appending it unconditionally re-added the tool
+        # the SV scope filter had just removed and told a CNV-only run about a caller its
+        # run will never reach.
+        and _analyses_structural_variants(request)
+    ):
         requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
     for requirement in requirements:
         name = f"tool.{requirement.name}"
@@ -465,6 +517,9 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
 
 def _check_sv_configuration(request: PreflightRequest, checks: CheckList) -> None:
     if StageId.SV not in planned_stages(request.input_kind):
+        return
+    if not _analyses_structural_variants(request):
+        checks.skipped("sv.callers", "the manifest does not request the structural-variant module")
         return
     if request.sniffles_policy is None and request.cutesv_policy is None:
         checks.warning(
@@ -552,6 +607,99 @@ def _check_basecalling(request: PreflightRequest, checks: CheckList) -> None:
             "cannot support a later methylation analysis",
             remedy="set modified_bases in the basecalling policy if methylation is wanted",
             stage=StageId.BASECALL,
+        )
+
+
+def _analyses_structural_variants(request: PreflightRequest) -> bool:
+    """Whether this run asked for structural variants at all.
+
+    The stage is planned for every input kind but invokes its callers only when the
+    manifest requests the module, so a CNV-only run needs neither the binaries nor the
+    advice about them.
+    """
+    return AnalysisModule.SV in request.manifest.analysis.modules
+
+
+def _analyses_methylation(request: PreflightRequest) -> bool:
+    """Whether this run asked for modified bases at all.
+
+    Unlike target coverage, the methylation lane is gated on the requested analysis rather
+    than on the assay mode: an lcWGS and an Adaptive Sampling run can both carry MM/ML
+    tags, and neither should be told about a missing modkit it will never invoke.
+    """
+    return AnalysisModule.METHYLATION in request.manifest.analysis.modules
+
+
+def _check_methylation(request: PreflightRequest, checks: CheckList) -> None:
+    """The methylation lane has everything it needs, before the envelope is created.
+
+    The one precondition preflight cannot answer is the important one: whether the reads
+    carry ``MM``/``ML`` tags at all. Reading that means scanning the BAM, which is the
+    stage's job. It is stated as a warning here so an operator learns before the run that
+    a BAM basecalled without a modified-base model will fail the stage rather than quietly
+    produce an empty pileup.
+    """
+    if not _analyses_methylation(request):
+        reason = "the manifest does not request the methylation module"
+        checks.skipped("methylation.policy", reason)
+        checks.skipped("methylation.reference", reason)
+        return
+
+    policy = request.methylation_policy
+    if policy is None:
+        checks.failed(
+            "methylation.policy",
+            "the methylation module was requested but no methylation policy was supplied",
+            remedy="pass --methylation-policy with the technical policy for this assay",
+            stage=StageId.METHYLATION,
+        )
+        return
+    checks.ok(
+        "methylation.policy",
+        f"{policy.profile_id} ({policy.status})",
+        stage=StageId.METHYLATION,
+    )
+
+    if policy.region_source == MethylationRegionSource.TARGET_BED and not (
+        request.manifest.assay.target_bed
+    ):
+        checks.failed(
+            "methylation.regions",
+            "the policy aggregates over the target design but the manifest declares no target BED",
+            remedy="name the target BED in the manifest, or set region_source: chromosome",
+            stage=StageId.METHYLATION,
+        )
+
+    if not policy.cpg_only:
+        checks.skipped(
+            "methylation.reference",
+            "the policy does not restrict the pileup to a reference motif",
+        )
+    elif request.reference_fasta is None:
+        checks.failed(
+            "methylation.reference",
+            "the policy restricts the pileup to CpG sites, which is a property of the "
+            "reference, but no reference FASTA was given",
+            remedy="pass --reference-fasta",
+            stage=StageId.METHYLATION,
+        )
+    elif not request.reference_fasta.is_file():
+        checks.failed(
+            "methylation.reference",
+            f"reference FASTA does not exist: {request.reference_fasta}",
+            stage=StageId.METHYLATION,
+        )
+    else:
+        checks.ok("methylation.reference", str(request.reference_fasta), stage=StageId.METHYLATION)
+
+    if request.manifest.input.kind == InputKind.ALIGNED_BAM:
+        checks.warning(
+            "methylation.modified_base_tags",
+            "whether the aligned BAM carries MM/ML tags cannot be answered without reading "
+            "it; the stage verifies this and fails closed rather than emitting an empty "
+            "pileup, which would read as an unmethylated sample",
+            remedy="confirm the BAM was basecalled with a modified-base model",
+            stage=StageId.METHYLATION,
         )
 
 
@@ -648,17 +796,26 @@ def _check_adapters(request: PreflightRequest, checks: CheckList) -> None:
     a negative biological finding either. Reporting the second as "an adapter that has never
     been executed" would be false.
     """
-    stages = planned_stages(request.input_kind)
-    unverified = [
-        spec
-        for spec in unverified_specs(stages)
-        if spec.verification is VerificationStatus.UNVERIFIED_ADAPTER
-    ]
-    missing = [
-        spec
-        for spec in unverified_specs(stages)
-        if spec.verification is VerificationStatus.NOT_IMPLEMENTED
-    ]
+    stages = tuple(
+        stage
+        for stage in planned_stages(request.input_kind)
+        # The methylation stage is planned for every input kind but invokes its adapter
+        # only when the manifest asks for modified bases. Warning that an unexercised
+        # adapter "will run" on a run that never calls it would train operators to ignore
+        # this line, which is the one line that has to keep meaning something.
+        if stage is not StageId.METHYLATION or _analyses_methylation(request)
+    )
+    # ``unverified_specs`` has already resolved each spec against the overrides; partition
+    # that answer rather than asking a third time, so the two lists cannot drift from the
+    # set it selected.
+    unverified: list[StageSpec] = []
+    missing: list[StageSpec] = []
+    for spec in unverified_specs(stages, request.stage_verification):
+        status = verification_of(spec.stage, request.stage_verification)
+        if status is VerificationStatus.UNVERIFIED_ADAPTER:
+            unverified.append(spec)
+        else:
+            missing.append(spec)
 
     if unverified:
         names = ", ".join(spec.stage.value for spec in unverified)
@@ -697,6 +854,7 @@ def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None)
     _check_tools(request, command_runner, checks)
     _check_basecalling(request, checks)
     _check_target_coverage(request, checks)
+    _check_methylation(request, checks)
     _check_envelope(request, checks)
     _check_disk(request, checks)
     _check_adapters(request, checks)

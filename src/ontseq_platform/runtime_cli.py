@@ -14,6 +14,7 @@ from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
 from .execution import ToolExecutionError
 from .io import load_model
+from .methylation import MethylationPolicy
 from .model_lock import ModelLockError
 from .model_lock import exit_code as model_lock_exit_code
 from .model_lock import fingerprint as model_fingerprint
@@ -37,7 +38,12 @@ from .pipeline.components import RunComponents
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.review import Decision, ReviewError
 from .pipeline.review import exit_code as review_exit_code
-from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
+from .pipeline.runner import (
+    EnvelopeAlreadyReviewed,
+    RunConfiguration,
+    implementation_verification,
+    run_pipeline,
+)
 from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
 from .review import inspect as inspect_review
@@ -56,6 +62,12 @@ RUNTIME_COMMANDS = frozenset(
     {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
 )
 
+#: Commands that install the CNV lane. Named here rather than inline in ``main`` because
+#: registering and accepting ``_add_cnv_options`` have to move together: ``_register_cnv``
+#: reads those options off the namespace, so a command that registers without accepting
+#: them raises ``AttributeError`` before doing any work. Tests hold the two in step.
+CNV_REGISTERING_COMMANDS = frozenset({"run", "serve", "watch", "preflight"})
+
 
 SELECTABLE_STAGES = (
     StageId.BASECALL,
@@ -64,6 +76,7 @@ SELECTABLE_STAGES = (
     StageId.TARGET_COVERAGE,
     StageId.CNV,
     StageId.SV,
+    StageId.METHYLATION,
 )
 
 
@@ -140,6 +153,10 @@ def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
     return load_model(path, TargetCoveragePolicy) if path.is_file() else None
 
 
+def _methylation_policy(path: Path) -> MethylationPolicy | None:
+    return load_model(path, MethylationPolicy) if path.is_file() else None
+
+
 def _resolve_component_policies(selection: RunComponents, source: Path) -> RunComponents:
     """Resolve selection policy paths against the selection's packaged/repository root.
 
@@ -202,9 +219,12 @@ def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
 def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
     """Install the QDNAseq/ACE lane unless this run deselected it.
 
-    The lane still arrives by registration rather than as a first-class member of the
-    graph, which remains the outstanding architectural debt. Gating it on the selection at
-    least means a run that switched CNV off does not silently get it anyway.
+    The lane still arrives by registration rather than as a declared member of the graph,
+    which keeps the core independent of any one copy-number caller. What registration may
+    do is now bounded: it supplies the CNV stage and contributes to assemble and report,
+    but cannot replace a stage it does not own or rewrite the graph. Preflight registers
+    the same way, so it describes the run it is checking. Gating on the selection means a
+    run that switched CNV off does not silently get it anyway.
     """
     from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
@@ -304,6 +324,11 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
     )
     parser.add_argument(
+        "--methylation-policy",
+        type=Path,
+        default=Path("configs/methylation/modkit.technical.yaml"),
+    )
+    parser.add_argument(
         "--components",
         type=Path,
         help="Component selection for this run: which provider and version runs each stage",
@@ -321,6 +346,7 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("--cutesv", default="cuteSV")
     parser.add_argument("--minimap2", default="minimap2")
     parser.add_argument("--mosdepth", default="mosdepth")
+    parser.add_argument("--modkit", default="modkit")
     parser.add_argument("--dorado", default="dorado")
 
 
@@ -340,6 +366,10 @@ def _parser() -> argparse.ArgumentParser:
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
+    # Preflight registers the CNV lane exactly as the run does, so it has to accept the
+    # same options. A preflight configured differently from the run describes a different
+    # run, which is the one thing it must not do.
+    _add_cnv_options(pf)
     pf.add_argument("--require-free-gb", type=float)
     pf.add_argument("--verbose", action="store_true")
     pf.add_argument("--json", action="store_true", dest="as_json")
@@ -520,6 +550,7 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "cutesv": args.cutesv,
         "minimap2": args.minimap2,
         "mosdepth": getattr(args, "mosdepth", "mosdepth"),
+        "modkit": getattr(args, "modkit", "modkit"),
         "dorado": args.dorado,
     }
 
@@ -537,7 +568,10 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "serve", "watch"}:
+    # Preflight registers too, so it sees the adapters the run will install. Checking the
+    # bare graph while the run installs more is how a preflight clears a run it never
+    # actually described.
+    if args.command in CNV_REGISTERING_COMMANDS:
         _register_cnv(args, selection)
     try:
         if args.command == "run":
@@ -566,6 +600,9 @@ def main() -> None:
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
                 alignment_policy=_alignment_policy(
                     _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
@@ -622,6 +659,10 @@ def main() -> None:
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
                 ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
+                ),
+                stage_verification=implementation_verification(),
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)

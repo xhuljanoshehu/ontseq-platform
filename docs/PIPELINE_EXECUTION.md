@@ -30,6 +30,7 @@ about without executing anything.
 | `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
 | `sv` | Sniffles2 + cuteSV, consensus and annotations | all | no | adapters verified with synthetic contracts; real-tool CI |
+| `methylation` | modkit | all | no | **unverified adapter** |
 | `assemble` | — | all | yes | pure Python |
 | `report` | — | all | yes | pure Python |
 | `release` | — | all | yes | pure Python |
@@ -43,6 +44,65 @@ Which stages run follows from the manifest's declared `input.kind`, never from w
 happens to exist on disk. An aligned-BAM run does not "skip" basecalling; basecalling does
 not apply to it. This distinction is load-bearing: a stage that does not apply must not
 appear in the report as something that failed to happen.
+
+### Three ways a stage can be out of scope
+
+Applicability is not one question but three, and the run report keeps them apart because a
+reader tracing an absent result needs to know which one they are looking at.
+
+| Gate | Decided by | Records | Example |
+| --- | --- | --- | --- |
+| Input kind | `StageSpec.applicable_for` | absent from the plan entirely | `basecall` on an aligned-BAM run |
+| Assay | the manifest's `assay.mode` | `applicable: false` | `target_coverage` on an lcWGS run |
+| Requested analysis | the manifest's `analysis.modules` | `requested: false` | `sv` and `methylation` on a CNV-only run |
+
+The third gate is the manifest acting as the run's scope contract. A stage that runs
+anyway produces evidence nobody asked for and — the failure that motivated the gate — can
+kill a run over a tool the operator had no reason to configure: a manifest declaring
+`modules: [qc, cnv, report]` used to drive a structural-variant attempt regardless, so a
+CNV-only run died on a missing cuteSV reference FASTA.
+
+Skipping is never silent. Each of the three records a reason saying it is a scope
+statement rather than a negative result, and a stage that *was* requested but cannot be
+configured still fails closed: asking for SV evidence with no caller policy is an error,
+not a skip.
+
+### Extensions contribute; they do not replace
+
+The CNV lane is installed at runtime rather than declared in `stages.py`, because the core
+must not depend on a specific copy-number caller — `StageSpec` still says "No production
+caller is selected; the benchmark subsystem exists to make that choice on evidence."
+
+Registration used to buy that independence at a high price. It replaced the `assemble` and
+`report` implementations wholesale and rewrote `SPEC_BY_STAGE` in place. Three defects came
+out of that one mechanism:
+
+1. **Evidence went missing.** Two bodies for one contract, and whichever report the
+   replacement forgot vanished from the result while its artifact stayed in the envelope
+   looking used. The SV consensus was lost that way for the life of the CNV lane.
+2. **Stale results could resume.** The replacement fingerprinted a different set of
+   artifacts than the original.
+3. **Preflight described a different run.** Rewriting a spec's `verification` made honesty
+   depend on registration order — preflight, which did not register, announced that CNV had
+   no adapter for runs that then executed a real QDNAseq analysis.
+
+An extension may now do exactly two things:
+
+| It may | It may not |
+| --- | --- |
+| Supply the implementation of **its own** stage, declaring what that adapter has been verified against | Replace a stage it does not own |
+| Register a `ResultContribution` or `ReportContribution` that **adds** to what the runner produced | Mutate `SPEC_BY_STAGE` |
+
+A contribution receives the finished result (or the rendered HTML and workbook) and returns
+an enriched one. It cannot drop what it does not know about. It also declares the envelope
+artifacts it reads, which the runner folds into the stage's resume signature — necessary
+because those artifacts belong to stages the contributing stage does not depend on.
+
+Verification is a property of the implementation, not of the graph. `StageSpec.verification`
+states what the declared graph offers; a registered `StageImplementation` may carry its own,
+and `verification_of()` resolves the two. The graph itself is built once at import and never
+mutated, so what `stages.py` says about a run is the same before, during and after one — and
+preflight and the run read the same answer.
 
 ### Bridging skipped stages
 
@@ -200,9 +260,13 @@ and any run that completes a basecalling stage carries an explicit warning in it
 and release bundle. Treat POD5 runs as untested until someone executes one against a real
 GPU and a real model.
 
-**Modified-base tags are carried, not interpreted.** CI proves `MM`/`ML` survive alignment,
-including on reverse-strand records. It does not prove that a downstream methylation caller
-reads them correctly, because there is no methylation lane yet to read them.
+**The methylation lane has never met modkit.** There is now a lane that reads the `MM`/`ML`
+tags CI proves survive alignment (`docs/METHYLATION_LANE.md`), but no modkit binary exists in
+this repository's CI or development environment, so the adapter is marked `unverified_adapter`
+and a run completing that stage says so. Its bedMethyl parsing, region aggregation and refusals
+are unit tested against synthetic pileups; its behaviour on real modkit output is an assumption.
+What CI still does not prove is that a caller interprets modified-base tags on reverse-strand
+records correctly — that needs a real run, not a lane.
 
 **No stage output has clinical meaning.** Tool versions are pinned for reproducibility.
 Thresholds are technical defaults. `qc` gates are `null` pending analytical validation. A

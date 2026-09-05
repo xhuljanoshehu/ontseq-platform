@@ -2,31 +2,27 @@ from __future__ import annotations
 
 import base64
 import html
-from collections.abc import MutableMapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from openpyxl import load_workbook
 
 from ..models import (
-    AlignedBamIntakeReport,
     AnalysisModule,
-    CraminoQCReport,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
-    SnifflesCallReport,
 )
-from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
 from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
-from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
-from ..report import render_html
-from ..workbook import render_workbook
+from ..pipeline.stages import StageId, VerificationStatus
 from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
+
+#: Names this extension in the result's assemble reason and in both contribution slots.
+EXTENSION_ID = "qdnaseq-ace-v1"
 
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
@@ -161,27 +157,19 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
 
 
 def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
+    """The CNV report this run asked for, if the stage produced one.
+
+    The manifest gate matters as much as the file check: an envelope outlives the manifest
+    that filled it, so re-running a run id after dropping ``cnv`` from the modules leaves the
+    previous run's report on disk. Reading it back would enrich a result whose own run report
+    says CNV was never requested.
+    """
+    if not _requested(ctx):
+        return None
     path = ctx.envelope.path(ctx.path(CNV_REPORT))
     if not path.is_file():
         return None
     return QDNAseqCallReport.model_validate_json(path.read_text(encoding="utf-8"))
-
-
-def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
-    external: list[tuple[str, str]] = []
-    for relative in (ctx.path(CNV_REPORT), ctx.path(pipeline_runner.SV_REPORT)):
-        path = ctx.envelope.path(relative)
-        if path.is_file():
-            external.append((Path(relative).name, sha256_file(path)))
-    return StagePlan(
-        parameters={
-            "pipeline_version": ctx.config.pipeline_version,
-            "git_commit": ctx.config.git_commit,
-            "cnv_extension": "qdnaseq-ace-v1",
-        },
-        tool_versions={},
-        external_inputs=tuple(external),
-    )
 
 
 def _replace_module(
@@ -195,71 +183,6 @@ def _replace_module(
 
 def _merge_provenance(base: Provenance, cnv: QDNAseqCallReport) -> Provenance:
     return base.model_copy(update={"tools": [*base.tools, *cnv.tools]})
-
-
-def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
-    del plan
-    intake = AlignedBamIntakeReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.INTAKE_REPORT).read_text(encoding="utf-8")
-    )
-    qc = CraminoQCReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.QC_REPORT).read_text(encoding="utf-8")
-    )
-    sv_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_REPORT))
-    sniffles = (
-        SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
-        else None
-    )
-    result = assemble_aligned_bam_mvp(
-        ctx.manifest,
-        intake,
-        qc,
-        pipeline_version=ctx.config.pipeline_version,
-        git_commit=ctx.config.git_commit,
-        sniffles_report=sniffles,
-    )
-    cnv = _load_cnv(ctx)
-    if cnv is not None:
-        outcome = ModuleOutcome(
-            module=AnalysisModule.CNV,
-            status=cnv.status,
-            reason=(
-                f"QDNAseq+ACE multi-bin CNV completed; primary "
-                f"{cnv.primary_fit.bin_size_kbp} kbp, cellularity "
-                f"{cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
-            ),
-            tools=cnv.tools,
-        )
-        result = result.model_copy(
-            update={
-                "events": [*cnv.events, *result.events],
-                "modules": _replace_module(result.modules, outcome),
-                "provenance": _merge_provenance(result.provenance, cnv),
-                "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
-            }
-        )
-    artifact = ctx.envelope.atomic_write_text(
-        ctx.path(pipeline_runner.RESULT_JSON),
-        result.model_dump_json(indent=2) + "\n",
-    )
-    return StageResult(
-        status=ModuleRunStatus.COMPLETED,
-        reason="QC, QDNAseq/ACE CNV and available SV evidence assembled into one result.",
-        outputs=[artifact],
-    )
-
-
-def _report_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
-    external: list[tuple[str, str]] = []
-    cnv_path = ctx.envelope.path(ctx.path(CNV_REPORT))
-    if cnv_path.is_file():
-        external.append((Path(ctx.path(CNV_REPORT)).name, sha256_file(cnv_path)))
-    return StagePlan(
-        parameters={"formats": ["json", "html", "xlsx"], "cnv_visualization": True},
-        tool_versions={},
-        external_inputs=tuple(external),
-    )
 
 
 def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -> str:
@@ -375,57 +298,89 @@ def _enrich_workbook(
     workbook.save(path)
 
 
-def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
-    del plan
-    result = PipelineResult.model_validate_json(
-        ctx.envelope.path(ctx.path(pipeline_runner.RESULT_JSON)).read_text(encoding="utf-8")
-    )
-    html_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_HTML))
-    xlsx_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_XLSX))
-    render_html(result, html_path)
-    render_workbook(result, xlsx_path)
+def _enrich_result(ctx: pipeline_runner.RunContext, result: PipelineResult) -> PipelineResult:
+    """Fold this run's CNV evidence into the result the runner already assembled.
+
+    Additive by construction: it receives the finished result and returns one with the CNV
+    events, module outcome, provenance and warnings added. It cannot drop what it does not
+    know about, which is what the previous whole-stage replacement did to the SV consensus.
+    """
     cnv = _load_cnv(ctx)
-    if cnv is not None:
-        document = html_path.read_text(encoding="utf-8")
-        section = _cnv_html_section(ctx, cnv)
-        marker = "<section><h2>Warnings and limitations</h2>"
-        if marker in document:
-            document = document.replace(marker, section + marker, 1)
-        else:
-            document = document.replace("</main>", section + "</main>", 1)
-        html_path.write_text(document, encoding="utf-8")
-        _enrich_workbook(xlsx_path, ctx, cnv)
-    return StageResult(
-        status=ModuleRunStatus.COMPLETED,
-        reason="Reviewer HTML and Excel rendered with integrated QDNAseq/ACE CNV summaries.",
-        outputs=[
-            ctx.envelope.fingerprint(ctx.path(pipeline_runner.REPORT_HTML)),
-            ctx.envelope.fingerprint(ctx.path(pipeline_runner.REPORT_XLSX)),
-        ],
+    if cnv is None:
+        return result
+    outcome = ModuleOutcome(
+        module=AnalysisModule.CNV,
+        status=cnv.status,
+        reason=(
+            f"QDNAseq+ACE multi-bin CNV completed; primary "
+            f"{cnv.primary_fit.bin_size_kbp} kbp, cellularity "
+            f"{cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
+        ),
+        tools=cnv.tools,
     )
+    return result.model_copy(
+        update={
+            "events": [*cnv.events, *result.events],
+            "modules": _replace_module(result.modules, outcome),
+            "provenance": _merge_provenance(result.provenance, cnv),
+            "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
+        }
+    )
+
+
+def _enrich_reports(ctx: pipeline_runner.RunContext, html_path: Path, xlsx_path: Path) -> bool:
+    """Add the CNV section to the already-rendered reviewer artifacts.
+
+    Returns whether anything was written. A run that did not request CNV, or whose CNV stage
+    recorded NOT_RUN or FAILED, leaves no report to fold in — and must not be described as
+    carrying a CNV section it does not have.
+    """
+    cnv = _load_cnv(ctx)
+    if cnv is None:
+        return False
+    document = html_path.read_text(encoding="utf-8")
+    section = _cnv_html_section(ctx, cnv)
+    marker = "<section><h2>Warnings and limitations</h2>"
+    if marker in document:
+        document = document.replace(marker, section + marker, 1)
+    else:
+        document = document.replace("</main>", section + "</main>", 1)
+    html_path.write_text(document, encoding="utf-8")
+    _enrich_workbook(xlsx_path, ctx, cnv)
+    return True
 
 
 def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:
-    """Install the live CNV stage into the existing execution graph for this process."""
+    """Install the live CNV lane for this process.
+
+    Three things this deliberately no longer does. It does not rewrite ``SPEC_BY_STAGE``:
+    the graph is data, built once at import, and a registration that edited it made the
+    verification status depend on registration order — preflight, which does not register,
+    reported CNV as having no adapter for runs that then executed a real QDNAseq analysis.
+    It does not replace the assemble stage, and it does not replace the report stage. It
+    supplies the CNV stage, which is its own, and contributes to the other two.
+    """
     global _SETTINGS
     _SETTINGS = settings
-    specs = cast(MutableMapping[StageId, StageSpec], SPEC_BY_STAGE)
-    current = specs[StageId.CNV]
-    specs[StageId.CNV] = replace(
-        current,
-        title="QDNAseq + ACE copy-number analysis",
+    pipeline_runner.IMPLEMENTATIONS[StageId.CNV] = StageImplementation(
+        _cnv_plan,
+        _cnv_execute,
+        # The declared graph calls CNV not_implemented because nothing is wired in by
+        # default. This adapter is exercised against real QDNAseq and ACE in CI, and says
+        # so here rather than by editing the graph.
         verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
-        purpose=(
-            "Run multi-resolution QDNAseq read-depth correction and CBS segmentation, "
-            "estimate purity/ploidy with ACE, and retain consensus plus plots."
-        ),
     )
-    pipeline_runner.IMPLEMENTATIONS[StageId.CNV] = StageImplementation(_cnv_plan, _cnv_execute)
-    pipeline_runner.IMPLEMENTATIONS[StageId.ASSEMBLE] = StageImplementation(
-        _assemble_plan,
-        _assemble_execute,
+    pipeline_runner.register_result_contribution(
+        pipeline_runner.ResultContribution(
+            extension_id=EXTENSION_ID,
+            source_artifacts=(CNV_REPORT,),
+            enrich=_enrich_result,
+        )
     )
-    pipeline_runner.IMPLEMENTATIONS[StageId.REPORT] = StageImplementation(
-        _report_plan,
-        _report_execute,
+    pipeline_runner.register_report_contribution(
+        pipeline_runner.ReportContribution(
+            extension_id=EXTENSION_ID,
+            source_artifacts=(CNV_REPORT,),
+            enrich=_enrich_reports,
+        )
     )

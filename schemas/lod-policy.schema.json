@@ -1,0 +1,61 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "minimum_detection_rate": {
+      "default": 0.95,
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "title": "Minimum Detection Rate",
+      "type": "number"
+    },
+    "minimum_recall": {
+      "default": 1.0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Minimum Recall",
+      "type": "number"
+    },
+    "minimum_replicates": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Minimum Replicates",
+      "type": "integer"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "require_monotonic": {
+      "default": true,
+      "title": "Require Monotonic",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "LodPolicy",
+  "type": "object"
+}

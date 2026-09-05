@@ -1,0 +1,261 @@
+{
+  "$defs": {
+    "BenchmarkKind": {
+      "enum": [
+        "cnv",
+        "sv"
+      ],
+      "title": "BenchmarkKind",
+      "type": "string"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "LodLevelOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "case_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Case Ids",
+          "type": "array"
+        },
+        "detection_rate": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detection Rate"
+        },
+        "mean_precision": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Precision"
+        },
+        "mean_recall": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Recall"
+        },
+        "meets_criterion": {
+          "title": "Meets Criterion",
+          "type": "boolean"
+        },
+        "nominal_tumor_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Nominal Tumor Fraction",
+          "type": "number"
+        },
+        "replicates_detected": {
+          "minimum": 0,
+          "title": "Replicates Detected",
+          "type": "integer"
+        },
+        "replicates_evaluated": {
+          "minimum": 0,
+          "title": "Replicates Evaluated",
+          "type": "integer"
+        },
+        "replicates_no_call": {
+          "minimum": 0,
+          "title": "Replicates No Call",
+          "type": "integer"
+        },
+        "replicates_total": {
+          "minimum": 1,
+          "title": "Replicates Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nominal_tumor_fraction",
+        "replicates_total",
+        "replicates_evaluated",
+        "replicates_detected",
+        "replicates_no_call",
+        "meets_criterion",
+        "case_ids"
+      ],
+      "title": "LodLevelOutcome",
+      "type": "object"
+    },
+    "LodPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum_detection_rate": {
+          "default": 0.95,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Minimum Detection Rate",
+          "type": "number"
+        },
+        "minimum_recall": {
+          "default": 1.0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Recall",
+          "type": "number"
+        },
+        "minimum_replicates": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Minimum Replicates",
+          "type": "integer"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "require_monotonic": {
+          "default": true,
+          "title": "Require Monotonic",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "technical_defaults_only",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_id",
+        "status",
+        "note"
+      ],
+      "title": "LodPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bracketed": {
+      "default": false,
+      "title": "Bracketed",
+      "type": "boolean"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "detection_limit_fraction": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Detection Limit Fraction"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "kind": {
+      "$ref": "#/$defs/BenchmarkKind"
+    },
+    "levels": {
+      "items": {
+        "$ref": "#/$defs/LodLevelOutcome"
+      },
+      "minItems": 1,
+      "title": "Levels",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/LodPolicy"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "series_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Series Id",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "series_id",
+    "kind",
+    "genome_build",
+    "policy",
+    "levels"
+  ],
+  "title": "LodReport",
+  "type": "object"
+}

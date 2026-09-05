@@ -1,0 +1,24 @@
+schema_version: 0.1.0
+profile_id: modkit-cpg-technical-v1
+status: technical_defaults_only
+expected_version: 0.4.1
+modification_codes:
+  - m
+cpg_only: true
+combine_strands: true
+ignored_codes:
+  - h
+filter_threshold: 0.8
+minimum_valid_coverage: 5
+region_source: chromosome
+verify_modified_base_tags: true
+note: >-
+  Technical descriptive defaults only. The 0.8 confidence threshold and the 5x valid-coverage
+  floor are engineering starting points, not validated analytical or clinical cut-offs, and no
+  reported fraction may be read as a methylation classification. The threshold is pinned rather
+  than estimated from the sample so that two runs of this pipeline run the same pipeline. 5hmC
+  calls are folded into the canonical count via --ignore, so the reported 5mC fraction is a
+  5mC-versus-everything-else fraction and not a share of total cytosine modification. The
+  expected modkit version is an engineering pin: re-pin it deliberately against the installed
+  binary and record the change, because pileup output is not comparable across modkit majors.
+  This adapter has never been executed against the real modkit binary in this repository.

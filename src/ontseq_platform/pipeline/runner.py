@@ -29,6 +29,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
 from ..aml_rearrangements import prioritize_aml_rearrangements
@@ -36,9 +39,16 @@ from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
 from ..cutesv import run_cutesv
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
+from ..methylation import (
+    MethylationPolicy,
+    MethylationRegionSource,
+    MethylationReport,
+    run_methylation,
+)
 from ..models import (
     AlignedBamIntakeReport,
     AmlKnowledgeLock,
+    AnalysisModule,
     AssayMode,
     CheckStatus,
     CraminoQCReport,
@@ -48,6 +58,7 @@ from ..models import (
     InputSpec,
     IntervalResourceLock,
     ModuleRunStatus,
+    PipelineResult,
     QCPolicy,
     ReferenceLock,
     SampleManifest,
@@ -82,9 +93,11 @@ from .stages import (
     InputKindName,
     StageId,
     StageOutcome,
+    VerificationStatus,
     blocking_dependency,
     planned_stages,
     summarize,
+    verification_of,
 )
 from .state import ArtifactRecord, ReleaseBundle, RunReport, StageRecord
 
@@ -104,6 +117,8 @@ SV_REPORT = "evidence/sv/{sample}.sniffles.json"
 CUTESV_VCF = "evidence/sv/{sample}.cutesv.vcf"
 CUTESV_REPORT = "evidence/sv/{sample}.cutesv.json"
 SV_CONSENSUS_REPORT = "evidence/sv/{sample}.consensus.json"
+METHYLATION_DIR = "evidence/methylation"
+METHYLATION_REPORT = "evidence/methylation/{sample}.methylation.json"
 RESULT_JSON = "normalized/{sample}.result.json"
 REPORT_HTML = "reports/{sample}.report.html"
 REPORT_XLSX = "reports/{sample}.results.xlsx"
@@ -117,6 +132,10 @@ STANDING_LIMITATIONS = (
     "Tool versions are locked for reproducibility; none of the thresholds involved is a "
     "validated clinical limit.",
 )
+
+
+#: Bound for the optional-report loader below: every one is a pydantic model.
+_ReportT = TypeVar("_ReportT", bound=BaseModel)
 
 
 class StageFailure(RuntimeError):
@@ -144,6 +163,7 @@ class RunConfiguration:
     aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
     sv_minimum_mean_depth: float = 10.0
     target_coverage_policy: TargetCoveragePolicy | None = None
+    methylation_policy: MethylationPolicy | None = None
     #: Which component runs each stage, and at which version. ``None`` keeps the built-in
     #: defaults and pins nothing, which is what every run did before selection existed.
     components: RunComponents | None = None
@@ -160,6 +180,7 @@ class RunConfiguration:
             "cutesv": "cuteSV",
             "minimap2": "minimap2",
             "mosdepth": "mosdepth",
+            "modkit": "modkit",
             "dorado": "dorado",
         }
     )
@@ -229,6 +250,91 @@ class StageImplementation:
     #: artifacts rather than re-reading the envelope, so adopting a multi-gigabyte BAM does
     #: not cost a second checksum pass over it.
     settle: Callable[[RunContext, Sequence[Artifact]], None] | None = None
+    #: What this implementation has earned, when it knows better than the declared graph.
+    #: A stage the graph calls ``not_implemented`` because nothing is wired in by default
+    #: reports what its registered adapter has actually met. ``None`` keeps the spec's own
+    #: status, which is the answer for every built-in stage.
+    verification: VerificationStatus | None = None
+
+
+@dataclass(frozen=True)
+class ResultContribution:
+    """What an extension adds to the assembled result without owning the stage.
+
+    Extensions used to *replace* the assemble and report implementations wholesale, which
+    left one contract with two bodies. Whichever report the replacement forgot silently
+    vanished from the result while its artifact stayed in the envelope looking used — the
+    SV consensus went missing that way for the life of the CNV lane. A contribution can
+    only add to what the runner already assembled, so there is nothing to forget.
+    """
+
+    extension_id: str
+    #: Envelope artifacts this contribution reads. Fingerprinted into the assemble stage's
+    #: resume signature, because the stage does not depend on whatever produced them.
+    source_artifacts: tuple[str, ...]
+    enrich: Callable[[RunContext, PipelineResult], PipelineResult]
+
+
+@dataclass(frozen=True)
+class ReportContribution:
+    """What an extension adds to the rendered reviewer artifacts."""
+
+    extension_id: str
+    source_artifacts: tuple[str, ...]
+    #: Receives the already-rendered HTML and workbook paths and edits them in place.
+    #: Returns ``True`` when it actually wrote to them; a contribution whose evidence is
+    #: absent this run returns ``False`` so the stage records no enrichment that never
+    #: happened.
+    enrich: Callable[[RunContext, Path, Path], bool]
+
+
+#: Registered in import order and applied in that order. Deliberately module-level state,
+#: like ``IMPLEMENTATIONS``: an extension is installed for the life of a process.
+RESULT_CONTRIBUTIONS: list[ResultContribution] = []
+REPORT_CONTRIBUTIONS: list[ReportContribution] = []
+
+
+def register_result_contribution(contribution: ResultContribution) -> None:
+    """Add to the assembled result. Registering the same extension twice replaces it."""
+    RESULT_CONTRIBUTIONS[:] = [
+        item for item in RESULT_CONTRIBUTIONS if item.extension_id != contribution.extension_id
+    ]
+    RESULT_CONTRIBUTIONS.append(contribution)
+
+
+def register_report_contribution(contribution: ReportContribution) -> None:
+    """Add to the rendered HTML and workbook."""
+    REPORT_CONTRIBUTIONS[:] = [
+        item for item in REPORT_CONTRIBUTIONS if item.extension_id != contribution.extension_id
+    ]
+    REPORT_CONTRIBUTIONS.append(contribution)
+
+
+def implementation_verification() -> dict[StageId, VerificationStatus]:
+    """The verification status of every stage whose implementation declares one.
+
+    Handed to :func:`ontseq_platform.pipeline.stages.summarize` and to preflight so both
+    read the same answer. Preflight disagreeing with the run about what is verified is the
+    one failure a preflight must not have.
+    """
+    return {
+        stage: implementation.verification
+        for stage, implementation in IMPLEMENTATIONS.items()
+        if implementation.verification is not None
+    }
+
+
+def _contribution_fingerprints(
+    ctx: RunContext, contributions: Sequence[ResultContribution] | Sequence[ReportContribution]
+) -> tuple[tuple[str, str], ...]:
+    fingerprints: list[tuple[str, str]] = []
+    for contribution in contributions:
+        for relative in contribution.source_artifacts:
+            resolved = ctx.path(relative)
+            path = ctx.envelope.path(resolved)
+            if path.is_file():
+                fingerprints.append((Path(resolved).name, sha256_file(path)))
+    return tuple(fingerprints)
 
 
 def _probe(
@@ -243,6 +349,18 @@ def _probe(
     if not match:
         raise StageFailure(f"could not determine the {tool} version")
     return match.group(1)
+
+
+def _module_requested(ctx: RunContext, module: AnalysisModule) -> bool:
+    """Whether the manifest asked for this analysis at all.
+
+    The manifest is the run's scope contract. A stage that runs anyway produces evidence
+    nobody asked for, and — worse — can fail a run over a tool the operator had no reason
+    to configure, which is exactly how a CNV-only run came to die on a missing cuteSV
+    reference. Two vocabularies are deliberate and distinct: a stage gated on the assay
+    records ``applicable``, a stage gated on the requested analysis records ``requested``.
+    """
+    return module in ctx.manifest.analysis.modules
 
 
 def _stable_digest(path: Path) -> tuple[str, bool]:
@@ -645,9 +763,16 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _sv_plan(ctx: RunContext) -> StagePlan:
+    if not _module_requested(ctx, AnalysisModule.SV):
+        # Probing sniffles and cuteSV here would make a CNV-only run depend on callers it
+        # never invokes, and a missing cuteSV reference would fail a run that asked for no
+        # structural variants at all.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
     sniffles_policy = ctx.config.sniffles_policy
     cute_policy = ctx.config.cutesv_policy
     if sniffles_policy is None and cute_policy is None:
+        # Requested and unconfigurable is a real error: the run asked for SV evidence and
+        # cannot produce any. That still fails closed.
         raise StageFailure("structural-variant calling requires Sniffles2 and/or cuteSV policy")
     parameters: dict[str, object] = {
         "threads": ctx.config.threads,
@@ -711,6 +836,14 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
 
 
 def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the structural-variant module. This is a "
+                "scope statement, not a finding about the sample's structural variants."
+            ),
+        )
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -830,50 +963,249 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
 
 
+def _methylation_plan(ctx: RunContext) -> StagePlan:
+    """Plan the modified-base pileup, or record that this run never asked for one.
+
+    Unlike target coverage, applicability here is a property of the *requested analysis*
+    rather than of the assay mode: an lcWGS run and an Adaptive Sampling run can both
+    carry MM/ML tags, and neither should pay for a pileup it did not ask for.
+    """
+    if not _module_requested(ctx, AnalysisModule.METHYLATION):
+        # Probing modkit here would make every run depend on a tool most runs never use.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
+    policy = ctx.config.methylation_policy
+    if policy is None:
+        raise StageFailure(
+            "the manifest requests the methylation module but no methylation policy was "
+            "supplied. Refusing to continue: an unparameterised pileup is not reproducible"
+        )
+    if policy.cpg_only and ctx.config.reference_fasta is None:
+        raise StageFailure(
+            "the methylation policy restricts the pileup to CpG sites, which is a property "
+            "of the reference; pass --reference-fasta"
+        )
+    modkit = ctx.config.executable("modkit")
+    external_inputs = [_external_fingerprint(Path(ctx.manifest.input.path))]
+    if ctx.config.reference_fasta is not None:
+        external_inputs.append(_external_fingerprint(ctx.config.reference_fasta))
+    if policy.region_source == MethylationRegionSource.TARGET_BED:
+        if not ctx.manifest.assay.target_bed:
+            raise StageFailure(
+                "the methylation policy aggregates over the target design but the manifest "
+                "declares no target BED"
+            )
+        external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
+    elif ctx.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and ctx.manifest.assay.target_bed:
+        # The BED does not constrain this pileup, but the report records its checksum, so it
+        # belongs in the signature too — otherwise a changed design would leave a resumed
+        # run carrying the fingerprint of a BED that is no longer the one on disk.
+        external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
+    return StagePlan(
+        parameters={
+            "requested": True,
+            "methylation_policy": policy.model_dump(mode="json"),
+            "threads": ctx.config.threads,
+        },
+        tool_versions={"modkit": _probe(ctx.runner, modkit, [modkit, "--version"], tool="modkit")},
+        external_inputs=tuple(external_inputs),
+    )
+
+
+def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the methylation module. This is a scope "
+                "statement, not a finding about the sample's methylation."
+            ),
+        )
+    policy = ctx.config.methylation_policy
+    assert policy is not None
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    output_dir = ctx.envelope.path(METHYLATION_DIR)
+    if output_dir.exists():
+        # The adapter refuses to overwrite its own outputs, which is right for a bare
+        # invocation. Inside an envelope the stage owns this directory, so a re-run clears
+        # it rather than inheriting half a previous attempt.
+        shutil.rmtree(output_dir)
+    report = run_methylation(
+        ctx.manifest,
+        intake,
+        policy,
+        output_dir=output_dir,
+        reference_fasta=ctx.config.reference_fasta,
+        runner=ctx.runner,
+        modkit=ctx.config.executable("modkit"),
+        samtools=ctx.config.executable("samtools"),
+        threads=ctx.config.threads,
+    )
+    artifact = ctx.envelope.atomic_write_text(
+        ctx.path(METHYLATION_REPORT), report.model_dump_json(indent=2) + "\n"
+    )
+    measured = sum(item.sites_at_minimum_coverage for item in report.regions)
+    if report.status == ModuleRunStatus.COMPLETED:
+        reason = (
+            f"Aggregated {int(report.summary_metrics.get('site_count', 0))} modified-base "
+            f"site(s) into {len(report.regions)} region row(s); {measured} site "
+            "observation(s) met the coverage floor."
+        )
+    else:
+        reason = (
+            "No modified-base site reached the configured coverage floor; this NO_CALL "
+            "reports an unmeasurable sample, not unmethylated DNA."
+        )
+    return StageResult(
+        status=report.status,
+        reason=reason,
+        outputs=[artifact],
+        tools=[report.tool],
+        warnings=report.warnings,
+        limitations=report.limitations,
+    )
+
+
+#: The evidence reports the assemble stage reads out of the envelope.
+#:
+#: One list drives both loading and resume fingerprinting, in both implementations of the
+#: stage, because the CNV lane arrives by registration and *replaces* assemble — leaving two
+#: copies of one contract. Adding a report to one copy and forgetting the other fails
+#: silently: the artifact stays in the envelope looking as though it was used, while the
+#: result is built without it. That is exactly how the SV consensus, which landed after the
+#: extension was written, was left out of every result the extension assembled.
+ASSEMBLE_SOURCE_ARTIFACTS: tuple[str, ...] = (
+    SV_REPORT,
+    SV_CONSENSUS_REPORT,
+    METHYLATION_REPORT,
+)
+
+#: Which requested module each source artifact belongs to. Assemble reads these by path, and
+#: an envelope outlives the manifest that filled it: re-running a run id after dropping ``sv``
+#: from the modules leaves the previous run's SV evidence on disk, where an existence check
+#: would happily fold it into a result whose own run report says SV was never requested.
+ASSEMBLE_SOURCE_MODULES: dict[str, AnalysisModule] = {
+    SV_REPORT: AnalysisModule.SV,
+    SV_CONSENSUS_REPORT: AnalysisModule.SV,
+    METHYLATION_REPORT: AnalysisModule.METHYLATION,
+}
+
+
+def assemble_source_artifacts_in_scope(ctx: RunContext) -> tuple[str, ...]:
+    """The evidence artifacts this run's manifest actually asked for.
+
+    Both the loader and the resume signature go through here, so a manifest change moves the
+    signature: dropping a module removes its artifacts from the fingerprints, assemble
+    re-runs, and the result stops carrying evidence the run did not request.
+    """
+    return tuple(
+        relative
+        for relative in ASSEMBLE_SOURCE_ARTIFACTS
+        if _module_requested(ctx, ASSEMBLE_SOURCE_MODULES[relative])
+    )
+
+
+@dataclass(frozen=True)
+class AssembleInputs:
+    """Every normalized report the result contract is assembled from."""
+
+    intake: AlignedBamIntakeReport
+    qc: CraminoQCReport
+    sniffles: SnifflesCallReport | None
+    sv_consensus: SvConsensusReport | None
+    methylation: MethylationReport | None
+
+
+def load_assemble_inputs(ctx: RunContext) -> AssembleInputs:
+    """Read everything assemble needs, once, for whichever implementation is running.
+
+    Intake and QC are required — assemble depends on QC and cannot run without them. The
+    evidence reports are optional: a stage that did not run leaves no artifact, and that
+    absence is a scope statement the result records rather than an error.
+    """
+
+    in_scope = assemble_source_artifacts_in_scope(ctx)
+
+    def _optional(relative: str, model: type[_ReportT]) -> _ReportT | None:
+        if relative not in in_scope:
+            return None
+        path = ctx.envelope.path(ctx.path(relative))
+        if not path.is_file():
+            return None
+        return model.model_validate_json(path.read_text(encoding="utf-8"))
+
+    return AssembleInputs(
+        intake=AlignedBamIntakeReport.model_validate_json(
+            ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+        ),
+        qc=CraminoQCReport.model_validate_json(
+            ctx.envelope.path(QC_REPORT).read_text(encoding="utf-8")
+        ),
+        sniffles=_optional(SV_REPORT, SnifflesCallReport),
+        sv_consensus=_optional(SV_CONSENSUS_REPORT, SvConsensusReport),
+        methylation=_optional(METHYLATION_REPORT, MethylationReport),
+    )
+
+
+def assemble_source_fingerprints(ctx: RunContext) -> tuple[tuple[str, str], ...]:
+    """Fingerprint the evidence reports assemble reads, for the resume signature.
+
+    ``stage_signature`` hashes the artifacts of a stage's *declared* dependencies, and
+    assemble declares only QC. The SV, consensus and methylation reports are read without
+    being depended on, so without these fingerprints a run could resume a result assembled
+    before one of them changed.
+    """
+    fingerprints: list[tuple[str, str]] = []
+    for relative in assemble_source_artifacts_in_scope(ctx):
+        resolved = ctx.path(relative)
+        path = ctx.envelope.path(resolved)
+        if path.is_file():
+            fingerprints.append((Path(resolved).name, sha256_file(path)))
+    return tuple(fingerprints)
+
+
 def _assemble_plan(ctx: RunContext) -> StagePlan:
     return StagePlan(
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
+            "result_contributions": [item.extension_id for item in RESULT_CONTRIBUTIONS],
         },
         tool_versions={},
+        external_inputs=assemble_source_fingerprints(ctx)
+        + _contribution_fingerprints(ctx, RESULT_CONTRIBUTIONS),
     )
 
 
 def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    intake = AlignedBamIntakeReport.model_validate_json(
-        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
-    )
-    qc = CraminoQCReport.model_validate_json(
-        ctx.envelope.path(QC_REPORT).read_text(encoding="utf-8")
-    )
-    sv_path = ctx.envelope.path(ctx.path(SV_REPORT))
-    sniffles = (
-        SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
-        else None
-    )
-    consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
-    consensus = (
-        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
-        if consensus_path.is_file()
-        else None
-    )
+    inputs = load_assemble_inputs(ctx)
+    sniffles = inputs.sniffles
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
-        intake,
-        qc,
+        inputs.intake,
+        inputs.qc,
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
-        sv_consensus_report=consensus,
+        sv_consensus_report=inputs.sv_consensus,
+        methylation_report=inputs.methylation,
     )
+    contributed: list[str] = []
+    for contribution in RESULT_CONTRIBUTIONS:
+        enriched = contribution.enrich(ctx, result)
+        if enriched is not result:
+            contributed.append(contribution.extension_id)
+            result = enriched
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
     )
+    reason = "Module outcomes assembled into the validated result contract."
+    if contributed:
+        reason += f" Enriched by: {', '.join(contributed)}."
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Module outcomes assembled into the validated result contract.",
+        reason=reason,
         outputs=[artifact],
         warnings=["Structural-variant evidence was omitted from the result."]
         if sniffles is None
@@ -882,20 +1214,38 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _report_plan(ctx: RunContext) -> StagePlan:
-    return StagePlan(parameters={"formats": ["json", "html", "xlsx"]}, tool_versions={})
+    return StagePlan(
+        parameters={
+            "formats": ["json", "html", "xlsx"],
+            "report_contributions": [item.extension_id for item in REPORT_CONTRIBUTIONS],
+        },
+        tool_versions={},
+        external_inputs=_contribution_fingerprints(ctx, REPORT_CONTRIBUTIONS),
+    )
 
 
 def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    from ..models import PipelineResult
-
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    render_html(result, ctx.envelope.path(ctx.path(REPORT_HTML)))
-    render_workbook(result, ctx.envelope.path(ctx.path(REPORT_XLSX)))
+    html_path = ctx.envelope.path(ctx.path(REPORT_HTML))
+    xlsx_path = ctx.envelope.path(ctx.path(REPORT_XLSX))
+    render_html(result, html_path)
+    render_workbook(result, xlsx_path)
+    contributed: list[str] = []
+    for contribution in REPORT_CONTRIBUTIONS:
+        # A contribution reports whether it actually touched the artifacts. Claiming
+        # enrichment because one is *registered* would credit a CNV section to every report,
+        # including runs where the stage recorded NOT_RUN and the extension returned without
+        # writing anything — the provenance would describe a report nobody rendered.
+        if contribution.enrich(ctx, html_path, xlsx_path):
+            contributed.append(contribution.extension_id)
+    reason = "Reviewer artifacts rendered as HTML and Excel."
+    if contributed:
+        reason += f" Enriched by: {', '.join(contributed)}."
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Reviewer artifacts rendered as HTML and Excel.",
+        reason=reason,
         outputs=[
             ctx.envelope.fingerprint(ctx.path(REPORT_HTML)),
             ctx.envelope.fingerprint(ctx.path(REPORT_XLSX)),
@@ -923,6 +1273,7 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
     StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
+    StageId.METHYLATION: StageImplementation(_methylation_plan, _methylation_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
     StageId.RELEASE: StageImplementation(_release_plan, _release_execute),
@@ -954,7 +1305,7 @@ def _build_report(
 ) -> RunReport:
     outcomes = {item.stage: StageOutcome(item.status.value) for item in records}
     kind = InputKindName(config.manifest.input.kind.value)
-    verdict = summarize(kind, outcomes)
+    verdict = summarize(kind, outcomes, implementation_verification())
     unverified = [
         item.stage
         for item in records
@@ -1157,7 +1508,13 @@ def _execute_stage(
     base = {
         "stage": stage,
         "title": spec.title,
-        "verification": spec.verification,
+        # Resolved through the registered implementation, not read off the declared spec:
+        # an extension supplies a real adapter for a stage the graph declares
+        # ``not_implemented``, and ``summarize`` already judges the verdict that way. Taking
+        # the spec verbatim here would put a stage the run verified with a real tool into
+        # ``RunReport.unverified_stages`` and print "UNVERIFIED ADAPTERS COMPLETED" for it,
+        # contradicting the verdict in the same report.
+        "verification": verification_of(stage, implementation_verification()),
         "required": spec.required,
     }
 

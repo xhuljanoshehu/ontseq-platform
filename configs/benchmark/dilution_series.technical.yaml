@@ -1,0 +1,19 @@
+schema_version: 0.1.0
+profile_id: tumor-dilution-series-technical-v1
+status: technical_defaults_only
+expected_samtools_version: "1.24"
+tumor_fractions: [1.0, 0.5, 0.2, 0.1, 0.05, 0.025]
+include_normal_only_control: true
+replicates: 1
+seed: 42
+total_read_target: null
+observed_fraction_tolerance: 0.02
+note: >-
+  Technical dilution design only. The fractions, the seed and the 2 percent drift tolerance are
+  engineering choices for characterising pipeline behaviour, not a validated analytical
+  sensitivity study. An in-silico mixture reproduces read-fraction effects and nothing about
+  library preparation, input mass or capture behaviour at low tumour content, so a limit derived
+  from this series is a property of the software on these two BAMs. total_read_target is left
+  unset here so the machinery runs on any pair of inputs; pin it before comparing two series,
+  because otherwise the levels differ in depth as well as in tumour fraction. One replicate per
+  level exercises the lane and cannot characterise a detection rate.

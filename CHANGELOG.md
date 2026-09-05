@@ -5,6 +5,177 @@ validated release.
 
 ## Unreleased
 
+### Added
+
+- A modified-base (methylation) lane. `modkit pileup` is wired into the canonical run graph as
+  the version-locked `methylation` stage, aggregating `MM`/`ML` calls into per-region 5mC
+  fractions over either canonical chromosomes or the locked target design. It runs only when the
+  manifest requests the module, is deselectable like any other component, and its normalized
+  report is a validated artifact in the run envelope with its own module outcome, tool record and
+  release-bundle checksum. See [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md).
+- A deterministic in-silico tumour dilution series. `plan_dilution_series` lays out the whole
+  titration as reviewable data — per-level read budgets, derived seeds, exact subsample arguments
+  — without touching a BAM; `execute_dilution_series` materialises it with version-locked
+  samtools and verifies every level against the fraction it claims.
+- A technical limit-of-detection evaluation over the benchmark reports of a series, reusing the
+  `tumor_fraction`/`replicate` strata the benchmark cases already carry. It reports per-level
+  detection rates, whether the limit is bracketed by an observed failing level, and refuses to
+  report a low level that passed while a higher one failed.
+- CLI: `call-methylation`, `dilution-plan`, `dilution-mix` and `lod`; `ontseq run` and
+  `ontseq preflight` accept `--methylation-policy` and `--modkit`.
+- Technical policies `configs/methylation/modkit.technical.yaml`,
+  `configs/benchmark/dilution_series.technical.yaml` and `configs/benchmark/lod.technical.yaml`,
+  plus seven exported schemas for the new contracts.
+
+### Fixed
+
+- **The SV consensus never reached any reviewer artifact.** The CNV lane arrives by
+  registration and replaces the assemble stage; its copy read intake, QC and the raw Sniffles
+  report only, so `assemble_aligned_bam_mvp` fell back to `sniffles_report.events`. Since the
+  consensus layer landed in `6ce5d8f`, every `ontseq run` — the extension is registered for
+  `run`, `serve` and `watch` — produced result JSON, HTML and XLSX built from raw Sniffles
+  calls, silently dropping cuteSV entirely along with consensus merging, gene and cytoband
+  annotation, repeat/blacklist/mappability context, Adaptive Sampling observability and AML
+  rearrangement prioritization. The consensus artifact was still written to the envelope, so
+  nothing looked wrong. There is now one assemble implementation, reading through one shared
+  `load_assemble_inputs` driven by a single `ASSEMBLE_SOURCE_ARTIFACTS` list; the CNV lane adds
+  its module to that result instead of building a second one.
+- **Preflight described a different run than the one it cleared.** Registering the CNV
+  extension rewrote `SPEC_BY_STAGE` in place, flipping the CNV stage's `verification` from
+  `not_implemented` to `verified_with_real_tool`. `runtime_cli` registered for `run`,
+  `serve` and `watch` but not for `preflight`, so preflight reported "planned stage(s) cnv
+  have no adapter wired in and will record NOT_RUN" for runs that then executed a real
+  QDNAseq/ACE analysis — the one failure `preflight.py`'s own contract forbids. The graph is
+  immutable again; verification is carried by the registered `StageImplementation` and
+  resolved through `verification_of()`, and preflight registers the same way the run does.
+- **Assemble could resume a stale result.** `stage_signature` hashes the artifacts of a
+  stage's *declared* dependencies and assemble depends only on QC, so the SV, consensus and
+  methylation reports it reads were outside its resume signature and were fingerprinted by
+  neither assemble implementation. Assemble now fingerprints every artifact in
+  `ASSEMBLE_SOURCE_ARTIFACTS`, and a registered contribution folds the artifacts it declares
+  into the signature of the stage it enriches.
+- The structural-variant stage now runs only when the manifest requests the `sv` module, the
+  way CNV and methylation already do. It previously gated on *which policies were supplied*
+  rather than on *what the run asked for*, so a manifest declaring `modules: [qc, cnv, report]`
+  still drove an SV attempt — and a CNV-only run died with "cuteSV requires --reference-fasta"
+  on a reference it had no reason to supply. A run that did not request the module now records
+  `NOT_RUN` with the reason naming it a scope statement; a run that *did* request it with no
+  caller policy still fails closed.
+
+- **A methylation region row could report sites from outside its own interval.** Sites were
+  bucketed by the BED's `region_id`, but `load_target_bed` rejects duplicate *coordinates*,
+  not duplicate *names* — and a panel routinely names several intervals for one gene. Two
+  such intervals collapsed into one bucket and were then emitted once per interval, each row
+  carrying the union of both and the totals double-counted across the report. Buckets are
+  keyed by the interval itself now.
+- **An enriched run recorded a target design that had not constrained its pileup.** With
+  `region_source: chromosome` on an Adaptive Sampling run, modkit pileups the whole genome
+  while the report still carried the design's checksum, which reads as a restriction. The
+  report now warns in so many words that the fractions mix enriched targets with off-target
+  background, and the stage plan fingerprints the BED it records so a changed design cannot
+  be resumed over.
+- **Every detection limit looked bracketed.** `bracketed` was measured against the lowest
+  level present, and with `include_normal_only_control` on that is the pure-normal control —
+  which has no truth set, can never meet the criterion, and therefore always sat below the
+  limit. The "bounded from above and not located" warning was suppressed for every series.
+  The control is no longer read as a dilution step.
+- **A subsample fraction just below 1.0 rendered as a ten-times-smaller one.** `0.9999995`
+  rounds to a seventh digit, and `42.1000000` is read by samtools as seed 42 keeping 10 %, so
+  the level silently ended up at a tenth of its intended depth — invisible to the drift check,
+  which only sees the ratio between the sources. Such a fraction is now taken whole, and one
+  too small to express at all is refused rather than rendered as "keep nothing".
+- **A cuteSV-only run reported that SV calling had not happened.** The configuration is
+  supported — preflight drops the Sniffles requirement — and writes a consensus with no
+  Sniffles report. The module outcome and the run's warnings both keyed on Sniffles alone, so
+  a result carrying consolidated SV events stated three times over that no SV calling
+  occurred. Both now follow the evidence that actually reached the result, and the consensus's
+  own warnings and limitations are surfaced with it.
+- **A requested methylation module with no report was called out of scope.** It fell through
+  to "Requested module is outside the aligned-BAM MVP", which is false: the lane is inside the
+  MVP and a missing report means the stage failed closed — on an untagged BAM, a version lock
+  or a missing policy. The reason now says the module produced no report and points at the run
+  report, rather than describing a refusal as a scope statement.
+- **Assemble could fold in evidence the run never requested.** It read the SV, consensus and
+  methylation reports by file existence alone, and an envelope outlives the manifest that
+  filled it: re-running a run id after dropping a module left the previous run's evidence on
+  disk, where it reached the result, the HTML and the XLSX beside a run report saying the
+  module was never requested — and, because the fingerprints matched, the stale result
+  resumed rather than being rebuilt. The loader and the resume signature now go through one
+  scope filter, so dropping a module moves the signature and the evidence leaves the result.
+  The CNV contribution applies the same rule to its own report.
+- **The stage record described the declared adapter, not the one that ran.** Reading
+  `SPEC_BY_STAGE[stage].verification` was correct while registration rewrote the spec; since
+  the graph became immutable it put a CNV stage that had executed real QDNAseq into
+  `unverified_stages` and printed "UNVERIFIED ADAPTERS COMPLETED" for it, contradicting the
+  verdict in the same report.
+- **The report stage credited contributions that wrote nothing.** It named every registered
+  contribution rather than every contribution that changed an artifact, so a run whose CNV
+  stage recorded NOT_RUN still claimed "Enriched by: qdnaseq-ace-v1". Report contributions now
+  report whether they wrote, as result contributions already did.
+- **Preflight re-added a caller it had just taken out of scope.** The cuteSV requirement was
+  appended after the SV scope filter and did not share its rule, and a cuteSV policy resolves
+  from a repository default on essentially every invocation — so the CNV-only run this release
+  fixes was still probed for cuteSV.
+- **Preflight cleared a methylation run that could not succeed.** A missing modkit was
+  reported as a warning because the stage is optional in the graph. It is not optional for a
+  run that requested the module: the stage probes the binary, raises, and a FAILED stage fails
+  the run. It is a fatal tool for such a run now.
+
+### Changed
+
+- Extensions contribute instead of replacing. An extension may supply the implementation of
+  its own stage and register a `ResultContribution` or `ReportContribution` that adds to
+  what the runner assembled or rendered; it may no longer replace a stage it does not own,
+  nor mutate the stage graph. Contributions declare the envelope artifacts they read so the
+  runner can fold them into the resume signature. This removes the mechanism behind all
+  three defects above rather than patching them individually.
+- Preflight answers the methylation lane's preconditions before an envelope exists: policy
+  present, reference FASTA present when the pileup is CpG-restricted, target BED present when
+  aggregation is over the design, and a warning that MM/ML tag presence can only be established
+  by reading the BAM.
+- Preflight applies the same scope rule to the SV callers: a run that does not request the
+  module is neither told about a missing sniffles or cuteSV nor held to their version locks,
+  so the tool section keeps meaning something.
+- Stage skip vocabulary is now consistent and distinct: `applicable: false` means the assay has
+  nothing for the stage to measure, `requested: false` means the manifest did not ask for it.
+  `docs/PIPELINE_EXECUTION.md` documents the three gates side by side.
+- The unverified-adapter warning is no longer raised for a methylation stage the run never
+  requested, so the line keeps meaning something.
+
+### Validation impact
+
+- Both lanes are new evidence surfaces and neither is validated. The modkit adapter has **never**
+  been executed against the real binary here or in CI; it is declared `unverified_adapter` and a
+  run completing that stage is reported as such. Fail-closed behaviour is deliberate and load
+  bearing: a BAM without `MM` tags fails the stage rather than producing an empty pileup that
+  would read as unmethylated DNA, a region with no site above the coverage floor reports `null`
+  rather than `0.0`, and the modkit confidence threshold is pinned in policy rather than
+  estimated from the sample.
+- A detection limit from an in-silico series characterises software behaviour on one pair of
+  BAMs. It reproduces read-fraction effects and nothing about library preparation, input mass or
+  capture behaviour at low tumour content, its replicates are not independent specimens, and an
+  unbracketed limit is reported as a bound rather than a limit. No number from this lane is an
+  analytical or clinical sensitivity.
+- No existing lane's output changes. Assembly gains an optional methylation module outcome;
+  results without the lane are byte-identical apart from that absence.
+- The contribution refactor is behaviour-preserving for a correctly registered CNV lane:
+  the same events, module outcome, provenance, warnings, HTML section and workbook sheets
+  reach the result, by a mechanism that cannot silently drop the rest. What does change is
+  what preflight says about such a run, which is now what the run will actually do.
+- The consensus fix changes what every run with CNV registered reports: results now carry
+  the consolidated, annotated, prioritized events instead of raw Sniffles calls. This is a
+  correction, not a new capability — the evidence was already being computed and written to
+  the envelope, only not read back. Reviewers of runs produced since `6ce5d8f` should know
+  their reports understated the SV layer: single-caller, unannotated, without observability
+  or AML relevance. Envelopes can be re-assembled by re-running with `--force`.
+- The SV gating fix does change behaviour for one case, deliberately: a run whose manifest
+  omits `sv` but whose configuration supplied caller policies previously produced structural
+  variant evidence and now records `NOT_RUN`. That evidence was outside the declared analysis
+  scope; a run asking for CNV was never asking for SV. The change is visible rather than
+  silent — the module outcome, run report, HTML and XLSX all carry the reason — and a manifest
+  that lists `sv` behaves exactly as before. Runs already in an envelope are unaffected: the
+  stage signature change re-runs the stage rather than reinterpreting an existing artifact.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added

@@ -9,11 +9,22 @@ from . import __version__
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
 from .demo import build_demo_result
-from .execution import ToolExecutionError
+from .dilution import (
+    DilutionPolicy,
+    DilutionSeriesPlan,
+    LodPolicy,
+    count_reads,
+    evaluate_lod,
+    execute_dilution_series,
+    plan_dilution_series,
+)
+from .execution import SubprocessRunner, ToolExecutionError
 from .io import load_model, write_json
+from .methylation import MethylationPolicy, run_methylation
 from .models import (
     AlignedBamIntakeReport,
     BenchmarkCase,
+    BenchmarkReport,
     CraminoQCReport,
     GenomeBuild,
     PipelineResult,
@@ -117,6 +128,24 @@ def _parser() -> argparse.ArgumentParser:
     target_coverage.add_argument("--output-dir", type=Path, required=True)
     target_coverage.add_argument("--output", type=Path, required=True)
 
+    call_methylation = subparsers.add_parser(
+        "call-methylation",
+        help="Run modkit pileup and normalize region-aggregated modified-base fractions",
+    )
+    call_methylation.add_argument("manifest", type=Path)
+    call_methylation.add_argument("--intake", type=Path, required=True)
+    call_methylation.add_argument("--policy", type=Path, required=True)
+    call_methylation.add_argument(
+        "--reference-fasta",
+        type=Path,
+        help="Required when the policy restricts the pileup to CpG sites",
+    )
+    call_methylation.add_argument("--modkit", default="modkit")
+    call_methylation.add_argument("--samtools", default="samtools")
+    call_methylation.add_argument("--threads", type=int, default=4)
+    call_methylation.add_argument("--output-dir", type=Path, required=True)
+    call_methylation.add_argument("--output", type=Path, required=True)
+
     call_sniffles = subparsers.add_parser(
         "call-sniffles", help="Run Sniffles2 and normalize conservative candidate SV evidence"
     )
@@ -169,6 +198,43 @@ def _parser() -> argparse.ArgumentParser:
     )
     benchmark.add_argument("case", type=Path)
     benchmark.add_argument("--output", type=Path, required=True)
+
+    dilution_plan = subparsers.add_parser(
+        "dilution-plan",
+        help="Lay out an in-silico tumour dilution series from two source BAMs",
+    )
+    dilution_plan.add_argument("--policy", type=Path, required=True)
+    dilution_plan.add_argument("--series-id", required=True)
+    dilution_plan.add_argument("--tumor-bam", type=Path, required=True)
+    dilution_plan.add_argument("--normal-bam", type=Path, required=True)
+    dilution_plan.add_argument("--tumor-sample-id", required=True)
+    dilution_plan.add_argument("--normal-sample-id", required=True)
+    dilution_plan.add_argument(
+        "--genome-build", choices=[item.value for item in GenomeBuild], required=True
+    )
+    dilution_plan.add_argument("--samtools", default="samtools")
+    dilution_plan.add_argument("--threads", type=int, default=4)
+    dilution_plan.add_argument("--output", type=Path, required=True)
+
+    dilution_mix = subparsers.add_parser(
+        "dilution-mix", help="Materialize the mixed BAMs of a planned dilution series"
+    )
+    dilution_mix.add_argument("plan", type=Path)
+    dilution_mix.add_argument("--tumor-bam", type=Path, required=True)
+    dilution_mix.add_argument("--normal-bam", type=Path, required=True)
+    dilution_mix.add_argument("--samtools", default="samtools")
+    dilution_mix.add_argument("--threads", type=int, default=4)
+    dilution_mix.add_argument("--output-dir", type=Path, required=True)
+    dilution_mix.add_argument("--output", type=Path, required=True)
+
+    lod = subparsers.add_parser(
+        "lod",
+        help="Derive a technical detection limit from the benchmark reports of a series",
+    )
+    lod.add_argument("reports", type=Path, nargs="+")
+    lod.add_argument("--policy", type=Path, required=True)
+    lod.add_argument("--series-id", required=True)
+    lod.add_argument("--output", type=Path, required=True)
 
     assemble = subparsers.add_parser(
         "assemble-aligned-mvp",
@@ -261,6 +327,21 @@ def main() -> None:
                 threads=args.threads,
             )
             print(write_json(coverage_report, args.output))
+        elif args.command == "call-methylation":
+            manifest = load_model(args.manifest, SampleManifest)
+            intake = load_model(args.intake, AlignedBamIntakeReport)
+            methylation_policy = load_model(args.policy, MethylationPolicy)
+            methylation_report = run_methylation(
+                manifest,
+                intake,
+                methylation_policy,
+                output_dir=args.output_dir,
+                reference_fasta=args.reference_fasta,
+                modkit=args.modkit,
+                samtools=args.samtools,
+                threads=args.threads,
+            )
+            print(write_json(methylation_report, args.output))
         elif args.command == "call-sniffles":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
@@ -313,6 +394,57 @@ def main() -> None:
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
+        elif args.command == "dilution-plan":
+            dilution_policy = load_model(args.policy, DilutionPolicy)
+            command_runner = SubprocessRunner()
+            plan = plan_dilution_series(
+                dilution_policy,
+                series_id=args.series_id,
+                tumor_sample_id=args.tumor_sample_id,
+                normal_sample_id=args.normal_sample_id,
+                genome_build=GenomeBuild(args.genome_build),
+                tumor_read_count=count_reads(
+                    args.tumor_bam,
+                    runner=command_runner,
+                    samtools=args.samtools,
+                    threads=args.threads,
+                ),
+                normal_read_count=count_reads(
+                    args.normal_bam,
+                    runner=command_runner,
+                    samtools=args.samtools,
+                    threads=args.threads,
+                ),
+            )
+            print(write_json(plan, args.output))
+            for warning in plan.warnings:
+                print(f"WARNING: {warning}")
+        elif args.command == "dilution-mix":
+            series_plan = load_model(args.plan, DilutionSeriesPlan)
+            series_report = execute_dilution_series(
+                series_plan,
+                tumor_bam=args.tumor_bam,
+                normal_bam=args.normal_bam,
+                output_dir=args.output_dir,
+                samtools=args.samtools,
+                threads=args.threads,
+            )
+            print(write_json(series_report, args.output))
+        elif args.command == "lod":
+            lod_policy = load_model(args.policy, LodPolicy)
+            lod_report = evaluate_lod(
+                [load_model(path, BenchmarkReport) for path in args.reports],
+                lod_policy,
+                series_id=args.series_id,
+            )
+            print(write_json(lod_report, args.output))
+            limit = lod_report.detection_limit_fraction
+            print(
+                f"detection limit: {limit if limit is not None else 'not established'} "
+                f"(bracketed: {lod_report.bracketed})"
+            )
+            for warning in lod_report.warnings:
+                print(f"WARNING: {warning}")
         elif args.command == "assemble-aligned-mvp":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
