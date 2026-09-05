@@ -55,6 +55,7 @@ from .pipeline.stages import (
     SPEC_BY_STAGE,
     InputKindName,
     StageId,
+    StageSpec,
     VerificationStatus,
     planned_stages,
     unverified_specs,
@@ -804,19 +805,17 @@ def _check_adapters(request: PreflightRequest, checks: CheckList) -> None:
         # this line, which is the one line that has to keep meaning something.
         if stage is not StageId.METHYLATION or _analyses_methylation(request)
     )
-    resolved = unverified_specs(stages, request.stage_verification)
-    unverified = [
-        spec
-        for spec in resolved
-        if verification_of(spec.stage, request.stage_verification)
-        is VerificationStatus.UNVERIFIED_ADAPTER
-    ]
-    missing = [
-        spec
-        for spec in resolved
-        if verification_of(spec.stage, request.stage_verification)
-        is VerificationStatus.NOT_IMPLEMENTED
-    ]
+    # ``unverified_specs`` has already resolved each spec against the overrides; partition
+    # that answer rather than asking a third time, so the two lists cannot drift from the
+    # set it selected.
+    unverified: list[StageSpec] = []
+    missing: list[StageSpec] = []
+    for spec in unverified_specs(stages, request.stage_verification):
+        status = verification_of(spec.stage, request.stage_verification)
+        if status is VerificationStatus.UNVERIFIED_ADAPTER:
+            unverified.append(spec)
+        else:
+            missing.append(spec)
 
     if unverified:
         names = ", ".join(spec.stage.value for spec in unverified)

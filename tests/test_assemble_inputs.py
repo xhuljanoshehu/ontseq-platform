@@ -355,6 +355,48 @@ class ModuleOutcomeHonestyTests(AssembleCase):
         self.assertIn("produced no report", reason)
 
 
+class StaleEvidenceScopeTests(AssembleCase):
+    """Evidence a run did not request must not reach its result, even if it is on disk.
+
+    An envelope outlives the manifest that filled it. Re-running a run id after dropping a
+    module leaves the previous run's evidence in place, and reading it back by existence
+    alone produced a result carrying SV events beside a run report saying SV was never
+    requested — the leak `_module_requested` was written to close, reopened one layer down.
+    """
+
+    def _without_sv(self) -> None:
+        manifest = self.manifest.model_copy(
+            update={
+                "analysis": self.manifest.analysis.model_copy(
+                    update={"modules": [AnalysisModule.QC]}
+                )
+            }
+        )
+        self.ctx = replace(self.ctx, manifest=manifest)
+
+    def test_evidence_left_by_an_earlier_manifest_is_not_read_back(self) -> None:
+        self._without_sv()
+        inputs = pipeline_runner.load_assemble_inputs(self.ctx)
+        self.assertIsNone(inputs.sniffles)
+        self.assertIsNone(inputs.sv_consensus)
+
+    def test_the_result_carries_no_events_the_run_did_not_ask_for(self) -> None:
+        self._without_sv()
+        pipeline_runner._assemble_execute(self.ctx, self._plan())
+        self.assertEqual(self._result_event_ids(), [])
+
+    def test_dropping_a_module_moves_the_resume_signature(self) -> None:
+        """Otherwise the stale result resumes instead of being rebuilt without the evidence."""
+        before = pipeline_runner.assemble_source_fingerprints(self.ctx)
+        self._without_sv()
+        self.assertNotEqual(before, pipeline_runner.assemble_source_fingerprints(self.ctx))
+
+    def test_requested_evidence_is_still_read(self) -> None:
+        inputs = pipeline_runner.load_assemble_inputs(self.ctx)
+        self.assertIsNotNone(inputs.sniffles)
+        self.assertIsNotNone(inputs.sv_consensus)
+
+
 class ReportEnrichmentClaimTests(AssembleCase):
     """The report stage names the extensions that changed the artifacts, not the registered ones."""
 

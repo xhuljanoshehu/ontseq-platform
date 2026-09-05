@@ -157,6 +157,15 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
 
 
 def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
+    """The CNV report this run asked for, if the stage produced one.
+
+    The manifest gate matters as much as the file check: an envelope outlives the manifest
+    that filled it, so re-running a run id after dropping ``cnv`` from the modules leaves the
+    previous run's report on disk. Reading it back would enrich a result whose own run report
+    says CNV was never requested.
+    """
+    if not _requested(ctx):
+        return None
     path = ctx.envelope.path(ctx.path(CNV_REPORT))
     if not path.is_file():
         return None

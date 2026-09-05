@@ -95,6 +95,14 @@ validated release.
   MVP and a missing report means the stage failed closed — on an untagged BAM, a version lock
   or a missing policy. The reason now says the module produced no report and points at the run
   report, rather than describing a refusal as a scope statement.
+- **Assemble could fold in evidence the run never requested.** It read the SV, consensus and
+  methylation reports by file existence alone, and an envelope outlives the manifest that
+  filled it: re-running a run id after dropping a module left the previous run's evidence on
+  disk, where it reached the result, the HTML and the XLSX beside a run report saying the
+  module was never requested — and, because the fingerprints matched, the stale result
+  resumed rather than being rebuilt. The loader and the resume signature now go through one
+  scope filter, so dropping a module moves the signature and the evidence leaves the result.
+  The CNV contribution applies the same rule to its own report.
 - **The stage record described the declared adapter, not the one that ran.** Reading
   `SPEC_BY_STAGE[stage].verification` was correct while registration rewrote the spec; since
   the graph became immutable it put a CNV stage that had executed real QDNAseq into

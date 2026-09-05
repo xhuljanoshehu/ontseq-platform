@@ -1081,6 +1081,30 @@ ASSEMBLE_SOURCE_ARTIFACTS: tuple[str, ...] = (
     METHYLATION_REPORT,
 )
 
+#: Which requested module each source artifact belongs to. Assemble reads these by path, and
+#: an envelope outlives the manifest that filled it: re-running a run id after dropping ``sv``
+#: from the modules leaves the previous run's SV evidence on disk, where an existence check
+#: would happily fold it into a result whose own run report says SV was never requested.
+ASSEMBLE_SOURCE_MODULES: dict[str, AnalysisModule] = {
+    SV_REPORT: AnalysisModule.SV,
+    SV_CONSENSUS_REPORT: AnalysisModule.SV,
+    METHYLATION_REPORT: AnalysisModule.METHYLATION,
+}
+
+
+def assemble_source_artifacts_in_scope(ctx: RunContext) -> tuple[str, ...]:
+    """The evidence artifacts this run's manifest actually asked for.
+
+    Both the loader and the resume signature go through here, so a manifest change moves the
+    signature: dropping a module removes its artifacts from the fingerprints, assemble
+    re-runs, and the result stops carrying evidence the run did not request.
+    """
+    return tuple(
+        relative
+        for relative in ASSEMBLE_SOURCE_ARTIFACTS
+        if _module_requested(ctx, ASSEMBLE_SOURCE_MODULES[relative])
+    )
+
 
 @dataclass(frozen=True)
 class AssembleInputs:
@@ -1101,7 +1125,11 @@ def load_assemble_inputs(ctx: RunContext) -> AssembleInputs:
     absence is a scope statement the result records rather than an error.
     """
 
+    in_scope = assemble_source_artifacts_in_scope(ctx)
+
     def _optional(relative: str, model: type[_ReportT]) -> _ReportT | None:
+        if relative not in in_scope:
+            return None
         path = ctx.envelope.path(ctx.path(relative))
         if not path.is_file():
             return None
@@ -1129,7 +1157,7 @@ def assemble_source_fingerprints(ctx: RunContext) -> tuple[tuple[str, str], ...]
     before one of them changed.
     """
     fingerprints: list[tuple[str, str]] = []
-    for relative in ASSEMBLE_SOURCE_ARTIFACTS:
+    for relative in assemble_source_artifacts_in_scope(ctx):
         resolved = ctx.path(relative)
         path = ctx.envelope.path(resolved)
         if path.is_file():
