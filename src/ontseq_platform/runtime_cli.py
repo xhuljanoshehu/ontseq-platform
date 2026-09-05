@@ -62,6 +62,12 @@ RUNTIME_COMMANDS = frozenset(
     {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
 )
 
+#: Commands that install the CNV lane. Named here rather than inline in ``main`` because
+#: registering and accepting ``_add_cnv_options`` have to move together: ``_register_cnv``
+#: reads those options off the namespace, so a command that registers without accepting
+#: them raises ``AttributeError`` before doing any work. Tests hold the two in step.
+CNV_REGISTERING_COMMANDS = frozenset({"run", "serve", "watch", "preflight"})
+
 
 SELECTABLE_STAGES = (
     StageId.BASECALL,
@@ -360,6 +366,10 @@ def _parser() -> argparse.ArgumentParser:
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
+    # Preflight registers the CNV lane exactly as the run does, so it has to accept the
+    # same options. A preflight configured differently from the run describes a different
+    # run, which is the one thing it must not do.
+    _add_cnv_options(pf)
     pf.add_argument("--require-free-gb", type=float)
     pf.add_argument("--verbose", action="store_true")
     pf.add_argument("--json", action="store_true", dest="as_json")
@@ -561,7 +571,7 @@ def main() -> None:
     # Preflight registers too, so it sees the adapters the run will install. Checking the
     # bare graph while the run installs more is how a preflight clears a run it never
     # actually described.
-    if args.command in {"run", "serve", "watch", "preflight"}:
+    if args.command in CNV_REGISTERING_COMMANDS:
         _register_cnv(args, selection)
     try:
         if args.command == "run":

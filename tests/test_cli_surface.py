@@ -23,7 +23,30 @@ import unittest.mock
 from pathlib import Path
 
 from ontseq_platform import cli, entrypoint, runtime_cli
-from ontseq_platform.runtime_cli import RUNTIME_COMMANDS
+from ontseq_platform.runtime_cli import CNV_REGISTERING_COMMANDS, RUNTIME_COMMANDS
+
+
+def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    """The subparser object behind each subcommand name."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return dict(action.choices)
+    raise AssertionError("parser declares no subcommands")
+
+
+def _option_strings(parser: argparse.ArgumentParser) -> set[str]:
+    return {option for action in parser._actions for option in action.option_strings}
+
+
+def _cnv_option_strings() -> set[str]:
+    """What ``_add_cnv_options`` actually adds, asked of the function rather than listed.
+
+    Derived so the test cannot drift from the code: adding an option there extends what
+    every registering command must accept, without anyone having to remember to edit here.
+    """
+    probe = argparse.ArgumentParser()
+    runtime_cli._add_cnv_options(probe)
+    return _option_strings(probe) - {"-h", "--help"}
 
 
 def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
@@ -47,6 +70,25 @@ class CommandSetTests(unittest.TestCase):
     def test_the_overview_lists_every_runtime_command(self) -> None:
         listed = {name for name, _ in entrypoint._RUNTIME_COMMANDS}
         self.assertEqual(listed, _subcommands(runtime_cli._parser()))
+
+    def test_every_command_that_registers_cnv_accepts_its_options(self) -> None:
+        """Registering the CNV lane and accepting its options must move together.
+
+        ``_register_cnv`` reads ``args.cnv_policy`` straight off the namespace, so a
+        command listed in ``CNV_REGISTERING_COMMANDS`` whose parser never declared the
+        option raises ``AttributeError`` before the command does any work. That is exactly
+        how adding ``preflight`` to the set broke every preflight invocation: unit tests
+        never build the real namespace, so only CI caught it.
+        """
+        parsers = _subparsers(runtime_cli._parser())
+        expected = _cnv_option_strings()
+        self.assertTrue(expected, "the CNV options helper adds at least one option")
+        for command in sorted(CNV_REGISTERING_COMMANDS):
+            self.assertIn(command, parsers, f"{command} registers CNV but is not a command")
+            missing = sorted(expected - _option_strings(parsers[command]))
+            self.assertEqual(
+                missing, [], f"{command} registers the CNV lane but does not accept {missing}"
+            )
 
     def test_the_overview_lists_every_scientific_command(self) -> None:
         listed = {name for name, _ in entrypoint._SCIENTIFIC_COMMANDS}
