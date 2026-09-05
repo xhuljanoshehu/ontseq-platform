@@ -17,6 +17,7 @@ from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import ReferenceLock, SampleManifest
 from ontseq_platform.pipeline.checks import Check, CheckStatus
 from ontseq_platform.pipeline.lock import LOCK_FILENAME
+from ontseq_platform.pipeline.stages import StageId, VerificationStatus
 from ontseq_platform.preflight import PreflightRequest, preflight
 from ontseq_platform.target_coverage import TargetCoveragePolicy
 
@@ -475,6 +476,34 @@ class AdapterTests(PreflightCase):
         self.assertIn("cnv", check.detail)
         self.assertNotIn("target_coverage", check.detail)
         self.assertIn("not a negative biological finding", check.detail)
+
+    def test_a_registered_adapter_is_reported_as_the_run_will_see_it(self) -> None:
+        """Preflight must describe the run it is checking, not the bare declared graph.
+
+        The CNV lane is installed by registration, so the graph alone calls it
+        `not_implemented`. Preflight used not to register and reported exactly that — for
+        runs that went on to execute a real QDNAseq/ACE analysis. Announcing "this stage
+        has no adapter and will record NOT_RUN" about a stage that then runs against real
+        R tooling is the one failure a preflight must not have.
+        """
+        request = self.request(
+            stage_verification={StageId.CNV: VerificationStatus.VERIFIED_WITH_REAL_TOOL}
+        )
+        found = self.results(request)
+        self.assertIs(found["stages.not_implemented"].status, CheckStatus.OK)
+        self.assertNotIn("cnv", found["stages.not_implemented"].detail)
+        self.assertIs(found["adapters.verification"].status, CheckStatus.OK)
+
+    def test_an_unverified_registered_adapter_is_still_flagged(self) -> None:
+        """Overriding the graph is not a way to silence the warning, only to correct it."""
+        request = self.request(
+            stage_verification={StageId.CNV: VerificationStatus.UNVERIFIED_ADAPTER}
+        )
+        found = self.results(request)
+        check = found["adapters.verification"]
+        self.assertIs(check.status, CheckStatus.WARNING)
+        self.assertIn("cnv", check.detail)
+        self.assertNotIn("cnv", found["stages.not_implemented"].detail)
 
     def test_the_two_adapter_claims_never_name_the_same_stage(self) -> None:
         found = self.results(self.pod5_request())

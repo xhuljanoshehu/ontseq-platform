@@ -58,6 +58,7 @@ from .pipeline.stages import (
     VerificationStatus,
     planned_stages,
     unverified_specs,
+    verification_of,
 )
 from .qc import cramino_version
 from .reference import sha256_file
@@ -84,6 +85,13 @@ class PreflightRequest:
     cutesv_policy: CuteSvPolicy | None = None
     target_coverage_policy: TargetCoveragePolicy | None = None
     methylation_policy: MethylationPolicy | None = None
+    #: What each stage's *registered implementation* says it has been verified against,
+    #: overriding the declared graph. Supplied by the caller because it is a property of
+    #: what the run will install, not of the manifest. Without it a preflight reports the
+    #: bare graph while the run it is checking installs adapters the graph knows nothing
+    #: about — which is how CNV came to be announced as having no adapter for runs that
+    #: then executed a real QDNAseq analysis.
+    stage_verification: Mapping[StageId, VerificationStatus] = field(default_factory=dict)
     #: Free space the caller knows this run needs. Without it, space is reported, not judged.
     require_free_gb: float | None = None
 
@@ -781,15 +789,18 @@ def _check_adapters(request: PreflightRequest, checks: CheckList) -> None:
         # this line, which is the one line that has to keep meaning something.
         if stage is not StageId.METHYLATION or _analyses_methylation(request)
     )
+    resolved = unverified_specs(stages, request.stage_verification)
     unverified = [
         spec
-        for spec in unverified_specs(stages)
-        if spec.verification is VerificationStatus.UNVERIFIED_ADAPTER
+        for spec in resolved
+        if verification_of(spec.stage, request.stage_verification)
+        is VerificationStatus.UNVERIFIED_ADAPTER
     ]
     missing = [
         spec
-        for spec in unverified_specs(stages)
-        if spec.verification is VerificationStatus.NOT_IMPLEMENTED
+        for spec in resolved
+        if verification_of(spec.stage, request.stage_verification)
+        is VerificationStatus.NOT_IMPLEMENTED
     ]
 
     if unverified:

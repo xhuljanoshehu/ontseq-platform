@@ -39,6 +39,14 @@ validated release.
   rearrangement prioritization. The consensus artifact was still written to the envelope, so
   nothing looked wrong. Both implementations now read through one shared
   `load_assemble_inputs`, driven by a single `ASSEMBLE_SOURCE_ARTIFACTS` list.
+- **Preflight described a different run than the one it cleared.** Registering the CNV
+  extension rewrote `SPEC_BY_STAGE` in place, flipping the CNV stage's `verification` from
+  `not_implemented` to `verified_with_real_tool`. `runtime_cli` registered for `run`,
+  `serve` and `watch` but not for `preflight`, so preflight reported "planned stage(s) cnv
+  have no adapter wired in and will record NOT_RUN" for runs that then executed a real
+  QDNAseq/ACE analysis — the one failure `preflight.py`'s own contract forbids. The graph is
+  immutable again; verification is carried by the registered `StageImplementation` and
+  resolved through `verification_of()`, and preflight registers the same way the run does.
 - **Assemble could resume a stale result.** `stage_signature` hashes the artifacts of a
   stage's *declared* dependencies and assemble depends only on QC, so the SV, consensus and
   methylation reports it reads were outside its resume signature — the runner's copy
@@ -54,6 +62,12 @@ validated release.
 
 ### Changed
 
+- Extensions contribute instead of replacing. An extension may supply the implementation of
+  its own stage and register a `ResultContribution` or `ReportContribution` that adds to
+  what the runner assembled or rendered; it may no longer replace a stage it does not own,
+  nor mutate the stage graph. Contributions declare the envelope artifacts they read so the
+  runner can fold them into the resume signature. This removes the mechanism behind all
+  three defects above rather than patching them individually.
 - Preflight answers the methylation lane's preconditions before an envelope exists: policy
   present, reference FASTA present when the pileup is CpG-restricted, target BED present when
   aggregation is over the design, and a warning that MM/ML tag presence can only be established
@@ -83,6 +97,10 @@ validated release.
   analytical or clinical sensitivity.
 - No existing lane's output changes. Assembly gains an optional methylation module outcome;
   results without the lane are byte-identical apart from that absence.
+- The contribution refactor is behaviour-preserving for a correctly registered CNV lane:
+  the same events, module outcome, provenance, warnings, HTML section and workbook sheets
+  reach the result, by a mechanism that cannot silently drop the rest. What does change is
+  what preflight says about such a run, which is now what the run will actually do.
 - The consensus fix changes what every run with CNV registered reports: results now carry
   the consolidated, annotated, prioritized events instead of raw Sniffles calls. This is a
   correction, not a new capability — the evidence was already being computed and written to

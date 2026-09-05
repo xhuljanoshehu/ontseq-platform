@@ -1,14 +1,15 @@
-"""Both assemble implementations must build the result from the same evidence.
+"""One assemble stage, which extensions may add to but never replace.
 
-The CNV lane arrives by registration and *replaces* the assemble stage. That leaves two
-implementations of one contract, and the failure mode is silent: whichever report the copy
-forgets simply does not reach the result, while the artifact it came from still sits in the
-envelope looking as though it was used.
+The CNV lane used to arrive by registration and *replace* the assemble stage, leaving two
+implementations of one contract. The failure mode was silent: whichever report the copy
+forgot simply did not reach the result, while the artifact it came from still sat in the
+envelope looking as though it was used. The SV consensus went missing exactly that way —
+it landed after the extension was written, the runner's assemble was updated to pass it and
+the replacement was not, so every run with CNV registered assembled reviewer artifacts from
+raw Sniffles calls.
 
-That is not hypothetical. The SV consensus layer landed after the CNV extension was
-written; the runner's assemble was updated to pass it and the extension's copy was not, so
-every run with CNV registered — which is every `ontseq run` — assembled reviewer artifacts
-from raw Sniffles calls instead of the annotated two-caller consensus.
+Extensions now contribute instead: they receive the finished result and return an enriched
+one. There is only one assemble body, so there is nothing left to forget.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import unittest
 from pathlib import Path
 
 from ontseq_platform.cnv import extension as cnv_extension
+from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     AnalysisModule,
@@ -53,6 +55,12 @@ from ontseq_platform.pipeline.runner import (
     RunContext,
     StagePlan,
     load_assemble_inputs,
+)
+from ontseq_platform.pipeline.stages import (
+    SPEC_BY_STAGE,
+    StageId,
+    VerificationStatus,
+    verification_of,
 )
 
 SAMPLE = "ASSEMBLE_001"
@@ -189,34 +197,103 @@ class AssembleCase(unittest.TestCase):
         return StagePlan(parameters={}, tool_versions={})
 
 
+class _CnvRegistration:
+    """Register the CNV lane for one test and undo it afterwards.
+
+    Registration is process-global by design — an extension is installed for the life of a
+    process — so a test that installs one has to put the runner back as it found it.
+    """
+
+    def __enter__(self) -> _CnvRegistration:
+        # CNV has no entry until something registers one: the graph declares the stage,
+        # nothing implements it by default. Restoring means removing, not overwriting.
+        self.implementation = pipeline_runner.IMPLEMENTATIONS.get(StageId.CNV)
+        self.result_contributions = list(pipeline_runner.RESULT_CONTRIBUTIONS)
+        self.report_contributions = list(pipeline_runner.REPORT_CONTRIBUTIONS)
+        cnv_extension.register_qdnaseq_extension(
+            cnv_extension.QDNAseqExtensionSettings(
+                policy=QDNAseqPolicy(profile_id="assemble-test", note="test")
+            )
+        )
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self.implementation is None:
+            pipeline_runner.IMPLEMENTATIONS.pop(StageId.CNV, None)
+        else:
+            pipeline_runner.IMPLEMENTATIONS[StageId.CNV] = self.implementation
+        pipeline_runner.RESULT_CONTRIBUTIONS[:] = self.result_contributions
+        pipeline_runner.REPORT_CONTRIBUTIONS[:] = self.report_contributions
+
+
 class ConsensusReachesTheResultTests(AssembleCase):
-    def test_the_runner_assembles_from_the_consensus(self) -> None:
+    def test_the_result_is_assembled_from_the_consensus(self) -> None:
         pipeline_runner._assemble_execute(self.ctx, self._plan())
         self.assertEqual(self._result_event_ids(), [CONSENSUS_EVENT_ID])
 
-    def test_the_cnv_extension_assembles_from_the_consensus_too(self) -> None:
-        """The regression: the extension replaces assemble in every real `ontseq run`.
+    def test_the_consensus_survives_a_registered_extension(self) -> None:
+        """The regression: with CNV registered, the result used to lose the consensus.
 
-        Assembling from `sniffles.events` instead drops cuteSV entirely along with
+        Assembling from `sniffles.events` instead dropped cuteSV entirely along with
         consensus merging, gene and cytoband annotation, artifact context flags, Adaptive
-        Sampling observability and AML prioritization — none of which is visible as a
-        failure, because the consensus artifact is still written to the envelope.
+        Sampling observability and AML prioritization — invisibly, because the consensus
+        artifact was still written to the envelope.
         """
-        cnv_extension._assemble_execute(self.ctx, self._plan())
+        with _CnvRegistration():
+            pipeline_runner._assemble_execute(self.ctx, self._plan())
         self.assertEqual(self._result_event_ids(), [CONSENSUS_EVENT_ID])
 
-    def test_both_implementations_agree_on_the_events(self) -> None:
-        pipeline_runner._assemble_execute(self.ctx, self._plan())
-        from_runner = self._result_event_ids()
-        cnv_extension._assemble_execute(self.ctx, self._plan())
-        self.assertEqual(from_runner, self._result_event_ids())
-
-    def test_without_a_consensus_both_fall_back_to_sniffles(self) -> None:
+    def test_without_a_consensus_the_result_falls_back_to_sniffles(self) -> None:
         self.ctx.envelope.path(self.ctx.path(pipeline_runner.SV_CONSENSUS_REPORT)).unlink()
         pipeline_runner._assemble_execute(self.ctx, self._plan())
         self.assertEqual(self._result_event_ids(), [SNIFFLES_EVENT_ID])
-        cnv_extension._assemble_execute(self.ctx, self._plan())
-        self.assertEqual(self._result_event_ids(), [SNIFFLES_EVENT_ID])
+
+
+class ExtensionsMayNotReplaceTests(AssembleCase):
+    """An extension owns its own stage and contributes to everyone else's."""
+
+    def test_registration_leaves_the_assemble_and_report_stages_alone(self) -> None:
+        before = (
+            pipeline_runner.IMPLEMENTATIONS[StageId.ASSEMBLE],
+            pipeline_runner.IMPLEMENTATIONS[StageId.REPORT],
+        )
+        with _CnvRegistration():
+            after = (
+                pipeline_runner.IMPLEMENTATIONS[StageId.ASSEMBLE],
+                pipeline_runner.IMPLEMENTATIONS[StageId.REPORT],
+            )
+            self.assertEqual(before, after)
+            self.assertEqual(
+                [item.extension_id for item in pipeline_runner.RESULT_CONTRIBUTIONS],
+                [cnv_extension.EXTENSION_ID],
+            )
+
+    def test_registration_does_not_mutate_the_stage_graph(self) -> None:
+        """The graph is data. A registration that edits it makes honesty order-dependent."""
+        before = SPEC_BY_STAGE[StageId.CNV]
+        with _CnvRegistration():
+            self.assertIs(SPEC_BY_STAGE[StageId.CNV], before)
+            self.assertIs(
+                SPEC_BY_STAGE[StageId.CNV].verification,
+                VerificationStatus.NOT_IMPLEMENTED,
+            )
+
+    def test_the_implementation_carries_its_own_verification(self) -> None:
+        with _CnvRegistration():
+            self.assertIs(
+                pipeline_runner.implementation_verification()[StageId.CNV],
+                VerificationStatus.VERIFIED_WITH_REAL_TOOL,
+            )
+            self.assertIs(
+                verification_of(StageId.CNV, pipeline_runner.implementation_verification()),
+                VerificationStatus.VERIFIED_WITH_REAL_TOOL,
+            )
+        self.assertNotIn(StageId.CNV, pipeline_runner.implementation_verification())
+
+    def test_registering_twice_does_not_duplicate_a_contribution(self) -> None:
+        with _CnvRegistration(), _CnvRegistration():
+            ids = [item.extension_id for item in pipeline_runner.RESULT_CONTRIBUTIONS]
+            self.assertEqual(ids, [cnv_extension.EXTENSION_ID])
 
 
 class LoaderTests(AssembleCase):
@@ -239,22 +316,30 @@ class ResumeSignatureTests(AssembleCase):
     each one has to be fingerprinted explicitly or a changed report resumes a stale result.
     """
 
-    def test_every_source_artifact_is_fingerprinted_by_both_plans(self) -> None:
+    def test_every_source_artifact_is_fingerprinted(self) -> None:
         present = {
             Path(self.ctx.path(relative)).name
             for relative in ASSEMBLE_SOURCE_ARTIFACTS
             if self.ctx.envelope.path(self.ctx.path(relative)).is_file()
         }
         self.assertTrue(present, "fixture writes at least one evidence report")
-        for plan in (
-            pipeline_runner._assemble_plan(self.ctx),
-            cnv_extension._assemble_plan(self.ctx),
-        ):
-            fingerprinted = {name for name, _ in plan.external_inputs}
-            self.assertTrue(
-                present <= fingerprinted,
-                f"{sorted(present - fingerprinted)} not covered by the resume signature",
-            )
+        fingerprinted = {
+            name for name, _ in pipeline_runner._assemble_plan(self.ctx).external_inputs
+        }
+        self.assertTrue(
+            present <= fingerprinted,
+            f"{sorted(present - fingerprinted)} not covered by the resume signature",
+        )
+
+    def test_a_contribution_puts_its_own_sources_in_the_signature(self) -> None:
+        """A contribution reads artifacts the stage does not depend on; they must count."""
+        cnv_report = self.ctx.path(cnv_extension.CNV_REPORT)
+        self._write(cnv_report, "{}")
+        with _CnvRegistration():
+            plan = pipeline_runner._assemble_plan(self.ctx)
+        fingerprinted = {name for name, _ in plan.external_inputs}
+        self.assertIn(Path(cnv_report).name, fingerprinted)
+        self.assertIn(cnv_extension.EXTENSION_ID, plan.parameters["result_contributions"])
 
     def test_a_changed_consensus_changes_the_signature(self) -> None:
         before = pipeline_runner._assemble_plan(self.ctx).external_inputs

@@ -58,6 +58,7 @@ from ..models import (
     InputSpec,
     IntervalResourceLock,
     ModuleRunStatus,
+    PipelineResult,
     QCPolicy,
     ReferenceLock,
     SampleManifest,
@@ -92,6 +93,7 @@ from .stages import (
     InputKindName,
     StageId,
     StageOutcome,
+    VerificationStatus,
     blocking_dependency,
     planned_stages,
     summarize,
@@ -247,6 +249,88 @@ class StageImplementation:
     #: artifacts rather than re-reading the envelope, so adopting a multi-gigabyte BAM does
     #: not cost a second checksum pass over it.
     settle: Callable[[RunContext, Sequence[Artifact]], None] | None = None
+    #: What this implementation has earned, when it knows better than the declared graph.
+    #: A stage the graph calls ``not_implemented`` because nothing is wired in by default
+    #: reports what its registered adapter has actually met. ``None`` keeps the spec's own
+    #: status, which is the answer for every built-in stage.
+    verification: VerificationStatus | None = None
+
+
+@dataclass(frozen=True)
+class ResultContribution:
+    """What an extension adds to the assembled result without owning the stage.
+
+    Extensions used to *replace* the assemble and report implementations wholesale, which
+    left one contract with two bodies. Whichever report the replacement forgot silently
+    vanished from the result while its artifact stayed in the envelope looking used — the
+    SV consensus went missing that way for the life of the CNV lane. A contribution can
+    only add to what the runner already assembled, so there is nothing to forget.
+    """
+
+    extension_id: str
+    #: Envelope artifacts this contribution reads. Fingerprinted into the assemble stage's
+    #: resume signature, because the stage does not depend on whatever produced them.
+    source_artifacts: tuple[str, ...]
+    enrich: Callable[[RunContext, PipelineResult], PipelineResult]
+
+
+@dataclass(frozen=True)
+class ReportContribution:
+    """What an extension adds to the rendered reviewer artifacts."""
+
+    extension_id: str
+    source_artifacts: tuple[str, ...]
+    #: Receives the already-rendered HTML and workbook paths and edits them in place.
+    enrich: Callable[[RunContext, Path, Path], None]
+
+
+#: Registered in import order and applied in that order. Deliberately module-level state,
+#: like ``IMPLEMENTATIONS``: an extension is installed for the life of a process.
+RESULT_CONTRIBUTIONS: list[ResultContribution] = []
+REPORT_CONTRIBUTIONS: list[ReportContribution] = []
+
+
+def register_result_contribution(contribution: ResultContribution) -> None:
+    """Add to the assembled result. Registering the same extension twice replaces it."""
+    RESULT_CONTRIBUTIONS[:] = [
+        item for item in RESULT_CONTRIBUTIONS if item.extension_id != contribution.extension_id
+    ]
+    RESULT_CONTRIBUTIONS.append(contribution)
+
+
+def register_report_contribution(contribution: ReportContribution) -> None:
+    """Add to the rendered HTML and workbook."""
+    REPORT_CONTRIBUTIONS[:] = [
+        item for item in REPORT_CONTRIBUTIONS if item.extension_id != contribution.extension_id
+    ]
+    REPORT_CONTRIBUTIONS.append(contribution)
+
+
+def implementation_verification() -> dict[StageId, VerificationStatus]:
+    """The verification status of every stage whose implementation declares one.
+
+    Handed to :func:`ontseq_platform.pipeline.stages.summarize` and to preflight so both
+    read the same answer. Preflight disagreeing with the run about what is verified is the
+    one failure a preflight must not have.
+    """
+    return {
+        stage: implementation.verification
+        for stage, implementation in IMPLEMENTATIONS.items()
+        if implementation.verification is not None
+    }
+
+
+def _contribution_fingerprints(
+    ctx: RunContext, contributions: Sequence[ResultContribution] | Sequence[ReportContribution]
+) -> tuple[tuple[str, str], ...]:
+    fingerprints: list[tuple[str, str]] = []
+    for contribution in contributions:
+        for relative in contribution.source_artifacts:
+            resolved = ctx.path(relative)
+            path = ctx.envelope.path(resolved)
+            if path.is_file():
+                fingerprints.append((Path(resolved).name, sha256_file(path)))
+    return tuple(fingerprints)
 
 
 def _probe(
@@ -1049,9 +1133,11 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
+            "result_contributions": [item.extension_id for item in RESULT_CONTRIBUTIONS],
         },
         tool_versions={},
-        external_inputs=assemble_source_fingerprints(ctx),
+        external_inputs=assemble_source_fingerprints(ctx)
+        + _contribution_fingerprints(ctx, RESULT_CONTRIBUTIONS),
     )
 
 
@@ -1068,12 +1154,21 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         sv_consensus_report=inputs.sv_consensus,
         methylation_report=inputs.methylation,
     )
+    contributed: list[str] = []
+    for contribution in RESULT_CONTRIBUTIONS:
+        enriched = contribution.enrich(ctx, result)
+        if enriched is not result:
+            contributed.append(contribution.extension_id)
+            result = enriched
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
     )
+    reason = "Module outcomes assembled into the validated result contract."
+    if contributed:
+        reason += f" Enriched by: {', '.join(contributed)}."
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Module outcomes assembled into the validated result contract.",
+        reason=reason,
         outputs=[artifact],
         warnings=["Structural-variant evidence was omitted from the result."]
         if sniffles is None
@@ -1082,20 +1177,33 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _report_plan(ctx: RunContext) -> StagePlan:
-    return StagePlan(parameters={"formats": ["json", "html", "xlsx"]}, tool_versions={})
+    return StagePlan(
+        parameters={
+            "formats": ["json", "html", "xlsx"],
+            "report_contributions": [item.extension_id for item in REPORT_CONTRIBUTIONS],
+        },
+        tool_versions={},
+        external_inputs=_contribution_fingerprints(ctx, REPORT_CONTRIBUTIONS),
+    )
 
 
 def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    from ..models import PipelineResult
-
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    render_html(result, ctx.envelope.path(ctx.path(REPORT_HTML)))
-    render_workbook(result, ctx.envelope.path(ctx.path(REPORT_XLSX)))
+    html_path = ctx.envelope.path(ctx.path(REPORT_HTML))
+    xlsx_path = ctx.envelope.path(ctx.path(REPORT_XLSX))
+    render_html(result, html_path)
+    render_workbook(result, xlsx_path)
+    for contribution in REPORT_CONTRIBUTIONS:
+        contribution.enrich(ctx, html_path, xlsx_path)
+    reason = "Reviewer artifacts rendered as HTML and Excel."
+    if REPORT_CONTRIBUTIONS:
+        names = ", ".join(item.extension_id for item in REPORT_CONTRIBUTIONS)
+        reason += f" Enriched by: {names}."
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Reviewer artifacts rendered as HTML and Excel.",
+        reason=reason,
         outputs=[
             ctx.envelope.fingerprint(ctx.path(REPORT_HTML)),
             ctx.envelope.fingerprint(ctx.path(REPORT_XLSX)),
@@ -1155,7 +1263,7 @@ def _build_report(
 ) -> RunReport:
     outcomes = {item.stage: StageOutcome(item.status.value) for item in records}
     kind = InputKindName(config.manifest.input.kind.value)
-    verdict = summarize(kind, outcomes)
+    verdict = summarize(kind, outcomes, implementation_verification())
     unverified = [
         item.stage
         for item in records

@@ -79,9 +79,20 @@ envelope.
 ## An honest limitation
 
 The CNV lane is still installed by registering an implementation into the runner rather
-than by being a first-class member of the execution graph. The selection now gates that
-registration — a run that deselects CNV does not get it — but the underlying mechanism is
-unchanged and remains the outstanding architectural debt in this area.
+than by being a first-class member of the execution graph. That is deliberate — the core
+must not depend on a specific copy-number caller — and the selection gates it, so a run
+that deselects CNV does not get it.
+
+What registration may do is now bounded. It supplies the CNV stage and *contributes* to
+assemble and report; it can no longer replace a stage it does not own, and it can no
+longer rewrite `SPEC_BY_STAGE`. Those two powers cost three defects before they were
+removed: the SV consensus silently missing from every result, a resume signature that
+ignored artifacts the stage read, and a preflight that described a different run than the
+one it was clearing. See `docs/PIPELINE_EXECUTION.md`, "Extensions contribute; they do not
+replace".
+
+What remains is narrower: a reader of `stages.py` alone still cannot tell that a CNV
+adapter exists, because only registration reveals it.
 
 ## Comparing two callers
 

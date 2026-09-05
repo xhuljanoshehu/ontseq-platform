@@ -67,21 +67,42 @@ statement rather than a negative result, and a stage that *was* requested but ca
 configured still fails closed: asking for SV evidence with no caller policy is an error,
 not a skip.
 
-### The assemble stage has two implementations
+### Extensions contribute; they do not replace
 
-The CNV lane is registered at runtime and *replaces* `assemble` and `report` rather than
-joining the graph as a stage — the outstanding architectural debt `runtime_cli` names. The
-practical consequence is that one contract has two implementations, and a report added to
-one and forgotten in the other disappears from the result while its artifact stays in the
-envelope looking as though it was used. That is not hypothetical: the SV consensus was left
-out of the extension's copy from the moment the consensus layer landed.
+The CNV lane is installed at runtime rather than declared in `stages.py`, because the core
+must not depend on a specific copy-number caller — `StageSpec` still says "No production
+caller is selected; the benchmark subsystem exists to make that choice on evidence."
 
-Both copies therefore read through `load_assemble_inputs` and fingerprint
-`ASSEMBLE_SOURCE_ARTIFACTS`. Adding a new evidence report means adding it to that one list.
-The fingerprints are not redundant with the resume signature: `stage_signature` hashes the
-artifacts of a stage's *declared* dependencies, and assemble depends only on `qc`, so
-everything else it reads has to be named explicitly or a changed report resumes a stale
-result.
+Registration used to buy that independence at a high price. It replaced the `assemble` and
+`report` implementations wholesale and rewrote `SPEC_BY_STAGE` in place. Three defects came
+out of that one mechanism:
+
+1. **Evidence went missing.** Two bodies for one contract, and whichever report the
+   replacement forgot vanished from the result while its artifact stayed in the envelope
+   looking used. The SV consensus was lost that way for the life of the CNV lane.
+2. **Stale results could resume.** The replacement fingerprinted a different set of
+   artifacts than the original.
+3. **Preflight described a different run.** Rewriting a spec's `verification` made honesty
+   depend on registration order — preflight, which did not register, announced that CNV had
+   no adapter for runs that then executed a real QDNAseq analysis.
+
+An extension may now do exactly two things:
+
+| It may | It may not |
+| --- | --- |
+| Supply the implementation of **its own** stage, declaring what that adapter has been verified against | Replace a stage it does not own |
+| Register a `ResultContribution` or `ReportContribution` that **adds** to what the runner produced | Mutate `SPEC_BY_STAGE` |
+
+A contribution receives the finished result (or the rendered HTML and workbook) and returns
+an enriched one. It cannot drop what it does not know about. It also declares the envelope
+artifacts it reads, which the runner folds into the stage's resume signature — necessary
+because those artifacts belong to stages the contributing stage does not depend on.
+
+Verification is a property of the implementation, not of the graph. `StageSpec.verification`
+states what the declared graph offers; a registered `StageImplementation` may carry its own,
+and `verification_of()` resolves the two. The graph itself is built once at import and never
+mutated, so what `stages.py` says about a run is the same before, during and after one — and
+preflight and the run read the same answer.
 
 ### Bridging skipped stages
 

@@ -373,9 +373,31 @@ class RunVerdict:
         return "Run completed; every applicable stage finished."
 
 
+def verification_of(
+    stage: StageId,
+    overrides: Mapping[StageId, VerificationStatus] | None = None,
+) -> VerificationStatus:
+    """The verification status that actually applies to a stage.
+
+    ``StageSpec.verification`` states what the *declared* graph offers, which for a stage
+    with no built-in adapter is ``not_implemented``. An extension that supplies one knows
+    better, and says so by registering its status here rather than by rewriting the spec.
+
+    The graph stays data: it is built once at import and never mutated, so what
+    ``stages.py`` says about a run is the same before, during and after one. It used to be
+    rewritten in place — a registration flipped CNV from ``not_implemented`` to
+    ``verified_with_real_tool`` — which made the honesty machinery depend on registration
+    order and let preflight and the run it was checking disagree.
+    """
+    if overrides is not None and stage in overrides:
+        return overrides[stage]
+    return SPEC_BY_STAGE[stage].verification
+
+
 def summarize(
     input_kind: InputKindName,
     outcomes: Mapping[StageId, StageOutcome],
+    verification: Mapping[StageId, VerificationStatus] | None = None,
 ) -> RunVerdict:
     """Derive the run verdict from stage outcomes.
 
@@ -394,7 +416,7 @@ def summarize(
         if outcome == StageOutcome.FAILED:
             failed.append(stage)
         elif outcome in {StageOutcome.COMPLETED, StageOutcome.NO_CALL}:
-            if spec.verification in {
+            if verification_of(stage, verification) in {
                 VerificationStatus.UNVERIFIED_ADAPTER,
                 VerificationStatus.NOT_IMPLEMENTED,
             }:
@@ -413,11 +435,14 @@ def summarize(
     )
 
 
-def unverified_specs(stages: Iterable[StageId]) -> tuple[StageSpec, ...]:
+def unverified_specs(
+    stages: Iterable[StageId],
+    verification: Mapping[StageId, VerificationStatus] | None = None,
+) -> tuple[StageSpec, ...]:
     """Return the specs of stages whose adapter has never met the real tool."""
     return tuple(
         SPEC_BY_STAGE[stage]
         for stage in stages
-        if SPEC_BY_STAGE[stage].verification
+        if verification_of(stage, verification)
         in {VerificationStatus.UNVERIFIED_ADAPTER, VerificationStatus.NOT_IMPLEMENTED}
     )

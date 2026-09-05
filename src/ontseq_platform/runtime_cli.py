@@ -38,7 +38,12 @@ from .pipeline.components import RunComponents
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.review import Decision, ReviewError
 from .pipeline.review import exit_code as review_exit_code
-from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
+from .pipeline.runner import (
+    EnvelopeAlreadyReviewed,
+    RunConfiguration,
+    implementation_verification,
+    run_pipeline,
+)
 from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
 from .review import inspect as inspect_review
@@ -208,9 +213,12 @@ def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
 def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
     """Install the QDNAseq/ACE lane unless this run deselected it.
 
-    The lane still arrives by registration rather than as a first-class member of the
-    graph, which remains the outstanding architectural debt. Gating it on the selection at
-    least means a run that switched CNV off does not silently get it anyway.
+    The lane still arrives by registration rather than as a declared member of the graph,
+    which keeps the core independent of any one copy-number caller. What registration may
+    do is now bounded: it supplies the CNV stage and contributes to assemble and report,
+    but cannot replace a stage it does not own or rewrite the graph. Preflight registers
+    the same way, so it describes the run it is checking. Gating on the selection means a
+    run that switched CNV off does not silently get it anyway.
     """
     from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
@@ -550,7 +558,10 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "serve", "watch"}:
+    # Preflight registers too, so it sees the adapters the run will install. Checking the
+    # bare graph while the run installs more is how a preflight clears a run it never
+    # actually described.
+    if args.command in {"run", "serve", "watch", "preflight"}:
         _register_cnv(args, selection)
     try:
         if args.command == "run":
@@ -641,6 +652,7 @@ def main() -> None:
                 methylation_policy=_methylation_policy(
                     _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
+                stage_verification=implementation_verification(),
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)
