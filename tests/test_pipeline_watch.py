@@ -157,7 +157,10 @@ class SampleIdTests(unittest.TestCase):
             self.assertIsNone(sample_id_from_directory(name), name)
 
     def test_permitted_punctuation_is_accepted(self) -> None:
-        self.assertEqual(sample_id_from_directory("260611_RAD114_AS_S700"), "260611_RAD114_AS_S700")
+        self.assertEqual(
+            sample_id_from_directory("260611_RAD114_AS_SYNTH001"),
+            "260611_RAD114_AS_SYNTH001",
+        )
 
 
 def _candidate(readiness: Readiness = Readiness.READY, detail: str = "ok") -> Candidate:

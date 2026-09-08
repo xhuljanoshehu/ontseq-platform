@@ -1,0 +1,365 @@
+{
+  "$defs": {
+    "MethylationMixturePolicy": {
+      "additionalProperties": false,
+      "description": "Versioned technical choices for one paired-source experiment.",
+      "properties": {
+        "calibration_read_group_fraction": {
+          "default": 0.25,
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Calibration Read Group Fraction",
+          "type": "number"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "log_likelihood_ratio_threshold": {
+          "default": 2.5,
+          "exclusiveMinimum": 0,
+          "title": "Log Likelihood Ratio Threshold",
+          "type": "number"
+        },
+        "maximum_absolute_mean_bias": {
+          "default": 0.1,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Absolute Mean Bias",
+          "type": "number"
+        },
+        "maximum_confidence_interval_width": {
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Maximum Confidence Interval Width",
+          "type": "number"
+        },
+        "maximum_extrapolation": {
+          "default": 0.1,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Extrapolation",
+          "type": "number"
+        },
+        "maximum_input_bytes_per_source": {
+          "default": 100000000,
+          "description": "Nanopolish adapter v2 applies this limit independently to stored bytes and decoded bytes, including headers and blank lines.",
+          "minimum": 1,
+          "title": "Maximum Input Bytes Per Source",
+          "type": "integer"
+        },
+        "maximum_markers": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2000,
+          "title": "Maximum Markers"
+        },
+        "maximum_mean_absolute_error": {
+          "default": 0.15,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Mean Absolute Error",
+          "type": "number"
+        },
+        "maximum_root_mean_squared_error": {
+          "default": 0.2,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Root Mean Squared Error",
+          "type": "number"
+        },
+        "maximum_rows_per_source": {
+          "default": 2000000,
+          "minimum": 1,
+          "title": "Maximum Rows Per Source",
+          "type": "integer"
+        },
+        "maximum_standardized_model_fit_rmse": {
+          "default": 3.0,
+          "exclusiveMinimum": 0,
+          "title": "Maximum Standardized Model Fit Rmse",
+          "type": "number"
+        },
+        "minimum_absolute_delta_beta": {
+          "default": 0.2,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Minimum Absolute Delta Beta",
+          "type": "number"
+        },
+        "minimum_confidence_interval_coverage_fraction": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Confidence Interval Coverage Fraction",
+          "type": "number"
+        },
+        "minimum_markers": {
+          "default": 20,
+          "minimum": 1,
+          "title": "Minimum Markers",
+          "type": "integer"
+        },
+        "minimum_mixture_valid_calls": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Minimum Mixture Valid Calls",
+          "type": "integer"
+        },
+        "minimum_quantifiable_fraction_for_recovery": {
+          "default": 0.8,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Minimum Quantifiable Fraction For Recovery",
+          "type": "number"
+        },
+        "minimum_reference_valid_calls": {
+          "default": 5,
+          "minimum": 1,
+          "title": "Minimum Reference Valid Calls",
+          "type": "integer"
+        },
+        "minimum_successful_uncertainty_fraction": {
+          "default": 0.8,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Minimum Successful Uncertainty Fraction",
+          "type": "number"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "replicates": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Replicates",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "seed": {
+          "default": 20260904,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "source_a_fractions": {
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "title": "Source A Fractions",
+          "type": "array"
+        },
+        "status": {
+          "const": "technical_defaults_only",
+          "default": "technical_defaults_only",
+          "title": "Status",
+          "type": "string"
+        },
+        "total_mixture_read_groups": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Mixture Read Groups"
+        },
+        "uncertainty_draws": {
+          "default": 500,
+          "minimum": 100,
+          "title": "Uncertainty Draws",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "profile_id",
+        "note"
+      ],
+      "title": "MethylationMixturePolicy",
+      "type": "object"
+    },
+    "RecoveryAcceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_absolute_bias": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Absolute Bias",
+          "type": "number"
+        },
+        "maximum_mae": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Mae",
+          "type": "number"
+        },
+        "maximum_no_call_rate": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Maximum No Call Rate",
+          "type": "number"
+        },
+        "maximum_per_fraction_absolute_bias": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Per Fraction Absolute Bias",
+          "type": "number"
+        },
+        "maximum_per_fraction_no_call_rate": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Maximum Per Fraction No Call Rate",
+          "type": "number"
+        },
+        "maximum_rmse": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Rmse",
+          "type": "number"
+        },
+        "minimum_conditional_interval_coverage": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Conditional Interval Coverage",
+          "type": "number"
+        },
+        "minimum_per_fraction_conditional_interval_coverage": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Per Fraction Conditional Interval Coverage",
+          "type": "number"
+        },
+        "read_group_budget": {
+          "minimum": 2,
+          "title": "Read Group Budget",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "read_group_budget",
+        "maximum_absolute_bias",
+        "maximum_mae",
+        "maximum_rmse",
+        "minimum_conditional_interval_coverage",
+        "maximum_no_call_rate",
+        "maximum_per_fraction_absolute_bias",
+        "minimum_per_fraction_conditional_interval_coverage",
+        "maximum_per_fraction_no_call_rate"
+      ],
+      "title": "RecoveryAcceptance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance": {
+      "items": {
+        "$ref": "#/$defs/RecoveryAcceptance"
+      },
+      "minItems": 1,
+      "title": "Acceptance",
+      "type": "array"
+    },
+    "budget_unit": {
+      "const": "retained_whole_read_groups_not_genomic_coverage",
+      "default": "retained_whole_read_groups_not_genomic_coverage",
+      "title": "Budget Unit",
+      "type": "string"
+    },
+    "estimator_policy": {
+      "$ref": "#/$defs/MethylationMixturePolicy"
+    },
+    "matrix_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Matrix Id",
+      "type": "string"
+    },
+    "rationale": {
+      "minLength": 20,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "read_group_budgets": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1,
+      "title": "Read Group Budgets",
+      "type": "array"
+    },
+    "replicate_seeds": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 10,
+      "title": "Replicate Seeds",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_a_fractions": {
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "title": "Source A Fractions",
+      "type": "array"
+    },
+    "status": {
+      "const": "research_acceptance_candidate_unvalidated",
+      "default": "research_acceptance_candidate_unvalidated",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "matrix_id",
+    "source_a_fractions",
+    "read_group_budgets",
+    "replicate_seeds",
+    "acceptance",
+    "estimator_policy",
+    "rationale"
+  ],
+  "title": "MethylationValidationMatrix",
+  "type": "object"
+}

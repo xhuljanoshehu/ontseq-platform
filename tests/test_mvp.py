@@ -102,6 +102,39 @@ class AlignedBamMVPTests(unittest.TestCase):
         self.assertEqual(status[AnalysisModule.SV], ModuleRunStatus.NOT_RUN)
         self.assertTrue(any("not a biological negative" in item for item in result.iscn.warnings))
 
+    def test_requested_methylation_notes_no_wired_caller(self) -> None:
+        manifest = _manifest().model_copy(
+            update={"analysis": AnalysisSpec(profile="lcwgs", modules=[AnalysisModule.METHYLATION])}
+        )
+        samtools = ToolRecord(name="samtools", version="1.24")
+        cramino = ToolRecord(name="cramino", version="1.3.0")
+        intake = AlignedBamIntakeReport(
+            sample_id=manifest.sample_id,
+            reference_id=manifest.assay.reference_id,
+            genome_build=manifest.assay.genome_build,
+            checks=[
+                ValidationCheck(name="synthetic", status=CheckStatus.PASS, message="synthetic")
+            ],
+            verdict=Verdict.PASS,
+            tool=samtools,
+        )
+        qc = CraminoQCReport(
+            sample_id=manifest.sample_id,
+            qc=QCMetrics(verdict=Verdict.PASS, metrics={}),
+            tool=cramino,
+        )
+        result = assemble_aligned_bam_mvp(
+            manifest,
+            intake,
+            qc,
+            pipeline_version="0.2.0-dev",
+            git_commit="SYNTHETIC",
+        )
+        status = {item.module: item for item in result.modules}
+        outcome = status[AnalysisModule.METHYLATION]
+        self.assertEqual(outcome.status, ModuleRunStatus.NOT_RUN)
+        self.assertIn("no caller is currently wired in", outcome.reason)
+
     def test_sniffles_candidates_are_visible_but_remain_non_reportable(self) -> None:
         manifest = _manifest()
         samtools = ToolRecord(name="samtools", version="1.24")

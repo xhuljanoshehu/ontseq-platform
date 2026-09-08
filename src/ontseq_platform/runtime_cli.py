@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import platform
 import json
 import sys
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -14,6 +16,7 @@ from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
 from .execution import ToolExecutionError
 from .io import load_model
+from .methylation import MethylationPolicy
 from .model_lock import ModelLockError
 from .model_lock import exit_code as model_lock_exit_code
 from .model_lock import fingerprint as model_fingerprint
@@ -53,7 +56,17 @@ from .target_coverage import TargetCoveragePolicy
 from .watchfolder import PassResult, WatchConfigurationError, WatchSettings, watch
 
 RUNTIME_COMMANDS = frozenset(
-    {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
+    {
+        "run",
+        "preflight",
+        "model-lock",
+        "serve",
+        "review",
+        "status",
+        "watch",
+        "align-fixture",
+        "doctor",
+    }
 )
 
 
@@ -64,6 +77,7 @@ SELECTABLE_STAGES = (
     StageId.TARGET_COVERAGE,
     StageId.CNV,
     StageId.SV,
+    StageId.METHYLATION,
 )
 
 
@@ -138,6 +152,10 @@ def _aml_knowledge(
 
 def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
     return load_model(path, TargetCoveragePolicy) if path.is_file() else None
+
+
+def _methylation_policy(path: Path) -> MethylationPolicy | None:
+    return load_model(path, MethylationPolicy) if path.is_file() else None
 
 
 def _resolve_component_policies(selection: RunComponents, source: Path) -> RunComponents:
@@ -304,6 +322,11 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         default=Path("configs/qc/adaptive_target_coverage.technical.yaml"),
     )
     parser.add_argument(
+        "--methylation-policy",
+        type=Path,
+        default=Path("configs/methylation/modkit.technical.yaml"),
+    )
+    parser.add_argument(
         "--components",
         type=Path,
         help="Component selection for this run: which provider and version runs each stage",
@@ -321,6 +344,7 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("--cutesv", default="cuteSV")
     parser.add_argument("--minimap2", default="minimap2")
     parser.add_argument("--mosdepth", default="mosdepth")
+    parser.add_argument("--modkit", default="modkit")
     parser.add_argument("--dorado", default="dorado")
 
 
@@ -337,6 +361,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--threads", type=int, default=4)
     run.add_argument("--git-commit", default="UNKNOWN")
     run.add_argument("--force", action="store_true")
+    run.add_argument("--json", action="store_true", dest="as_json")
+    run.add_argument("--json-output", type=Path, help="write run report JSON to file")
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
@@ -509,6 +535,12 @@ def _parser() -> argparse.ArgumentParser:
     fixture = sub.add_parser("align-fixture", help="Generate a synthetic real-alignment fixture")
     fixture.add_argument("--output-dir", type=Path, default=Path("results/align-fixture"))
     fixture.add_argument("--samtools", default="samtools")
+
+    doctor = sub.add_parser("doctor", help="Run a quick local runtime health check")
+    doctor.add_argument("--json", action="store_true", dest="as_json")
+    doctor.add_argument("--strict", action="store_true")
+    doctor.add_argument("--output-dir", type=Path, help="check writable output directory")
+
     return parser
 
 
@@ -520,6 +552,7 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "cutesv": args.cutesv,
         "minimap2": args.minimap2,
         "mosdepth": getattr(args, "mosdepth", "mosdepth"),
+        "modkit": getattr(args, "modkit", "modkit"),
         "dorado": args.dorado,
     }
 
@@ -529,6 +562,130 @@ def _print_pass(result: PassResult) -> None:
         print(f"  {attempt.name:<28} {attempt.outcome.value.upper():<10} {attempt.detail}")
     for name, reason in result.skipped:
         print(f"  {name:<28} {'skipped':<10} {reason}")
+
+
+def _render_json(payload: dict[str, object]) -> str:
+    return json.dumps(payload, indent=2)
+
+
+def _doctor_checks(strict: bool = False, output_root: Path | None = None) -> tuple[dict[str, object], int]:
+    required_tools = (
+        ("samtools", "samtools", True),
+        ("cramino", "cramino", True),
+        ("sniffles", "sniffles", True),
+        ("minimap2", "minimap2", False),
+        ("mosdepth", "mosdepth", False),
+        ("modkit", "modkit", False),
+        ("dorado", "dorado", False),
+        ("Rscript", "Rscript", False),
+        ("cuteSV", "cuteSV", False),
+    )
+    checks: list[dict[str, object]] = []
+    status_code = 0
+
+    python_path = Path(sys.executable)
+    python_ok = python_path.is_file()
+    checks.append(
+        {
+            "check": "python",
+            "status": "pass" if python_ok else "fail",
+            "detail": str(python_path),
+            "note": f"python {platform.python_version()} ({platform.python_implementation()})",
+        }
+    )
+    if not python_ok:
+        status_code = max(status_code, 2)
+
+    project_root = _repo_root()
+    checks.append(
+        {
+            "check": "project-root",
+            "status": "pass",
+            "detail": str(project_root),
+            "note": "repo root resolved from package path",
+        }
+    )
+
+    pyproject = project_root / "pyproject.toml"
+    checks.append(
+        {
+            "check": "pyproject",
+            "status": "pass" if pyproject.is_file() else "warn",
+            "detail": str(pyproject),
+            "note": "manifest required for packaging/runtime checks",
+        }
+    )
+    if not pyproject.is_file():
+        status_code = max(status_code, 1)
+
+    git_check = shutil.which("git") is not None
+    checks.append(
+        {
+            "check": "git-client",
+            "status": "pass" if git_check else "warn",
+            "detail": "found" if git_check else "not in PATH",
+            "note": "optional: useful for version and provenance tracking",
+        }
+    )
+    for check_name, executable, required in required_tools:
+        found = shutil.which(executable)
+        if found is None:
+            result = "fail" if strict and required else ("warn" if required else "info")
+            if strict and required:
+                status_code = max(status_code, 1)
+        else:
+            result = "pass"
+        checks.append(
+            {
+                "check": executable,
+                "status": result,
+                "detail": found if found is not None else "missing",
+                "note": f"{'required' if required else 'optional'} runtime dependency",
+            }
+        )
+
+    if output_root is not None:
+        try:
+            output_root.mkdir(parents=True, exist_ok=True)
+            test_file = output_root / ".ontseq-doctor-write-test"
+            test_file.write_text("ok\n", encoding="utf-8")
+            test_file.unlink()
+            writable = True
+            message = "writable"
+        except OSError as exc:
+            writable = False
+            message = str(exc)
+            status_code = max(status_code, 1)
+        checks.append(
+            {
+                "check": "output-dir-write",
+                "status": "pass" if writable else "fail",
+                "detail": message,
+                "note": f"test write into {output_root}",
+            }
+        )
+
+    return {
+        "status": "ok" if status_code == 0 else "needs_attention",
+        "strict": strict,
+        "python": str(python_path),
+        "checks": checks,
+    }, status_code
+
+
+def _print_doctor(result: dict[str, object]) -> None:
+    print(f"ONTSeq doctor: {result.get('status')}")
+    checks = result.get("checks", [])
+    if not isinstance(checks, list):
+        return
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status"))
+        check = str(item.get("check"))
+        detail = item.get("detail")
+        note = item.get("note")
+        print(f"{status:>6}  {check:<18} {detail}  ({note})")
 
 
 def main() -> None:
@@ -567,6 +724,9 @@ def main() -> None:
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
                 ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
+                ),
                 alignment_policy=_alignment_policy(
                     _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
                 ),
@@ -587,7 +747,13 @@ def main() -> None:
             run_report, release = run_pipeline(config)
             for stage in run_report.stages:
                 marker = "resumed" if stage.resumed else stage.status.value
-                print(f"  {stage.stage.value:<16} {marker:<10} {stage.reason}")
+                duration = (
+                    "" if stage.duration_seconds is None else f"{stage.duration_seconds:6.1f}s"
+                )
+                print(
+                    f"  {stage.stage.value:<16} {marker:<10} "
+                    f"{duration:>8} {stage.reason}"
+                )
             outcome = "PASS" if run_report.passed else "FAIL"
             print(f"verdict: {outcome} - {run_report.verdict_reason}")
             if run_report.unverified_stages:
@@ -595,8 +761,26 @@ def main() -> None:
                 print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
             if release is not None:
                 print(f"release bundle: {len(release.artifacts)} artifact(s), unsigned")
+            if args.as_json:
+                payload = {
+                    "status": "PASS" if run_report.passed else "FAIL",
+                    "run_report": run_report.model_dump(mode="json"),
+                    "release": release.model_dump(mode="json") if release is not None else None,
+                    "duration_seconds": (
+                        (run_report.finished_at - run_report.started_at).total_seconds()
+                    ),
+                }
+                json_payload = _render_json(payload)
+                if args.json_output is not None:
+                    args.json_output.parent.mkdir(parents=True, exist_ok=True)
+                    args.json_output.write_text(json_payload + "\n", encoding="utf-8")
+                    print(f"run report written to: {args.json_output}")
+                else:
+                    print(json_payload)
             if not run_report.passed:
                 raise SystemExit(2)
+            if args.json_output is not None and args.as_json:
+                raise SystemExit(0)
 
         elif args.command == "preflight":
             request = PreflightRequest(
@@ -621,6 +805,9 @@ def main() -> None:
                     _selected_policy(
                         selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
                     )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
                 require_free_gb=args.require_free_gb,
             )
@@ -771,6 +958,17 @@ def main() -> None:
                 fixture.reference_lock,
             ):
                 print(path)
+        elif args.command == "doctor":
+            result, status_code = _doctor_checks(
+                strict=args.strict,
+                output_root=args.output_dir,
+            )
+            if args.as_json:
+                print(_render_json(result))
+            else:
+                _print_doctor(result)
+            if status_code:
+                raise SystemExit(status_code)
 
     except WatchConfigurationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

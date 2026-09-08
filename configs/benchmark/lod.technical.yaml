@@ -1,0 +1,14 @@
+schema_version: 0.1.0
+profile_id: dilution-lod-technical-v1
+status: technical_defaults_only
+minimum_recall: 1.0
+minimum_detection_rate: 0.95
+minimum_replicates: 1
+require_monotonic: true
+note: >-
+  Technical detection-criterion defaults only. Requiring full recall of the truth set and a 95
+  percent detection rate is the strict reading and is not a validated acceptance criterion; the
+  95 percent figure is conventional rather than derived from this assay. minimum_replicates is 1
+  so the evaluation runs on a demonstration series, which is far below what characterising a
+  limit needs - raise it before any result from this file is quoted. require_monotonic refuses to
+  report a low level that passed while a higher one failed.

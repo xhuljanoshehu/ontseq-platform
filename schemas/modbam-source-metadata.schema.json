@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Declared upstream provenance; a declaration is not biological validation.",
+  "properties": {
+    "basecaller_model": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:@+(),\\-]{0,799}$",
+      "title": "Basecaller Model",
+      "type": "string"
+    },
+    "basecaller_name": {
+      "const": "dorado",
+      "default": "dorado",
+      "title": "Basecaller Name",
+      "type": "string"
+    },
+    "basecaller_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Basecaller Version",
+      "type": "string"
+    },
+    "caller_name": {
+      "const": "dorado",
+      "default": "dorado",
+      "title": "Caller Name",
+      "type": "string"
+    },
+    "caller_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Caller Version",
+      "type": "string"
+    },
+    "cytosine_modifications": {
+      "enum": [
+        "5mC",
+        "5mC_5hmC"
+      ],
+      "title": "Cytosine Modifications",
+      "type": "string"
+    },
+    "flow_cell_product_code": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Flow Cell Product Code",
+      "type": "string"
+    },
+    "library_kit": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Library Kit",
+      "type": "string"
+    },
+    "modification_context": {
+      "const": "CpG_5mC_vs_unmodified_C",
+      "default": "CpG_5mC_vs_unmodified_C",
+      "title": "Modification Context",
+      "type": "string"
+    },
+    "modification_model": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:@+(),\\-]{0,799}$",
+      "title": "Modification Model",
+      "type": "string"
+    },
+    "modkit_version": {
+      "anyOf": [
+        {
+          "const": "0.6.1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modkit Version"
+    },
+    "probability_transform": {
+      "const": "none",
+      "default": "none",
+      "title": "Probability Transform",
+      "type": "string"
+    },
+    "reference_genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "reference_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "reference_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Reference Sha256",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sequencing_platform": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Sequencing Platform",
+      "type": "string"
+    },
+    "source_modbam_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Modbam Sha256"
+    }
+  },
+  "required": [
+    "caller_version",
+    "reference_id",
+    "reference_genome_build",
+    "reference_sha256",
+    "sequencing_platform",
+    "flow_cell_product_code",
+    "library_kit",
+    "basecaller_version",
+    "basecaller_model",
+    "modification_model",
+    "cytosine_modifications"
+  ],
+  "title": "ModbamSourceMetadata",
+  "type": "object"
+}

@@ -47,6 +47,7 @@ SUPPORTED_PROVIDERS: dict[StageId, frozenset[str]] = {
     StageId.TARGET_COVERAGE: frozenset({"mosdepth"}),
     StageId.CNV: frozenset({"qdnaseq_ace"}),
     StageId.SV: frozenset({"sniffles2"}),
+    StageId.METHYLATION: frozenset({"modkit"}),
 }
 
 #: The key each provider reports its version under in :attr:`StagePlan.tool_versions`.
@@ -60,6 +61,7 @@ PROVIDER_VERSION_KEY: dict[str, str] = {
     "mosdepth": "mosdepth",
     "qdnaseq_ace": "QDNAseq",
     "sniffles2": "sniffles",
+    "modkit": "modkit",
 }
 
 

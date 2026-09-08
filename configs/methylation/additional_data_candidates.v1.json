@@ -1,0 +1,864 @@
+{
+  "catalogue_version": "additional_data_candidates.v1",
+  "assessed_on": "2026-09-05",
+  "purpose": "Metadata-only shortlist; not an executable cohort, acquisition approval, completed recovery or biological validation.",
+  "excluded_existing_sources": [
+    "GSE210260",
+    "HG008",
+    "HG001/NA12878/GM12878",
+    "HG002/NA24385/GM24385"
+  ],
+  "genomic_data_acquired": false,
+  "metadata_methods": [
+    "Primary release pages and articles",
+    "Public S3 ListObjectsV2 names, sizes, last-modified and ETag",
+    "GEO accession metadata and FTP directory listings",
+    "ENA read_run metadata",
+    "HTTP HEAD for K562 and the two selected iPSC objects; no genomic body or byte-range request"
+  ],
+  "integrity_semantics": "All genomic SHA-256 values are null until a complete approved local acquisition. Multipart ETag is not SHA-256 or a publisher MD5. No BAM header or MM/ML content was inspected.",
+  "preferred_candidate": "gse218679_native_ipsc_fmr1",
+  "validation_scope": "A preregistered held-out-read experiment can evaluate recovery within a new two-source pair. Flowcell holdout is stronger technical evidence. Neither implies donor-independent, physical DNA mass, cell fraction, tumor purity or limit of detection validation.",
+  "candidates": [
+    {
+      "id": "gse218679_native_ipsc_fmr1",
+      "rank": 1,
+      "status": "REVIEWABLE_SMALL_INTAKE_PENDING_APPROVAL_AND_PROVENANCE_GAPS",
+      "accessions": [
+        "GSE218679",
+        "GSE218680",
+        "PRJNA904800",
+        "SRP409538"
+      ],
+      "species": "Homo sapiens",
+      "release_date": "2023-12-21",
+      "sample_metadata_revision": "2025-12-19",
+      "series_metadata_revision": "2026-04-13",
+      "sources": [
+        {
+          "label": "source_A",
+          "geo_accession": "GSM6754749",
+          "experiment_accession": "SRX18368393",
+          "type": "native genomic DNA from FXS iPSC line (unengineered parent chosen)",
+          "independent_source_preparation_count": 1
+        },
+        {
+          "label": "source_B",
+          "geo_accession": "GSM6754755",
+          "experiment_accession": "SRX18368399",
+          "type": "native genomic DNA from normal-length FMR1 iPSC line",
+          "independent_source_preparation_count": 1
+        }
+      ],
+      "platform": {
+        "instrument": "MinION for both in primary GSM metadata",
+        "chemistry": null,
+        "chemistry_status": "Exact pore/flowcell chemistry not stated in the two GSM metadata records. R9 STRique model names are not sufficient evidence for an exact pore.",
+        "library_kit": "SQK-LSK109 (original primary Cell study methods); EXP-NBD104 native barcodes explicitly in both GSM protocols",
+        "library_kit_per_file_receipt_verified": false,
+        "selection": "Cas9 targeted FMR1; BluePippin 5-12 kb size selection reported for both"
+      },
+      "native_dna_evidence": "Both GSM protocols describe genomic DNA extraction, Cas9 cleavage, dA-tailing and native adapter ligation, with no WGA, bisulfite conversion, exogenous CpG methyltransferase or PCR amplification step. Taq dA-tailing is not PCR. Selected sources are parent disease/normal iPSCs, not engineered cutback clones.",
+      "reference": {
+        "reported_build": "hg38/GRCh38 in both GSM metadata",
+        "exact_reference_release": null,
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "basecaller": "Guppy",
+        "basecaller_version": "6.2.1",
+        "basecaller_model": null,
+        "aligner": "minimap2",
+        "aligner_version": "2.22-r1101",
+        "methylation_caller": "Nanopolish",
+        "methylation_caller_version": "0.13.2",
+        "modification": "5mC at CpG",
+        "five_hmc_separate_channel": false,
+        "nanopolish_model_artifact_sha256": null,
+        "reporting_thresholds_are_not_repository_policy": true
+      },
+      "regions": {
+        "nanopolish_call_window": "hg38 chrX:147902117-147960927 (as reported; coordinate convention needs parser verification)",
+        "study_analysis_promoter": "hg38 chrX:147911419-147911919",
+        "study_analysis_promoter_cpg_count": 19,
+        "export_full_call_window_versus_filtered_promoter": null,
+        "estimand": "retained read-group fraction from source_A, conditional on this targeted and size-selected assay"
+      },
+      "replicates": {
+        "unit": "one selected source file per biological iPSC source; read holdout only",
+        "independent_calibration_test_donors": false,
+        "independent_calibration_test_preparations": false,
+        "usable_tsv_read_groups_a": null,
+        "usable_tsv_read_groups_b": null
+      },
+      "objects": [
+        {
+          "source_role": "A",
+          "geo_accession": "GSM6754749",
+          "run_accession": "SRR22398697",
+          "archive_read_count": 8603,
+          "archive_read_count_is_usable_tsv_read_groups": false,
+          "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM6754nnn/GSM6754749/suppl/GSM6754749_135_Nanopolish.tsv.gz",
+          "format": "Nanopolish TSV.gz (publisher file label; header and usable read groups not inspected)",
+          "size_bytes": 87638,
+          "size_evidence": "GEO filelist.txt and HTTP HEAD Content-Length agree",
+          "last_modified_utc": "2022-11-23T19:59:00Z",
+          "etag": null,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source_role": "B",
+          "geo_accession": "GSM6754755",
+          "run_accession": "SRR22398703",
+          "archive_read_count": 1201,
+          "archive_read_count_is_usable_tsv_read_groups": false,
+          "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM6754nnn/GSM6754755/suppl/GSM6754755_barcode01_Nanopolish.tsv.gz",
+          "format": "Nanopolish TSV.gz (publisher file label; header and usable read groups not inspected)",
+          "size_bytes": 120883,
+          "size_evidence": "GEO filelist.txt and HTTP HEAD Content-Length agree",
+          "last_modified_utc": "2022-11-23T19:59:00Z",
+          "etag": null,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        }
+      ],
+      "proposed_acquisition": {
+        "total_bytes": 208521,
+        "total_mib": 0.19886112213134766,
+        "scope": "Only the two complete compressed TSV objects; no SRA/FAST5, whole archive or byte ranges",
+        "proposed_local_directory": "C:/Users/sxhul/Documents/ChatGPT/ONTSeq/work/methylation_validation/gse218679/intake_v1",
+        "git_ignored_by": "work/",
+        "approval_required": "Owner/institutional genomic data intake approval under AGENTS.md rule 7; not yet obtained by this metadata-only subtask",
+        "uncompressed_size_bytes": null,
+        "structural_intake_only_before_registration": [
+          "Compute full compressed-file SHA-256 and verify recorded byte sizes.",
+          "Bounded gzip integrity and TSV header/column contract check; record decoded size locally.",
+          "Count unique read groups and coordinate/strand representations without computing source methylation differences, marker rankings or recovery.",
+          "Check no read-group overlap or duplicate underlying files; preserve parent hashes and raw group identity.",
+          "Close caller/pore/model/reference/selection provenance gaps or issue explicit NO_CALL readiness; do not fill unknowns from defaults."
+        ],
+        "matrix_depths": [20, 50, 100],
+        "registration_rule": "The candidate fmr1_targeted_holdout.v1.json fixes the matrix before acquisition. After structural inventory and provenance admission, bind actual input hashes and the whole-read split policy in an immutable registration. Budget feasibility remains unverified; preserve v1 and record NO_CALL for unmet gates. Do not alter v1 after outcomes."
+      },
+      "admission_gaps": [
+        "Exact pore chemistry, full Guppy model and exact reference artifact are not identified in reviewed primary GSM metadata.",
+        "Actual TSV schema, score units, export window, grouped-CpG handling and usable read-group counts remain uninspected.",
+        "The study focused on 19 nearby promoter CpGs; strict >=20 marker policy may lead to NO_CALL. Larger caller window does not prove more eligible markers.",
+        "CpGs around one locus are correlated and cannot substitute for independent genomic regions.",
+        "The study's likelihood cutoff of 0.1 must not silently replace repository thresholds; investigate actual score units before compatibility admission.",
+        "Source metadata describes reverse-strand and sequence-content QC, but exact stage at which these filters affected deposited TSVs is unresolved.",
+        "No independent calibration/test preparations or donor-level generalisation from these two selected files."
+      ],
+      "sources_urls": [
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM6754749",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM6754755",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE218679&targ=self&form=text&view=full",
+        "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE218nnn/GSE218679/suppl/filelist.txt",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC10794044/",
+        "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA904800&result=read_run&fields=run_accession,experiment_accession,read_count,instrument_model,experiment_title&format=json"
+      ]
+    },
+    {
+      "id": "ont_rrms_2022_07_colo829_pair",
+      "rank": 2,
+      "status": "CANDIDATE_FOR_HELD_OUT_READ_RECOVERY_PENDING_PROVENANCE_AND_LOCAL_INTAKE",
+      "accessions": [
+        "s3://ont-open-data/rrms_2022.07/"
+      ],
+      "release_date": "2022-07-27",
+      "sources": [
+        {
+          "label": "COLO829",
+          "type": "metastatic melanoma cell line",
+          "repository_accession": "ATCC CRL-1974"
+        },
+        {
+          "label": "COLO829BL",
+          "type": "matched B-lymphoblast cell line",
+          "repository_accession": "ATCC CRL-1980"
+        }
+      ],
+      "species": "Homo sapiens",
+      "platform": {
+        "chemistry": "R9.4.1",
+        "instrument": "MinION-class flowcells; run-specific device metadata unverified",
+        "library_kit": null,
+        "enrichment": "Same RRMS adaptive-sampling target design (~310 Mb) for both sources"
+      },
+      "reference": {
+        "reported_build": "hg38",
+        "evidence": "Public target-config object names and primary reanalyses",
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "basecaller": "Bonito (public directory label)",
+        "methylation_caller": "Remora (release announcement)",
+        "version": null,
+        "model": null,
+        "reported_modification": "5mC",
+        "five_hmc_channel_status": "Unknown in the 2022 files. The newer 2023 poster cannot establish their model or channels."
+      },
+      "replicates": {
+        "per_source": 5,
+        "unit": "flowcell/technical replicate",
+        "independent_extractions_or_cultures_verified": false,
+        "independent_donor_generalisation_supported": false
+      },
+      "objects": [
+        {
+          "source": "COLO829",
+          "replicate_label": 1,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829_1-5/COLO829_1/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 28185513407,
+          "last_modified_utc": "2022-07-13T21:37:46Z",
+          "object_version_id": null,
+          "etag": "5c46450e9a3cc7d7d512f975508ad750-3360",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829",
+          "replicate_label": 2,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829_1-5/COLO829_2/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 27457333133,
+          "last_modified_utc": "2022-07-13T21:37:59Z",
+          "object_version_id": null,
+          "etag": "9d9641743d419b35de5274ecfc5965dd-3274",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829",
+          "replicate_label": 3,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829_1-5/COLO829_3/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 21383200921,
+          "last_modified_utc": "2022-07-13T21:38:11Z",
+          "object_version_id": null,
+          "etag": "39ed60e6cab41de2cbfe9b06bd7d092b-2550",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829",
+          "replicate_label": 4,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829_1-5/COLO829_4/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 27441844286,
+          "last_modified_utc": "2022-07-13T21:40:15Z",
+          "object_version_id": null,
+          "etag": "19eb02f2261363b9d7d771d05182315a-3272",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829",
+          "replicate_label": 5,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829_1-5/COLO829_5/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 27772733727,
+          "last_modified_utc": "2022-07-13T21:44:01Z",
+          "object_version_id": null,
+          "etag": "b037bc0bb8bc6e3fbbf0362679b41f96-3311",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "replicate_label": 1,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829BL_1-5/COLO829BL_1/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 27990897628,
+          "last_modified_utc": "2022-07-13T21:37:46Z",
+          "object_version_id": null,
+          "etag": "76cad389e934fa5b0428de22520599b8-3337",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "replicate_label": 2,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829BL_1-5/COLO829BL_2/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 23323339023,
+          "last_modified_utc": "2022-07-13T21:37:54Z",
+          "object_version_id": null,
+          "etag": "7b615d22d4a029e47fd03331040dd253-2781",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "replicate_label": 3,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829BL_1-5/COLO829BL_3/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 24389455489,
+          "last_modified_utc": "2022-07-13T21:38:04Z",
+          "object_version_id": null,
+          "etag": "0b2dc4ee6c9814e8f8ee9fa3a77fa4e8-2908",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "replicate_label": 4,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829BL_1-5/COLO829BL_4/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 23781583784,
+          "last_modified_utc": "2022-07-13T21:40:02Z",
+          "object_version_id": null,
+          "etag": "08dfe4acb36f12c89ed63df59b6ec683-2835",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "replicate_label": 5,
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/rrms_2022.07/basecalling/bonito_remora/Benchmarking_ASmethylation_COLO829BL_1-5/COLO829BL_5/bonito_calls.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "size_bytes": 25654602600,
+          "last_modified_utc": "2022-07-13T21:44:09Z",
+          "object_version_id": null,
+          "etag": "be396634d17318566dd7a02062f4bb1c-3059",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        }
+      ],
+      "proposed_intakes": [
+        {
+          "id": "minimum_two_objects",
+          "source_a": "COLO829_3",
+          "source_b": "COLO829BL_2",
+          "selection_rule": "Smallest complete BAM per source, based only on public byte sizes before seeing methylation output",
+          "total_bytes": 44670539944,
+          "total_gib": 41.63621,
+          "split_scope": "preregistered held-out read groups; same source preparation"
+        },
+        {
+          "id": "four_object_flowcell_holdout",
+          "calibration": [
+            "COLO829_3",
+            "COLO829BL_2"
+          ],
+          "test": [
+            "COLO829_4",
+            "COLO829BL_4"
+          ],
+          "selection_rule": "Concrete technical holdout proposal; reserve roles before inspecting any biological output",
+          "total_bytes": 95893968014,
+          "total_gib": 89.341745,
+          "split_scope": "non-overlapping flowcells, not independent donors"
+        }
+      ],
+      "all_ten_bams_bytes": 257380503998,
+      "all_ten_bams_gib": 239.704274,
+      "independent_reference": "Matched RRBS in rrms_2022.07/bisulfite; CpG concordance reference, not physical dilution truth",
+      "admission_gaps": [
+        "Obtain/verify exact Bonito and Remora versions, full model names, MM/ML modification channel and reference dictionary.",
+        "Document extraction, culture, library and flowcell relationships; do not invent biological replication.",
+        "Freeze read eligibility including adaptive-sampling rejection/short reads and target restrictions; source coefficient remains conditional on retained read groups.",
+        "Perform local full-object SHA-256 and disjoint read-group checks before source admission.",
+        "Contiguous/correlated CpGs and linked molecules require cautious interval interpretation."
+      ],
+      "sources_urls": [
+        "https://epi2me.nanoporetech.com/rrms2022.07/",
+        "https://registry.opendata.aws/ont-open-data/",
+        "https://ont-open-data.s3.eu-west-1.amazonaws.com/?list-type=2&prefix=rrms_2022.07%2Fbasecalling%2Fbonito_remora%2F",
+        "https://ont-open-data.s3.eu-west-1.amazonaws.com/?list-type=2&prefix=rrms_2022.07%2Fconfig%2F&delimiter=%2F"
+      ]
+    },
+    {
+      "id": "k562_h1esc_conditional_pair",
+      "rank": 3,
+      "status": "K562_PER_READ_EXPORT_PUBLIC_SECOND_SOURCE_REQUIRES_MATCHED_REPROCESSING_OR_EXPORT",
+      "accessions": [
+        "GSE173688",
+        "GSM5277007",
+        "PRJNA726646",
+        "SRP318090",
+        "SRX10726381",
+        "PRJNA876781"
+      ],
+      "species": "Homo sapiens",
+      "sources": [
+        {
+          "label": "K562",
+          "type": "chronic myelogenous leukemia cell line",
+          "native_ont_metadata": "GSM5277007",
+          "chemistry": "GridION R9.4.1 FLO-MIN106, SQK-RAD004",
+          "basecaller": "Guppy 4.2.2 dna_r9.4.1_450bps_hac.cfg",
+          "methylation_caller": "Nanopolish 0.13.2 (associated benchmark publication)",
+          "reference": "GRCh38/hg38",
+          "independent_source_preparations_verified": 1
+        },
+        {
+          "label": "H1ESc native",
+          "type": "human embryonic stem cells WA01",
+          "native_ont_runs": [
+            "SRR21517694",
+            "SRR21694162",
+            "SRR21694253",
+            "SRR21694254",
+            "SRR21694276",
+            "SRR21694277"
+          ],
+          "biosample": "SAMN30672551",
+          "chemistry": "GridION R9.4.1",
+          "library_kit": null,
+          "study_processing": "Rockfish study reanalysis: Guppy 5.0.14 SUP, CHM13, multiple methylation callers",
+          "direct_compatible_per_read_export_url": null,
+          "submitted_file_format_and_size_from_ena": null,
+          "independent_source_preparations_verified": null
+        }
+      ],
+      "objects": [
+        {
+          "source": "K562",
+          "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5277nnn/GSM5277007/suppl/GSM5277007_K562.nanopolish.methylation_calls.combine.tsv.gz",
+          "format": "Nanopolish per-read TSV (filename; header not locally inspected)",
+          "size_bytes": 380186764,
+          "last_modified_utc": "2021-05-01T02:39:59Z",
+          "size_evidence": "HTTP HEAD Content-Length; FTP listing rounds to 363M",
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        }
+      ],
+      "admission_gaps": [
+        "H1 native per-read compatible calls not located; public read archive/FASTQ alone does not establish retained modification calls or raw signal availability.",
+        "Guppy 4.2.2/hg38 K562 export cannot be mixed directly with Guppy 5.0.14/CHM13 H1 study output.",
+        "Acquire matching raw-signal inputs and reprocess both using one pinned pipeline, or find independently verified matching per-read exports.",
+        "Exclude H1 REPLI-g and M.SssI treated controls (SRR28562472 and SRR28562471) from native biological-source evaluation.",
+        "Six H1 runs share one BioSample; independent donors or independent preparations are not established.",
+        "Original K562 low read depth may restrict marker selection and grid read budgets."
+      ],
+      "sources_urls": [
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE173688",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM5277007&targ=self&form=text&view=full",
+        "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5277nnn/GSM5277007/suppl/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC8524990/",
+        "https://www.nature.com/articles/s41467-024-49847-0",
+        "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA876781&result=read_run&fields=run_accession,experiment_title,instrument_model,submitted_format,submitted_bytes,submitted_ftp&format=json"
+      ]
+    },
+    {
+      "id": "nanonome_breast_lines_zenodo3969567",
+      "rank": 4,
+      "status": "SMALL_PUBLIC_PER_READ_REGION_EXPORT_REQUIRES_DIFFERENT_ADAPTER_AND_NOMe_POLICY",
+      "accessions": [
+        "GSE155791",
+        "PRJNA510783",
+        "10.5281/zenodo.3969567"
+      ],
+      "species": "Homo sapiens",
+      "sources": [
+        {
+          "label": "MCF10A",
+          "type": "non-tumorigenic mammary epithelial cell line"
+        },
+        {
+          "label": "MCF7",
+          "type": "breast cancer cell line"
+        },
+        {
+          "label": "MDA-MB-231",
+          "type": "breast cancer cell line"
+        }
+      ],
+      "platform": {
+        "chemistry": null,
+        "instrument": "GridION metadata confirmed for MDA-MB-231; source-specific other instruments must be checked",
+        "library_kit": null,
+        "selection": "nanoNOMe exogenous GpC methyltransferase; processed export restricted to heterozygous SV-associated regions"
+      },
+      "reference": {
+        "reported_build": "hg38 without alternate contigs",
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "basecaller": "Guppy 3.0.3 high accuracy",
+        "aligner": "NGMLR 0.2.8 -x ont",
+        "methylation_caller": "Nanopolish 0.11.1 CpG/GpC processing (primary GSM metadata)",
+        "full_model": null
+      },
+      "objects": [
+        {
+          "source": "combined three cell lines; source assignment and read IDs need contract inspection",
+          "url": "https://zenodo.org/api/records/3969567/files/MCF10A_MCF7_MDAMB231_hetSVs_1kb_cpg_calls.txt.gz/content",
+          "format": "custom single-read CpG text table; not established as Nanopolish raw TSV",
+          "size_bytes": 87419865,
+          "publisher_md5": "a503979bdddef1057b8453c6bd739cfb",
+          "publisher_md5_locally_verified": false,
+          "sha256": null,
+          "acquired": false
+        }
+      ],
+      "admission_gaps": [
+        "Do not claim direct compatibility with Nanopolish parser: aggregated/custom analysis table header and grouping unknown.",
+        "Exogenous GpC labeling can confound overlapping GCG calls; needs explicit native CpG exclusion/interpretation rules.",
+        "Region selection around heterozygous SVs and copy-number effects restrict estimand; not genome-wide validation.",
+        "No independent preparations established; source labels have to survive extraction.",
+        "Publisher MD5 is available but local SHA-256 still absent."
+      ],
+      "sources_urls": [
+        "https://zenodo.org/api/records/3969567",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM4712210",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE155791",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC7704922/"
+      ]
+    },
+    {
+      "id": "ont_colo829_2023_04_wgs",
+      "rank": 5,
+      "status": "GENUINE_MATCHED_PUBLIC_WGS_PAIR_BUT_METHYLATION_TAG_PRESERVATION_UNVERIFIED",
+      "accessions": [
+        "s3://ont-open-data/colo829_2023.04/"
+      ],
+      "release_date": "2023-05-12",
+      "species": "Homo sapiens",
+      "sources": [
+        {
+          "label": "COLO829",
+          "type": "melanoma cell line",
+          "standard_flowcells": [
+            "PAO29420",
+            "PAO32033"
+          ]
+        },
+        {
+          "label": "COLO829BL",
+          "type": "matched B-lymphoblast cell line",
+          "standard_flowcells": [
+            "PAO33946"
+          ]
+        }
+      ],
+      "platform": {
+        "instrument": "PromethION 24",
+        "chemistry": "R10.4.1",
+        "library_kit": "Ligation Sequencing Kit V14",
+        "min_know": "22.12.5",
+        "extraction": "DNeasy for standard pair; separate Monarch/ULK114 bonus preparations must form different strata"
+      },
+      "reference": {
+        "reported_build": "GRCh38",
+        "analysis_reference_filename": "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna",
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "name": "Dorado (release tag), wf-basecalling",
+        "version": null,
+        "model": null,
+        "modifications": null,
+        "cram_modification_tags_confirmed": false
+      },
+      "objects": [
+        {
+          "source": "COLO829",
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/colo829_2023.04/COLO829/PAO29420/cram/PAO29420.cram",
+          "format": "CRAM; MM/ML unverified",
+          "size_bytes": 54275227484,
+          "last_modified_utc": "2023-05-09T22:28:25Z",
+          "etag": "d8bc10ae78ea44a5ddeef7178bad951d-6471",
+          "object_version_id": null,
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "COLO829BL",
+          "url": "https://ont-open-data.s3.eu-west-1.amazonaws.com/colo829_2023.04/COLO829BL/PAO33946/cram/PAO33946.cram",
+          "format": "CRAM; MM/ML unverified",
+          "size_bytes": 66233833667,
+          "last_modified_utc": "2023-05-09T22:28:22Z",
+          "etag": "6a6490f124e8f11fe3784034fc3ed7b2-7896",
+          "object_version_id": null,
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        }
+      ],
+      "admission_gaps": [
+        "Variant-focused CRAM release does not explicitly promise MM/ML or methylation calling; cannot count as ready modBAM.",
+        "Requires exact model/version/tag evidence or consistent approved POD5 recalling.",
+        "Direct CRAM admission requires reference-aware decoding preserving tags and adapter provenance.",
+        "RRMS and WGS releases reuse the same cell lines: new preparation/chemistry evidence, not new biological source or independent donor panel.",
+        "Tumor/normal labels do not convert retained-read-group fractions into tumor purity."
+      ],
+      "sources_urls": [
+        "https://epi2me.nanoporetech.com/colo-2023.05/",
+        "https://ont-open-data.s3.eu-west-1.amazonaws.com/?list-type=2&prefix=colo829_2023.04%2FCOLO829%2FPAO29420%2Fcram%2F&delimiter=%2F",
+        "https://ont-open-data.s3.eu-west-1.amazonaws.com/?list-type=2&prefix=colo829_2023.04%2FCOLO829BL%2FPAO33946%2Fcram%2F&delimiter=%2F"
+      ]
+    }
+  ],
+  "screened_exclusions": [
+    {
+      "id": "GSE173687_HL60",
+      "reason": "GEO accession metadata explicitly states deleted on 2021-09-20. Historical preprint accession is not an available public cohort.",
+      "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE173687&targ=self&form=text&view=full"
+    },
+    {
+      "id": "HCC1395_RRMS",
+      "reason": "Real pair in the later 2023 ONT poster, but no corresponding BAM objects in the complete rrms_2022.07/basecalling/bonito_remora listing. Do not invent download paths or equate newer poster pipeline to the 2022 release.",
+      "url": "https://nanoporetech.com/api/assets/f/196663/735a4dd4c9/j2127_a1-poster_rrms-v3_digital.pdf"
+    },
+    {
+      "id": "NA19240",
+      "reason": "Final benchmark publications say ONT source available on request; compatible immediately public per-read export not identified.",
+      "url": "https://www.nature.com/articles/s41467-024-49847-0"
+    }
+  ],
+  "preferred_larger_recovery_candidate": "ont_rrms_2022_07_colo829_pair",
+  "out_of_current_human_scope": [
+    {
+      "id": "sowpati_mouse_brain_esc",
+      "rank": 2,
+      "status": "PUBLIC_MODBAM_PAIR_REQUIRES_NONHUMAN_SCOPE_AND_STORAGE_PLAN",
+      "accessions": [
+        "PRJNA1172918",
+        "s3://ont-basemod-benchmark-data/"
+      ],
+      "release_version": "V0.2 (2026-03-28; initial V0.1 2025-09-30)",
+      "publication_doi": "10.1038/s41467-026-75183-6",
+      "sources": [
+        {
+          "label": "mouse_brain",
+          "type": "mouse whole brain"
+        },
+        {
+          "label": "mouse_esc",
+          "type": "mouse embryonic stem cells"
+        }
+      ],
+      "species": "Mus musculus",
+      "platform": {
+        "chemistry": "R10.4.1",
+        "sample_rate_hz": 5000,
+        "library_kit": "Native Barcoding Kit V14 (study methods)",
+        "instrument": null
+      },
+      "reference": {
+        "reported_build": "GRCm39/mm39",
+        "file": "mm39.fa.gz",
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "name": "Dorado",
+        "reported_primary_version": "0.9.1",
+        "per_object_version_verified": false,
+        "base_model_documentation": "v5.0.0 SUP in release documentation; multiple per-object base/modification model families exist",
+        "full_model_id": null,
+        "modification": "5mCG; all-context 5mC objects also exist and are not interchangeable"
+      },
+      "replicates": {
+        "per_source_verified": 1,
+        "unit": "source tissue/cell preparation; multiple model recalls are not biological replicates",
+        "independent_donor_generalisation_supported": false
+      },
+      "objects": [
+        {
+          "source": "mouse_brain",
+          "url": "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/Analysis/modbam/mammals/mouse/mouse_brain/mouse_brain_5kHz_sup_v4r1_5mCG.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "model_family": "v4r1",
+          "size_bytes": 104091712280,
+          "last_modified_utc": "2025-12-08T06:39:41Z",
+          "object_version_id": null,
+          "etag": "4bd255a8ea877036dbe69268d787f953-6205",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "mouse_esc",
+          "url": "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/Analysis/modbam/mammals/mouse/mouse_esc/mouse_esc_5kHz_sup_v4r1_5mCG.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "model_family": "v4r1",
+          "size_bytes": 135467494176,
+          "last_modified_utc": "2025-12-08T14:01:28Z",
+          "object_version_id": null,
+          "etag": "d4158a7e7816639184e3935ee3fab169-8075",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "mouse_brain",
+          "url": "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/Analysis/modbam/mammals/mouse/mouse_brain/mouse_brain_5kHz_sup_v5r1_5mCG.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "model_family": "v5r1",
+          "size_bytes": 87933546940,
+          "last_modified_utc": "2025-12-08T10:46:19Z",
+          "object_version_id": null,
+          "etag": "5037a3e7ff516d41921784828597649e-5242",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        },
+        {
+          "source": "mouse_esc",
+          "url": "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/Analysis/modbam/mammals/mouse/mouse_esc/mouse_esc_5kHz_sup_v5r1_5mCG.bam",
+          "format": "modBAM (publisher-declared; local MM/ML not inspected)",
+          "model_family": "v5r1",
+          "size_bytes": 112252287446,
+          "last_modified_utc": "2025-12-08T19:02:31Z",
+          "object_version_id": null,
+          "etag": "fe09da78da3e6fa82f452d388f78ea1a-6691",
+          "etag_is_sha256": false,
+          "sha256": null,
+          "publisher_md5": null,
+          "acquired": false
+        }
+      ],
+      "independent_reference": "Matched EMSeq; methylation-state concordance, not source-mixture truth",
+      "admission_gaps": [
+        "Current human reference contract needs explicit mm39/species extension and tests; never relabel mm39 as GRCh38.",
+        "Exact caller/model per object and reference checksum require local provenance inspection.",
+        "Matched v4r1 CpG pair is ~223 GiB, matched v5r1 CpG pair ~186 GiB before staging and extraction.",
+        "Do not select model family by whichever yields better recovery after unblinding.",
+        "Donor/strain, extraction and independent biological replication are incompletely exposed."
+      ],
+      "sources_urls": [
+        "https://www.nature.com/articles/s41467-026-75183-6",
+        "https://registry.opendata.aws/ont_basemod_data/",
+        "https://github.com/SowpatiLab/ont-basemod-benchmark-data/blob/main/documentation.md",
+        "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/?list-type=2&prefix=Analysis%2Fmodbam%2Fmammals%2Fmouse%2Fmouse_brain%2F&delimiter=%2F",
+        "https://ont-basemod-benchmark-data.s3.ap-south-1.amazonaws.com/?list-type=2&prefix=Analysis%2Fmodbam%2Fmammals%2Fmouse%2Fmouse_esc%2F&delimiter=%2F"
+      ]
+    },
+    {
+      "id": "mouse_th1_th2_gse248540",
+      "rank": 4,
+      "status": "BIOLOGICALLY_MATCHED_REPLICATES_BUT_PUBLIC_PER_READ_MODBAM_NOT_CONFIRMED",
+      "accessions": [
+        "GSE248540",
+        "PRJNA1044739"
+      ],
+      "species": "Mus musculus",
+      "sources": [
+        {
+          "label": "Th1",
+          "type": "in vitro polarized sorted naive CD4 T cells",
+          "replicates": [
+            {
+              "geo": "GSM7916545",
+              "run": "SRR26939224",
+              "read_count_metadata": 8920
+            },
+            {
+              "geo": "GSM7916549",
+              "run": "SRR26939220",
+              "read_count_metadata": 21594
+            },
+            {
+              "geo": "GSM7916553",
+              "run": "SRR26939216",
+              "read_count_metadata": 37366
+            }
+          ]
+        },
+        {
+          "label": "Th2",
+          "type": "in vitro polarized sorted naive CD4 T cells",
+          "replicates": [
+            {
+              "geo": "GSM7916546",
+              "run": "SRR26939223",
+              "read_count_metadata": 5482
+            },
+            {
+              "geo": "GSM7916550",
+              "run": "SRR26939219",
+              "read_count_metadata": 9234
+            },
+            {
+              "geo": "GSM7916554",
+              "run": "SRR26939215",
+              "read_count_metadata": 26352
+            }
+          ]
+        }
+      ],
+      "release_date": "2024-01-08",
+      "platform": {
+        "instrument": "MinION",
+        "chemistry": "R9.4.1",
+        "library_kit": "SQK-LSK109",
+        "selection": "Cas9 targeting of 10 loci; retain same panel/protocol across pair"
+      },
+      "reference": {
+        "reported_build": "mm10",
+        "exact_fasta_sha256": null
+      },
+      "caller": {
+        "name": "Dorado",
+        "version": "0.4.2",
+        "reported_base_model": "dna_r9.4.1_e8_hac@v3.3",
+        "full_modification_model": null,
+        "modifications": [
+          "5mCpG",
+          "5hmCpG"
+        ],
+        "pileup_tool": "modkit 0.2.2"
+      },
+      "replicates": {
+        "per_source": 3,
+        "independent_polarisation_or_donor_origin_verified": false,
+        "unit": "replicate labels 1-3 across sequencing runs; mouse/pool origin needs confirmation"
+      },
+      "objects": [],
+      "processed_release": {
+        "format": "GEO BED pileups, not per-read calls",
+        "aggregate_archive_display_size": "148.4 Mb",
+        "example_geo_sample": "GSM7916545",
+        "example_display_size": "7.6 Mb",
+        "sha256": null,
+        "acquired": false
+      },
+      "admission_gaps": [
+        "GEO supplementary BED pileups cannot support read-group split/mixing.",
+        "Need native per-read modBAM from archive/author or verified raw signal; ENA submitted format/byte/URL fields are empty for reviewed runs.",
+        "Resolve which biological mouse/pool/culture constitutes each replicate before claiming biological holdout.",
+        "mm10 requires separate nonhuman reference admission; no hg38 relabelling.",
+        "Low targeted read counts mean preregister realistic depths; do not mix separate UNCALLED 139-target protocol into Cas9 series."
+      ],
+      "sources_urls": [
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE248540",
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM7916545",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC11002815/",
+        "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA1044739&result=read_run&fields=run_accession,experiment_title,submitted_format,submitted_bytes,submitted_ftp&format=json"
+      ]
+    }
+  ]
+}

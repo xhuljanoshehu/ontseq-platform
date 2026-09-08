@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "ValidationLocalInput": {
+      "additionalProperties": false,
+      "description": "Sensitive local bindings; paths never enter a public catalogue.",
+      "properties": {
+        "adapter_policy_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adapter Policy Path"
+        },
+        "calls_path": {
+          "format": "path",
+          "title": "Calls Path",
+          "type": "string"
+        },
+        "input_format": {
+          "enum": [
+            "nanopolish",
+            "modkit",
+            "modbam"
+          ],
+          "title": "Input Format",
+          "type": "string"
+        },
+        "metadata_path": {
+          "format": "path",
+          "title": "Metadata Path",
+          "type": "string"
+        },
+        "reference_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Path"
+        }
+      },
+      "required": [
+        "calls_path",
+        "input_format",
+        "metadata_path"
+      ],
+      "title": "ValidationLocalInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "samples": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ValidationLocalInput"
+      },
+      "propertyNames": {
+        "enum": [
+          "calibration_a",
+          "calibration_b",
+          "test_a",
+          "test_b"
+        ]
+      },
+      "title": "Samples",
+      "type": "object"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "samples"
+  ],
+  "title": "ValidationLocalInputs",
+  "type": "object"
+}

@@ -1,0 +1,271 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "ValidationSample": {
+      "additionalProperties": false,
+      "properties": {
+        "accession": {
+          "minLength": 3,
+          "title": "Accession",
+          "type": "string"
+        },
+        "biological_sample_id": {
+          "minLength": 3,
+          "title": "Biological Sample Id",
+          "type": "string"
+        },
+        "biological_source": {
+          "minLength": 3,
+          "title": "Biological Source",
+          "type": "string"
+        },
+        "cell_type": {
+          "minLength": 3,
+          "title": "Cell Type",
+          "type": "string"
+        },
+        "dataset_version": {
+          "minLength": 1,
+          "title": "Dataset Version",
+          "type": "string"
+        },
+        "donor_id": {
+          "minLength": 3,
+          "title": "Donor Id",
+          "type": "string"
+        },
+        "input_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Sha256",
+          "type": "string"
+        },
+        "material_type": {
+          "minLength": 3,
+          "title": "Material Type",
+          "type": "string"
+        },
+        "provenance_reference": {
+          "minLength": 3,
+          "title": "Provenance Reference",
+          "type": "string"
+        },
+        "source_modbam_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Modbam Sha256"
+        },
+        "technical": {
+          "$ref": "#/$defs/ValidationTechnicalMetadata"
+        }
+      },
+      "required": [
+        "accession",
+        "dataset_version",
+        "biological_sample_id",
+        "donor_id",
+        "biological_source",
+        "cell_type",
+        "material_type",
+        "input_sha256",
+        "provenance_reference",
+        "technical"
+      ],
+      "title": "ValidationSample",
+      "type": "object"
+    },
+    "ValidationTechnicalMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_name": {
+          "title": "Adapter Name",
+          "type": "string"
+        },
+        "adapter_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Adapter Policy Sha256",
+          "type": "string"
+        },
+        "adapter_version": {
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "basecaller_model": {
+          "title": "Basecaller Model",
+          "type": "string"
+        },
+        "basecaller_name": {
+          "title": "Basecaller Name",
+          "type": "string"
+        },
+        "basecaller_version": {
+          "title": "Basecaller Version",
+          "type": "string"
+        },
+        "caller_name": {
+          "title": "Caller Name",
+          "type": "string"
+        },
+        "caller_version": {
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "cytosine_modifications": {
+          "anyOf": [
+            {
+              "enum": [
+                "5mC",
+                "5mC_5hmC"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytosine Modifications"
+        },
+        "flow_cell_product_code": {
+          "title": "Flow Cell Product Code",
+          "type": "string"
+        },
+        "library_kit": {
+          "title": "Library Kit",
+          "type": "string"
+        },
+        "modification_context": {
+          "default": "CpG_5mC_vs_unmethylated",
+          "enum": [
+            "CpG_5mC_vs_unmethylated",
+            "CpG_5mC_vs_unmodified_C"
+          ],
+          "title": "Modification Context",
+          "type": "string"
+        },
+        "modification_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modification Model"
+        },
+        "modkit_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modkit Version"
+        },
+        "probability_transform": {
+          "const": "none",
+          "default": "none",
+          "title": "Probability Transform",
+          "type": "string"
+        },
+        "reference_genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "reference_id": {
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "sequencing_platform": {
+          "title": "Sequencing Platform",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequencing_platform",
+        "flow_cell_product_code",
+        "library_kit",
+        "basecaller_name",
+        "basecaller_version",
+        "basecaller_model",
+        "caller_name",
+        "caller_version",
+        "reference_id",
+        "reference_genome_build",
+        "reference_sha256",
+        "adapter_name",
+        "adapter_version",
+        "adapter_policy_sha256"
+      ],
+      "title": "ValidationTechnicalMetadata",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "access_basis": {
+      "enum": [
+        "public",
+        "institutionally_authorized"
+      ],
+      "title": "Access Basis",
+      "type": "string"
+    },
+    "independence_evidence": {
+      "minLength": 1,
+      "title": "Independence Evidence",
+      "type": "string"
+    },
+    "samples": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ValidationSample"
+      },
+      "propertyNames": {
+        "enum": [
+          "calibration_a",
+          "calibration_b",
+          "test_a",
+          "test_b"
+        ]
+      },
+      "title": "Samples",
+      "type": "object"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "samples",
+    "independence_evidence",
+    "access_basis"
+  ],
+  "title": "ValidationCohort",
+  "type": "object"
+}

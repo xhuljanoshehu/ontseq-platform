@@ -95,6 +95,7 @@ TOOLS_BY_STAGE: Mapping[StageId, tuple[str, ...]] = {
     StageId.QC: ("cramino",),
     StageId.TARGET_COVERAGE: ("mosdepth",),
     StageId.SV: ("sniffles",),
+    StageId.METHYLATION: ("modkit",),
 }
 
 

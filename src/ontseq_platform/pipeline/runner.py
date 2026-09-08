@@ -36,9 +36,16 @@ from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
 from ..cutesv import run_cutesv
 from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
+from ..methylation import (
+    MethylationPolicy,
+    MethylationRegionSource,
+    MethylationReport,
+    run_methylation,
+)
 from ..models import (
     AlignedBamIntakeReport,
     AmlKnowledgeLock,
+    AnalysisModule,
     AssayMode,
     CheckStatus,
     CraminoQCReport,
@@ -104,6 +111,8 @@ SV_REPORT = "evidence/sv/{sample}.sniffles.json"
 CUTESV_VCF = "evidence/sv/{sample}.cutesv.vcf"
 CUTESV_REPORT = "evidence/sv/{sample}.cutesv.json"
 SV_CONSENSUS_REPORT = "evidence/sv/{sample}.consensus.json"
+METHYLATION_DIR = "evidence/methylation"
+METHYLATION_REPORT = "evidence/methylation/{sample}.methylation.json"
 RESULT_JSON = "normalized/{sample}.result.json"
 REPORT_HTML = "reports/{sample}.report.html"
 REPORT_XLSX = "reports/{sample}.results.xlsx"
@@ -144,6 +153,7 @@ class RunConfiguration:
     aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
     sv_minimum_mean_depth: float = 10.0
     target_coverage_policy: TargetCoveragePolicy | None = None
+    methylation_policy: MethylationPolicy | None = None
     #: Which component runs each stage, and at which version. ``None`` keeps the built-in
     #: defaults and pins nothing, which is what every run did before selection existed.
     components: RunComponents | None = None
@@ -160,6 +170,7 @@ class RunConfiguration:
             "cutesv": "cuteSV",
             "minimap2": "minimap2",
             "mosdepth": "mosdepth",
+            "modkit": "modkit",
             "dorado": "dorado",
         }
     )
@@ -243,6 +254,18 @@ def _probe(
     if not match:
         raise StageFailure(f"could not determine the {tool} version")
     return match.group(1)
+
+
+def _module_requested(ctx: RunContext, module: AnalysisModule) -> bool:
+    """Whether the manifest asked for this analysis at all.
+
+    The manifest is the run's scope contract. A stage that runs anyway produces evidence
+    nobody asked for, and — worse — can fail a run over a tool the operator had no reason
+    to configure, which is exactly how a CNV-only run came to die on a missing cuteSV
+    reference. Two vocabularies are deliberate and distinct: a stage gated on the assay
+    records ``applicable``, a stage gated on the requested analysis records ``requested``.
+    """
+    return module in ctx.manifest.analysis.modules
 
 
 def _stable_digest(path: Path) -> tuple[str, bool]:
@@ -645,9 +668,16 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _sv_plan(ctx: RunContext) -> StagePlan:
+    if not _module_requested(ctx, AnalysisModule.SV):
+        # Probing sniffles and cuteSV here would make a CNV-only run depend on callers it
+        # never invokes, and a missing cuteSV reference would fail a run that asked for no
+        # structural variants at all.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
     sniffles_policy = ctx.config.sniffles_policy
     cute_policy = ctx.config.cutesv_policy
     if sniffles_policy is None and cute_policy is None:
+        # Requested and unconfigurable is a real error: the run asked for SV evidence and
+        # cannot produce any. That still fails closed.
         raise StageFailure("structural-variant calling requires Sniffles2 and/or cuteSV policy")
     parameters: dict[str, object] = {
         "threads": ctx.config.threads,
@@ -711,6 +741,14 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
 
 
 def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the structural-variant module. This is a "
+                "scope statement, not a finding about the sample's structural variants."
+            ),
+        )
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -830,6 +868,118 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
 
 
+def _methylation_plan(ctx: RunContext) -> StagePlan:
+    """Plan the modified-base pileup, or record that this run never asked for one.
+
+    Unlike target coverage, applicability here is a property of the *requested analysis*
+    rather than of the assay mode: an lcWGS run and an Adaptive Sampling run can both
+    carry MM/ML tags, and neither should pay for a pileup it did not ask for.
+    """
+    if not _module_requested(ctx, AnalysisModule.METHYLATION):
+        # Probing modkit here would make every run depend on a tool most runs never use.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
+    policy = ctx.config.methylation_policy
+    if policy is None:
+        raise StageFailure(
+            "the manifest requests the methylation module but no methylation policy was "
+            "supplied. Refusing to continue: an unparameterised pileup is not reproducible"
+        )
+    if policy.cpg_only and ctx.config.reference_fasta is None:
+        raise StageFailure(
+            "the methylation policy restricts the pileup to CpG sites, which is a property "
+            "of the reference; pass --reference-fasta"
+        )
+    modkit = ctx.config.executable("modkit")
+    external_inputs = [_external_fingerprint(Path(ctx.manifest.input.path))]
+    if ctx.config.reference_fasta is not None:
+        external_inputs.append(_external_fingerprint(ctx.config.reference_fasta))
+    if policy.region_source == MethylationRegionSource.TARGET_BED:
+        if not ctx.manifest.assay.target_bed:
+            raise StageFailure(
+                "the methylation policy aggregates over the target design but the manifest "
+                "declares no target BED"
+            )
+        external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
+    return StagePlan(
+        parameters={
+            "requested": True,
+            "methylation_policy": policy.model_dump(mode="json"),
+            "threads": ctx.config.threads,
+        },
+        tool_versions={"modkit": _probe(ctx.runner, modkit, [modkit, "--version"], tool="modkit")},
+        external_inputs=tuple(external_inputs),
+    )
+
+
+def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the methylation module. This is a scope "
+                "statement, not a finding about the sample's methylation."
+            ),
+        )
+    policy = ctx.config.methylation_policy
+    assert policy is not None
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    output_dir = ctx.envelope.path(METHYLATION_DIR)
+    if output_dir.exists():
+        # The adapter refuses to overwrite its own outputs, which is right for a bare
+        # invocation. Inside an envelope the stage owns this directory, so a re-run clears
+        # it rather than inheriting half a previous attempt.
+        shutil.rmtree(output_dir)
+    report = run_methylation(
+        ctx.manifest,
+        intake,
+        policy,
+        output_dir=output_dir,
+        reference_fasta=ctx.config.reference_fasta,
+        runner=ctx.runner,
+        modkit=ctx.config.executable("modkit"),
+        samtools=ctx.config.executable("samtools"),
+        threads=ctx.config.threads,
+    )
+    artifact = ctx.envelope.atomic_write_text(
+        ctx.path(METHYLATION_REPORT), report.model_dump_json(indent=2) + "\n"
+    )
+    measured = sum(item.sites_at_minimum_coverage for item in report.regions)
+    if report.status == ModuleRunStatus.COMPLETED:
+        reason = (
+            f"Aggregated {int(report.summary_metrics.get('site_count', 0))} modified-base "
+            f"site(s) into {len(report.regions)} region row(s); {measured} site "
+            "observation(s) met the coverage floor."
+        )
+    else:
+        reason = (
+            "No modified-base site reached the configured coverage floor; this NO_CALL "
+            "reports an unmeasurable sample, not unmethylated DNA."
+        )
+    return StageResult(
+        status=report.status,
+        reason=reason,
+        outputs=[artifact],
+        tools=[report.tool],
+        warnings=report.warnings,
+        limitations=report.limitations,
+    )
+
+
+def load_methylation_report(ctx: RunContext) -> MethylationReport | None:
+    """Read the methylation artifact of this run, if the stage produced one.
+
+    Public because the CNV extension replaces the assemble stage wholesale. Two copies of
+    this lookup would be two places for the lane to fall out of a result, and a missing
+    module outcome is indistinguishable from a module that was never requested.
+    """
+    path = ctx.envelope.path(ctx.path(METHYLATION_REPORT))
+    if not path.is_file():
+        return None
+    return MethylationReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 def _assemble_plan(ctx: RunContext) -> StagePlan:
     return StagePlan(
         parameters={
@@ -867,6 +1017,7 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
         sv_consensus_report=consensus,
+        methylation_report=load_methylation_report(ctx),
     )
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
@@ -923,6 +1074,7 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
     StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
+    StageId.METHYLATION: StageImplementation(_methylation_plan, _methylation_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
     StageId.RELEASE: StageImplementation(_release_plan, _release_execute),

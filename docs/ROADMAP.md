@@ -26,7 +26,11 @@
 - [x] Filterable evidence-tiering review queue with the complete technical call table retained
 - [x] Deterministic synthetic CNV/SV benchmark contract and CI fixtures
 - [ ] Benchmark technical SV behavior on GIAB HG002 and draft HG008 tumor/normal resources
-- [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series
+- [x] Deterministic in-silico tumor dilution series and technical detection-limit evaluation, with explicit bracketing and no-call handling
+- [ ] Benchmark CNV candidates across coverage and tumor/blast-fraction dilution series on real characterized material
+- [x] Deterministic paired-source Nanopolish methylation mixtures with exact markers, disjoint calibration pools, conditional uncertainty and explicit no-call gates
+- [ ] Validate recovery of known read-group fractions by the methylation source coefficient with independent donors, wet-lab mixtures, orthogonal truth and predefined acceptance criteria
+- [ ] Develop and validate any translation from methylation source coefficient to tumour/blast or cell fraction, stratified by CNV and ploidy
 - [ ] Evaluate the locked pipeline on an orthogonally characterized AML cohort
 - [ ] Record no-call behavior and failure modes separately from negative results
 - [x] Exercise samtools, Cramino and Sniffles2 in CI with a generated positive BAM fixture
@@ -68,7 +72,8 @@
 ## Optional research lanes
 
 - [ ] Small variants/indels
-- [ ] Modified-base and methylation analysis
+- [x] Modified-base and methylation analysis: version-locked modkit pileup lane wired into the run graph, fail-closed on missing MM/ML tags, not yet run against real modkit
+- [x] Standalone paired-source Nanopolish mixture/source-fraction research path; technical defaults only, no biological purity claim
 - [ ] RNA fusion confirmation
 - [ ] cfDNA tissue-of-origin research
 

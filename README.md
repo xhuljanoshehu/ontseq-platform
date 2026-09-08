@@ -103,6 +103,9 @@ Diagnostiksoftware.
 | Komponentenauswahl | Provider und exakte Tool-Version je Stage pro Lauf wählbar, fail-closed gegen die installierte Version geprüft und in der Provenienz protokolliert |
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
 | SV | Sniffles2 2.8.0 + cuteSV 2.1.3, Breakpoint-Konsens, build-gelockte Annotation, Adaptive-Sampling-Observability, AML-Priorisierung und filterbare Review Queue; weiterhin nicht reportable |
+| Methylierung | modkit-Pileup-Lane als Stage im kanonischen Runner; MM/ML-Tags werden fail-closed geprüft, ein leerer Pileup wird nie als "unmethyliert" berichtet. Adapter noch **nicht** gegen die reale modkit-Binary ausgeführt, siehe [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md) |
+| Methylierungs-Mischung | Standalone Nanopolish-Pfad für deterministische Mischungen zweier ausdrücklich als biologisch getrennt deklarierter Quellen; M/U-Call-Rate-WLS und ein bedingtes Vier-Zustands-Dirichlet-Intervall schätzen einen Source-A-Mischkoeffizienten gegenüber dem bekannten Readgruppenanteil oder liefern `NO_CALL`. Die Kalibrationsraten bleiben im Intervall fest. Eine getrennte technische Recovery-Bewertung verhindert, dass bloße Ausführbarkeit als Genauigkeit gilt. Sensibler technischer Output, keine Tumor-, Zell- oder DNA-Massenfraktion und keine LoD, siehe [`docs/METHYLATION_MIXTURE.md`](docs/METHYLATION_MIXTURE.md) |
+| Verdünnungsreihe / LoD | Deterministische In-silico-Tumorverdünnung (Planung, Mischung, Drift-Prüfung) und technische Detektionsgrenze mit explizitem Bracketing, siehe [`docs/DILUTION_SERIES.md`](docs/DILUTION_SERIES.md); keine analytische Sensitivität |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
 | ISCN | Nur begrenzte, explizit unvalidierte Proposal-/Demo-Logik; kein klinisch konformer automatischer ISCN-Endpunkt |
 | Output | Validiertes JSON, HTML, XLSX und checksummed release bundle |
@@ -282,6 +285,59 @@ ontseq run sample.manifest.json \
   --run-id RUN_001
 ```
 
+Direkter JSON-Run-Bericht für Automation und Monitoring:
+
+```bash
+ontseq run sample.manifest.json \
+  --reference-lock /approved/references/reference.lock.json \
+  --reference-fasta /approved/references/reference.fasta \
+  --run-id RUN_001 \
+  --json --json-output results/run.json
+```
+
+Um die lokale Umgebung vor dem ersten produktiven Einsatz zu prüfen:
+
+```bash
+ontseq doctor
+ontseq doctor --strict --output-dir results/doctor
+```
+
+Kurzbefehle für den lokalen Test (PowerShell):
+
+```powershell
+# Einmalig in der aktuellen Session:
+$env:PYTHONPATH = "$PWD\src"
+
+function ontseq-demo {
+    python -m ontseq_platform.entrypoint demo --output-dir results\demo
+}
+
+function ontseq-doctor {
+    param([switch]$Strict)
+    if ($Strict) {
+        python -m ontseq_platform.entrypoint doctor --strict --output-dir results\doctor
+    } else {
+        python -m ontseq_platform.entrypoint doctor --output-dir results\doctor
+    }
+}
+```
+
+Batch-freundliche Aufrufvariante:
+
+```batch
+@echo off
+set "PYTHONPATH=%~dp0..\src"
+python -m ontseq_platform.entrypoint doctor --strict --output-dir results\doctor
+python -m ontseq_platform.entrypoint demo --output-dir results\demo
+```
+
+CI-geeignete Testzusammenfassung mit JSON-Ausgabe:
+
+```powershell
+pwsh .\scripts\run_test_suite.ps1 -JsonSummary
+pwsh .\scripts\run_test_suite.ps1 -JsonSummary -SummaryPath .\artifacts\run_suite_summary.json
+```
+
 Komponenten für genau diesen Lauf wählen — etwa Sniffles 2.4 statt 2.8.0 für einen
 Vergleich, oder die CNV-Lane abschalten:
 
@@ -300,6 +356,58 @@ sie nicht, bricht die betroffene Stage ab und nennt beide Versionen. Details in
 
 Vor einem realen Run sollte immer zuerst die dokumentierte Preflight-/Reference-Lock-Logik
 verwendet werden. Für echte genomische Daten gelten die lokalen Daten- und Governance-Regeln.
+
+Technischer Paired-Source-Methylierungstest aus zwei extern gespeicherten Nanopolish-Tabellen:
+
+```bash
+ontseq methylation-mixture \
+  --source-a-calls source_a.tsv.gz --source-b-calls source_b.tsv.gz \
+  --source-a-id SOURCE_A --source-b-id SOURCE_B \
+  --confirm-biologically-distinct-sources \
+  --source-a-metadata source_a.metadata.yaml \
+  --source-b-metadata source_b.metadata.yaml \
+  --source-a-genome-build GRCh38 --source-b-genome-build GRCh38 \
+  --analysis-id METH_MIX_001 \
+  --policy configs/methylation/paired_source_nanopolish.technical.yaml \
+  --output-dir results/methylation-mixture/METH_MIX_001
+```
+
+Der geschätzte Wert ist ein methylierungsbasierter Source-A-Mischkoeffizient. Seine bekannte
+Vergleichsgröße im Experiment ist der Anteil gehaltener Readgruppen aus Quelle A. Ohne zusätzliche
+biologische Kalibrierung ist er kein Tumor-, Zell- oder DNA-Massenanteil. JSON, CSV und HTML sind
+sensible abgeleitete Genomdaten. Ein kleiner öffentlicher Smoke-Test belegt nur die technische
+Ausführbarkeit, weder Purity/LoD noch das Speicherverhalten großer Ganzgenom-Tabellen. Optionale
+Source-Metadaten werden strukturiert übernommen; fehlende Provenienz bleibt explizit `unknown`
+und erzeugt Warnungen. `COMPLETED` beschreibt die Quantifizierbarkeit des Grids; die separate
+Recovery-Bewertung prüft Bias, MAE, RMSE und Intervallabdeckung gegen bekannte Mischanteile.
+
+### Sofortiger Windows-Test (ein Klick-Nähe)
+
+Für einen kompletten lokalen Starttest ist ein praktisches Skript im Repo verfügbar:
+
+```powershell
+.\scripts\run_test_suite.ps1
+```
+
+Das Skript führt aus:
+
+- Installation (`python -m pip install -e ".[dev,workflow]"`)
+- Safety-/Version-/Lint-/Type-/Test-Checks (`make`-Äquivalente mit Module-Calls)
+- Einen vollständig synthetischen End-to-End-Scheinlauf mit `ontseq demo`
+
+Nützliche Varianten:
+
+```powershell
+.\scripts\run_test_suite.ps1 -NoInstall
+.\scripts\run_test_suite.ps1 -SkipChecks
+```
+
+Nach dem Lauf findest du die Artefakte in `results\quick-test\`:
+
+- `demo/` → JSON/HTML/XLSX aus einem rein synthetischen Referenzszenario
+
+Hinweis: Der optionale `system-smoke` ist im Skript bewusst als manuell dokumentierter
+Erweiterungsschritt erwähnt, da er die komplette, externe Tool-Installation voraussetzt.
 
 ## 10. Repository-Struktur
 
@@ -415,6 +523,13 @@ Datenschutz, Validierung und gegebenenfalls Medizinprodukterecht separat geklär
 - [Aligned-BAM MVP](docs/ALIGNED_BAM_MVP.md)
 - [Desktop](desktop/README.md)
 - [Benchmarking](docs/BENCHMARKING.md)
+- [Methylation lane](docs/METHYLATION_LANE.md)
+- [Paired-source methylation mixtures](docs/METHYLATION_MIXTURE.md)
+- [Prospective two-source methylation holdout](docs/METHYLATION_HOLDOUT.md)
+- [Current methylation holdout status](docs/METHYLATION_HOLDOUT_STATUS.md)
+- [Dorado MM/ML and modkit extract-full adapter](docs/MODBAM_ADAPTER.md)
+- [Public methylation source candidates and intake proposal](docs/METHYLATION_ADDITIONAL_DATA_SEARCH.md)
+- [Dilution series and detection limit](docs/DILUTION_SERIES.md)
 - [Master-thesis traceability](docs/THESIS_TRACEABILITY.md)
 - [Clinical validation plan](docs/CLINICAL_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md)

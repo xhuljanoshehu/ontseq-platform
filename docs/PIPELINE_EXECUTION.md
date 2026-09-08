@@ -13,6 +13,13 @@ ontseq run <manifest.json> --reference-lock <lock.json> --reference-fasta <refer
 The scope of automation ends where interpretation begins. The pipeline produces evidence
 and provenance; a human decides what any of it means.
 
+The standalone `ontseq methylation-mixture` command is deliberately outside this single-sample
+stage graph. It compares two Nanopolish call tables, reserves disjoint calibration pools and
+creates seeded held-out read-group mixtures. Its output is a methylation-based source-A mixture
+coefficient evaluated against the known read-group fraction, not tumour purity, cell fraction or
+DNA-mass fraction. See
+[`METHYLATION_MIXTURE.md`](METHYLATION_MIXTURE.md) for its contract and command line.
+
 ---
 
 ## 1. The stage graph
@@ -30,6 +37,7 @@ about without executing anything.
 | `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
 | `sv` | Sniffles2 + cuteSV, consensus and annotations | all | no | adapters verified with synthetic contracts; real-tool CI |
+| `methylation` | modkit | all | no | **unverified adapter** |
 | `assemble` | — | all | yes | pure Python |
 | `report` | — | all | yes | pure Python |
 | `release` | — | all | yes | pure Python |
@@ -43,6 +51,28 @@ Which stages run follows from the manifest's declared `input.kind`, never from w
 happens to exist on disk. An aligned-BAM run does not "skip" basecalling; basecalling does
 not apply to it. This distinction is load-bearing: a stage that does not apply must not
 appear in the report as something that failed to happen.
+
+### Three ways a stage can be out of scope
+
+Applicability is not one question but three, and the run report keeps them apart because a
+reader tracing an absent result needs to know which one they are looking at.
+
+| Gate | Decided by | Records | Example |
+| --- | --- | --- | --- |
+| Input kind | `StageSpec.applicable_for` | absent from the plan entirely | `basecall` on an aligned-BAM run |
+| Assay | the manifest's `assay.mode` | `applicable: false` | `target_coverage` on an lcWGS run |
+| Requested analysis | the manifest's `analysis.modules` | `requested: false` | `sv` and `methylation` on a CNV-only run |
+
+The third gate is the manifest acting as the run's scope contract. A stage that runs
+anyway produces evidence nobody asked for and — the failure that motivated the gate — can
+kill a run over a tool the operator had no reason to configure: a manifest declaring
+`modules: [qc, cnv, report]` used to drive a structural-variant attempt regardless, so a
+CNV-only run died on a missing cuteSV reference FASTA.
+
+Skipping is never silent. Each of the three records a reason saying it is a scope
+statement rather than a negative result, and a stage that *was* requested but cannot be
+configured still fails closed: asking for SV evidence with no caller policy is an error,
+not a skip.
 
 ### Bridging skipped stages
 
@@ -200,9 +230,18 @@ and any run that completes a basecalling stage carries an explicit warning in it
 and release bundle. Treat POD5 runs as untested until someone executes one against a real
 GPU and a real model.
 
-**Modified-base tags are carried, not interpreted.** CI proves `MM`/`ML` survive alignment,
-including on reverse-strand records. It does not prove that a downstream methylation caller
-reads them correctly, because there is no methylation lane yet to read them.
+**The methylation lane has never met modkit.** There is now a lane that reads the `MM`/`ML`
+tags CI proves survive alignment (`docs/METHYLATION_LANE.md`), but no modkit binary exists in
+this repository's CI or development environment, so the adapter is marked `unverified_adapter`
+and a run completing that stage says so. Its bedMethyl parsing, region aggregation and refusals
+are unit tested against synthetic pileups; its behaviour on real modkit output is an assumption.
+What CI still does not prove is that a caller interprets modified-base tags on reverse-strand
+records correctly — that needs a real run, not a lane.
+
+**The paired-source Nanopolish experiment is technical and separate.** Its parser, exact-marker
+matching, seeded mixing, regression, uncertainty and no-call rules use synthetic contract tests.
+It does not validate Nanopolish upstream calling, prove the declared reference build or establish
+a biological tumour fraction. Public or institutional methylation tables remain outside Git.
 
 **No stage output has clinical meaning.** Tool versions are pinned for reproducibility.
 Thresholds are technical defaults. `qc` gates are `null` pending analytical validation. A

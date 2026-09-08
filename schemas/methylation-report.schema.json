@@ -1,0 +1,424 @@
+{
+  "$defs": {
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "MethylationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "combine_strands": {
+          "default": true,
+          "title": "Combine Strands",
+          "type": "boolean"
+        },
+        "cpg_only": {
+          "default": true,
+          "title": "Cpg Only",
+          "type": "boolean"
+        },
+        "expected_version": {
+          "default": "0.4.1",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Expected Version",
+          "type": "string"
+        },
+        "filter_threshold": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Filter Threshold",
+          "type": "number"
+        },
+        "ignored_codes": {
+          "items": {
+            "$ref": "#/$defs/ModificationCode"
+          },
+          "title": "Ignored Codes",
+          "type": "array"
+        },
+        "minimum_valid_coverage": {
+          "default": 5,
+          "minimum": 1,
+          "title": "Minimum Valid Coverage",
+          "type": "integer"
+        },
+        "modification_codes": {
+          "items": {
+            "$ref": "#/$defs/ModificationCode"
+          },
+          "minItems": 1,
+          "title": "Modification Codes",
+          "type": "array"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "region_source": {
+          "$ref": "#/$defs/MethylationRegionSource",
+          "default": "chromosome"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "technical_defaults_only",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "verify_modified_base_tags": {
+          "default": true,
+          "title": "Verify Modified Base Tags",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profile_id",
+        "status",
+        "note"
+      ],
+      "title": "MethylationPolicy",
+      "type": "object"
+    },
+    "MethylationRegionSource": {
+      "description": "What the rows of the report are aggregated over.",
+      "enum": [
+        "target_bed",
+        "chromosome"
+      ],
+      "title": "MethylationRegionSource",
+      "type": "string"
+    },
+    "MethylationRegionSummary": {
+      "additionalProperties": false,
+      "description": "One region, one modification code.\n\n``start``/``end`` are present for BED-derived rows and absent for chromosome rows: the\nadapter aggregates the pileup it was given and does not read contig lengths, so it\ncannot honestly claim a chromosome span it never saw.",
+      "properties": {
+        "chromosome": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "mean_modified_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Modified Fraction"
+        },
+        "mean_valid_coverage": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Valid Coverage"
+        },
+        "median_site_modified_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Median Site Modified Fraction"
+        },
+        "modification_code": {
+          "$ref": "#/$defs/ModificationCode"
+        },
+        "modification_name": {
+          "minLength": 1,
+          "title": "Modification Name",
+          "type": "string"
+        },
+        "modified_call_count": {
+          "minimum": 0,
+          "title": "Modified Call Count",
+          "type": "integer"
+        },
+        "region_id": {
+          "minLength": 1,
+          "title": "Region Id",
+          "type": "string"
+        },
+        "sites_at_minimum_coverage": {
+          "minimum": 0,
+          "title": "Sites At Minimum Coverage",
+          "type": "integer"
+        },
+        "sites_total": {
+          "minimum": 0,
+          "title": "Sites Total",
+          "type": "integer"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "valid_call_count": {
+          "minimum": 0,
+          "title": "Valid Call Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "region_id",
+        "chromosome",
+        "modification_code",
+        "modification_name",
+        "sites_total",
+        "sites_at_minimum_coverage",
+        "valid_call_count",
+        "modified_call_count"
+      ],
+      "title": "MethylationRegionSummary",
+      "type": "object"
+    },
+    "ModificationCode": {
+      "description": "The modified-base codes this adapter is prepared to normalize.\n\nDeliberately a closed set. modkit reports whatever the basecalling model emitted, and\na code nobody planned for must surface as a refusal rather than be dropped on the\nfloor: silently discarding ``h`` rows from a 5mC+5hmC model would understate total\nmodification without anything in the report saying so.",
+      "enum": [
+        "m",
+        "h",
+        "a"
+      ],
+      "title": "ModificationCode",
+      "type": "string"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bedmethyl_fingerprint": {
+      "$ref": "#/$defs/FileFingerprint"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/MethylationPolicy"
+    },
+    "reads_with_modified_base_tags": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reads With Modified Base Tags"
+    },
+    "region_source": {
+      "$ref": "#/$defs/MethylationRegionSource"
+    },
+    "regions": {
+      "items": {
+        "$ref": "#/$defs/MethylationRegionSummary"
+      },
+      "title": "Regions",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ModuleRunStatus"
+    },
+    "summary_metrics": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "title": "Summary Metrics",
+      "type": "object"
+    },
+    "target_bed_fingerprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolRecord"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sample_id",
+    "genome_build",
+    "status",
+    "policy",
+    "region_source",
+    "bedmethyl_fingerprint",
+    "tool"
+  ],
+  "title": "MethylationReport",
+  "type": "object"
+}

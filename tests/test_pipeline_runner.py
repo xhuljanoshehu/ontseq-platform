@@ -178,7 +178,10 @@ class HappyPathTests(RunnerCase):
     def test_every_planned_stage_is_recorded(self) -> None:
         report, bundle = self._run()
         recorded = {record.stage for record in report.stages}
-        self.assertEqual(recorded, set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV})
+        self.assertEqual(
+            recorded,
+            set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION},
+        )
         self.assertTrue(report.passed)
         self.assertIsNotNone(bundle)
 
@@ -190,10 +193,11 @@ class HappyPathTests(RunnerCase):
 
     def test_unwired_stages_are_not_run_and_say_why(self) -> None:
         report, _ = self._run()
-        record = report.record_for(StageId.CNV)
-        self.assertIsNotNone(record)
-        self.assertEqual(record.status, ModuleRunStatus.NOT_RUN)
-        self.assertIn("No adapter is wired in", record.reason)
+        for stage in (StageId.CNV, StageId.METHYLATION):
+            record = report.record_for(stage)
+            self.assertIsNotNone(record)
+            self.assertEqual(record.status, ModuleRunStatus.NOT_RUN)
+            self.assertIn("No adapter is wired in", record.reason)
 
     def test_the_run_report_is_checksummed_into_its_own_bundle(self) -> None:
         _, bundle = self._run()
@@ -451,7 +455,8 @@ class AlignSettleTests(unittest.TestCase):
     def test_the_manifest_is_repointed_at_the_aligned_bam(self) -> None:
         self.settle(self.context, self.outputs)
         self.assertEqual(self.context.manifest.input.kind, InputKind.ALIGNED_BAM)
-        self.assertTrue(self.context.manifest.input.path.endswith("alignment/FAKE_RUNNER_001.bam"))
+        aligned_path = Path(self.context.manifest.input.path)
+        self.assertEqual(aligned_path.parts[-2:], ("alignment", "FAKE_RUNNER_001.bam"))
         self.assertEqual(
             self.context.manifest.input.index_path, f"{self.context.manifest.input.path}.bai"
         )

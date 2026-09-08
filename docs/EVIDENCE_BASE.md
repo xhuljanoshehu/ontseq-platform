@@ -1,10 +1,10 @@
 # Evidence base and tool-selection record
 
 **Status:** living scoping review  
-**Last searched:** 2026-08-14  
+**Last searched:** 2026-09-04
 **Scope:** single-sample Oxford Nanopore analysis for hematologic malignancies, with emphasis
 on low-coverage whole-genome copy number, adaptive-sampling structural variants/fusions,
-reproducible reporting and expert-reviewed ISCN proposals.
+exploratory methylation, reproducible reporting and expert-reviewed ISCN proposals.
 
 This document is the scientific decision record for candidate selection. It is not a systematic
 review, a clinical claim or a substitute for local analytical validation. Lea Evers' thesis is a
@@ -15,7 +15,8 @@ context source only; it neither outranks independent evidence nor fixes the impl
 The search prioritized peer-reviewed primary studies, benchmark studies, professional guidance,
 public reference-material programs and official workflow/tool documentation. Search themes
 combined `nanopore`, `long-read`, `acute leukemia` or `AML`, `low coverage`, `copy number`,
-`structural variant`, `fusion`, `adaptive sampling`, `benchmark`, `validation` and `ISCN`.
+`structural variant`, `fusion`, `adaptive sampling`, `methylation`, `classification`,
+`dilution`, `benchmark`, `validation` and `ISCN`.
 
 Sources were included when they informed at least one of these decisions:
 
@@ -44,7 +45,8 @@ Evidence level describes applicability to this project, not general publication 
 
 | Source | Level | Design and principal result | Applicability and limitation | Repository decision |
 | --- | --- | --- | --- | --- |
-| Heuser et al., *Blood Advances* (2026), [doi:10.1182/bloodadvances.2026019960](https://doi.org/10.1182/bloodadvances.2026019960) | A | Low-coverage long-read karyotyping in 100 diagnostic AML samples; reports high agreement, inter-laboratory reproducibility and a roughly 34-hour median turnaround time. | Closest disease and intended workflow evidence. Publication-level performance must be decomposed by event class, coverage, purity and truth method before reuse. | Treat as the primary external design reference for an AML lcWGS lane; reproduce only against a locked local truth set. |
+| Heuser et al., *Blood Advances* (2026), [doi:10.1182/bloodadvances.2026019960](https://doi.org/10.1182/bloodadvances.2026019960) | A | ONT low-coverage WGS of 100 diagnostic AML samples reported 93% sensitivity, specificity and overall accuracy for chromosomal aberrations, AUC 0.971 for complex karyotype, inter-laboratory reproducibility R=0.99 and a roughly 34-hour median turnaround time. | Closest disease and intended workflow evidence. Estimated clone size had only moderate agreement with conventional cytogenetics (R=0.54); CNV-derived clone fraction is therefore not exact calibration truth for methylation. | Treat as the primary external design reference for the AML lcWGS lane. Keep CNV/ploidy and cytogenetic clone estimates as orthogonal validation strata, never as the known truth for a methylation source coefficient. |
+| Schönung et al., bioRxiv (2026), [doi:10.64898/2026.07.02.735835](https://doi.org/10.64898/2026.07.02.735835) | D | Curated 7,053 hematologic methylation-array samples and retained 5,420 after QC: 3,796 neoplasms and 1,624 controls, including 578 isolated hematopoietic-cell samples. The entity classifier used 12,627 variable CpGs and a final 932-CpG XGBoost panel; ONT transfer used Dorado/modkit values at array coordinates and explicit probability-based unknown assignments. | Strong candidate source for cell-type-aware marker discovery and abstention. It is a preprint, largely array-based, contains no dilution series or source-fraction estimator, and its ONT path is not a Nanopolish read-group model. Its DMP and classifier thresholds do not validate mixture-reportability thresholds. | Catalogue the atlas and marker panel in a separate versioned discovery lane. Preserve lineage-specific normal references; require a cross-platform adapter and independent dilution validation before using atlas markers in a paired-source estimator. |
 | Geyer et al., *Leukemia* (2025), [doi:10.1038/s41375-025-02565-y](https://doi.org/10.1038/s41375-025-02565-y) | A | Adaptive-sampling ONT in 57 pediatric acute leukemias; reported 100% specificity and 96% sensitivity for genomic subtype, with both gross-karyotype misses occurring below 30% blasts. | Strong support for rapid integrated CNV/fusion analysis. Pediatric mix, custom analysis and high blast fractions limit direct transfer to adult AML. | Make tumor/blast fraction a mandatory manifest/QC field; validate explicit low-purity no-call thresholds. |
 | Salmon et al., *Leukemia* (2026), [doi:10.1038/s41375-025-02801-5](https://doi.org/10.1038/s41375-025-02801-5) | A | Adaptive sampling of 240 genes in 20 hematologic cases detected all 12 known tyrosine-kinase fusions and resolved novel/complex partners. | Supports targeted long-read fusion resolution. Small selected cohort; a breakpoint outside the target design was missed and off-target CNV was exploratory. | Version the target BED as an assay component; report insufficient partner/breakpoint coverage as `NO_CALL`, never as negative. |
 | Smolka et al., *Nature Biotechnology* (2024), [doi:10.1038/s41587-023-02024-y](https://doi.org/10.1038/s41587-023-02024-y) | B | Sniffles2 benchmarked long-read SV calling across ONT/HiFi, SV classes and 5-50x coverage, including mosaic calling. | Strong general-purpose SV evidence, but not an AML tumor-only clinical validation. | Retain Sniffles2 as a conservative candidate and provenance-rich evidence source, not a validated truth generator. |

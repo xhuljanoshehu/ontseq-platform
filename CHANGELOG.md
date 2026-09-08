@@ -5,6 +5,166 @@ validated release.
 
 ## Unreleased
 
+### Security
+
+- Validation sample, donor, source and cell-type identities reject Unicode control
+  and format characters. A synthetic end-to-end regression showed that a NUL-suffixed
+  donor label could previously evade the equality gate for a reused donor. Ordinary
+  whitespace normalization and identity case remain unchanged. Unknown-provenance
+  checks also normalize surrounding whitespace and case. Fresh source/runtime locks
+  are required; declared identity still needs external evidence.
+- Nanopolish adapter `nanopolish-call-table-v2` bounds decoded bytes as well as
+  compressed input size, limits headers and physical lines before CSV parsing, and
+  rejects control characters in read identifiers and read-selection digests. Valid
+  input selection digests and estimator mathematics are unchanged. Source provenance
+  now records decoded byte count and `bounded-tsv-gzip-v1`; old registrations need
+  a fresh software lock. Validation impact is documented in `docs/CLINICAL_VALIDATION.md`.
+
+### Added
+
+- A separate prospective two-source read-holdout study for Nanopolish, SAM/modBAM and
+  modkit inputs. It binds the intact-read split, seeds, cohort, matrix and source/runtime
+  code before outcomes are examined, reports stratified recovery, and always states that
+  donor-independent validation is `NOT_EVALUATED`. The stricter four-sample lane remains
+  an additional study; it is not a prerequisite for scoped two-source recovery.
+- A prospective independent methylation-validation lane with a versioned fraction/read-budget/
+  seed matrix, source and software provenance, stratified recovery criteria and explicit missing-
+  evidence `NO_CALL`. Its criteria are research proposals, not validated clinical thresholds.
+- Separate Dorado/modBAM MM/ML and modkit per-read adapters, retaining the Nanopolish path.
+  Biological-output impact and remaining uncertainty are reviewed in
+  `docs/CLINICAL_VALIDATION.md`; only synthetic conformance fixtures belong in Git.
+- A public methylation-data candidate catalogue distinguishing technical cell-line controls from
+  eligible independent biological evidence and recording unresolved acquisition/provenance gaps.
+- A modified-base (methylation) lane. `modkit pileup` is wired into the canonical run graph as
+  the version-locked `methylation` stage, aggregating `MM`/`ML` calls into per-region 5mC
+  fractions over either canonical chromosomes or the locked target design. It runs only when the
+  manifest requests the module, is deselectable like any other component, and its normalized
+  report is a validated artifact in the run envelope with its own module outcome, tool record and
+  release-bundle checksum. See [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md).
+- A deterministic in-silico tumour dilution series. `plan_dilution_series` lays out the whole
+  titration as reviewable data — per-level read budgets, derived seeds, exact subsample arguments
+  — without touching a BAM; `execute_dilution_series` materialises it with version-locked
+  samtools and verifies every level against the fraction it claims.
+- A technical limit-of-detection evaluation over the benchmark reports of a series, reusing the
+  `tumor_fraction`/`replicate` strata the benchmark cases already carry. It reports per-level
+  detection rates, whether the limit is bracketed by an observed failing level, and refuses to
+  report a low level that passed while a higher one failed.
+- CLI: `call-methylation`, `dilution-plan`, `dilution-mix` and `lod`; `ontseq run` and
+  `ontseq preflight` accept `--methylation-policy` and `--modkit`.
+- Technical policies `configs/methylation/modkit.technical.yaml`,
+  `configs/benchmark/dilution_series.technical.yaml` and `configs/benchmark/lod.technical.yaml`,
+  plus seven exported schemas for the new contracts.
+- A standalone paired-source Nanopolish methylation experiment with exact shared markers,
+  disjoint calibration and held-out read pools, deterministic fixed-budget mixtures, constrained
+  weighted least squares over separate methylated/unmethylated call-rate channels, conditional
+  four-state conditional Dirichlet Monte Carlo intervals (methylated, unmethylated, ambiguous
+  and missing) with the calibration marker lock held fixed,
+  variance-standardized fit diagnostics, explicit per-level `NO_CALL`, aggregate
+  `COMPLETED`/`PARTIAL`/`NO_CALL` semantics and a separate technical recovery assessment against
+  known fractions. It emits
+  schema-validated JSON, CSV and self-contained HTML; see
+  [`docs/METHYLATION_MIXTURE.md`](docs/METHYLATION_MIXTURE.md).
+- Technical policy `configs/methylation/paired_source_nanopolish.technical.yaml` for the paired-
+  source fractions, seeds, marker filters, fit gate, conditional uncertainty and engineering-only
+  recovery gates, plus an explicit Nanopolish source-metadata template.
+
+### Fixed
+
+- Per-read modification adapter version `0.1.1` rejects explicit Dorado duplex
+  offspring (`dx:i:1`) even without a recognizable program header and rejects
+  modkit alignment spans beyond the locked reference. Valid simplex probability
+  classification is unchanged. New synthetic regressions cover both boundaries;
+  previously registered adapter/code versions require a new prospective lock.
+  See `docs/CLINICAL_VALIDATION.md` for validation impact and TSV limitations.
+- The per-read modkit adapter now accepts only the source-reviewed 0.6.1 `extract full`
+  contract. It rejects older/incompatible tables early, treats alignment ends as exclusive
+  and reconstructs ML probability bins from rounded midpoint output so TSV and SAM call
+  classification agree at policy boundaries. This pin applies to the new per-read path,
+  independently of the existing pileup lane; actual binary interoperability remains untested.
+- Replaced independent Dirichlet perturbation of both calibration endpoints with algorithm v2's
+  fitted-mixture conditional interval. The former errors-in-variables construction displaced
+  low-coverage endpoint intervals toward the centre even when the point fit was exact. Reloading
+  a completed JSON report now recomputes its point estimate, fit and seeded interval from the
+  stored marker counts, so coordinated result tampering is rejected. Reload validation also
+  binds calibration-pool sizes and every level seed to the locked policy, including `NO_CALL`
+  reports. Marker contrasts exactly on the configured delta-beta boundary now use a narrow
+  numerical tolerance so binary floating-point representation cannot create a false `NO_CALL`.
+- Repository safety now rejects Nanopolish call tables and sensitive methylation-mixture
+  JSON/CSV/HTML even when renamed, and matching generated filenames are ignored by default.
+- The structural-variant stage now runs only when the manifest requests the `sv` module, the
+  way CNV and methylation already do. It previously gated on *which policies were supplied*
+  rather than on *what the run asked for*, so a manifest declaring `modules: [qc, cnv, report]`
+  still drove an SV attempt — and a CNV-only run died with "cuteSV requires --reference-fasta"
+  on a reference it had no reason to supply. A run that did not request the module now records
+  `NOT_RUN` with the reason naming it a scope statement; a run that *did* request it with no
+  caller policy still fails closed.
+
+### Changed
+
+- Preflight answers the methylation lane's preconditions before an envelope exists: policy
+  present, reference FASTA present when the pileup is CpG-restricted, target BED present when
+  aggregation is over the design, and a warning that MM/ML tag presence can only be established
+  by reading the BAM.
+- Preflight applies the same scope rule to the SV callers: a run that does not request the
+  module is neither told about a missing sniffles or cuteSV nor held to their version locks,
+  so the tool section keeps meaning something.
+- Stage skip vocabulary is now consistent and distinct: `applicable: false` means the assay has
+  nothing for the stage to measure, `requested: false` means the manifest did not ask for it.
+  `docs/PIPELINE_EXECUTION.md` documents the three gates side by side.
+- The unverified-adapter warning is no longer raised for a methylation stage the run never
+  requested, so the line keeps meaning something.
+- The paired-source Nanopolish technical policy and documentation now match the implemented
+  per-motif LLR threshold (`threshold * num_motifs`), M/U call-rate WLS and the dimensionless
+  `maximum_standardized_model_fit_rmse` gate. They also state the required upstream provenance,
+  sensitive-output handling and the parser's current policy-bounded in-memory scaling boundary.
+  Quantifiability is now separated from recovery: bias, MAE, RMSE and empirical interval coverage
+  produce `PASS`, `FAIL` or `NOT_EVALUABLE` under locked but unvalidated technical thresholds.
+- The Nanopolish adapter now requires an explicit operator declaration that the inputs are
+  biologically distinct, locks sequence-context hashes into exact marker identity, restricts
+  known caller provenance to Nanopolish, checks a typed reference-build declaration and displays
+  requested and realized fractions separately in HTML.
+
+### Validation impact
+
+- Both lanes are new evidence surfaces and neither is validated. The modkit adapter has **never**
+  been executed against the real binary here or in CI; it is declared `unverified_adapter` and a
+  run completing that stage is reported as such. Fail-closed behaviour is deliberate and load
+  bearing: a BAM without `MM` tags fails the stage rather than producing an empty pileup that
+  would read as unmethylated DNA, a region with no site above the coverage floor reports `null`
+  rather than `0.0`, and the modkit confidence threshold is pinned in policy rather than
+  estimated from the sample.
+- A detection limit from an in-silico series characterises software behaviour on one pair of
+  BAMs. It reproduces read-fraction effects and nothing about library preparation, input mass or
+  capture behaviour at low tumour content, its replicates are not independent specimens, and an
+  unbracketed limit is reported as a bound rather than a limit. No number from this lane is an
+  analytical or clinical sensitivity.
+- No existing lane's output changes. Assembly gains an optional methylation module outcome;
+  results without the lane are byte-identical apart from that absence.
+- The paired-source methylation coefficient is calibrated to the fraction of held-out read groups
+  drawn from source A. It is not tumour purity, blast fraction, cell fraction or DNA-mass
+  fraction. Its seeded replicates reuse the same two sources, and its conditional interval holds
+  the calibration lock fixed; it does not account for calibration-source uncertainty, donor
+  variation, wet-lab dilution, platform transfer, CNV, ploidy or correlated calls.
+  Policy values are unvalidated engineering defaults; 5, 10 and 20 percent are test levels, not
+  established detection limits. A SMALL public-data smoke can test only technical integration;
+  it establishes neither purity nor LoD and does not exercise whole-genome memory scale. Outputs
+  are sensitive derived genomic artifacts. The report embeds input fingerprints, software/Git
+  identity and typed caller, reference, platform, flow-cell, library-kit and basecaller metadata;
+  known cross-source conflicts fail closed, while omitted values remain explicitly unknown and
+  produce reviewer-visible warnings. Byte and row caps bound accepted input scale, but the parser
+  still holds accepted calls in RAM. Unknown provenance prevents cross-run or biological
+  interpretation.
+  A technically `COMPLETED` grid may still fail the separate recovery assessment; this prevents
+  successful execution from being presented as accurate known-fraction recovery.
+  The path changes no existing single-sample biological output.
+- The SV gating fix does change behaviour for one case, deliberately: a run whose manifest
+  omits `sv` but whose configuration supplied caller policies previously produced structural
+  variant evidence and now records `NOT_RUN`. That evidence was outside the declared analysis
+  scope; a run asking for CNV was never asking for SV. The change is visible rather than
+  silent — the module outcome, run report, HTML and XLSX all carry the reason — and a manifest
+  that lists `sv` behaves exactly as before. Runs already in an envelope are unaffected: the
+  stage signature change re-runs the stage rather than reinterpreting an existing artifact.
+
 ## 0.4.1 - 2026-08-27
 
 ### Added

@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Declared upstream protocol metadata for one call table.\n\n``unknown`` is explicit rather than inferred from a filename.  Critical fields that are\nknown for both sources are compatibility gates in the paired-source experiment.",
+  "properties": {
+    "basecaller_model": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Basecaller Model",
+      "type": "string"
+    },
+    "basecaller_name": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Basecaller Name",
+      "type": "string"
+    },
+    "basecaller_version": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Basecaller Version",
+      "type": "string"
+    },
+    "caller_name": {
+      "default": "unknown",
+      "enum": [
+        "nanopolish",
+        "unknown"
+      ],
+      "title": "Caller Name",
+      "type": "string"
+    },
+    "caller_version": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Caller Version",
+      "type": "string"
+    },
+    "flow_cell_product_code": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Flow Cell Product Code",
+      "type": "string"
+    },
+    "library_kit": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Library Kit",
+      "type": "string"
+    },
+    "modification_context": {
+      "default": "unknown",
+      "enum": [
+        "CpG_5mC_vs_unmethylated",
+        "unknown"
+      ],
+      "title": "Modification Context",
+      "type": "string"
+    },
+    "reference_genome_build": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        {
+          "const": "unknown",
+          "type": "string"
+        }
+      ],
+      "default": "unknown",
+      "title": "Reference Genome Build"
+    },
+    "reference_id": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "reference_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference Sha256"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sequencing_platform": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+      "title": "Sequencing Platform",
+      "type": "string"
+    }
+  },
+  "title": "NanopolishSourceMetadata",
+  "type": "object"
+}

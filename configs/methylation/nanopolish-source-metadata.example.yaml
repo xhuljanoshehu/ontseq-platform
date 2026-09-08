@@ -1,0 +1,13 @@
+schema_version: 0.1.0
+caller_name: unknown
+caller_version: unknown
+reference_id: unknown
+reference_genome_build: unknown
+reference_sha256: null
+sequencing_platform: unknown
+flow_cell_product_code: unknown
+library_kit: unknown
+basecaller_name: unknown
+basecaller_version: unknown
+basecaller_model: unknown
+modification_context: unknown

@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Code Sha256",
+      "type": "string"
+    },
+    "decision": {
+      "const": "NO_CALL",
+      "default": "NO_CALL",
+      "title": "Decision",
+      "type": "string"
+    },
+    "expected_levels": {
+      "minimum": 1,
+      "title": "Expected Levels",
+      "type": "integer"
+    },
+    "matrix_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Matrix Sha256",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    },
+    "software_version": {
+      "default": "0.4.1",
+      "title": "Software Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "NOT_REGISTERED",
+      "default": "NOT_REGISTERED",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "matrix_sha256",
+    "code_sha256",
+    "expected_levels"
+  ],
+  "title": "ValidationReadiness",
+  "type": "object"
+}
