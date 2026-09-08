@@ -21,6 +21,8 @@ Thumbs.db
 # Generated outputs and runtime state
 results/
 work/
+output/
+tmp/
 logs/
 .snakemake/
 runtime_readiness/
@@ -54,6 +56,33 @@ databases/
 *.bedmethyl
 *.bigwig
 *.bw
+
+# Nanopolish inputs and sensitive derived methylation reports.
+# Renamed files are also checked by scripts/check_repository_safety.py.
+*nanopolish*.tsv
+*nanopolish*.tsv.gz
+*methylation_calls*.tsv
+*methylation_calls*.tsv.gz
+*.methylation-mixture.json
+*.methylation-mixture.csv
+*.methylation-mixture.html
+*.methylation-mixture.json.gz
+*.methylation-mixture.csv.gz
+*.methylation-mixture.html.gz
+*modkit*.tsv
+*modkit*.tsv.gz
+*.methylation-validation.json
+*.methylation-validation.csv
+*.methylation-validation.html
+*.methylation-validation.json.gz
+*.methylation-validation.csv.gz
+*.methylation-validation.html.gz
+*.methylation-holdout.json
+*.methylation-holdout.csv
+*.methylation-holdout.html
+*.methylation-holdout.json.gz
+*.methylation-holdout.csv.gz
+*.methylation-holdout.html.gz
 
 # Local environment and secrets
 .env
