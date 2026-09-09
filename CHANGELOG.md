@@ -5,7 +5,9 @@ validated release.
 
 ## Unreleased
 
-- Derive the default Desktop resource directory (`resources-v0.7.1`), runtime version and
+## 0.8.0 - 2026-09-09 (local engineering candidate)
+
+- Derive the default Desktop resource directory (`resources-v0.8.0`), runtime version and
   Desktop label from one release constant. Include current resource-path examples in
   `make versions` so future software releases cannot retain a stale default. Preserve
   explicitly configured installations and independently versioned reference, panel,
@@ -22,6 +24,8 @@ validated release.
   a new commit identity; unchanged corrected runs can still resume. Add a
   synthetic regression for repeated labels across disjoint, overlapping, empty and
   cross-chromosome intervals. See `docs/CLINICAL_VALIDATION.md` for validation impact.
+- Advance Core, Desktop and the local workspace together to 0.8.0. Reuse the installed
+  GRCh37/GRCh38 reference families without downloads or analytical policy changes.
 
 ## 0.7.1 - 2026-09-09 (local engineering candidate)
 

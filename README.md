@@ -1,6 +1,6 @@
 # ONTSeq Platform
 
-ONTSeq **0.7.1** vereint Genomanalyse und optionale Methylierungsanalyse in einem lokalen
+ONTSeq **0.8.0** vereint Genomanalyse und optionale Methylierungsanalyse in einem lokalen
 Arbeitsablauf. Methylierungsinformationen im BAM werden vor dem Start geprüft; ihre
 Auswertung wird ausdrücklich ausgewählt. Der aktuelle Stand ist ein Integrationskandidat.
 
@@ -142,7 +142,7 @@ Analyseprofil bestimmt ausschließlich die buildpassende Annotation, ohne Fallba
 
 ### ISCN-Vorschlag im aktuellen Engineering-Stand
 
-ONTSeq `0.7.1` schreibt den strukturierten Result-Vertrag `0.3.0`. Darin unterscheidet der
+ONTSeq `0.8.0` schreibt den strukturierten Result-Vertrag `0.3.0`. Darin unterscheidet der
 ISCN-Vorschlag zwischen `NOT_REQUESTED`, `NOT_ASSESSED`, `NO_RENDERABLE_CANDIDATE` und
 `PARTIAL_EVENT_LEVEL`; ältere Result-Verträge bleiben als `LEGACY_UNSPECIFIED` erkennbar. Jeder
 berücksichtigte Event erhält eine nachvollziehbare Disposition, auch wenn er wegen Policy oder
@@ -566,7 +566,7 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core und Desktop: `0.7.1` (lokaler Engineering-Kandidat vom 2026-09-09).
+Python-Core und Desktop: `0.8.0` (lokaler Engineering-Kandidat vom 2026-09-09).
 Dieser Arbeitsstand ist keine Behauptung über eine veröffentlichte GitHub-Version oder
 klinische Freigabe. Änderungen und Validation impact stehen in [`CHANGELOG.md`](CHANGELOG.md).
 

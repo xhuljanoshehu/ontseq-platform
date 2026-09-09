@@ -3,4 +3,4 @@
 from .models import PipelineResult, SampleManifest
 
 __all__ = ["PipelineResult", "SampleManifest"]
-__version__ = "0.7.1"
+__version__ = "0.8.0"
