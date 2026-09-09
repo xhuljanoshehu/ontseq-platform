@@ -1,0 +1,65 @@
+name: Apply verified audit repair
+on:
+  push:
+    branches: [fix/audit-20260909]
+    paths: ['.audit-transfer/**']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'xhuljanoshehu/ontseq-platform' && github.ref == 'refs/heads/fix/audit-20260909'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Verify exact source-only patch and apply to isolated branch
+        run: |
+          git merge-base --is-ancestor 6ec8f192b5b406c2b40d210a781243a973c60217 HEAD
+          python - <<'PY'
+          import gzip
+          import hashlib
+          from pathlib import Path
+          compressed = b''.join(Path(f'.audit-transfer/{i}.part').read_bytes() for i in range(4))
+          patch = gzip.decompress(compressed)
+          assert len(patch) == 85582, 'Unexpected patch size'
+          assert hashlib.sha256(patch).hexdigest() == '1d73f4fd786814db88c1705c0456dbfc19c34ae2010398da93ec8eb115cb3c24', 'Patch digest mismatch'
+          assert b'diff --git a/.github/' not in patch, 'Workflow changes use the owner connector separately'
+          Path('/tmp/ontseq-repair.patch').write_bytes(patch)
+          PY
+          git apply --check --index --unidiff-zero /tmp/ontseq-repair.patch
+          git apply --index --unidiff-zero /tmp/ontseq-repair.patch
+          git rm .audit-transfer/*.part
+          git diff --cached --check
+      - name: Install and independently verify repaired code
+        run: |
+          python -m pip install -e '.[dev,workflow]' pysam
+          mkdir -p /tmp/ontseq-repair-checks
+          python scripts/check_repository_safety.py
+          python scripts/export_schemas.py --check
+          python scripts/check_version_consistency.py
+          ruff check .
+          ruff format --check .
+          mypy src
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest --tb=short --junitxml=/tmp/ontseq-repair-checks/pytest.xml
+          python -m ontseq_platform demo --output-dir /tmp/ontseq-repair-demo
+          python -m pip freeze > /tmp/ontseq-repair-checks/environment.txt
+      - name: Commit verified repairs on repair branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: restore reports, reject inconsistent coverage, repair numerical and matching failures (0.8.1)'
+          git push origin HEAD:refs/heads/fix/audit-20260909
+          git rev-parse HEAD > /tmp/ontseq-repair-checks/commit.txt
+          git bundle create /tmp/ontseq-repair-checks/repaired-source.bundle HEAD
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verified-repair-source-${{ github.sha }}
+          path: /tmp/ontseq-repair-checks/
+          retention-days: 7
+          if-no-files-found: warn
