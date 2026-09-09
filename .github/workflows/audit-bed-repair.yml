@@ -1,0 +1,68 @@
+name: Verify modkit BED repair
+on:
+  push:
+    branches: [fix/audit-20260909]
+    paths: [.github/workflows/audit-bed-repair.yml]
+permissions:
+  contents: write
+jobs:
+  repair:
+    if: github.repository == 'xhuljanoshehu/ontseq-platform' && github.ref == 'refs/heads/fix/audit-20260909'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Apply exact reviewed source patch
+        run: |
+          git merge-base --is-ancestor 03ecba50b360a84df7d1a02c56f8f72c41f8359f HEAD
+          python - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+          encoded = 'H4sIAAAAAAAC/61Za3PaSBb9zq/oUr7AIoTEG2c1NY7jcVxje1yxN1tTtkvTSC2siR6MHibMVP77ntstgcCGOKklDiCp+/Z9nj638QLfZ53OPMgZ7558OL46O7347cyIPDbbumwEsSe+sFl/MrDc0E/6T+Zjq+CqQyblKpsdNpIwjyjiEinTf5PrGfCGULz5VqamSnDLC9CcPHtoKh50KTIsOmxFYHMymMlSSzyOPdqRdZ6CciNgMSBDompfkgPG26ML5UHtL9lbVDLekpzQOfAlKi/KlzNkrJpgXAXNGElHi8vAq39gdVk+rFHlTzHrFFH1xWBLBZoAsllcg/AjCTJs9Fw6xqAUtAxGc5TOkjCMGjCeUVtcUHrWkHCfhMrIBpaTiTXcm0sXSOBRw/vfrSRVAeytwmlgyzwUyvPBf69zK5xtEmDyAGQaN4ldNC1IfIA9oAlKVahA4jbjSEWf5HPHpcPDhyJs3F5N0FDhzLaQu39JuLIveNKfvKsImyTPnlUgLorflskRnRn72NkmyNsYCuqfdSWclKtHM643Okl90gDIzdsseNJReQrDYRWMeqqjgoepMl1hsBuKsdIBKLxUdFCBa1sr5gx6dFxPO0bDW2FaGJ71Y2HLveqCAnHxIs33tkSQLthL12AFEPdjHgT8sujQWBh1N4te5rzvu30gzTzU8s1yY864EK+BlFVMGGf9fvopJCql/+oiDOxp4Dm4cNdff/RQtciBkavfxfjghD7ZESyXyAKRcDRpjTpEC/roAhfHoGSXaNuQgBrYM5tmZis45+lMzXuWuT8RivIUJIUw/S15ni/VUwKn1ayHHfOws3Ej4npdoVoMSeUd+8gbgBLhAGwOiZwyoXrm6pCDswFKc48Nz3xzVDTyIr/Y43hpqlCZFaH/LLlpuMk1AnJCED/NnBWFbAAGmuSLjoaOgIaUeglgCaUiRdWozLd2MrkpBOeR9Pbtg6dkEyPCCgxho9BmYjdTEcy55ZPbNXQJLRXCJPkXmSRrkPPQHzTI3KoEswyXjhKtWUjufEETufF3HG8PmzuIA/A413GU95AcFSuoXRZI4mQuFuwYXGrcoWMzxudxqFwhWrDYqRxOXZJae26m3lxTE/keg9lFxWccMXB0COwtBDYqhcSnPFClIdwg4/Q1YbY8TaHA5IcQI9PFM9AQ+JAQFVn3NoS2SnOGaiDWccoymEMvzDiWAV+WOkMseeCbHNembkv7MOBpeRu91dAPCKs0PKuIIwsZQSz/WQJlDjyOuu/TXYTP1SFPFfYFwz90CgNeC4MNOpMQkxGGNlEqyxWOoDUiGi66PGTT/pydNyKE4NGKTak3fuvJDWozskBfK9STCZEx42Kzmqhd1jPd5Lxo9meMzTFoj2nzZdgtinWnRbz0KV0v57AfNY0pilxiXAdcEYPGgnSFyleTluyhw20DLGyfydu/TmTXWU98EvrdGdCJ27yjKwLT5as6PhiW2pqJevrnIxSdWNFBHcl+tGVZxNvtHDh3EMIcieRMnlEOjxDK69RqPTghifImJD3laOzSFbBfeTiqaVpL8WXNOlDSS/INlup8ecbsTQ+sDvoyRQJHagRRe2FbxBzWtRCfjyp/tTZmf4A/UB/Ug/dGpQjeGCIOjo+xKgewCIrKFkYmkViRUec+yBDDF9tChoFBplFNxrSlfhzSidRTauynmhRbDa85/CzLdKFBoZEEdkiSQVUstpoHxRaTtHK58LWtEsqmuCEnNvQw6KyJtiKozgqhlz/u/YJoYpfYnrOOZGFkvmezz/hDI8EyBFEtfBjNuAY91RcIpLKycAeHxcjvw85Nfpb6XxNolBeBOqwe8Vn5gfFVmcUxdRlKPGrNIrkOWFkFE/RcopCyhNcLDDDMkRQfm62jfUJHcToFKvv/GXFCOdqmw4Dir12wx/MNF9m//EDINPHbnNzTfHeFFBiz/PXVu1HetBSWHlVCZhJFcsyld17shyf6mdy+lpfKTlUGf/xF8XSNdCngQUAAA='
+          patch = gzip.decompress(base64.b64decode(encoded))
+          assert len(patch) == 9643
+          assert hashlib.sha256(patch).hexdigest() == 'dbef0583502ab000eafba6cca36f259138ff614007f5cb397bccc6009cc1ca82'
+          Path('/tmp/bed-repair.patch').write_bytes(patch)
+          PY
+          git apply --check --index /tmp/bed-repair.patch
+          git apply --index /tmp/bed-repair.patch
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/aligned_bam.yaml
+          cache-environment: true
+      - name: Prove correction using the real pinned binary
+        shell: micromamba-shell {0}
+        run: |
+          ONTSEQ_MODKIT_REAL_TOOL=1 PYTHONPATH=src python -m unittest discover -s tests -p 'test_modkit_real_tool.py' -v
+      - name: Check Python regression suite
+        run: |
+          python -m pip install -e '.[dev,workflow]' pysam
+          mkdir -p /tmp/bed-repair-checks
+          python scripts/check_repository_safety.py
+          python scripts/export_schemas.py --check
+          python scripts/check_version_consistency.py
+          ruff check .
+          ruff format --check .
+          mypy src
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest --tb=short --junitxml=/tmp/bed-repair-checks/pytest.xml
+      - name: Commit verified correction on repair branch only
+        run: |
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: preserve labelled target regions through pinned modkit BED parser'
+          git push origin HEAD:refs/heads/fix/audit-20260909
+          git rev-parse HEAD > /tmp/bed-repair-checks/commit.txt
+          git bundle create /tmp/bed-repair-checks/repaired-source.bundle HEAD
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verified-bed-repair-${{ github.sha }}
+          path: /tmp/bed-repair-checks/
+          retention-days: 7
+          if-no-files-found: warn
