@@ -35,6 +35,19 @@ displayed result traceable to caller evidence.
 **Reason:** Syntax alone does not establish semantic correctness, clonality, uncertainty or
 clinical validity.
 
+**Implemented boundary:** Result schema `0.3.0` uses the explicit proposal states
+`NOT_REQUESTED`, `NOT_ASSESSED`, `NO_RENDERABLE_CANDIDATE` and `PARTIAL_EVENT_LEVEL`. The
+`event-fragments-v0.2-unvalidated` renderer accepts only supported events originating in typed CNV
+output and records an auditable disposition for every considered event. Assessment is tied to the
+resolved GRCh37 or GRCh38 build and checksum-pinned reference lock, cytobands and annotation cache.
+
+The renderer does not infer chromosome count, sex-chromosome complement, clonality, phase,
+derivative structure, balance, normality or a baseline karyotype. SV/BND, translocation and
+inversion conversion remains disabled. A proposal always requires expert review and is never
+eligible for automatic clinical release; the implementation is not a claim of full ISCN 2024
+conformance. Result schemas `0.1.0` and `0.2.0` retain explicit legacy ISCN semantics rather than
+being silently reinterpreted.
+
 ## ADR-005: Treat the thesis as context, not specification
 
 **Decision:** Lea Evers' master's thesis remains a historical comparison source only. Public

@@ -167,6 +167,32 @@ class CuteSvAndConsensusTests(unittest.TestCase):
 
 
 class AnnotationAndPrioritizationTests(unittest.TestCase):
+    def test_picalm_mllt10_match_is_order_independent_and_uses_standard_display(self) -> None:
+        root = Path(__file__).parents[1] / "configs" / "knowledge_bundles" / "HEMATOLOGY_v3"
+        resource = root / "hematology_rearrangements.v0.3.json"
+        lock = AmlKnowledgeLock.model_validate_json(
+            (root / "hematology_rearrangements.v0.3.lock.json").read_text(encoding="utf-8")
+        )
+        genomic_order = _event(
+            "picalm-mllt10",
+            ("chr10", 21_634_899),
+            ("chr11", 85_975_045),
+            "Sniffles2",
+        ).model_copy(update={"genes": ["MLLT10", "PICALM"]})
+
+        prioritized = prioritize_aml_rearrangements(
+            [genomic_order], resource_path=resource, lock=lock
+        )[0]
+
+        self.assertEqual(prioritized.known_rearrangement, "PICALM::MLLT10")
+        self.assertEqual(prioritized.fusion_status.value, "fusion_candidate")
+        self.assertEqual(prioritized.validation_status.value, "biologically_prioritized")
+        self.assertEqual(
+            [(item.disease_id, item.name) for item in prioritized.known_pathologies],
+            [("DOID:9119", "Acute Myeloid Leukemia")],
+        )
+        self.assertFalse(prioritized.reportable)
+
     def test_build_locked_annotation_context_and_aml_pattern(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -318,11 +344,11 @@ class AnnotationAndPrioritizationTests(unittest.TestCase):
             path = render_html(result, Path(temporary) / "report.html")
             rendered = path.read_text(encoding="utf-8")
         self.assertIn("SV review queue", rendered)
-        self.assertIn("All normalized genomic events", rendered)
-        self.assertIn("AS observability", rendered)
+        self.assertIn("Technical appendix", rendered)
+        self.assertIn("Observability", rendered)
         self.assertIn("Validation status", rendered)
-        self.assertIn("Filter priority candidates", rendered)
-        self.assertIn("All technical SV calls", rendered)
+        self.assertIn("Filter review queue", rendered)
+        self.assertIn("BENCHMARK_REQUIRED", rendered)
 
 
 if __name__ == "__main__":

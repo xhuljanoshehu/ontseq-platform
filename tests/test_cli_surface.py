@@ -22,7 +22,8 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from ontseq_platform import cli, entrypoint, runtime_cli
+from ontseq_platform import __version__, cli, entrypoint, runtime_cli
+from ontseq_platform.resource_bootstrap import GRCH37_PROFILE_IDS, PROFILE_IDS
 from ontseq_platform.runtime_cli import RUNTIME_COMMANDS
 
 
@@ -64,6 +65,22 @@ class CommandSetTests(unittest.TestCase):
             with self.subTest(command=name):
                 self.assertTrue(summary.strip(), f"{name} is listed without a summary")
 
+    def test_analyze_profile_choices_match_the_curated_profile_inventory(self) -> None:
+        parser = runtime_cli._parser()
+        analyze: argparse.ArgumentParser | None = None
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                analyze = action.choices["analyze"]
+                break
+        self.assertIsNotNone(analyze)
+        profile_choices: tuple[str, ...] | None = None
+        assert analyze is not None
+        for action in analyze._actions:
+            if action.dest == "profile":
+                profile_choices = tuple(action.choices or ())
+                break
+        self.assertEqual(profile_choices, (*PROFILE_IDS, *GRCH37_PROFILE_IDS))
+
 
 class OverviewTests(unittest.TestCase):
     def test_a_bare_invocation_names_both_command_groups(self) -> None:
@@ -74,6 +91,11 @@ class OverviewTests(unittest.TestCase):
     def test_the_overview_says_the_output_is_not_clinical(self) -> None:
         """The research-use statement is the first thing an operator sees."""
         self.assertIn("no output is a clinical result", entrypoint._overview())
+
+    def test_overview_names_both_supported_reference_builds(self) -> None:
+        overview = entrypoint._overview()
+        self.assertIn("GRCh37 or GRCh38 BAM", overview)
+        self.assertIn("GRCh37/GRCh38 resources", overview)
 
     def test_every_command_appears_in_the_rendered_overview(self) -> None:
         overview = entrypoint._overview()
@@ -88,6 +110,17 @@ class OverviewTests(unittest.TestCase):
                 with unittest.mock.patch("sys.argv", argv), contextlib.redirect_stdout(captured):
                     entrypoint.main()
                 self.assertIn("usage: ontseq <command>", captured.getvalue())
+
+    def test_version_commands_print_the_exact_package_version(self) -> None:
+        for argument in ("--version", "version"):
+            with self.subTest(argument=argument):
+                captured = io.StringIO()
+                with (
+                    unittest.mock.patch("sys.argv", ["ontseq", argument]),
+                    contextlib.redirect_stdout(captured),
+                ):
+                    entrypoint.main()
+                self.assertEqual(captured.getvalue().strip(), __version__)
 
 
 class FailureExitTests(unittest.TestCase):

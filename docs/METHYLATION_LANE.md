@@ -3,7 +3,9 @@
 ## Status
 
 Research use only. The adapter is wired into the canonical run graph and covered by unit tests,
-but it has **never been executed against the real modkit binary** in this repository or in CI.
+and passed a local synthetic full-pipeline smoke with the real modkit 0.4.1 binary on
+2026-09-08. This check includes both numeric regions and a low-coverage null region, plus
+empty/implicit-tag NO_CALL cases. It is not a real-binary CI gate or biological recovery study.
 `StageSpec.verification` records this as `unverified_adapter`, and a run whose methylation stage
 completes is reported under `UNVERIFIED ADAPTERS COMPLETED`. Nothing in this lane is analytically
 or clinically validated.

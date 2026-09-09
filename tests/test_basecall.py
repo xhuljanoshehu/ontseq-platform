@@ -107,7 +107,7 @@ class ArgvTests(unittest.TestCase):
         )
         self.assertEqual(argv[:2], ["dorado", "basecaller"])
         self.assertEqual(argv[2], "dna_r10.4.1_e8.2_400bps_sup@v5.0.0")
-        self.assertEqual(argv[3], "/pod5")
+        self.assertEqual(argv[3], str(Path("/pod5")))
 
     def test_the_device_is_always_explicit(self) -> None:
         """Left to a default, a CPU fallback would silently take days instead of failing."""

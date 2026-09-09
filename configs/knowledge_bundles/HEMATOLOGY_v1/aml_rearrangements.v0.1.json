@@ -1,0 +1,96 @@
+{
+  "schema_version": "0.1.0",
+  "records": [
+    {
+      "record_id": "AML-RUNX1-RUNX1T1",
+      "pattern_type": "exact_pair",
+      "genes": ["RUNX1", "RUNX1T1"],
+      "display_name": "RUNX1::RUNX1T1",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required."
+    },
+    {
+      "record_id": "AML-CBFB-MYH11",
+      "pattern_type": "exact_pair",
+      "genes": ["CBFB", "MYH11"],
+      "display_name": "CBFB::MYH11",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required."
+    },
+    {
+      "record_id": "AML-PML-RARA",
+      "pattern_type": "exact_pair",
+      "genes": ["PML", "RARA"],
+      "display_name": "PML::RARA",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "A suspected PML::RARA pattern requires urgent validated confirmatory testing; this software does not diagnose APL."
+    },
+    {
+      "record_id": "AML-DEK-NUP214",
+      "pattern_type": "exact_pair",
+      "genes": ["DEK", "NUP214"],
+      "display_name": "DEK::NUP214",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required."
+    },
+    {
+      "record_id": "AML-RBM15-MRTFA",
+      "pattern_type": "exact_pair",
+      "genes": ["RBM15", "MRTFA"],
+      "display_name": "RBM15::MRTFA",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required."
+    },
+    {
+      "record_id": "AML-BCR-ABL1",
+      "pattern_type": "exact_pair",
+      "genes": ["BCR", "ABL1"],
+      "display_name": "BCR::ABL1",
+      "relevance": "aml_relevant_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "Classification requires exclusion of CML blast phase and integration with morphology, history, and validated testing."
+    },
+    {
+      "record_id": "AML-KMT2A-R",
+      "pattern_type": "gene_any_partner",
+      "genes": ["KMT2A"],
+      "display_name": "KMT2A rearrangement",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "A breakpoint involving KMT2A is only a candidate rearrangement until the partner and transcript context are established."
+    },
+    {
+      "record_id": "AML-NUP98-R",
+      "pattern_type": "gene_any_partner",
+      "genes": ["NUP98"],
+      "display_name": "NUP98 rearrangement",
+      "relevance": "aml_defining_pattern",
+      "source_ids": ["WHO5-2022"],
+      "caveat": "A breakpoint involving NUP98 is only a candidate rearrangement until the partner and transcript context are established."
+    },
+    {
+      "record_id": "AML-MECOM-R",
+      "pattern_type": "gene_any_partner",
+      "genes": ["MECOM"],
+      "display_name": "MECOM rearrangement",
+      "relevance": "aml_relevant_pattern",
+      "source_ids": ["WHO5-2022", "ICC-2022"],
+      "caveat": "A breakpoint involving MECOM is only a candidate rearrangement until the partner and transcript context are established."
+    }
+  ],
+  "sources": {
+    "WHO5-2022": {
+      "title": "The 5th edition of the World Health Organization Classification of Haematolymphoid Tumours: Myeloid and Histiocytic/Dendritic Neoplasms",
+      "doi": "10.1038/s41375-022-01613-1"
+    },
+    "ICC-2022": {
+      "title": "International Consensus Classification of Myeloid Neoplasms and Acute Leukemias",
+      "doi": "10.1182/blood.2022015850"
+    }
+  }
+}

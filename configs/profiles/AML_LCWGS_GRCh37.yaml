@@ -1,0 +1,16 @@
+schema_version: 1.0.0
+profile_id: AML_LCWGS_GRCh37
+version: v1
+genome_build: GRCh37
+assay_mode: lcwgs
+reference_bundle: GRCh37_GENCODE19_HG19_v2
+reference_dictionary_contract: exact_full
+knowledge_bundle: HEMATOLOGY_GRCh37_v1
+panel_bundle: null
+adaptive_sampling: disabled
+description: >-
+  Native GRCh37.p13 low-coverage whole-genome research analysis using the complete
+  GENCODE19 publisher assembly dictionary, including patches, scaffolds and haplotypes.
+  No GRCh38 coordinate reuse, build inference or implicit liftover. Adaptive Sampling is
+  disabled in this lcWGS profile; use the explicit AML_AS_111_GRCh37 profile when its
+  checksum-pinned target design is appropriate, with the documented mapping gaps retained.

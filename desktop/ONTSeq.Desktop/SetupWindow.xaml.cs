@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Windows;
+using System.Windows.Media;
 using Microsoft.Win32;
 
 namespace ONTSeq.Desktop;
@@ -11,13 +12,25 @@ public partial class SetupWindow : Window
     private readonly DesktopSettings _settings;
     private readonly WslServiceLauncher _launcher = new();
     private CancellationTokenSource? _cts;
+    private IReadOnlyDictionary<string, ResourceFamilyState> _resourceFamilies =
+        DesktopResourcePolicy.UnavailableFamilies("Noch nicht geprüft.");
+    private bool _busy;
 
-    public SetupWindow(DesktopSettings settings)
+    public SetupWindow(DesktopSettings settings, string? initialResourceBuild = null)
     {
         InitializeComponent();
         _settings = settings;
+        _settings.ApplyProfileDefaults();
+        ResourceBuildCombo.ItemsSource = DesktopResourcePolicy.GenomeBuilds;
+        var defaultBuild = DesktopProfiles.Require(_settings.DefaultProfile).GenomeBuild;
+        ResourceBuildCombo.SelectedItem = DesktopResourcePolicy.GenomeBuilds.Contains(
+            initialResourceBuild, StringComparer.Ordinal)
+            ? initialResourceBuild
+            : defaultBuild;
+        ResourceRootTextBox.Text = _settings.ResourceRootWsl;
         SettingsPathText.Text = "Konfiguration: " + DesktopSettings.UserSettingsPath;
         RemoveAdaptiveBedButton.IsEnabled = _settings.HasAdaptiveTargetBedConfiguration;
+        UpdateResourceStatusDisplay();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -32,6 +45,7 @@ public partial class SetupWindow : Window
 
     private async Task RefreshAsync()
     {
+        SetResourceFamiliesUnavailable("Ressourcenstatus wird erneut geprüft.");
         await RunBusyAsync(async token =>
         {
             var wsl = await _launcher.CheckWslAsync(_settings, token);
@@ -40,23 +54,134 @@ public partial class SetupWindow : Window
             if (!wsl.Ok)
             {
                 BackendStatusText.Text = "— WSL muss zuerst funktionieren.";
+                SetResourceFamiliesUnavailable("WSL muss zuerst funktionieren.");
+                Grch38StatusText.Text = _settings.TryReferenceLockFor("GRCh38", out _)
+                    ? "— Legacy-Pfad gespeichert; WSL muss für die Prüfung funktionieren."
+                    : "— Kein Legacy-Pfad gespeichert";
                 AdaptiveBedStatusText.Text = _settings.HasAdaptiveTargetBedConfiguration
-                    ? "— Konfiguriert; WSL muss für die Prüfung funktionieren."
-                    : "— Nicht konfiguriert";
+                    ? "— Legacy-Pfad gespeichert; WSL muss für die Prüfung funktionieren."
+                    : "— Kein Legacy-Pfad gespeichert";
                 SelfTestStatusText.Text = "— Nicht möglich, solange WSL fehlt.";
                 return;
             }
 
             var backend = await _launcher.CheckBackendAsync(_settings, token);
             BackendStatusText.Text = Prefix(backend.Ok) + backend.Detail;
+            if (backend.Ok)
+                await RefreshBundleStatusesAsync(token);
+            else
+                SetResourceFamiliesUnavailable("Runtime mit Resource-Registry erforderlich.");
             await RefreshReferenceAsync("GRCh38", Grch38StatusText, token);
-            await RefreshReferenceAsync("GRCh37", Grch37StatusText, token);
             await RefreshAdaptiveBedAsync(token);
 
             DetailText.Text = backend.Ok
-                ? "System ist grundsätzlich bereit. Konfiguriere den Reference-Lock des BAM; für Adaptive Sampling zusätzlich das Analyse-ROI-BED."
+                ? "System ist grundsätzlich bereit. Für neue Läufe muss die gewählte Build-Familie vollständig sein; die andere Familie ist optional. Legacy-Pfade werden nicht mit Profil-Bundles gemischt."
                 : "Das Linux-Backend fehlt. Nutze 'Runtime installieren'; danach erneut prüfen.";
         });
+    }
+
+    private async Task RefreshBundleStatusesAsync(CancellationToken token)
+    {
+        _resourceFamilies = await _launcher.CheckResourceFamiliesAsync(_settings, token);
+        UpdateResourceStatusDisplay();
+    }
+
+    private async Task RefreshAfterActionAsync(bool completed)
+    {
+        var failureDetail = completed ? null : DetailText.Text;
+        await RefreshAsync();
+        // A status refresh may discover partial installation, but must not replace the
+        // operation's diagnostic with the generic "System ist grundsätzlich bereit".
+        if (failureDetail is not null) DetailText.Text = failureDetail;
+    }
+
+    private string SelectedResourceBuild => ResourceBuildCombo.SelectedItem as string ?? "GRCh38";
+
+    private void ResourceBuildCombo_SelectionChanged(
+        object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        UpdateResourceActionButtons();
+    }
+
+    private void ResourceRootTextBox_TextChanged(
+        object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        if (!IsLoaded || _busy) return;
+        SetResourceFamiliesUnavailable(
+            "Resource-Root geändert; mit 'Übernehmen' speichern und beide Build-Familien neu prüfen.");
+    }
+
+    private void SetResourceFamiliesUnavailable(string detail)
+    {
+        _resourceFamilies = DesktopResourcePolicy.UnavailableFamilies(detail);
+        UpdateResourceStatusDisplay();
+    }
+
+    private void UpdateResourceStatusDisplay()
+    {
+        UpdateResourceStatusLine("GRCh37", Grch37BundleStatusText);
+        UpdateResourceStatusLine("GRCh38", Grch38BundleStatusText);
+        var readyBuilds = DesktopResourcePolicy.GenomeBuilds
+            .Where(build => _resourceFamilies[build].CanAnalyze).ToArray();
+        ResourceAvailabilityHintText.Text = readyBuilds.Length switch
+        {
+            2 => "Beide Referenzfamilien sind lokal bereit. Jeder Lauf verwendet ausschließlich " +
+                 "die Familie des gewählten Analyseprofils.",
+            1 => $"{readyBuilds[0]} kann bereits verwendet werden. Die andere Familie ist für " +
+                 "diese Profile nicht erforderlich und kann zusätzlich eingerichtet werden.",
+            _ => "Noch keine Referenzfamilie als bereit bestätigt. Für einen Lauf wird nur die " +
+                 "Familie des gewählten Analyseprofils benötigt; beide können parallel bereitstehen."
+        };
+        UpdateResourceActionButtons();
+    }
+
+    private void UpdateResourceStatusLine(
+        string genomeBuild,
+        System.Windows.Controls.TextBlock target)
+    {
+        var state = _resourceFamilies[genomeBuild];
+        var marker = state.Availability switch
+        {
+            ResourceFamilyAvailability.Ready => "✓",
+            ResourceFamilyAvailability.NotInstalled => "○",
+            ResourceFamilyAvailability.Incomplete => "!",
+            _ => "—"
+        };
+        target.Text = $"{marker} {genomeBuild}: {state.Detail}";
+        target.Foreground = state.Availability switch
+        {
+            ResourceFamilyAvailability.Ready => Brushes.SeaGreen,
+            ResourceFamilyAvailability.NotInstalled => Brushes.DarkGoldenrod,
+            ResourceFamilyAvailability.Incomplete => Brushes.DarkOrange,
+            _ => Brushes.SlateGray
+        };
+    }
+
+    private void SetResourceProgress(string genomeBuild, string text)
+    {
+        var target = genomeBuild == "GRCh37"
+            ? Grch37BundleStatusText
+            : Grch38BundleStatusText;
+        target.Text = "● " + genomeBuild + ": " + text;
+        target.Foreground = Brushes.SteelBlue;
+    }
+
+    private void UpdateResourceActionButtons()
+    {
+        var state = _resourceFamilies[SelectedResourceBuild];
+        InstallBundleButton.IsEnabled = !_busy && state.CanInstall;
+        RepairBundleButton.IsEnabled = !_busy && state.CanRepair;
+        InstallBundleButton.Content = $"{state.GenomeBuild} installieren";
+        RepairBundleButton.Content = state.Availability == ResourceFamilyAvailability.Ready
+            ? $"{state.GenomeBuild} prüfen / reparieren"
+            : $"{state.GenomeBuild} reparieren";
+        InstallBundleButton.ToolTip = state.CanInstall
+            ? $"{state.GenomeBuild} in diesem Resource-Root installieren; Internetzugang und mehrere GB Speicherplatz sind erforderlich."
+            : "Installieren ist nur für eine noch nicht vorhandene Build-Familie verfügbar.";
+        RepairBundleButton.ToolTip = state.CanRepair
+            ? $"Vorhandene {state.GenomeBuild}-Ressourcen vollständig prüfen und fehlende oder beschädigte Dateien reparieren; ein Download kann erforderlich sein."
+            : "Reparieren ist erst möglich, wenn die Referenzfamilie installiert ist.";
     }
 
     private async Task RefreshReferenceAsync(
@@ -105,21 +230,75 @@ public partial class SetupWindow : Window
     private async void InstallRuntime_Click(object sender, RoutedEventArgs e)
     {
         var archive = Path.Combine(AppContext.BaseDirectory, "runtime", "ontseq-linux-runtime.tar.gz");
-        await RunBusyAsync(async token =>
+        var completed = await RunBusyAsync(async token =>
         {
-            DetailText.Text = "Installiere gepinnte ONTSeq-Linux-Runtime mit QDNAseq/ACE in WSL…";
+            DetailText.Text = "Prüfe Runtime-/Core-Prüfsummen und installiere in einen neuen WSL-Prefix; bestehende Runtime bleibt unverändert…";
             var target = await _launcher.InstallBundledRuntimeAsync(_settings, archive, token);
             BackendStatusText.Text = "✓ Installiert: " + target;
             DetailText.Text = "ONTSeq Runtime wurde installiert und als Backend gespeichert.";
         });
-        await RefreshAsync();
+        await RefreshAfterActionAsync(completed);
     }
 
     private async void ConfigureGrch38_Click(object sender, RoutedEventArgs e) =>
         await ConfigureReferenceAsync("GRCh38");
 
-    private async void ConfigureGrch37_Click(object sender, RoutedEventArgs e) =>
-        await ConfigureReferenceAsync("GRCh37");
+    private async void SaveResourceRoot_Click(object sender, RoutedEventArgs e)
+    {
+        var completed = await RunBusyAsync(token =>
+        {
+            token.ThrowIfCancellationRequested();
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            ResourceRootTextBox.Text = _settings.ResourceRootWsl;
+            DetailText.Text = "Resource-Root gespeichert: " + _settings.ResourceRootWsl;
+            return Task.CompletedTask;
+        });
+        await RefreshAfterActionAsync(completed);
+    }
+
+    private async void InstallBundle_Click(object sender, RoutedEventArgs e)
+    {
+        var build = SelectedResourceBuild;
+        var completed = await RunBusyAsync(async token =>
+        {
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            SetResourceProgress(build, "Profilressourcen werden installiert…");
+            DetailText.Text =
+                "Installiere " + string.Join(", ", WslServiceLauncher.ManagedResourceBundleIds(build)) + " und Profile nach " +
+                $"{_settings.ResourceRootWsl}.";
+            var detail = await _launcher.InstallProfileResourcesAsync(_settings, build, token);
+            SetResourceProgress(build, "Installation abgeschlossen; Status wird neu geprüft…");
+            DetailText.Text = string.IsNullOrWhiteSpace(detail)
+                ? $"Die vollständige {build}-Ressourcenfamilie wurde installiert."
+                : detail;
+        }, $"{build}: Profilressourcen konnten nicht installiert werden.");
+        await RefreshAfterActionAsync(completed);
+    }
+
+    private async void RepairBundle_Click(object sender, RoutedEventArgs e)
+    {
+        var build = SelectedResourceBuild;
+        var completed = await RunBusyAsync(async token =>
+        {
+            _settings.ResourceRootWsl = DesktopSettings.NormalizeResourceRootWsl(
+                ResourceRootTextBox.Text);
+            _settings.SaveUserSettings();
+            SetResourceProgress(build, "Vollständige Ressourcenfamilie wird geprüft und repariert…");
+            DetailText.Text =
+                "Repariere " + string.Join(", ", WslServiceLauncher.ManagedResourceBundleIds(build)) + " und Profile unter " +
+                $"{_settings.ResourceRootWsl}; manuelles Löschen ist nicht erforderlich.";
+            var detail = await _launcher.RepairProfileResourcesAsync(_settings, build, token);
+            SetResourceProgress(build, "Reparatur abgeschlossen; Status wird neu geprüft…");
+            DetailText.Text = string.IsNullOrWhiteSpace(detail)
+                ? $"Die vollständige {build}-Ressourcenfamilie wurde repariert."
+                : detail;
+        }, $"{build}: Profilressourcen konnten nicht repariert werden.");
+        await RefreshAfterActionAsync(completed);
+    }
 
     private async Task ConfigureReferenceAsync(string build)
     {
@@ -140,13 +319,13 @@ public partial class SetupWindow : Window
             MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.Yes) return;
 
-        await RunBusyAsync(async token =>
+        var completed = await RunBusyAsync(async token =>
         {
             DetailText.Text = $"Erzeuge {build}-Reference-Lock…";
             var lockPath = await _launcher.ConfigureReferenceAsync(_settings, dialog.FileName, build, token);
             DetailText.Text = $"{build}-Reference-Lock erstellt: {lockPath}";
         });
-        await RefreshAsync();
+        await RefreshAfterActionAsync(completed);
     }
 
     private async void ConfigureAdaptiveBed_Click(object sender, RoutedEventArgs e)
@@ -281,7 +460,8 @@ public partial class SetupWindow : Window
         });
     }
 
-    private async Task RunBusyAsync(Func<CancellationToken, Task> action)
+    private async Task<bool> RunBusyAsync(
+        Func<CancellationToken, Task> action, string? failureContext = null)
     {
         _cts?.Cancel();
         _cts?.Dispose();
@@ -290,15 +470,22 @@ public partial class SetupWindow : Window
         try
         {
             await action(_cts.Token);
+            return true;
         }
         catch (OperationCanceledException)
         {
-            DetailText.Text = "Vorgang abgebrochen.";
+            DetailText.Text = failureContext is null
+                ? "Vorgang abgebrochen."
+                : failureContext + "\nVorgang abgebrochen.";
+            return false;
         }
         catch (Exception error)
         {
-            DetailText.Text = error.Message;
-            MessageBox.Show(this, error.Message, "ONTSeq Einrichtung", MessageBoxButton.OK, MessageBoxImage.Error);
+            DetailText.Text = failureContext is null
+                ? error.Message
+                : failureContext + "\n" + error.Message;
+            MessageBox.Show(this, DetailText.Text, "ONTSeq Einrichtung", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
         }
         finally
         {
@@ -308,8 +495,13 @@ public partial class SetupWindow : Window
 
     private void SetBusy(bool busy)
     {
+        _busy = busy;
         CheckButton.IsEnabled = !busy;
         InstallRuntimeButton.IsEnabled = !busy;
+        SaveResourceRootButton.IsEnabled = !busy;
+        ResourceBuildCombo.IsEnabled = !busy;
+        UpdateResourceActionButtons();
+        ConfigureGrch38Button.IsEnabled = !busy;
         ConfigureAdaptiveBedButton.IsEnabled = !busy;
         RemoveAdaptiveBedButton.IsEnabled = !busy && _settings.HasAdaptiveTargetBedConfiguration;
         SelfTestButton.IsEnabled = !busy;

@@ -1,5 +1,9 @@
 # ONTSeq Platform
 
+ONTSeq **0.7.1** vereint Genomanalyse und optionale Methylierungsanalyse in einem lokalen
+Arbeitsablauf. Methylierungsinformationen im BAM werden vor dem Start geprüft; ihre
+Auswertung wird ausdrücklich ausgewählt. Der aktuelle Stand ist ein Integrationskandidat.
+
 > **Research Use Only (RUO) — nicht klinisch validiert.**
 >
 > Dieses Repository entwickelt eine reproduzierbare, weitgehend automatisierte Auswertung von
@@ -21,8 +25,9 @@ Die praktische Zielvorstellung ist einfach:
    Coverage-Annahmen gelten als im restlichen Genom.
 6. Die Ergebnisse werden als **JSON, selbstständiger HTML-Report und Excel-Arbeitsmappe**
    ausgegeben.
-7. Langfristig werden daraus ein überprüfbarer ISCN-Vorschlag und ein kontrollierter
-   Review-/Freigabeprozess.
+7. Der aktuelle Engineering-Pfad kann daraus begrenzte, ereignisbezogene CNV-Fragmente als
+   ausdrücklich unvalidierten ISCN-Vorschlag erzeugen. Ein vollständiger ISCN-Karyotyp und ein
+   klinischer Freigabeprozess sind weiterhin nicht implementiert.
 
 Das Projekt soll also nicht nur einzelne Bioinformatikprogramme starten. Es soll einen
 **nachvollziehbaren Analyseprozess** bauen: definierte Inputs, definierte Referenzen,
@@ -99,15 +104,15 @@ Diagnostiksoftware.
 | POD5 | Dorado-Adapter vorhanden, aber noch nicht gegen einen realen Dorado/GPU/Modell-Stack end-to-end verifiziert |
 | QC | Cramino integriert |
 | Adaptive-Sampling-Zielabdeckung | Mosdepth-Adapter ist als Stage im kanonischen Runner verdrahtet und läuft im End-to-End-CI; ein Adaptive-Sampling-Lauf ohne Policy bricht fail-closed ab |
-| Zielpanel | Aus den Laborquellen abgeleitetes, gepuffertes GRCh38-Panel mit 111 Zielen unter `configs/panels/`; Status `derived_unconfirmed`, siehe [`docs/PANEL_PROVENANCE.md`](docs/PANEL_PROVENANCE.md) |
+| Zielpanel | Build-getrennte Adaptive-Sampling-Bundles: GRCh38 mit 111 Laborintervallen; GRCh37/hg19 mit 110/111 kontrolliert kartierten Auswahlintervallen und 108 nativen GENCODE-19-ROIs. Offene Ziele bleiben explizit review-pflichtig, siehe [`docs/PANEL_PROVENANCE.md`](docs/PANEL_PROVENANCE.md) |
 | Komponentenauswahl | Provider und exakte Tool-Version je Stage pro Lauf wählbar, fail-closed gegen die installierte Version geprüft und in der Provenienz protokolliert |
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
 | SV | Sniffles2 2.8.0 + cuteSV 2.1.3, Breakpoint-Konsens, build-gelockte Annotation, Adaptive-Sampling-Observability, AML-Priorisierung und filterbare Review Queue; weiterhin nicht reportable |
-| Methylierung | modkit-Pileup-Lane als Stage im kanonischen Runner; MM/ML-Tags werden fail-closed geprüft, ein leerer Pileup wird nie als "unmethyliert" berichtet. Adapter noch **nicht** gegen die reale modkit-Binary ausgeführt, siehe [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md) |
+| Methylierung | modkit-Pileup-Lane als Stage im kanonischen Runner; MM/ML-Tags werden fail-closed geprüft, ein leerer Pileup wird nie als "unmethyliert" berichtet. Lokaler synthetischer Pipeline-Smoke mit realem modkit 0.4.1 bestanden; noch keine reale modkit-CI-Prüfung oder biologische Validierung, siehe [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md) |
 | Methylierungs-Mischung | Standalone Nanopolish-Pfad für deterministische Mischungen zweier ausdrücklich als biologisch getrennt deklarierter Quellen; M/U-Call-Rate-WLS und ein bedingtes Vier-Zustands-Dirichlet-Intervall schätzen einen Source-A-Mischkoeffizienten gegenüber dem bekannten Readgruppenanteil oder liefern `NO_CALL`. Die Kalibrationsraten bleiben im Intervall fest. Eine getrennte technische Recovery-Bewertung verhindert, dass bloße Ausführbarkeit als Genauigkeit gilt. Sensibler technischer Output, keine Tumor-, Zell- oder DNA-Massenfraktion und keine LoD, siehe [`docs/METHYLATION_MIXTURE.md`](docs/METHYLATION_MIXTURE.md) |
 | Verdünnungsreihe / LoD | Deterministische In-silico-Tumorverdünnung (Planung, Mischung, Drift-Prüfung) und technische Detektionsgrenze mit explizitem Bracketing, siehe [`docs/DILUTION_SERIES.md`](docs/DILUTION_SERIES.md); keine analytische Sensitivität |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
-| ISCN | Nur begrenzte, explizit unvalidierte Proposal-/Demo-Logik; kein klinisch konformer automatischer ISCN-Endpunkt |
+| ISCN | Strukturierter Vorschlagspfad im Result-Schema `0.3.0`: CNV-only Ereignisfragmente, explizite Zustände/Blocker und checksum-gebundene GRCh37-/GRCh38-Provenienz; keine vollständige Karyotypisierung oder klinische Freigabe |
 | Output | Validiertes JSON, HTML, XLSX und checksummed release bundle |
 | Windows Desktop | WPF-Oberfläche vorhanden; Linux/R-Bioinformatik läuft im gebündelten WSL2-Runtime-Backend |
 
@@ -130,10 +135,33 @@ synthetische CNV-Konstellation über die drei Auflösungen reproduzierbar wieder
 Das beweist, dass die Softwarekette technisch reproduzierbar läuft; es beweist nicht die
 analytische Sensitivität oder Spezifität an realen Proben.
 
-Wichtig für den derzeitigen Desktop-Stand: die gebündelte QDNAseq-Annotation ist aktuell für
-**GRCh37/hg19** real-tool-getestet. Ein GRCh38-Lauf kann andere Module ausführen, die
-entsprechend gelockte QDNAseq-hg38-Ressource ist für den Desktop jedoch noch ein eigener
-Packaging-/Validierungsschritt.
+Der Desktop bündelt getrennte, gelockte QDNAseq-Annotationspakete für **GRCh37/hg19** und
+**GRCh38**. Beide Build-Lanes werden mit echten QDNAseq-/ACE-Werkzeugen geprüft; die
+GRCh38-Ressource ist zusätzlich auf den festgeschriebenen Upstream-Commit gebunden. Das gewählte
+Analyseprofil bestimmt ausschließlich die buildpassende Annotation, ohne Fallback oder Liftover.
+
+### ISCN-Vorschlag im aktuellen Engineering-Stand
+
+ONTSeq `0.7.1` schreibt den strukturierten Result-Vertrag `0.3.0`. Darin unterscheidet der
+ISCN-Vorschlag zwischen `NOT_REQUESTED`, `NOT_ASSESSED`, `NO_RENDERABLE_CANDIDATE` und
+`PARTIAL_EVENT_LEVEL`; ältere Result-Verträge bleiben als `LEGACY_UNSPECIFIED` erkennbar. Jeder
+berücksichtigte Event erhält eine nachvollziehbare Disposition, auch wenn er wegen Policy oder
+nicht unterstützter Semantik nicht gerendert wird.
+
+Der reguläre Vorschlagspfad erzeugt ausschließlich unterstützte Ereignisfragmente aus dem
+typisierten CNV-Report. Dafür müssen Genome Build, Referenz-Lock, Cytoband-Ressource und
+Annotationscache für GRCh37 oder GRCh38 per Prüfsumme zusammenpassen. Fehlende Ressourcen,
+fehlende geeignete CNV-Evidenz oder fehlgeschlagene QC führen fail-closed zu `NOT_ASSESSED`.
+SV/BND, Translokationen und Inversionen werden derzeit nicht automatisch in ISCN umgewandelt.
+`+chr`/`-chr` wird zusätzlich nur vorgeschlagen, wenn der CNV-Abschnitt exakt vom Anfang bis zum
+Ende des gelockten Referenzkontigs reicht; eine bloße Ganzchromosomen-Klassifikation über den
+90%-Schwellenwert genügt dafür nicht.
+
+Der Vorschlag enthält bewusst keinen erfundenen Basiskaryotyp. Chromosomenzahl,
+Geschlechtschromosomen-Komplement, Klonalität, Phase, Derivativstruktur, Balance und Normalität
+werden nicht inferiert. `NO_RENDERABLE_CANDIDATE` ist deshalb kein Normalbefund. Jeder Vorschlag
+bleibt fachlich zu prüfen und kann nicht automatisch klinisch freigegeben werden; dies ist keine
+Behauptung vollständiger ISCN-2024-Konformität.
 
 ### SV-Lane
 
@@ -239,7 +267,8 @@ Typischer Ablauf:
 2. `ONTSeq.Desktop.exe` starten;
 3. unter **System einrichten** den gebündelten Runtime installieren;
 4. die **exakte** Referenz konfigurieren, die zur BAM-Ausrichtung verwendet wurde;
-5. bei Adaptive Sampling die kontrollierte Analyse-ROI-BED hinterlegen;
+5. bei Adaptive Sampling das exakt passende build- und dictionary-gebundene Profil wählen; die
+   kontrollierte Auswahl- und Analyse-ROI werden aus dessen manifestiertem Panel aufgelöst;
 6. den vollständigen synthetischen **Selbsttest** ausführen;
 7. eine aligned BAM und den zugehörigen Index auswählen;
 8. Genome Build und Assay-Modus auswählen;
@@ -408,6 +437,41 @@ Nach dem Lauf findest du die Artefakte in `results\quick-test\`:
 
 Hinweis: Der optionale `system-smoke` ist im Skript bewusst als manuell dokumentierter
 Erweiterungsschritt erwähnt, da er die komplette, externe Tool-Installation voraussetzt.
+## GRCh38-/GRCh37-Profile und automatische Ressourcen
+
+Der neue Profilpfad benötigt neben dem indizierten BAM keine manuelle Auswahl von FASTA,
+Cytobands, GENCODE, MANE, Panel oder Knowledge-Dateien:
+
+```bash
+ontseq references install GRCh38_GENCODE50_MANE1.5_v1
+ontseq references status
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_LCWGS_GRCh38
+ontseq analyze SAMPLE_GRCH38.bam --profile AML_AS_111_GRCh38
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam --profile AML_LCWGS_GRCh38_CANONICAL25
+ontseq analyze SAMPLE_GRCH38_CANONICAL25.bam --profile AML_AS_111_GRCh38_CANONICAL25
+```
+
+`AML_LCWGS_GRCh38` und `AML_AS_111_GRCh38` behalten den bestehenden `exact_full`-Vertrag:
+Das BAM-Dictionary muss dem vollständigen, geordneten Primary-Assembly-`ReferenceLock`
+entsprechen. Die beiden expliziten `*_CANONICAL25`-Profile verlangen dagegen exakt
+`chr1`-`chr22`, `chrX`, `chrY`, `chrM` in dieser Reihenfolge und mit den GRCh38-Standardlängen.
+Alle vier Profile verwenden dieselben installierten GRCh38-Referenz-, Annotations-, Panel- und
+Knowledge-Bundles. Die Auswahl eines Canonical-25-Profils führt daher weder zu einem erneuten
+Mehr-GiB-Download noch zu Liftover oder stillem Fallback. GRCh37-, partielle, gemischte oder zu
+keinem Profil passende Dictionaries werden vor Pipelinebeginn abgelehnt. Das vollständige
+Installations-, Offline- und Updateverfahren steht in
+[`docs/REFERENCE_SYSTEM.md`](docs/REFERENCE_SYSTEM.md).
+
+GRCh37 bietet entsprechend vier getrennte Profile: `AML_LCWGS_GRCh37` und
+`AML_AS_111_GRCh37` für das vollständige GENCODE-19-Publisher-Dictionary sowie
+`AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` und
+`AML_AS_111_GRCh37_UCSC_HG19_CANONICAL25` für exakt chr1–22/X/Y/M nach UCSC hg19. Die beiden
+Adaptive-Sampling-Profile pinnen ausschließlich `AML_AS_111_GRCh37_v1`. Dessen Auswahl enthält
+110 von 111 kontrolliert bei `minMatch=0.99` kartierte Laborintervalle; 109 sind im Rücktest
+exakt und 108 Ziele erhalten eine native GENCODE-19-ROI. `ACACA` bleibt Roundtrip-Review,
+`CT45A2`, `IGH` und `GPR128` bleiben als Mapping-/ROI-Lücken sichtbar review-pflichtig. Die
+Koordinatenprojektion fand nur bei der Erstellung des unveränderlichen Bundles statt; im Lauf
+gibt es kein Liftover, keine Referenzsubstitution und keinen Rückfall auf das GRCh38-Panel.
 
 ## 10. Repository-Struktur
 
@@ -482,9 +546,10 @@ Validierung kommen.
 
 ### ISCN
 
-ISCN darf erst nach einem build-aware Cytoband-Layer, einer autorisierten ISCN-2024-Regelbasis,
-positiven/negativen Edge-Case-Tests und fachlicher Review als Konformitätsziel betrachtet werden.
-Der derzeitige Renderer ist ausdrücklich nur ein technischer Vorschlagspfad.
+Der aktuelle CNV-only Renderer ist ausdrücklich nur ein technischer Vorschlagspfad. ISCN darf erst
+nach einer autorisierten ISCN-2024-Regelbasis, positiven/negativen Edge-Case-Tests, separat
+validierten GRCh37-/GRCh38-Ressourcen, validierter komplexer Rearrangement-Semantik und fachlicher
+Review als Konformitätsziel betrachtet werden.
 
 ## 13. Was nicht als erledigt gelten darf
 
@@ -501,14 +566,25 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core: `0.4.1` (2026-08-27). Der vollständige, kommentierte Entwicklungsverlauf steht in [`CHANGELOG.md`](CHANGELOG.md); jeder Eintrag nennt zusätzlich ausdrücklich seine **Validation impact**, also was sich durch die Änderung am Aussagewert der Ergebnisse ändert und was ausdrücklich *nicht* belegt ist.
+Python-Core und Desktop: `0.7.1` (lokaler Engineering-Kandidat vom 2026-09-09).
+Dieser Arbeitsstand ist keine Behauptung über eine veröffentlichte GitHub-Version oder
+klinische Freigabe. Änderungen und Validation impact stehen in [`CHANGELOG.md`](CHANGELOG.md).
 
-Windows-Desktop auf `main`: `0.4.1`, passend zum Python-Core derselben Version
-(`desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`), mit vollständigem installierten
-System-Selbsttest. Aktive Fixes und neuere Engineering-Bundles können in offenen
-Pull Requests liegen; deshalb vor einem realen Test immer `main` und die offenen PRs prüfen.
+Die vier bestehenden GRCh38-Profile behalten ihre getrennten Dictionary-Verträge.
+`AML_LCWGS_GRCh37` verwendet einen eigenen GRCh37.p13-/GENCODE-19-Bundlevertrag mit
+vollständigem Publisher-Dictionary. Für BAMs mit exakt `chr1`–`chr22`, `chrX`, `chrY` und
+UCSC-hg19-`chrM=16571` steht getrennt `AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` bereit.
+Die entsprechenden Adaptive-Sampling-Profile `AML_AS_111_GRCh37` und
+`AML_AS_111_GRCh37_UCSC_HG19_CANONICAL25` verwenden dasselbe jeweilige Dictionary, aber
+zusätzlich ausschließlich das GRCh37-Panel `AML_AS_111_GRCh37_v1` (110/111 Auswahlintervalle,
+109 reciprocal-exakt, 108 native Analyse-ROIs; ACACA-Roundtrip-Review plus drei explizite
+Mapping-/ROI-Lücken).
+Der Live-Workspace unter `/workspace` arbeitet mit dem
+lokalen Backend; die eigenständige UX-Demo ist kein Ausführungsnachweis.
+Es gibt kein Liftover, kein Reheadering, keine automatische Referenzsubstitution und keine Freigabe
+wissenschaftlicher Schwellen. Umfang und Grenzen: [GRCh37-Integration](docs/GRCH37_INTEGRATION.md).
 
-Dieses Repository hat derzeit **keine Open-Source-Lizenz** und ist privat. Vor einer öffentlichen
+Dieses Repository hat derzeit **keine Open-Source-Lizenz**. Vor einer öffentlichen
 Veröffentlichung oder diagnostischen Nutzung müssen institutionelle Governance, IP/Lizenzierung,
 Datenschutz, Validierung und gegebenenfalls Medizinprodukterecht separat geklärt werden.
 

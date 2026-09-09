@@ -1,0 +1,14 @@
+##description: synthetic GENCODE-v50-shaped fragment for ONTSeq tests
+chr22	HAVANA	gene	23280184	23318037	.	+	.	gene_id "ENSG00000186716.22"; gene_type "protein_coding"; gene_name "BCR";
+chr22	HAVANA	transcript	23280184	23318037	.	+	.	gene_id "ENSG00000186716.22"; transcript_id "ENST00000305877.13"; gene_type "protein_coding"; gene_name "BCR"; transcript_type "protein_coding"; transcript_name "BCR-201"; tag "basic";
+chr22	HAVANA	exon	23280184	23280362	.	+	.	gene_id "ENSG00000186716.22"; transcript_id "ENST00000305877.13"; exon_number "1"; exon_id "ENSE00001875511.1";
+chr22	HAVANA	exon	23290414	23290602	.	+	.	gene_id "ENSG00000186716.22"; transcript_id "ENST00000305877.13"; exon_number "2"; exon_id "ENSE00003580222.1";
+chr22	HAVANA	CDS	23290431	23290602	.	+	0	gene_id "ENSG00000186716.22"; transcript_id "ENST00000305877.13"; exon_number "2"; exon_id "ENSE00003580222.1";
+chr22	HAVANA	transcript	23280184	23310000	.	+	.	gene_id "ENSG00000186716.22"; transcript_id "ENST00000483320.6"; gene_type "protein_coding"; gene_name "BCR"; transcript_type "protein_coding"; transcript_name "BCR-202"; tag "Ensembl_canonical"; tag "appris_principal_1";
+chr22	HAVANA	exon	23280184	23280362	.	+	.	gene_id "ENSG00000186716.22"; transcript_id "ENST00000483320.6"; exon_number "1"; exon_id "ENSE00001875511.1";
+chr22	HAVANA	CDS	23280200	23280362	.	+	1	gene_id "ENSG00000186716.22"; transcript_id "ENST00000483320.6"; exon_number "1"; exon_id "ENSE00001875511.1";
+chr9	HAVANA	gene	130713043	130887675	.	-	.	gene_id "ENSG00000097007.19"; gene_type "protein_coding"; gene_name "ABL1";
+chr9	HAVANA	transcript	130713043	130887675	.	-	.	gene_id "ENSG00000097007.19"; transcript_id "ENST00000318560.7"; gene_type "protein_coding"; gene_name "ABL1"; transcript_type "protein_coding"; transcript_name "ABL1-201"; tag "basic";
+chr9	HAVANA	exon	130887300	130887675	.	-	.	gene_id "ENSG00000097007.19"; transcript_id "ENST00000318560.7"; exon_number "1"; exon_id "ENSE00001012001.1";
+chr9	HAVANA	exon	130854064	130854351	.	-	.	gene_id "ENSG00000097007.19"; transcript_id "ENST00000318560.7"; exon_number "2"; exon_id "ENSE00001012002.1";
+chr9	HAVANA	CDS	130854064	130854351	.	-	2	gene_id "ENSG00000097007.19"; transcript_id "ENST00000318560.7"; exon_number "2"; exon_id "ENSE00001012002.1";

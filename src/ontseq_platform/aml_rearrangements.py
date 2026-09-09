@@ -61,6 +61,11 @@ def prioritize_aml_rearrangements(
             continue
         matches.sort(key=lambda record: (record.pattern_type != "exact_pair", record.record_id))
         best = matches[0]
+        pathologies = {
+            pathology.disease_id: pathology
+            for record in matches
+            for pathology in record.pathologies
+        }
         notes = list(event.notes)
         notes.extend(
             f"Known AML rearrangement pattern candidate {record.display_name}: {record.caveat}"
@@ -71,6 +76,7 @@ def prioritize_aml_rearrangements(
                 update={
                     "aml_relevance": best.relevance,
                     "known_rearrangement": best.display_name,
+                    "known_pathologies": [pathologies[key] for key in sorted(pathologies)],
                     "fusion_status": FusionSupportStatus.CANDIDATE,
                     "validation_status": SvValidationStatus.BIOLOGICALLY_PRIORITIZED,
                     "notes": notes,

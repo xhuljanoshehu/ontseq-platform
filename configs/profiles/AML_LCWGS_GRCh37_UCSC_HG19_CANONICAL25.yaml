@@ -1,0 +1,17 @@
+schema_version: 1.0.0
+profile_id: AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25
+version: v1
+genome_build: GRCh37
+assay_mode: lcwgs
+reference_bundle: GRCh37_GENCODE19_HG19_v2
+reference_dictionary_contract: grch37_ucsc_hg19_canonical_25
+knowledge_bundle: HEMATOLOGY_GRCh37_v1
+panel_bundle: null
+adaptive_sampling: disabled
+description: >-
+  GRCh37 low-coverage whole-genome research analysis for the exact UCSC hg19
+  Canonical-25 BAM dictionary: chr1-22, chrX, chrY and chrM=16571 in that order,
+  without decoys, ALT loci or additional sequences. The exact analysis FASTA combines
+  pinned native GENCODE 19 GRCh37.p13 chr1-22/X/Y with the original UCSC hg19
+  NC_001807 chrM. The BAM is never reheadered and coordinates are never implicitly
+  lifted. Annotation remains native GENCODE 19; this is not clinical validation.

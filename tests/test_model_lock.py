@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from filesystem_support import symlink_or_skip
+
 from ontseq_platform.model_lock import (
     ModelLockError,
     exit_code,
@@ -127,7 +129,7 @@ class ConcernTests(unittest.TestCase):
         """It contributes nothing to the digest, so the digest cannot reveal it."""
         with tempfile.TemporaryDirectory() as temporary:
             model = _model(Path(temporary))
-            (model / "dangling.tensor").symlink_to(model / "does-not-exist")
+            symlink_or_skip(self, model / "dangling.tensor", model / "does-not-exist")
             result = fingerprint(model)
             self.assertEqual(result.broken_links, ("dangling.tensor",))
             self.assertEqual(exit_code(result), 2)
@@ -137,14 +139,14 @@ class ConcernTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             model = _model(Path(temporary))
             before = fingerprint(model).signature
-            (model / "dangling.tensor").symlink_to(model / "does-not-exist")
+            symlink_or_skip(self, model / "dangling.tensor", model / "does-not-exist")
             self.assertEqual(fingerprint(model).signature, before)
 
     def test_a_symlink_to_a_real_file_is_hashed_like_any_other(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             model = _model(Path(temporary))
             before = fingerprint(model).signature
-            (model / "alias.toml").symlink_to(model / "config.toml")
+            symlink_or_skip(self, model / "alias.toml", model / "config.toml")
             self.assertNotEqual(fingerprint(model).signature, before)
 
 

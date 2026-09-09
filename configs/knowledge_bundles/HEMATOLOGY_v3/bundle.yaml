@@ -1,0 +1,27 @@
+schema_version: 1.0.0
+bundle_type: knowledge
+bundle_id: HEMATOLOGY_v3
+version: v3
+genome_build: GRCh38
+coordinate_bearing: true
+description: >-
+  Panel-scoped hematology rearrangement review knowledge with source-attributed Disease
+  Ontology pathologies. It is not a diagnostic, prognostic or reportability rule set.
+resources:
+  - resource_id: hematology_rearrangements
+    role: rearrangement_knowledge
+    path: hematology_rearrangements.v0.3.json
+    sha256: e283161a828e5c07f0351abb4c1d84fd955cc6cc5d15610db4e5c7ec4eff36dc
+    size_bytes: 48191
+    release: 0.3.0
+    generated: false
+    derived_from: []
+  - resource_id: hematology_rearrangements_lock
+    role: knowledge_lock
+    path: hematology_rearrangements.v0.3.lock.json
+    sha256: 9be59323276cc88c10265f2d5d3353fe6a0d761a4467a859d6022ea72c3a4567
+    size_bytes: 524
+    release: 0.3.0
+    generated: false
+    derived_from:
+      - hematology_rearrangements

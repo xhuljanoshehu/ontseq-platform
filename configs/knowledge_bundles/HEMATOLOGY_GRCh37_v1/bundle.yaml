@@ -1,0 +1,31 @@
+schema_version: 1.0.0
+bundle_type: knowledge
+bundle_id: HEMATOLOGY_GRCh37_v1
+version: v1
+genome_build: GRCh37
+coordinate_bearing: false
+description: >-
+  Gene-symbol-only adaptation of the source-attributed HEMATOLOGY_v3 review list.
+  Original selection was GRCh38 panel scoped, not a comprehensive GRCh37 knowledge census.
+  Coordinates and target designs are not transferred; native GENCODE19 determines gene
+  overlap. No diagnosis, prognosis, confirmed fusion, negative coverage or reportability claim.
+resources:
+  - resource_id: hematology_rearrangements
+    role: rearrangement_knowledge
+    path: hematology_rearrangements.v0.3.grch37.json
+    sha256: 12182860d7bae14034dd338a363d39fcce7622753b747504cdf3e4a998df39cd
+    size_bytes: 48846
+    release: 0.3.0-grch37-review1
+    generated: false
+    derived_from: []
+    description: >-
+      38 original gene-symbol patterns and 74 original pathology associations preserved from
+      HEMATOLOGY_v3; upstream SHA256 is recorded in the JSON scope and knowledge lock.
+  - resource_id: hematology_rearrangements_lock
+    role: knowledge_lock
+    path: hematology_rearrangements.v0.3.grch37.lock.json
+    sha256: ca4dddbf016ae28a673af4ecd61132b91f43665318c208f915dfae0dadcaa44d
+    size_bytes: 766
+    release: 0.3.0-grch37-review1
+    generated: false
+    derived_from: [hematology_rearrangements]

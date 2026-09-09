@@ -9,6 +9,13 @@ It does **not** contain or reproduce source code from the thesis repository. Bef
 existing institutional pipeline code is imported, ownership, license, contributor consent,
 and employer/institutional rights must be clarified and documented.
 
-The ISCN standard is not reproduced here. The current renderer implements only a small,
-unvalidated technical subset. A complete conformance suite requires authorized access to
-the applicable ISCN 2024 material and expert cytogenetic review.
+The ISCN standard is not reproduced here. The current `event-fragments-v0.2-unvalidated`
+renderer implements only a small, CNV-only technical proposal subset. The `ISCN 2024` edition
+label records the intended review reference; it is not a representation of full conformance.
+The standard and its controlled content require authorized access under the publisher's
+applicable terms. A complete conformance suite requires that authorized material, current errata,
+an expert-approved corpus and expert cytogenetic review.
+
+Every generated fragment is a non-clinical proposal. The software does not infer a complete
+karyotype, chromosome count, sex-chromosome complement, clonality, phase, derivative structure,
+balance or normality, and it does not permit automatic clinical release.

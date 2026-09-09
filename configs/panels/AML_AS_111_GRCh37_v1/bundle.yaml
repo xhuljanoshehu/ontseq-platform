@@ -1,0 +1,139 @@
+schema_version: 1.0.0
+bundle_type: panel
+bundle_id: AML_AS_111_GRCh37_v1
+version: v1
+genome_build: GRCh37
+assay_mode: adaptive_sampling
+description: RESEARCH USE ONLY, analytically unvalidated. GRCh37/hg19 Adaptive Sampling
+  bundle preserving the 111-target GRCh38 design intent through a controlled, checksum-pinned
+  build-time UCSC liftOver. Exactly 110 intervals mapped; CT45A2 split and is omitted
+  without partial or substitute coordinates. Native GENCODE19 gene-ID curation resolves
+  108 targets. Reverse mapping is reciprocal-exact for 109/110 mapped intervals; ACACA
+  remains explicitly roundtrip-review-required. No coordinate mapping, fallback or
+  chain access occurs at activation or analysis runtime. The mapped IGH_REVIEW_REQUIRED
+  and GPR128_REVIEW_REQUIRED intervals are legacy selection-only source labels without
+  native gene IDs or ROIs and must not be interpreted as gene coverage.
+reference_dictionary_contracts:
+- exact_full
+- grch37_ucsc_hg19_canonical_25
+resources:
+- resource_id: source_selection_grch38
+  role: coordinate_mapping_source
+  path: source/selection_panel.grch38.normalized.bed
+  sha256: 9338e66a52310d4181e2eb121d2f3954c16bb7bf482a8c5d2ec3c7b1e5381ee1
+  size_bytes: 3336
+  coordinate_system: zero_based_half_open
+  release: AML_AS_111_GRCh38_v1 exact normalized selection
+  generated: false
+  derived_from: []
+- resource_id: coordinate_mapping_lock
+  role: coordinate_mapping_lock
+  path: mapping.lock.yaml
+  sha256: 313ab2455b6b3ef1a81566be5be999509b98b5567d0d7f6b6b66b3e10c0c4b59
+  size_bytes: 3379
+  release: controlled UCSC hg38ToHg19 liftOver mapping v1
+  generated: false
+  derived_from: []
+- resource_id: liftover_mapped_grch37
+  role: coordinate_mapping_output
+  path: derived/liftover.minmatch0.99.grch37.raw.bed
+  sha256: 909b9552e4ee50daa04a5e22934ef425833b44000e1086c7d92595974a53ec5d
+  size_bytes: 3305
+  coordinate_system: zero_based_half_open
+  release: UCSC hg38ToHg19 liftOver minMatch 0.99
+  generated: true
+  derived_from:
+  - source_selection_grch38
+  - coordinate_mapping_lock
+- resource_id: liftover_unmapped_grch37
+  role: coordinate_mapping_unmapped
+  path: derived/liftover.minmatch0.99.unmapped.txt
+  sha256: 55038b8ce5b8aa4600e85e84e9cec23a108ad3da12bd444c8706ccc6d6ecf9e1
+  size_bytes: 46
+  coordinate_system: zero_based_half_open
+  release: UCSC hg38ToHg19 liftOver minMatch 0.99
+  generated: true
+  derived_from:
+  - source_selection_grch38
+  - coordinate_mapping_lock
+- resource_id: roundtrip_mapped_grch38
+  role: coordinate_mapping_roundtrip_output
+  path: derived/roundtrip.hg38.bed
+  sha256: a12f763f3ddbca94e28a29e432658755df553612cb454f2e9dc10593486c15bc
+  size_bytes: 3274
+  coordinate_system: zero_based_half_open
+  release: UCSC hg19ToHg38 liftOver reciprocal audit minMatch 0.99
+  generated: true
+  derived_from:
+  - liftover_mapped_grch37
+  - coordinate_mapping_lock
+- resource_id: roundtrip_unmapped_grch38
+  role: coordinate_mapping_roundtrip_unmapped
+  path: derived/roundtrip.unmapped.txt
+  sha256: c1b5bc5483cc78daf87f15d46174fe132444943d65ef95d1c5b864726a31d483
+  size_bytes: 44
+  coordinate_system: zero_based_half_open
+  release: UCSC hg19ToHg38 liftOver reciprocal-audit unmapped rows
+  generated: true
+  derived_from:
+  - liftover_mapped_grch37
+  - coordinate_mapping_lock
+- resource_id: target_gene_map_grch37
+  role: target_gene_map
+  path: source/target_gene_map.grch37.tsv
+  sha256: cb524b16c478b67dba545c5c04be5b17cb8a16f44c82c1455d8fe238c846a031
+  size_bytes: 5865
+  release: native GENCODE19 exact-ID curation v1
+  generated: false
+  derived_from: []
+- resource_id: selection_panel_normalized
+  role: selection_panel_buffered
+  path: derived/selection_panel.normalized.bed
+  sha256: fd43e587d4208342539de04bfb290640f6eb08703b06c8eb1bf2561db98552f9
+  size_bytes: 5338
+  coordinate_system: zero_based_half_open
+  release: 111-intent / 110-mapped GRCh37 RUO selection v1
+  generated: true
+  derived_from:
+  - liftover_mapped_grch37
+  - target_gene_map_grch37
+- resource_id: analysis_roi
+  role: analysis_roi_unbuffered
+  path: derived/analysis_roi.bed
+  coordinate_system: zero_based_half_open
+  release: native GENCODE19 exact gene-body ROI
+  generated: true
+  derived_from:
+  - selection_panel_normalized
+  - target_gene_map_grch37
+  - GRCh37_GENCODE19_HG19_v2:annotation_cache
+  sha256: da6c140a810eed1cac8c8576f26d9dcfb62f4aa2cead9b8750205ebb86b47da2
+  size_bytes: 5242
+- resource_id: panel_transcript_cache
+  role: transcript_cache
+  path: derived/transcripts.tsv
+  coordinate_system: zero_based_half_open
+  release: native GENCODE19 ranked transcript cache
+  generated: true
+  derived_from:
+  - selection_panel_normalized
+  - target_gene_map_grch37
+  - GRCh37_GENCODE19_HG19_v2:annotation_cache
+  sha256: fd9fa1e4df9ec2f8b537791fe09b0225362f310bf1b0de11464c5950eef6948d
+  size_bytes: 180129
+selection_panel_resource_id: selection_panel_normalized
+analysis_roi_resource_id: analysis_roi
+transcript_cache_resource_id: panel_transcript_cache
+target_gene_map_resource_id: target_gene_map_grch37
+coordinate_mapping_lock_resource_id: coordinate_mapping_lock
+coordinate_mapping_source_resource_id: source_selection_grch38
+coordinate_mapping_output_resource_id: liftover_mapped_grch37
+coordinate_mapping_unmapped_resource_id: liftover_unmapped_grch37
+coordinate_mapping_roundtrip_output_resource_id: roundtrip_mapped_grch38
+coordinate_mapping_roundtrip_unmapped_resource_id: roundtrip_unmapped_grch38
+coordinate_mapping_origin_bundle_id: AML_AS_111_GRCh38_v1
+coordinate_mapping_origin_resource_id: selection_panel_normalized
+unresolved_targets:
+- CT45A2_REVIEW_REQUIRED
+- IGH_REVIEW_REQUIRED
+- GPR128_REVIEW_REQUIRED

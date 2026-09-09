@@ -1,8 +1,8 @@
 <Window x:Class="ONTSeq.Desktop.SetupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ONTSeq Desktop – System einrichten" Height="720" Width="860"
-        MinHeight="650" MinWidth="780" WindowStartupLocation="CenterOwner"
+        Title="ONTSeq Desktop – System einrichten" Height="760" Width="930"
+        MinHeight="700" MinWidth="850" WindowStartupLocation="CenterOwner"
         FontFamily="Segoe UI" Background="#F5F7FA" Loaded="Window_Loaded">
     <Grid Margin="26">
         <Grid.RowDefinitions>
@@ -14,7 +14,7 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,18">
             <TextBlock Text="ONTSeq System einrichten" FontSize="28" FontWeight="SemiBold" Foreground="#152238" />
-            <TextBlock Text="Die Einrichtung prüft WSL2, installiert die gebündelte Linux-Bioinformatik und legt Referenz- und Adaptive-Sampling-Ressourcen an."
+            <TextBlock Text="Die Einrichtung prüft WSL2 und die Linux-Runtime. GRCh37/hg19 und GRCh38 können unabhängig oder gemeinsam lokal bereitstehen."
                        Margin="0,5,0,0" Foreground="#5F6B7A" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -22,13 +22,16 @@
                 CornerRadius="6" Padding="13" Margin="0,0,0,16">
             <TextBlock TextWrapping="Wrap" Foreground="#5B4710">
                 <Run FontWeight="SemiBold" Text="Wichtig: " />
-                <Run Text="Für einen echten BAM muss die gewählte FASTA/FAI exakt zur Referenz passen, gegen die der BAM ausgerichtet wurde. Für Adaptive Sampling wird zusätzlich das tatsächlich verwendete Analyse-ROI-BED hinterlegt und per SHA256 versioniert." />
+                <Run Text="Jedes Profil verwendet ausschließlich Ressourcen seines Builds. Die nativen GRCh37-Profile benötigen die vollständige GENCODE-19-GRCh37.p13-Referenz einschließlich Patches/Haplotypen; die UCSC-hg19-Profile benötigen dagegen exakt chr1–chr22, chrX, chrY und chrM=16571. GRCh37 Adaptive Sampling verwendet ausschließlich AML_AS_111_GRCh37_v1 (110/111 kartiert, 109 reciprocal-exakt, 108 native ROIs; ACACA/CT45A2/IGH/GPR128 review-pflichtig). Kein MANE, Laufzeit-Liftover oder Build-Fallback." />
             </TextBlock>
         </Border>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" CornerRadius="8" Padding="20">
+        <ScrollViewer Grid.Row="2" x:Name="SetupContentScrollViewer"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Border Background="White" BorderBrush="#DDE3EA" BorderThickness="1" CornerRadius="8" Padding="20">
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -51,33 +54,58 @@
                 <TextBlock Grid.Row="1" Grid.Column="1" x:Name="BackendStatusText" Text="Noch nicht geprüft" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
                 <Button Grid.Row="1" Grid.Column="2" x:Name="InstallRuntimeButton" Content="Runtime installieren" Click="InstallRuntime_Click" MinWidth="140" />
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="GRCh38 Reference-Lock" FontWeight="SemiBold" Margin="0,8" />
-                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="Grch38StatusText" Text="Nicht konfiguriert" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
-                <Button Grid.Row="2" Grid.Column="2" Content="FASTA / FAI wählen…" Click="ConfigureGrch38_Click" MinWidth="140" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resource-Root (WSL)" FontWeight="SemiBold" Margin="0,8" />
+                <TextBox Grid.Row="2" Grid.Column="1" x:Name="ResourceRootTextBox" Margin="0,5,10,5"
+                         TextChanged="ResourceRootTextBox_TextChanged" />
+                <Button Grid.Row="2" Grid.Column="2" x:Name="SaveResourceRootButton" Content="Übernehmen"
+                        Click="SaveResourceRoot_Click" MinWidth="140" />
 
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="GRCh37 Reference-Lock" FontWeight="SemiBold" Margin="0,8" />
-                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="Grch37StatusText" Text="Nicht konfiguriert" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
-                <Button Grid.Row="3" Grid.Column="2" Content="FASTA / FAI wählen…" Click="ConfigureGrch37_Click" MinWidth="140" />
+                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,8,12,8">
+                    <TextBlock Text="Profilressourcen" FontWeight="SemiBold" />
+                    <ComboBox x:Name="ResourceBuildCombo" Margin="0,5,0,0"
+                              SelectionChanged="ResourceBuildCombo_SelectionChanged" />
+                </StackPanel>
+                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,5,12,5">
+                    <TextBlock x:Name="Grch37BundleStatusText" Text="GRCh37: noch nicht geprüft"
+                               Foreground="#5F6B7A" TextWrapping="Wrap" />
+                    <TextBlock x:Name="Grch38BundleStatusText" Text="GRCh38: noch nicht geprüft"
+                               Foreground="#5F6B7A" TextWrapping="Wrap" Margin="0,5,0,0" />
+                    <TextBlock x:Name="ResourceAvailabilityHintText" Foreground="#42556E"
+                               TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0" />
+                </StackPanel>
+                <StackPanel Grid.Row="3" Grid.Column="2">
+                    <Button x:Name="InstallBundleButton" Content="Installieren" Click="InstallBundle_Click" MinWidth="180" />
+                    <Button x:Name="RepairBundleButton" Content="Reparieren" Click="RepairBundle_Click"
+                            MinWidth="180" Margin="0,8,0,0" />
+                </StackPanel>
 
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="Adaptive Sampling ROI" FontWeight="SemiBold" Margin="0,8" />
-                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="AdaptiveBedStatusText" Text="Nicht konfiguriert" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
-                <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal">
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Legacy GRCh38 Lock" FontWeight="SemiBold" Margin="0,8" />
+                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="Grch38StatusText" Text="Nicht konfiguriert"
+                           Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
+                <Button Grid.Row="4" Grid.Column="2" x:Name="ConfigureGrch38Button"
+                        Content="Legacy FASTA / FAI…" Click="ConfigureGrch38_Click" MinWidth="140"
+                        ToolTip="Kompatibilität für bestehende explizite Pfade; neue Profil-Läufe verwenden das Bundle." />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Legacy Adaptive ROI" FontWeight="SemiBold" Margin="0,8" />
+                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="AdaptiveBedStatusText" Text="Nicht konfiguriert" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
+                <StackPanel Grid.Row="5" Grid.Column="2" Orientation="Horizontal">
                     <Button x:Name="ConfigureAdaptiveBedButton" Content="Analyse-BED wählen…" Click="ConfigureAdaptiveBed_Click" MinWidth="140" />
                     <Button x:Name="RemoveAdaptiveBedButton" Content="Entfernen" Click="RemoveAdaptiveBed_Click"
                             MinWidth="90" Margin="8,0,0,0" IsEnabled="False"
                             ToolTip="Ausgewähltes Adaptive-Sampling-BED aus der ONTSeq-Konfiguration entfernen" />
                 </StackPanel>
 
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="Engineering-Selbsttest" FontWeight="SemiBold" Margin="0,8" />
-                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="SelfTestStatusText" Text="Noch nicht ausgeführt" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
-                <Button Grid.Row="5" Grid.Column="2" x:Name="SelfTestButton" Content="Selbsttest starten" Click="SelfTest_Click" MinWidth="140" />
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Engineering-Selbsttest" FontWeight="SemiBold" Margin="0,8" />
+                <TextBlock Grid.Row="6" Grid.Column="1" x:Name="SelfTestStatusText" Text="Noch nicht ausgeführt" Foreground="#5F6B7A" Margin="0,8" TextWrapping="Wrap" />
+                <Button Grid.Row="6" Grid.Column="2" x:Name="SelfTestButton" Content="Selbsttest starten" Click="SelfTest_Click" MinWidth="140" />
 
-                <Border Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Background="#EEF3F8" CornerRadius="5" Padding="12" Margin="0,16,0,0">
+                <Border Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3" Background="#EEF3F8" CornerRadius="5" Padding="12" Margin="0,16,0,0">
                     <TextBlock x:Name="DetailText" Text="System prüfen oder die Runtime installieren."
                                Foreground="#42556E" TextWrapping="Wrap" />
                 </Border>
             </Grid>
         </Border>
+        </ScrollViewer>
 
         <Grid Grid.Row="3" Margin="0,18,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
+from unittest.mock import patch
 
 from ontseq_platform.align import AlignmentPolicy
 from ontseq_platform.basecall import BasecallPolicy, model_signature
@@ -429,14 +430,18 @@ class EnvelopeTests(PreflightCase):
         self.assertIs(check.status, CheckStatus.OK)
         self.assertFalse((self.root / "deep").exists())
 
-    @unittest.skipIf(getattr(os, "geteuid", lambda: -1)() == 0, "root ignores permissions")
     def test_an_output_directory_that_cannot_be_written_fails(self) -> None:
         blocked = self.root / "blocked"
         blocked.mkdir()
-        blocked.chmod(0o500)
-        self.addCleanup(blocked.chmod, 0o700)
         request = self.request(output_base=blocked / "runs")
-        self.assertIs(self.results(request)["output.writable"].status, CheckStatus.FAILED)
+        # A POSIX chmod bit does not deny writes on Windows ACLs (nor to root).
+        # Exercise the real failed-write boundary without changing host permissions.
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")) as write:
+            check = self.results(request)["output.writable"]
+        self.assertIs(check.status, CheckStatus.FAILED)
+        self.assertIn("write denied", check.detail)
+        write.assert_called_once_with("", encoding="utf-8")
+        self.assertFalse((blocked / "runs").exists())
 
 
 class DiskTests(PreflightCase):

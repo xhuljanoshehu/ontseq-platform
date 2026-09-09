@@ -2,5 +2,6 @@ namespace ONTSeq.Desktop;
 
 internal static class DesktopVersion
 {
-    public const string Value = "0.4.1-engineering";
+    public const string CoreValue = "0.7.1";
+    public const string Value = CoreValue + "-engineering";
 }

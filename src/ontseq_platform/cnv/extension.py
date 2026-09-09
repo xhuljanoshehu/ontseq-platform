@@ -2,22 +2,40 @@ from __future__ import annotations
 
 import base64
 import html
+import json
+import sqlite3
 from collections.abc import MutableMapping, Sequence
-from dataclasses import dataclass, replace
+from contextlib import closing
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import cast
 
 from openpyxl import load_workbook
 
+from ..annotation_cache import require_annotation_cache_build, validate_annotation_cache
+from ..iscn import (
+    ISCN_RULE_PROFILE,
+    build_iscn_proposal,
+    iscn_module_outcome,
+    resource_provenance_for_iscn,
+)
 from ..models import (
     AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
+    CuteSvCallReport,
+    EventType,
+    ISCNAssessmentBlocker,
+    ISCNResourceProvenance,
+    ISCNSelectionPolicy,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
+    SidecarArtifact,
     SnifflesCallReport,
+    SvConsensusReport,
+    Verdict,
 )
 from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
@@ -25,11 +43,15 @@ from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
+from ..sidecars import tabular_sidecar
+from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
+from .cytoband import AffectedBandGroup, CnvDirection, CnvSegment, Cytoband, annotate_cnv_cytobands
 from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
 
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
+CNV_CYTOBAND_REPORT = "evidence/cnv/{sample}.cytobands.json"
 
 
 @dataclass(frozen=True)
@@ -86,6 +108,12 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
         raise ValueError(f"QDNAseq R runner not found: {settings.script}")
     versions = _probe_r_packages(ctx)
     bam = Path(ctx.manifest.input.path)
+    external_inputs = [
+        (bam.name, sha256_file(bam)),
+        (settings.script.name, sha256_file(settings.script)),
+    ]
+    if ctx.config.annotation_cache is not None:
+        external_inputs.append(("annotation_cache", sha256_file(ctx.config.annotation_cache)))
     return StagePlan(
         parameters={
             "requested": True,
@@ -96,14 +124,141 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
             "ploidy_min": settings.policy.ploidy_min,
             "ploidy_max": settings.policy.ploidy_max,
             "ploidy_step": settings.policy.ploidy_step,
+            "cytoband_policy_schema": settings.policy.schema_version,
+            "cytoband_policy_id": settings.policy.profile_id,
+            "cytoband_affected_fraction": settings.policy.cytoband_affected_fraction,
             "threads": ctx.config.threads,
         },
         tool_versions=versions,
-        external_inputs=(
-            (bam.name, sha256_file(bam)),
-            (settings.script.name, sha256_file(settings.script)),
-        ),
+        external_inputs=tuple(external_inputs),
     )
+
+
+def _load_cytobands(annotation_cache: Path, *, expected_build: str = "GRCh38") -> list[Cytoband]:
+    with closing(
+        sqlite3.connect(f"file:{annotation_cache.as_posix()}?mode=ro", uri=True)
+    ) as connection:
+        require_annotation_cache_build(connection, expected_build=expected_build)
+        rows = connection.execute(
+            "SELECT chrom, start, end, name, gie_stain FROM cytobands "
+            "ORDER BY chrom, start, end, name"
+        ).fetchall()
+    return [
+        Cytoband(
+            chromosome=str(chromosome),
+            start=int(start),
+            end=int(end),
+            name=str(name),
+            gie_stain=str(stain) if stain is not None else None,
+        )
+        for chromosome, start, end, name, stain in rows
+    ]
+
+
+def _annotate_cnv_cytobands(
+    ctx: pipeline_runner.RunContext,
+    report: QDNAseqCallReport,
+) -> tuple[QDNAseqCallReport, Artifact | None]:
+    cache = ctx.config.annotation_cache
+    if cache is None or not report.events:
+        return report, None
+    directions: dict[EventType, CnvDirection] = {
+        EventType.CHROMOSOME_GAIN: "gain",
+        EventType.DUPLICATION: "gain",
+        EventType.CHROMOSOME_LOSS: "loss",
+        EventType.DELETION: "loss",
+    }
+    segments = [
+        CnvSegment(
+            event_id=event.event_id,
+            chromosome=event.primary.chromosome,
+            start=event.primary.start,
+            end=event.primary.end,
+            direction=directions[event.event_type],
+            whole_chromosome=event.event_type
+            in {EventType.CHROMOSOME_GAIN, EventType.CHROMOSOME_LOSS},
+        )
+        for event in report.events
+        if event.event_type in directions
+    ]
+    chromosome_sizes = {item.name: item.length for item in ctx.config.reference_lock.contigs}
+    annotation = annotate_cnv_cytobands(
+        segments,
+        _load_cytobands(cache, expected_build=ctx.config.manifest.assay.genome_build.value),
+        affected_fraction=_settings().policy.cytoband_affected_fraction,
+        chromosome_sizes=chromosome_sizes,
+    )
+    affected_groups: dict[str, list[AffectedBandGroup]] = {}
+    for group in annotation.affected_groups:
+        for event_id in group.source_event_ids:
+            affected_groups.setdefault(event_id, []).append(group)
+    events = []
+    for event in report.events:
+        unannotated_locus = event.primary.model_copy(
+            update={"cytoband_start": None, "cytoband_end": None}
+        )
+        groups = sorted(
+            affected_groups.get(event.event_id, []),
+            key=lambda value: (value.start, value.end, value.start_band, value.end_band),
+        )
+        if not groups:
+            events.append(event.model_copy(update={"primary": unannotated_locus}))
+            continue
+        if len(groups) != 1 or groups[0].source_event_ids != (event.event_id,):
+            source_count = len(
+                set(event_id for group in groups for event_id in group.source_event_ids)
+            )
+            events.append(
+                event.model_copy(
+                    update={
+                        "primary": unannotated_locus,
+                        "notes": [
+                            *event.notes,
+                            f"Cytoband projection produced {len(groups)} group(s) spanning "
+                            f"{source_count} source event(s); no single-event ISCN band range "
+                            "was assigned.",
+                        ],
+                    }
+                )
+            )
+            continue
+        start_band = groups[0].start_band
+        end_band = groups[0].end_band
+        locus = unannotated_locus.model_copy(
+            update={"cytoband_start": start_band, "cytoband_end": end_band}
+        )
+        events.append(
+            event.model_copy(
+                update={
+                    "primary": locus,
+                    "notes": [
+                        *event.notes,
+                        "Cytoband affected-fraction threshold "
+                        f"{annotation.threshold:g}: {start_band}-{end_band}.",
+                    ],
+                }
+            )
+        )
+    payload = {
+        "schema_version": "1.0.0",
+        "genome_build": ctx.config.manifest.assay.genome_build.value,
+        "policy": {
+            "schema_version": _settings().policy.schema_version,
+            "profile_id": _settings().policy.profile_id,
+            "cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
+        },
+        "threshold": annotation.threshold,
+        "raw_overlaps": [asdict(item) for item in annotation.raw_overlaps],
+        "affected_groups": [asdict(item) for item in annotation.affected_groups],
+        "whole_chromosome_calls": [asdict(item) for item in annotation.whole_chromosome_calls],
+    }
+    artifact = ctx.envelope.atomic_write_text(
+        ctx.path(CNV_CYTOBAND_REPORT), json.dumps(payload, indent=2) + "\n"
+    )
+    annotated_report = QDNAseqCallReport.model_validate(
+        report.model_copy(update={"events": events}).model_dump(mode="python")
+    )
+    return annotated_report, artifact
 
 
 def _record_cnv_outputs(
@@ -142,7 +297,10 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
         rscript=settings.rscript,
         threads=ctx.config.threads,
     )
+    report, cytoband_artifact = _annotate_cnv_cytobands(ctx, report)
     artifacts = _record_cnv_outputs(ctx, report)
+    if cytoband_artifact is not None:
+        artifacts.append(cytoband_artifact)
     bins = ", ".join(str(value) for value in settings.policy.bin_sizes_kbp)
     reason = (
         f"QDNAseq+ACE completed at {bins} kbp; primary "
@@ -167,21 +325,140 @@ def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
     return QDNAseqCallReport.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def _verified_iscn_resource_provenance(
+    ctx: pipeline_runner.RunContext,
+) -> tuple[ISCNResourceProvenance | None, list[ISCNAssessmentBlocker]]:
+    context = ctx.config.resource_context
+    provenance = resource_provenance_for_iscn(context)
+    cache = ctx.config.annotation_cache
+    if provenance is None or context is None or cache is None:
+        return None, [
+            ISCNAssessmentBlocker(
+                reason_code="RESOURCE_PROVENANCE_UNAVAILABLE",
+                detail="resolved reference/cytoband provenance or annotation cache is unavailable",
+            )
+        ]
+    try:
+        configured_cache = cache.resolve(strict=True)
+        context_cache = Path(context.resource_paths["reference.annotation_cache"]).resolve(
+            strict=True
+        )
+        reference_lock = Path(context.resource_paths["reference.reference_lock"])
+        cytobands = Path(context.resource_paths["reference.cytobands"])
+        cache_summary = validate_annotation_cache(
+            configured_cache,
+            expected_build=ctx.manifest.assay.genome_build.value,
+        )
+        with closing(
+            sqlite3.connect(f"file:{configured_cache.as_posix()}?mode=ro", uri=True)
+        ) as connection:
+            require_annotation_cache_build(
+                connection,
+                expected_build=ctx.manifest.assay.genome_build.value,
+            )
+            metadata = dict(connection.execute("SELECT key, value FROM metadata").fetchall())
+        reference_lock_sha256 = sha256_file(reference_lock)
+        cytoband_sha256 = sha256_file(cytobands)
+    except (KeyError, OSError, sqlite3.DatabaseError, ValueError) as exc:
+        return None, [
+            ISCNAssessmentBlocker(
+                reason_code="RESOURCE_PROVENANCE_UNREADABLE",
+                detail=f"ISCN reference/cytoband/cache provenance could not be verified: {exc}",
+            )
+        ]
+    expected = {
+        "bundle_id": provenance.reference_bundle_id,
+        "bundle_version": provenance.reference_bundle_version,
+        "cytoband_release": provenance.cytoband_release,
+        "cytoband_sha256": provenance.cytoband_sha256,
+    }
+    mismatches = []
+    if configured_cache != context_cache:
+        mismatches.append(
+            "configured annotation cache is not the cache selected by the resolved resource context"
+        )
+    actual_resource_sha256 = {
+        "reference_lock_sha256": reference_lock_sha256,
+        "cytoband_sha256": cytoband_sha256,
+        "annotation_cache_sha256": cache_summary.sha256,
+    }
+    expected_resource_sha256 = {
+        "reference_lock_sha256": provenance.reference_lock_sha256,
+        "cytoband_sha256": provenance.cytoband_sha256,
+        "annotation_cache_sha256": provenance.annotation_cache_sha256,
+    }
+    mismatches.extend(
+        f"{name}: expected {expected_sha!r}, observed {actual_resource_sha256[name]!r}"
+        for name, expected_sha in expected_resource_sha256.items()
+        if actual_resource_sha256[name] != expected_sha
+    )
+    mismatches.extend(
+        f"{key}: expected {value!r}, observed {metadata.get(key)!r}"
+        for key, value in expected.items()
+        if metadata.get(key) != value
+    )
+    if mismatches:
+        return None, [
+            ISCNAssessmentBlocker(
+                reason_code="RESOURCE_CACHE_PROVENANCE_MISMATCH",
+                detail="; ".join(mismatches),
+            )
+        ]
+    return provenance, []
+
+
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
     external: list[tuple[str, str]] = []
     for relative in (
         ctx.path(CNV_REPORT),
         ctx.path(pipeline_runner.SV_REPORT),
         ctx.path(pipeline_runner.METHYLATION_REPORT),
+        ctx.path(pipeline_runner.SV_CONSENSUS_REPORT),
     ):
         path = ctx.envelope.path(relative)
         if path.is_file():
             external.append((Path(relative).name, sha256_file(path)))
+    annotation_cache = ctx.config.annotation_cache
+    if annotation_cache is not None and annotation_cache.is_file():
+        external.append(("iscn_annotation_cache", sha256_file(annotation_cache)))
+    resource_context = ctx.config.resource_context
+    if resource_context is not None:
+        for label, key in (
+            ("iscn_reference_lock", "reference.reference_lock"),
+            ("iscn_cytobands", "reference.cytobands"),
+        ):
+            raw_path = resource_context.resource_paths.get(key)
+            resource_path = Path(raw_path) if raw_path is not None else None
+            if resource_path is not None and resource_path.is_file():
+                external.append((label, sha256_file(resource_path)))
+    iscn_reference_lock_sha256 = (
+        resource_context.resource_checksums.get("reference.reference_lock", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
+    iscn_cytoband_sha256 = (
+        resource_context.resource_checksums.get("reference.cytobands", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
+    iscn_annotation_cache_sha256 = (
+        resource_context.resource_checksums.get("reference.annotation_cache", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
     return StagePlan(
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
             "cnv_extension": "qdnaseq-ace-v1",
+            "iscn_rule_profile": ISCN_RULE_PROFILE,
+            "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
+            "iscn_exact_full_chromosome_span_required": True,
+            "iscn_whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
+            "iscn_cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
+            "iscn_reference_lock_sha256": iscn_reference_lock_sha256,
+            "iscn_cytoband_sha256": iscn_cytoband_sha256,
+            "iscn_annotation_cache_sha256": iscn_annotation_cache_sha256,
         },
         tool_versions={},
         external_inputs=tuple(external),
@@ -215,6 +492,28 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         if sv_path.is_file()
         else None
     )
+    cutesv_path = ctx.envelope.path(ctx.path(pipeline_runner.CUTESV_REPORT))
+    cutesv = (
+        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
+        if cutesv_path.is_file()
+        else None
+    )
+    consensus_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_CONSENSUS_REPORT))
+    consensus = (
+        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
+        if consensus_path.is_file()
+        else None
+    )
+    sidecars: list[SidecarArtifact] = []
+    histogram = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
+    if histogram.is_file():
+        sidecars.append(
+            tabular_sidecar(
+                artifact_id="read_length_histogram",
+                envelope_root=ctx.envelope.root,
+                relative_path=pipeline_runner.QC_READ_LENGTH_HISTOGRAM,
+            )
+        )
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
         intake,
@@ -223,9 +522,33 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
         methylation_report=pipeline_runner.load_methylation_report(ctx),
+        cutesv_report=cutesv,
+        sv_consensus_report=consensus,
+        reference_context=ctx.config.resource_context,
+        sidecars=sidecars,
     )
     cnv = _load_cnv(ctx)
     if cnv is not None:
+        if cnv.sample_id != ctx.manifest.sample_id:
+            raise ValueError("Manifest and QDNAseq/ACE artifact must refer to the same sample")
+        if cnv.genome_build != ctx.manifest.assay.genome_build:
+            raise ValueError("Manifest and QDNAseq/ACE artifact use different genome builds")
+        primary_tables = (
+            ("cnv_bins", cnv.primary_fit.bins_file),
+            ("cnv_segments", cnv.primary_fit.segment_file),
+            ("ace_models", cnv.primary_fit.model_file),
+        )
+        for artifact_id, filename in primary_tables:
+            if filename is None:
+                continue
+            relative = f"{CNV_DIR}/{filename}"
+            sidecars.append(
+                tabular_sidecar(
+                    artifact_id=artifact_id,
+                    envelope_root=ctx.envelope.root,
+                    relative_path=relative,
+                )
+            )
         outcome = ModuleOutcome(
             module=AnalysisModule.CNV,
             status=cnv.status,
@@ -236,14 +559,58 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             ),
             tools=cnv.tools,
         )
+        combined_events = [*cnv.events, *result.events]
+        iscn_provenance, iscn_blockers = _verified_iscn_resource_provenance(ctx)
+        if qc.qc.verdict == Verdict.FAIL:
+            iscn_blockers.append(
+                ISCNAssessmentBlocker(
+                    reason_code="QC_FAILED",
+                    detail=(
+                        "run QC failed; candidate events remain visible but ISCN assessment "
+                        "is blocked"
+                    ),
+                )
+            )
+        proposal = build_iscn_proposal(
+            combined_events,
+            genome_build=ctx.manifest.assay.genome_build,
+            selection_policy=ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1,
+            requested=AnalysisModule.ISCN in set(ctx.manifest.analysis.modules),
+            upstream_evidence_assessed=cnv.status
+            in {ModuleRunStatus.COMPLETED, ModuleRunStatus.NO_CALL},
+            resource_provenance=iscn_provenance,
+            policy_parameters={
+                "automatic_unvalidated_sv_to_iscn": False,
+                "sex_chromosomes_assessed": False,
+                "exact_full_chromosome_span_required_for_iscn": True,
+                "cnv_policy_profile_id": _settings().policy.profile_id,
+                "cnv_policy_schema_version": _settings().policy.schema_version,
+                "whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
+                "cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
+            },
+            technical_assumptions=[
+                "Whole-chromosome candidate classification uses the versioned QDNAseq "
+                "segment-fraction threshold; +chr/-chr rendering additionally requires an "
+                "exact zero-to-contig-end span.",
+                "Segmental fragments require one contiguous affected cytoband group at the "
+                "versioned affected-fraction threshold.",
+                "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
+            ],
+            assessment_blockers=iscn_blockers,
+            cnv_source_event_ids={event.event_id for event in cnv.events},
+        )
+        iscn_outcome = iscn_module_outcome(proposal)
         result = result.model_copy(
             update={
-                "events": [*cnv.events, *result.events],
-                "modules": _replace_module(result.modules, outcome),
+                "events": combined_events,
+                "iscn": proposal,
+                "modules": _replace_module(_replace_module(result.modules, outcome), iscn_outcome),
                 "provenance": _merge_provenance(result.provenance, cnv),
                 "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
+                "sidecars": sidecars,
             }
         )
+    result = PipelineResult.model_validate(result.model_dump(mode="python"))
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(pipeline_runner.RESULT_JSON),
         result.model_dump_json(indent=2) + "\n",
@@ -387,15 +754,37 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
     )
     html_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_HTML))
     xlsx_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_XLSX))
-    render_html(result, html_path)
-    render_workbook(result, xlsx_path)
+    target_path = ctx.envelope.path(pipeline_runner.TARGET_COVERAGE_REPORT)
+    selection_path = ctx.envelope.path(pipeline_runner.SELECTION_COVERAGE_REPORT)
+    target_coverage = (
+        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
+        if target_path.is_file()
+        else None
+    )
+    selection_coverage = (
+        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
+        if selection_path.is_file()
+        else None
+    )
+    render_html(
+        result,
+        html_path,
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
+    render_workbook(
+        result,
+        xlsx_path,
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
     cnv = _load_cnv(ctx)
     if cnv is not None:
         document = html_path.read_text(encoding="utf-8")
         section = _cnv_html_section(ctx, cnv)
-        marker = "<section><h2>Warnings and limitations</h2>"
+        marker = "<!-- ONTSEQ_CNV_SECTION -->"
         if marker in document:
-            document = document.replace(marker, section + marker, 1)
+            document = document.replace(marker, section, 1)
         else:
             document = document.replace("</main>", section + "</main>", 1)
         html_path.write_text(document, encoding="utf-8")

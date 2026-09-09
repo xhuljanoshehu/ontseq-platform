@@ -109,8 +109,13 @@ def classify_sv_event(event: GenomicEvent, policy: SvEvidencePolicy | None = Non
         score += resolved.inadequate_observability_weight
         reasons.append(f"observability={event.observability.value}")
 
-    if event.technical_flags:
-        flag_count = len(set(event.technical_flags))
+    # Earlier annotation versions put positive Umap overlaps in technical_flags. Retain the
+    # input trace, but do not penalize generic mappability as though it meant low mappability.
+    artifact_flags = {
+        flag for flag in event.technical_flags if flag.rsplit(":", 1)[-1] != "mappability"
+    }
+    if artifact_flags:
+        flag_count = len(artifact_flags)
         penalty = min(
             resolved.maximum_context_penalty,
             abs(resolved.context_flag_weight) * flag_count,

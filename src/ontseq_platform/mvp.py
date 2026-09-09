@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from .iscn import build_iscn_proposal, iscn_module_outcome, resource_provenance_for_iscn
 from .methylation import MethylationReport
 from .models import (
     AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
-    ISCNProposal,
+    CuteSvCallReport,
+    ISCNAssessmentBlocker,
+    ISCNSelectionPolicy,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
+    ResolvedResourceContext,
     ReviewStatus,
     SampleManifest,
+    SidecarArtifact,
     SnifflesCallReport,
     SvConsensusReport,
     Verdict,
@@ -27,8 +32,11 @@ def assemble_aligned_bam_mvp(
     pipeline_version: str,
     git_commit: str,
     sniffles_report: SnifflesCallReport | None = None,
+    cutesv_report: CuteSvCallReport | None = None,
     sv_consensus_report: SvConsensusReport | None = None,
     methylation_report: MethylationReport | None = None,
+    reference_context: ResolvedResourceContext | None = None,
+    sidecars: list[SidecarArtifact] | None = None,
 ) -> PipelineResult:
     if manifest.sample_id != intake.sample_id or manifest.sample_id != qc_report.sample_id:
         raise ValueError("Manifest, intake and QC artifacts must refer to the same sample")
@@ -44,8 +52,64 @@ def assemble_aligned_bam_mvp(
             raise ValueError("Manifest and methylation artifact must refer to the same sample")
         if manifest.assay.genome_build != methylation_report.genome_build:
             raise ValueError("Manifest and methylation artifact use different genome builds")
+    if cutesv_report is not None:
+        if manifest.sample_id != cutesv_report.sample_id:
+            raise ValueError("Manifest and cuteSV artifact must refer to the same sample")
+        if manifest.assay.genome_build != cutesv_report.genome_build:
+            raise ValueError("Manifest and cuteSV artifact use different genome builds")
+    if sv_consensus_report is not None:
+        if manifest.sample_id != sv_consensus_report.sample_id:
+            raise ValueError("Manifest and SV consensus artifact must refer to the same sample")
+        if manifest.assay.genome_build != sv_consensus_report.genome_build:
+            raise ValueError("Manifest and SV consensus artifact use different genome builds")
 
     requested = set(manifest.analysis.modules)
+    source_events = (
+        sv_consensus_report.events
+        if sv_consensus_report is not None
+        else sniffles_report.events
+        if sniffles_report is not None
+        else cutesv_report.events
+        if cutesv_report is not None
+        else []
+    )
+    events = prioritize_sv_events(source_events)
+    iscn = build_iscn_proposal(
+        events,
+        genome_build=manifest.assay.genome_build,
+        selection_policy=ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1,
+        requested=AnalysisModule.ISCN in requested,
+        upstream_evidence_assessed=False,
+        resource_provenance=resource_provenance_for_iscn(reference_context),
+        policy_parameters={
+            "automatic_unvalidated_sv_to_iscn": False,
+            "sex_chromosomes_assessed": False,
+            "exact_full_chromosome_span_required_for_iscn": True,
+        },
+        technical_assumptions=[
+            "Only checksum-bound cytobands may be rendered.",
+            "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
+        ],
+        assessment_blockers=[
+            ISCNAssessmentBlocker(
+                reason_code="CNV_EVIDENCE_UNAVAILABLE",
+                detail=(
+                    "the base aligned-BAM assembler has no completed CNV artifact; the CNV "
+                    "extension must recompute ISCN after merging copy-number evidence"
+                ),
+            ),
+            *(
+                [
+                    ISCNAssessmentBlocker(
+                        reason_code="QC_FAILED",
+                        detail="run QC failed; ISCN proposal assessment is blocked",
+                    )
+                ]
+                if qc_report.qc.verdict == Verdict.FAIL
+                else []
+            ),
+        ],
+    )
     modules: list[ModuleOutcome] = []
     for module in AnalysisModule:
         if module == AnalysisModule.QC:
@@ -117,30 +181,36 @@ def assemble_aligned_bam_mvp(
                 )
             )
         elif module == AnalysisModule.FUSION:
-            modules.append(
-                ModuleOutcome(
-                    module=module,
-                    status=ModuleRunStatus.NOT_RUN,
-                    reason=(
-                        "Breakend candidates require gene annotation and fusion-specific "
-                        "validation; an SV call is not a fusion assertion"
-                    ),
+            if sv_consensus_report is None:
+                status = ModuleRunStatus.NOT_RUN
+                reason = "No annotated SV consensus was available for fusion assessment"
+            elif sv_consensus_report.status == ModuleRunStatus.NO_CALL:
+                status = ModuleRunStatus.NO_CALL
+                reason = (
+                    "Fusion candidate assessment received no normalized SV candidate; this is "
+                    "not a biological negative result"
                 )
-            )
+            else:
+                fusion_evidence_count = sum(
+                    event.fusion_evidence is not None for event in sv_consensus_report.events
+                )
+                knowledge_match_count = sum(
+                    event.known_rearrangement is not None for event in sv_consensus_report.events
+                )
+                status = ModuleRunStatus.COMPLETED
+                reason = (
+                    "Breakpoint-level fusion candidate assessment completed: "
+                    f"{fusion_evidence_count} event(s) carried fusion evidence and "
+                    f"{knowledge_match_count} matched a hematology review pattern. "
+                    "Candidate assessment is not analytical validation or clinical release."
+                )
+            modules.append(ModuleOutcome(module=module, status=status, reason=reason))
         elif module == AnalysisModule.ISCN:
-            modules.append(
-                ModuleOutcome(
-                    module=module,
-                    status=ModuleRunStatus.NOT_RUN,
-                    reason=(
-                        "No validated, cytoband-normalized CNV/SV interpretation is available "
-                        "for an ISCN proposal"
-                    ),
-                )
-            )
+            modules.append(iscn_module_outcome(iscn))
         elif module in requested:
             reason = (
-                "Methylation lane is planned in the graph, but no caller is currently wired in."
+                "No current methylation artifact was supplied; consult the run status for "
+                "the skipped or failed stage. This is not an unmethylated result."
                 if module == AnalysisModule.METHYLATION
                 else "Requested module is outside the aligned-BAM MVP"
             )
@@ -163,19 +233,9 @@ def assemble_aligned_bam_mvp(
         reference_checksums["sniffles_vcf"] = sniffles_report.vcf_fingerprint.sha256
     if methylation_report is not None and methylation_report.bedmethyl_fingerprint.sha256:
         reference_checksums["bedmethyl"] = methylation_report.bedmethyl_fingerprint.sha256
+    if cutesv_report is not None and cutesv_report.vcf_fingerprint.sha256:
+        reference_checksums["cutesv_vcf"] = cutesv_report.vcf_fingerprint.sha256
 
-    source_events = (
-        sv_consensus_report.events
-        if sv_consensus_report is not None
-        else sniffles_report.events
-        if sniffles_report is not None
-        else []
-    )
-    events = prioritize_sv_events(source_events)
-    iscn_warnings = [
-        "ISCN was not generated because validated CNV/SV interpretation is unavailable.",
-        "Absence of an ISCN proposal is not a biological negative result.",
-    ]
     warnings = [
         "Aligned-BAM pipeline outputs remain research-only and require expert review.",
         "CNV and fusion interpretation remain disabled until benchmark acceptance criteria pass.",
@@ -199,11 +259,7 @@ def assemble_aligned_bam_mvp(
         manifest=manifest,
         qc=qc_report.qc,
         events=events,
-        iscn=ISCNProposal(
-            notation="NOT GENERATED",
-            review_status=ReviewStatus.DRAFT,
-            warnings=iscn_warnings,
-        ),
+        iscn=iscn,
         provenance=Provenance(
             pipeline_version=pipeline_version,
             git_commit=git_commit,
@@ -214,11 +270,14 @@ def assemble_aligned_bam_mvp(
                     qc_report.tool,
                     sniffles_report.tool if sniffles_report is not None else None,
                     methylation_report.tool if methylation_report is not None else None,
+                    cutesv_report.tool if cutesv_report is not None else None,
                 )
                 if item is not None
             ],
             reference_checksums=reference_checksums,
         ),
+        **({"reference_context": reference_context} if reference_context is not None else {}),
+        sidecars=sidecars or [],
         modules=modules,
         warnings=warnings,
         release_status=ReviewStatus.REVIEW_REQUIRED,

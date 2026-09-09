@@ -1,0 +1,68 @@
+schema_version: 1.0.0
+mapping_id: AML_AS_111_GRCh38_to_GRCh37_UCSC_liftOver_v1
+status: controlled_build_time_unvalidated
+source_genome_build: GRCh38
+target_genome_build: GRCh37
+source_panel_bundle_id: AML_AS_111_GRCh38_v1
+source_panel_resource_id: selection_panel_normalized
+source_selection_sha256: 9338e66a52310d4181e2eb121d2f3954c16bb7bf482a8c5d2ec3c7b1e5381ee1
+source_interval_count: 111
+mapping_method: ucsc_liftover_chain
+mapping_tool: UCSC liftOver
+mapping_tool_url: https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/liftOver
+mapping_tool_sha256: 6529f91135d579f18d1d86681810cdd0150bf6d7531457baa79a6632706368c0
+mapping_tool_size_bytes: 30663104
+mapping_tool_build_id: 51d81a04d49bb7807609fdc1bb2e0933f9390727
+mapping_tool_last_modified: 2026-08-20T01:29:56Z
+chain_name: hg38ToHg19.over.chain.gz
+chain_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/hg38ToHg19.over.chain.gz
+chain_md5: ff3031d93792f4cbb86af44055efd903
+chain_sha256: 14a712e8e147d9fc8e9d87d51977b46f6f8ddb93efbe5d0843d86b6205f587b1
+min_match: 0.99
+min_blocks: 1.0
+multiple: false
+mapped_output_sha256: 909b9552e4ee50daa04a5e22934ef425833b44000e1086c7d92595974a53ec5d
+unmapped_output_sha256: 55038b8ce5b8aa4600e85e84e9cec23a108ad3da12bd444c8706ccc6d6ecf9e1
+mapped_interval_count: 110
+same_chromosome_mapped_count: 110
+span_identical_count: 102
+maximum_span_delta_bases: 3133
+maximum_span_delta_fraction: 0.009164945618787407
+unmapped_target_labels:
+  - CT45A2
+split_target_labels:
+  - CT45A2
+roundtrip_chain_name: hg19ToHg38.over.chain.gz
+roundtrip_chain_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz
+roundtrip_chain_md5: 35887f73fe5e2231656504d1f6430900
+roundtrip_chain_sha256: 5c0598e500ceb5a78c73086929e8ef993aec309bcafb595139b53d440b125a1d
+roundtrip_min_match: 0.99
+roundtrip_min_blocks: 1.0
+roundtrip_multiple: false
+roundtrip_mapped_output_sha256: a12f763f3ddbca94e28a29e432658755df553612cb454f2e9dc10593486c15bc
+roundtrip_mapped_output_size_bytes: 3274
+roundtrip_unmapped_output_sha256: c1b5bc5483cc78daf87f15d46174fe132444943d65ef95d1c5b864726a31d483
+roundtrip_unmapped_output_size_bytes: 44
+roundtrip_mapped_interval_count: 109
+reciprocal_exact_interval_count: 109
+roundtrip_unmapped_target_labels:
+  - ACACA
+roundtrip_split_target_labels:
+  - ACACA
+roundtrip_review_required_target_labels:
+  - ACACA
+final_selection_sha256: fd43e587d4208342539de04bfb290640f6eb08703b06c8eb1bf2561db98552f9
+runtime_mapping_allowed: false
+note: >-
+  RESEARCH USE ONLY. Controlled build-time mapping of the exact checksum-pinned
+  111-interval GRCh38 selection with liftOver -minMatch=0.99 (default
+  minBlocks=1.00, no -multiple). CT45A2 split in the target assembly and is
+  omitted without a partial interval or native replacement. All 110 mapped
+  intervals remain on the same chromosome; 102 preserve their span exactly.
+  The chain and liftOver executable are provenance only and are not distributed
+  or used at runtime. A checksum-pinned reverse mapping with the official
+  hg19ToHg38 chain returned 109 intervals exactly to their GRCh38 source
+  coordinates; ACACA split on reverse mapping and remains explicitly
+  ROUNDTRIP_REVIEW_REQUIRED. IGH_REVIEW_REQUIRED and GPR128_REVIEW_REQUIRED retain
+  forward-mapped legacy selection-only intervals without native GENCODE19 gene IDs
+  or analysis ROIs; they are not claims of IGH/GPR128 gene coverage.

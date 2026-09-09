@@ -15,6 +15,14 @@ public sealed class OntSeqServiceClient : IDisposable
     private readonly HttpClient _http;
     private bool _bootstrapped;
 
+    public static Uri WorkspaceUri(int port, string? preferredProfileId = null)
+    {
+        var baseUri = $"http://127.0.0.1:{port}/workspace";
+        if (string.IsNullOrWhiteSpace(preferredProfileId)) return new Uri(baseUri);
+        var profile = DesktopProfiles.Require(preferredProfileId).ProfileId;
+        return new Uri(baseUri + "?profile=" + Uri.EscapeDataString(profile));
+    }
+
     public OntSeqServiceClient(int port)
     {
         _http = new HttpClient
@@ -28,8 +36,11 @@ public sealed class OntSeqServiceClient : IDisposable
         TimeSpan timeout,
         Func<bool>? backendExited,
         Func<string>? backendLog,
+        ServiceLaunchExpectation expectation,
         CancellationToken cancellationToken)
     {
+        _bootstrapped = false;
+        _http.DefaultRequestHeaders.Remove(TokenHeader);
         var deadline = DateTimeOffset.UtcNow + timeout;
         Exception? last = null;
         while (DateTimeOffset.UtcNow < deadline)
@@ -44,11 +55,22 @@ public sealed class OntSeqServiceClient : IDisposable
                 if (!match.Success) throw new InvalidDataException("Der ONTSeq-Dienst lieferte keinen Sitzungstoken.");
                 _http.DefaultRequestHeaders.Remove(TokenHeader);
                 _http.DefaultRequestHeaders.Add(TokenHeader, match.Groups["token"].Value);
+                var config = (await GetJsonAsync<ServiceConfigResponse>(
+                    "api/config", cancellationToken)).RequireLaunch(expectation);
                 _bootstrapped = true;
-                return await GetConfigAsync(cancellationToken);
+                return config;
+            }
+            catch (Exception error) when (
+                error is ServiceInstanceMismatchException or ServiceLaunchScopeMismatchException)
+            {
+                _bootstrapped = false;
+                _http.DefaultRequestHeaders.Remove(TokenHeader);
+                throw;
             }
             catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException)
             {
+                _bootstrapped = false;
+                _http.DefaultRequestHeaders.Remove(TokenHeader);
                 last = error;
                 await Task.Delay(300, cancellationToken);
             }
@@ -72,6 +94,73 @@ public sealed class OntSeqServiceClient : IDisposable
             throw new InvalidOperationException($"Analyse konnte nicht gestartet werden ({(int)response.StatusCode}): {ReadError(body)}");
         return JsonSerializer.Deserialize<RunJobResponse>(body, JsonDefaults.Options)
                ?? throw new InvalidDataException("Leere Antwort beim Start der Analyse.");
+    }
+
+    public async Task<MethylationProbeResponse> ProbeMethylationAsync(
+        string bamPath, CancellationToken cancellationToken, bool forceRefresh = false)
+    {
+        EnsureBootstrapped();
+        using var response = await _http.PostAsJsonAsync(
+            "api/methylation/probe", new MethylationProbeRequest(bamPath, forceRefresh),
+            JsonDefaults.Options, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw MethylationError(response, body);
+        return (JsonSerializer.Deserialize<MethylationProbeResponse>(body, JsonDefaults.Options)
+            ?? throw new InvalidDataException("Leere Antwort bei der Methylierungsprüfung."))
+            .RequireBam(bamPath);
+    }
+
+    public async Task<MethylationScanSnapshot> StartMethylationScanAsync(
+        string bamPath, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        using var response = await _http.PostAsJsonAsync(
+            "api/methylation/scans", new MethylationScanRequest(bamPath),
+            JsonDefaults.Options, cancellationToken);
+        return (await ReadMethylationScanAsync(response, cancellationToken)).RequireScan(bamPath);
+    }
+
+    public async Task<MethylationScanSnapshot> GetMethylationScanAsync(
+        string scanId, string bamPath, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        using var response = await _http.GetAsync(
+            "api/methylation/scans/" + MethylationScanSnapshot.RequireId(scanId), cancellationToken);
+        return (await ReadMethylationScanAsync(response, cancellationToken)).RequireScan(bamPath, scanId);
+    }
+
+    public async Task<MethylationScanSnapshot> CancelMethylationScanAsync(
+        string scanId, string bamPath, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        using var response = await _http.PostAsJsonAsync(
+            "api/methylation/scans/" + MethylationScanSnapshot.RequireId(scanId) + "/cancel",
+            new { }, JsonDefaults.Options, cancellationToken);
+        return (await ReadMethylationScanAsync(response, cancellationToken)).RequireScan(bamPath, scanId);
+    }
+
+    private static async Task<MethylationScanSnapshot> ReadMethylationScanAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) throw MethylationError(response, body);
+        return JsonSerializer.Deserialize<MethylationScanSnapshot>(body, JsonDefaults.Options)
+            ?? throw new InvalidDataException("Leere Antwort bei der gründlichen Methylierungsprüfung.");
+    }
+
+    private static MethylationServiceException MethylationError(HttpResponseMessage response, string body)
+    {
+        string? code = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("reason_code", out var value) && value.ValueKind == JsonValueKind.String)
+                code = value.GetString();
+        }
+        catch (JsonException) { }
+        return new MethylationServiceException(
+            $"Methylierungsprüfung nicht verfügbar ({(int)response.StatusCode}): {ReadError(body)}", code);
     }
 
     public async Task<RunJobResponse> GetRunAsync(string runId, CancellationToken cancellationToken)
@@ -111,8 +200,45 @@ public sealed class OntSeqServiceClient : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
+public sealed class MethylationServiceException(string message, string? reasonCode)
+    : InvalidOperationException(message)
+{
+    public string? ReasonCode { get; } = reasonCode;
+}
+
 public static class ProvenanceReader
 {
+    public static async Task<string?> ReadGenomeBuildAsync(
+        string outputRoot,
+        string runId,
+        string sampleId,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(outputRoot, runId, sampleId, "provenance", "run.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            return doc.RootElement.TryGetProperty("genome_build", out var build) &&
+                   build.ValueKind == JsonValueKind.String
+                ? build.GetString()
+                : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static async Task<List<StageSnapshot>> ReadStagesAsync(
         string outputRoot,
         string runId,

@@ -207,6 +207,66 @@ class NormalizationTests(unittest.TestCase):
 
 
 class RegionAggregationTests(unittest.TestCase):
+    def test_same_name_intervals_keep_local_counts_and_missing_measurements(self) -> None:
+        """Repeated labels must not merge disjoint, overlapping or cross-chromosome targets."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bed = root / "targets.bed"
+            bed.write_text(
+                "chr1\t100\t200\tGENE\nchr1\t150\t250\tGENE\n"
+                "chr1\t300\t400\tGENE\nchr1\t500\t600\tGENE\n"
+                "chr2\t100\t200\tGENE\n",
+                encoding="utf-8",
+            )
+            path = root / "sample.bedmethyl"
+            path.write_text(
+                "\n".join(
+                    [
+                        _row("chr1", 125, "m", 10, 2),
+                        _row("chr1", 175, "m", 10, 8),
+                        _row("chr1", 350, "m", 20, 18),
+                        _row("chr2", 125, "m", 10, 1),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            tool = ToolRecord(name="modkit", version="0.4.1", parameters={"threads": 2})
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(region_source="target_bed"),
+                tool=tool,
+                regions=_bed_regions(bed),
+                target_bed=bed,
+            )
+        observed = {
+            (row.chromosome, row.start, row.end): (
+                row.sites_total,
+                row.valid_call_count,
+                row.modified_call_count,
+                row.mean_modified_fraction,
+            )
+            for row in report.regions
+        }
+        self.assertEqual(
+            observed,
+            {
+                ("chr1", 100, 200): (2, 20, 10, 0.5),
+                ("chr1", 150, 250): (1, 10, 8, 0.8),
+                ("chr1", 300, 400): (1, 20, 18, 0.9),
+                ("chr1", 500, 600): (0, 0, 0, None),
+                ("chr2", 100, 200): (1, 10, 1, 0.1),
+            },
+        )
+        self.assertEqual(
+            report.tool.parameters,
+            {"threads": 2, "ontseq_region_assignment": "interval-identity-v1"},
+        )
+        self.assertEqual(tool.parameters, {"threads": 2})
+        self.assertIsNotNone(report.target_bed_fingerprint)
+
     def test_sites_are_counted_in_every_overlapping_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

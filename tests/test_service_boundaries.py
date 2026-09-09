@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import tempfile
 import threading
 import unittest
@@ -19,8 +18,18 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
-from ontseq_platform.service.app import JobRejected, Jobs, RunJob, ServiceConfig, make_handler
+from filesystem_support import symlink_or_skip
+
+from ontseq_platform.service.app import (
+    JobRejected,
+    Jobs,
+    RunJob,
+    ServiceConfig,
+    close_handler_resources,
+    make_handler,
+)
 from ontseq_platform.service.guard import TOKEN_HEADER
 
 
@@ -37,7 +46,8 @@ def _service(root: Path, output_dir: Path) -> Iterator[tuple[ServiceConfig, int]
         target_coverage_policy=root / "coverage.yaml",
         port=0,
     )
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(config, Jobs()))
+    handler = make_handler(config, Jobs())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     port = server.server_address[1]
     assert isinstance(port, int)
     config.port = port
@@ -47,6 +57,7 @@ def _service(root: Path, output_dir: Path) -> Iterator[tuple[ServiceConfig, int]
         yield config, port
     finally:
         server.shutdown()
+        close_handler_resources(handler)
         server.server_close()
         thread.join(timeout=5)
 
@@ -139,6 +150,37 @@ class PageRouteTests(unittest.TestCase):
             self.assertEqual(status, 403)
             self.assertNotIn(config.token.encode("utf-8"), body)
 
+    def test_missing_installed_profile_is_a_bad_request_and_not_a_server_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            resources = base / "resources"
+            resources.mkdir()
+            bam = base / "sample.bam"
+            bam.write_bytes(b"BAM")
+            Path(f"{bam}.bai").write_bytes(b"BAI")
+            with _service(base, base / "runs") as (config, port):
+                config.resource_root = resources
+                with patch(
+                    "ontseq_platform.service.app.windows_to_wsl",
+                    side_effect=lambda value: value,
+                ):
+                    status, body = _request(
+                        port,
+                        "POST",
+                        "/api/runs",
+                        token=config.token,
+                        body={
+                            "bam": str(bam),
+                            "sample_id": "SAMPLE_001",
+                            "profile": "AML_LCWGS_GRCh38",
+                            "genome_build": "GRCh38",
+                            "assay": "lcwgs",
+                        },
+                    )
+
+            self.assertEqual(status, 400, body)
+            self.assertIn(b"not active", body)
+
 
 class BrowseRouteTests(unittest.TestCase):
     def test_a_dangling_symlink_does_not_break_the_listing(self) -> None:
@@ -149,7 +191,7 @@ class BrowseRouteTests(unittest.TestCase):
             real = base / "real.bam"
             real.write_bytes(b"BAM")
             Path(f"{real}.bai").write_bytes(b"BAI")
-            os.symlink(base / "absent.bam", base / "dangling.bam")
+            symlink_or_skip(self, base / "dangling.bam", base / "absent.bam")
 
             with _service(base, base / "runs") as (config, port):
                 status, body = _request(port, "GET", "/api/browse", token=config.token)
@@ -202,7 +244,7 @@ class LocateRouteTests(unittest.TestCase):
             allowed.mkdir()
             outside = base / "outside.bam"
             outside.write_bytes(b"BAM outside the service boundary")
-            os.symlink(outside, allowed / "escaped.bam")
+            symlink_or_skip(self, allowed / "escaped.bam", outside)
 
             with _service(allowed, allowed / "runs") as (config, port):
                 status, body = _request(

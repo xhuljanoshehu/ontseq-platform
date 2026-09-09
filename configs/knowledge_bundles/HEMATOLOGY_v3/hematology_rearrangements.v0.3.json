@@ -1,0 +1,1362 @@
+{
+  "schema_version": "0.2.0",
+  "scope": {
+    "panel": "AML_AS_111_GRCh38_v1",
+    "ontology_root": "DOID:2531",
+    "selection": "Exact CIViC fusion with at least one panel gene and at least one associated disease descending from DOID:2531; plus locally curated AML patterns.",
+    "record_count": 38,
+    "pathology_association_count": 74
+  },
+  "records": [
+    {
+      "record_id": "CIVIC-FUSION-61897",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ADAD2-AS1",
+        "ABL1"
+      ],
+      "display_name": "ADAD2-AS1::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61897/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61897",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61897/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61897",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-BCR-ABL1",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "BCR",
+        "ABL1"
+      ],
+      "display_name": "BCR::ABL1",
+      "relevance": "aml_relevant_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "Classification requires exclusion of CML blast phase and integration with morphology, history, and validated testing.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080643",
+          "name": "B-lymphoblastic Leukemia/lymphoma With BCR-ABL1",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-3007",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 5,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:0080976",
+          "name": "Acute Myeloid Leukemia With BCR-ABL1",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-3513",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 3,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:8552",
+          "name": "Chronic Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-4",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 496,
+          "assertion_count": 2
+        },
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        },
+        {
+          "disease_id": "DOID:9952",
+          "name": "Acute Lymphoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61802/DISEASE-43",
+          "source_url": "https://civicdb.org/features/61802",
+          "evidence_item_count": 34,
+          "assertion_count": 3
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-61951",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "BCR",
+        "FGFR1"
+      ],
+      "display_name": "BCR::FGFR1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060058",
+          "name": "Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61951/DISEASE-95",
+          "source_url": "https://civicdb.org/features/61951",
+          "evidence_item_count": 9,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61951/DISEASE-224",
+          "source_url": "https://civicdb.org/features/61951",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61951/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61951",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:1037",
+          "name": "Lymphoid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61951/DISEASE-3034",
+          "source_url": "https://civicdb.org/features/61951",
+          "evidence_item_count": 2,
+          "assertion_count": 0
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61859",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "BCR",
+        "JAK2"
+      ],
+      "display_name": "BCR::JAK2",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61859/DISEASE-224",
+          "source_url": "https://civicdb.org/features/61859",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61859/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61859",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61872",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "BCR",
+        "PDGFRA"
+      ],
+      "display_name": "BCR::PDGFRA",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080638",
+          "name": "B-cell Acute Lymphoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61872/DISEASE-3006",
+          "source_url": "https://civicdb.org/features/61872",
+          "evidence_item_count": 10,
+          "assertion_count": 2
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61872/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61872",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61827",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "CBFA2T3",
+        "GLIS2"
+      ],
+      "display_name": "CBFA2T3::GLIS2",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080794",
+          "name": "Childhood Acute Megakaryoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61827/DISEASE-3041",
+          "source_url": "https://civicdb.org/features/61827",
+          "evidence_item_count": 1,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:8761",
+          "name": "Acute Megakaryocytic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61827/DISEASE-3569",
+          "source_url": "https://civicdb.org/features/61827",
+          "evidence_item_count": 4,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61827/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61827",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-CBFB-MYH11",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "CBFB",
+        "MYH11"
+      ],
+      "display_name": "CBFB::MYH11",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0081084",
+          "name": "Acute Myeloid Leukemia With Inv(16)(p13.1q22) Or T(16;16)(p13.1;q22)",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61760/DISEASE-3183",
+          "source_url": "https://civicdb.org/features/61760",
+          "evidence_item_count": 4,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61760/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61760",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-61894",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "CENPC",
+        "ABL1"
+      ],
+      "display_name": "CENPC::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61894/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61894",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-62033",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "CEP43",
+        "FGFR1"
+      ],
+      "display_name": "CEP43::FGFR1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060058",
+          "name": "Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62033/DISEASE-95",
+          "source_url": "https://civicdb.org/features/62033",
+          "evidence_item_count": 9,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62033/DISEASE-224",
+          "source_url": "https://civicdb.org/features/62033",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:1037",
+          "name": "Lymphoid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62033/DISEASE-3034",
+          "source_url": "https://civicdb.org/features/62033",
+          "evidence_item_count": 2,
+          "assertion_count": 0
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61797",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "CLTC",
+        "ALK"
+      ],
+      "display_name": "CLTC::ALK",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0050745",
+          "name": "Diffuse Large B-cell Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61797/DISEASE-45",
+          "source_url": "https://civicdb.org/features/61797",
+          "evidence_item_count": 125,
+          "assertion_count": 8
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-DEK-NUP214",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "DEK",
+        "NUP214"
+      ],
+      "display_name": "DEK::NUP214",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0081080",
+          "name": "Acute Myeloid Leukemia With T(6;9) (p23;q34.1)",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62007/DISEASE-3179",
+          "source_url": "https://civicdb.org/features/62007",
+          "evidence_item_count": 5,
+          "assertion_count": 1
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-61820",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ETV6",
+        "ABL1"
+      ],
+      "display_name": "ETV6::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61820/DISEASE-224",
+          "source_url": "https://civicdb.org/features/61820",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61820/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61820",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61820/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61820",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61858",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ETV6",
+        "JAK2"
+      ],
+      "display_name": "ETV6::JAK2",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61858/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61858",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61819",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ETV6",
+        "NTRK2"
+      ],
+      "display_name": "ETV6::NTRK2",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61819/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61819",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61785",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ETV6",
+        "NTRK3"
+      ],
+      "display_name": "ETV6::NTRK3",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080146",
+          "name": "Childhood B-cell Acute Lymphoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61785/DISEASE-2953",
+          "source_url": "https://civicdb.org/features/61785",
+          "evidence_item_count": 28,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61785/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61785",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61785/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61785",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        },
+        {
+          "disease_id": "DOID:2531",
+          "name": "Hematologic Cancer",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61785/DISEASE-217",
+          "source_url": "https://civicdb.org/features/61785",
+          "evidence_item_count": 13,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61785/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61785",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61886",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ETV6",
+        "RUNX1"
+      ],
+      "display_name": "ETV6::RUNX1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080146",
+          "name": "Childhood B-cell Acute Lymphoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61886/DISEASE-2953",
+          "source_url": "https://civicdb.org/features/61886",
+          "evidence_item_count": 28,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:0080645",
+          "name": "B-lymphoblastic Leukemia/lymphoma With ETV6-RUNX1",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61886/DISEASE-3009",
+          "source_url": "https://civicdb.org/features/61886",
+          "evidence_item_count": 4,
+          "assertion_count": 2
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61844",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "FGFR1OP2",
+        "FGFR1"
+      ],
+      "display_name": "FGFR1OP2::FGFR1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61844/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61844",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61837",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "FOXP1",
+        "ABL1"
+      ],
+      "display_name": "FOXP1::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61837/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61837",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61896",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "LSM14A",
+        "ABL1"
+      ],
+      "display_name": "LSM14A::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61896/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61896",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61766",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "NPM1",
+        "ALK"
+      ],
+      "display_name": "NPM1::ALK",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0050744",
+          "name": "Anaplastic Large Cell Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61766/DISEASE-348",
+          "source_url": "https://civicdb.org/features/61766",
+          "evidence_item_count": 15,
+          "assertion_count": 0
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61895",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "NUP153",
+        "ABL1"
+      ],
+      "display_name": "NUP153::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61895/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61895",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61832",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "NUP214",
+        "ABL1"
+      ],
+      "display_name": "NUP214::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61832/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61832",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61832/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61832",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61826",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "NUP98",
+        "NSD1"
+      ],
+      "display_name": "NUP98::NSD1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61826/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61826",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61814",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "P2RY8",
+        "CRLF2"
+      ],
+      "display_name": "P2RY8::CRLF2",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060592",
+          "name": "B-cell Adult Acute Lymphocytic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61814/DISEASE-2135",
+          "source_url": "https://civicdb.org/features/61814",
+          "evidence_item_count": 6,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0080146",
+          "name": "Childhood B-cell Acute Lymphoblastic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61814/DISEASE-2953",
+          "source_url": "https://civicdb.org/features/61814",
+          "evidence_item_count": 28,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61814/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61814",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61814/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61814",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "HEME-PICALM-MLLT10",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "PICALM",
+        "MLLT10"
+      ],
+      "display_name": "PICALM::MLLT10",
+      "relevance": "aml_relevant_pattern",
+      "source_ids": [
+        "BOREL-2012",
+        "DO-2026-07-31"
+      ],
+      "caveat": "This recurrent acute-leukemia gene pair is a high-priority review pattern, not proof of a productive fusion, lineage, diagnosis, prognosis, or clinical reportability. Confirm transcript structure and use an orthogonal validated method.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "BOREL-2012",
+          "source_record_id": "PMID:22871473",
+          "source_url": "https://pubmed.ncbi.nlm.nih.gov/22871473/"
+        }
+      ]
+    },
+    {
+      "record_id": "AML-PML-RARA",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "PML",
+        "RARA"
+      ],
+      "display_name": "PML::RARA",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "A suspected PML::RARA pattern requires urgent validated confirmatory testing; this software does not diagnose APL.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060318",
+          "name": "Acute Promyelocytic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61801/DISEASE-379",
+          "source_url": "https://civicdb.org/features/61801",
+          "evidence_item_count": 19,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:0081081",
+          "name": "Acute Promyelocytic Leukemia With PML-RARA",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61801/DISEASE-3180",
+          "source_url": "https://civicdb.org/features/61801",
+          "evidence_item_count": 5,
+          "assertion_count": 1
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-61892",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "RANBP2",
+        "ABL1"
+      ],
+      "display_name": "RANBP2::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61892/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61892",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-RBM15-MRTFA",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "RBM15",
+        "MRTFA"
+      ],
+      "display_name": "RBM15::MRTFA",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0081096",
+          "name": "Acute Myeloid Leukemia With T(1;22)(p13;q13)",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62030/DISEASE-3195",
+          "source_url": "https://civicdb.org/features/62030",
+          "evidence_item_count": 4,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:8761",
+          "name": "Acute Megakaryocytic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62030/DISEASE-3569",
+          "source_url": "https://civicdb.org/features/62030",
+          "evidence_item_count": 4,
+          "assertion_count": 0
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-62027",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "RCSD1",
+        "ABL1"
+      ],
+      "display_name": "RCSD1::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62027/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/62027",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-62027/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/62027",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-RUNX1-RUNX1T1",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "RUNX1",
+        "RUNX1T1"
+      ],
+      "display_name": "RUNX1::RUNX1T1",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022",
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "caveat": "Gene overlap is a rearrangement pattern only; transcript structure and orthogonal confirmation are required.",
+      "pathologies": [
+        {
+          "disease_id": "DOID:0081093",
+          "name": "Acute Myeloid Leukemia With T(8;21); (q22; Q22.1)",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61884/DISEASE-3192",
+          "source_url": "https://civicdb.org/features/61884",
+          "evidence_item_count": 5,
+          "assertion_count": 1
+        },
+        {
+          "disease_id": "DOID:9119",
+          "name": "Acute Myeloid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61884/DISEASE-3",
+          "source_url": "https://civicdb.org/features/61884",
+          "evidence_item_count": 426,
+          "assertion_count": 19
+        }
+      ]
+    },
+    {
+      "record_id": "CIVIC-FUSION-61836",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "SNX2",
+        "ABL1"
+      ],
+      "display_name": "SNX2::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61836/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61836",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61836/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61836",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61989",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "TCF3",
+        "PBX1"
+      ],
+      "display_name": "TCF3::PBX1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080649",
+          "name": "B-lymphoblastic Leukemia/lymphoma With TCF3-PBX1",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61989/DISEASE-3013",
+          "source_url": "https://civicdb.org/features/61989",
+          "evidence_item_count": 6,
+          "assertion_count": 1
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61952",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "TRIM24",
+        "FGFR1"
+      ],
+      "display_name": "TRIM24::FGFR1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060058",
+          "name": "Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61952/DISEASE-95",
+          "source_url": "https://civicdb.org/features/61952",
+          "evidence_item_count": 9,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61952/DISEASE-224",
+          "source_url": "https://civicdb.org/features/61952",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:1037",
+          "name": "Lymphoid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61952/DISEASE-3034",
+          "source_url": "https://civicdb.org/features/61952",
+          "evidence_item_count": 2,
+          "assertion_count": 0
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61893",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ZMIZ1",
+        "ABL1"
+      ],
+      "display_name": "ZMIZ1::ABL1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0080188",
+          "name": "Chronic Myelomonocytic Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61893/DISEASE-2129",
+          "source_url": "https://civicdb.org/features/61893",
+          "evidence_item_count": 5,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0080630",
+          "name": "B-lymphoblastic Leukemia/lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61893/DISEASE-3005",
+          "source_url": "https://civicdb.org/features/61893",
+          "evidence_item_count": 110,
+          "assertion_count": 9
+        },
+        {
+          "disease_id": "DOID:0080650",
+          "name": "B-lymphoblastic Leukemia/lymphoma, BCR-ABL1–like",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61893/DISEASE-3014",
+          "source_url": "https://civicdb.org/features/61893",
+          "evidence_item_count": 122,
+          "assertion_count": 15
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "CIVIC-FUSION-61950",
+      "pattern_type": "exact_pair",
+      "genes": [
+        "ZMYM2",
+        "FGFR1"
+      ],
+      "display_name": "ZMYM2::FGFR1",
+      "relevance": "hematology_relevant_pattern",
+      "source_ids": [
+        "CIVIC-2026-08-29",
+        "DO-2026-07-31"
+      ],
+      "pathologies": [
+        {
+          "disease_id": "DOID:0060058",
+          "name": "Lymphoma",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61950/DISEASE-95",
+          "source_url": "https://civicdb.org/features/61950",
+          "evidence_item_count": 9,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:0070004",
+          "name": "Myeloid Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61950/DISEASE-224",
+          "source_url": "https://civicdb.org/features/61950",
+          "evidence_item_count": 14,
+          "assertion_count": 6
+        },
+        {
+          "disease_id": "DOID:1037",
+          "name": "Lymphoid Leukemia",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61950/DISEASE-3034",
+          "source_url": "https://civicdb.org/features/61950",
+          "evidence_item_count": 2,
+          "assertion_count": 0
+        },
+        {
+          "disease_id": "DOID:2226",
+          "name": "Myeloproliferative Neoplasm",
+          "source_id": "CIVIC-2026-08-29",
+          "source_record_id": "CIVIC-FUSION-61950/DISEASE-313",
+          "source_url": "https://civicdb.org/features/61950",
+          "evidence_item_count": 9,
+          "assertion_count": 0
+        }
+      ],
+      "caveat": "CIViC disease association plus gene overlap is a review-prioritization pattern only; it does not establish a productive fusion, lineage, diagnosis, prognosis, or reportability."
+    },
+    {
+      "record_id": "AML-KMT2A-R",
+      "pattern_type": "gene_any_partner",
+      "genes": [
+        "KMT2A"
+      ],
+      "display_name": "KMT2A rearrangement",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022"
+      ],
+      "caveat": "A breakpoint involving KMT2A is only a candidate rearrangement until the partner and transcript context are established.",
+      "pathologies": []
+    },
+    {
+      "record_id": "AML-MECOM-R",
+      "pattern_type": "gene_any_partner",
+      "genes": [
+        "MECOM"
+      ],
+      "display_name": "MECOM rearrangement",
+      "relevance": "aml_relevant_pattern",
+      "source_ids": [
+        "WHO5-2022",
+        "ICC-2022"
+      ],
+      "caveat": "A breakpoint involving MECOM is only a candidate rearrangement until the partner and transcript context are established.",
+      "pathologies": []
+    },
+    {
+      "record_id": "AML-NUP98-R",
+      "pattern_type": "gene_any_partner",
+      "genes": [
+        "NUP98"
+      ],
+      "display_name": "NUP98 rearrangement",
+      "relevance": "aml_defining_pattern",
+      "source_ids": [
+        "WHO5-2022"
+      ],
+      "caveat": "A breakpoint involving NUP98 is only a candidate rearrangement until the partner and transcript context are established.",
+      "pathologies": []
+    }
+  ],
+  "sources": {
+    "WHO5-2022": {
+      "title": "The 5th edition of the World Health Organization Classification of Haematolymphoid Tumours: Myeloid and Histiocytic/Dendritic Neoplasms",
+      "doi": "10.1038/s41375-022-01613-1"
+    },
+    "ICC-2022": {
+      "title": "International Consensus Classification of Myeloid Neoplasms and Acute Leukemias",
+      "doi": "10.1182/blood.2022015850"
+    },
+    "BOREL-2012": {
+      "title": "PICALM-MLLT10 acute myeloid leukemia: a French cohort of 18 patients",
+      "doi": "10.1016/j.leukres.2012.07.008",
+      "pmid": "22871473"
+    },
+    "CIVIC-2026-08-29": {
+      "title": "Clinical Interpretation of Variants in Cancer (CIViC)",
+      "url": "https://civicdb.org/",
+      "license": "CC0-1.0",
+      "retrieved": "2026-08-29",
+      "fusion_snapshot_sha256": [
+        "012388f3ed4e64f56aecaf586bf77e1796880cd7b5caa3c021b4b30839c4a74b",
+        "057c89676ed3f3b868adae57b23cba8a52fcfa0965215b41894fd75336a1d511",
+        "65b3ea37bb6f827b1c14f7741afac713682e9bddc3d212f515d1185a34da5ae2"
+      ],
+      "disease_snapshot_sha256": "57e0e6fc5d0fac0a5cfcc1038cad82ea77c813d3319787e22453f03d72ec21ef"
+    },
+    "DO-2026-07-31": {
+      "title": "Human Disease Ontology",
+      "release": "v2026-07-31",
+      "url": "https://github.com/DiseaseOntology/HumanDiseaseOntology/releases/tag/v2026-07-31",
+      "license": "CC0-1.0",
+      "sha256": "5b9803aa17eeabf4c70f144c64216294d01e66335da3e560576d4eb2dc9ff490",
+      "ontology_root": "DOID:2531"
+    }
+  }
+}

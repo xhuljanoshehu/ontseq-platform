@@ -5,6 +5,32 @@
 The software is a research prototype. No output is validated for diagnosis, prognosis,
 treatment selection or patient release.
 
+### Target interval identity correction, 2026-09-09
+
+The interval-identity fix reused from the methylation handover branch (`b2d5256`)
+changes biological output for target BEDs containing repeated region labels. Each
+reported row now aggregates only sites within its own chromosome and half-open
+interval. Shared sites still contribute independently to overlapping targets; empty
+targets retain null fractions rather than inheriting another target's measurement.
+Chromosome summaries and targets with unique labels retain their numerical behavior.
+
+New normalization records `ontseq_region_assignment=interval-identity-v1` in the
+existing tool-parameter provenance map, alongside the BED and bedMethyl fingerprints
+and reported interval coordinates. The method also enters the stage resume signature,
+invalidating previous method-unversioned results even in a local uncommitted checkout.
+Historical reports are not relabeled on loading;
+their missing method marker must not be interpreted as evidence of this correction.
+The serialized schema, modkit command, confidence/coverage policies and mixture
+estimators remain unchanged. Prospective runs require a fresh source/runtime lock;
+existing affected target reports require regeneration before comparison or reuse.
+
+A synthetic regression covers repeated labels on disjoint and overlapping intervals,
+the same coordinates on different chromosomes, missing measurements and preservation
+of input tool metadata. An integration regression verifies recomputation after the
+method upgrade and normal resume thereafter. This checks aggregation correctness, not biological recovery
+or clinical performance. Analytical promotion still requires independent review and
+the applicable study gates below.
+
 ### Nanopolish import hardening impact, 2026-09-05
 
 Adapter `nanopolish-call-table-v2` changes acceptance of oversized or malformed inputs:
@@ -27,6 +53,65 @@ neither resampling nor post-outcome threshold changes are introduced. This is so
 hardening and source intake, not biological or clinical validation.
 
 ## Validation units
+
+### 0.7.1 methylation discovery impact
+
+The Desktop preparation correction distinguishes inaccessible input drives/directories,
+output paths, resources and runtime components before starting a probe. Structured local
+prerequisite codes and a preparation-phase flag replace the misleading worker-failure
+classification. Synthetic filesystem failures and presentation regressions are required.
+This correction does not change the reader, probe provenance, biological calculations,
+reference contracts or analysis admission requirements; an unstarted probe stays unknown.
+
+The v2 discovery path uses a direct BAM reader, indexed quick sampling and an optional
+sequential background scan. Discovery now distinguishes supported paired 5mC information,
+incomplete/unsupported tags, reader failures, cancellation and a successful exhaustive
+negative. This can change whether the interface offers the methylation module and therefore
+requires synthetic positive/negative, long-read, late-positive, file-change, index,
+timeout/cancellation and service-scope regression checks. The limits are engineering
+resource bounds, not clinical thresholds or evidence of assay sensitivity.
+
+The analytical methylation adapter, estimator equations, reportability policy, thresholds,
+reference families and result schema remain unchanged. Probe v2 metadata records its method,
+reason, completeness, elapsed time and inspected-record count. A stat fingerprint detects
+ordinary file changes; it is not represented as a content checksum. Cached positive evidence
+is freshly inspected before an analysis start. A prospective analytical study still needs
+its own locked software identity and independent clinical validation.
+
+### 0.7 integration and optional methylation impact
+
+The follow-up Desktop setup correction changes diagnostic text transport and presentation.
+It does not change reference selection, analytical policies or biological calculations.
+Existing local GRCh38 resources may be imported beside GRCh37 only after the ordinary
+authority and checksum checks; DNS failures never justify a different build or relaxed hashes.
+
+The integration retains the newer supported-build reference contracts, corrected CNV
+coordinate exports, annotation context and structured CNV-only ISCN proposal path. It
+adds the separately developed methylation modules without changing their estimator
+equations or versioned technical thresholds. Software identifiers and source/runtime
+hashes change; prospective studies require a fresh lock before outcome inspection.
+
+Adaptive Sampling explicitly selects `modkit-cpg-targets-technical-v1`, using the
+profile's locked analysis target BED instead of chromosome-wide summaries. It preserves
+the 0.8 call-confidence and 5x valid-coverage engineering defaults from the lcWGS policy;
+off-target intervals are outside this report. This assay-specific selection and its
+policy identity require their own prospective validation, including missing targets.
+
+The BAM probe detects the presence of candidate MM/ML annotations, not the biological
+correctness of those annotations or the modification model. Its bounded negative result
+is unknown unless EOF and a successful tool exit establish a complete inspection. The
+operator's explicit inclusion decision changes the requested module set. Missing tools
+and incomplete evidence must remain visible and may not silently enable methylation.
+
+Regression checks must cover both opt-in and opt-out, file changes after a decision,
+malformed/truncated inputs, resource and artifact identity, and stale-result rejection.
+Previously generated methylation files are excluded after module deselection or failure;
+this intentionally prevents stale evidence from being presented as a current result.
+
+The Windows process-lifetime gate now uses a read-only synchronization handle instead
+of POSIX signal-zero semantics. This is an execution-integrity fix, with no change to
+the biological algorithms. Real binary interoperability and biological recovery remain
+separate from synthetic software and user-interface verification.
 
 Validation must be stratified; an aggregate accuracy number is insufficient.
 
@@ -214,3 +299,36 @@ use. Calibration, donor, marker-selection and within-molecule correlation uncert
 unresolved. No source coefficient may be relabelled DNA mass, cell fraction, tumour purity or
 subclone fraction without independent reference measurements and a successful additional
 calibration study. SNV, CNV and ploidy remain separate evidence layers; 10–20% remains a hypothesis.
+## ISCN proposal-path validation impact
+
+Result schema `0.3.0` represents ISCN proposal execution explicitly as `NOT_REQUESTED`,
+`NOT_ASSESSED`, `NO_RENDERABLE_CANDIDATE` or `PARTIAL_EVENT_LEVEL`. The regular engineering path
+can produce only CNV event fragments from typed CNV output with matching, checksum-bound GRCh37 or
+GRCh38 reference-lock, cytoband and annotation-cache provenance. Missing upstream evidence, failed
+QC or resource disagreement blocks assessment. An assessment with no renderable fragment is a
+technical `NO_CALL`; it is not a normal or negative karyotype.
+The CNV artifact is also bound to the manifest sample/build. `+chr`/`-chr` requires an exact
+zero-to-contig-end span, not only the wider CNV whole-chromosome fraction threshold.
+
+This proposal path has not been analytically or clinically validated. It does not infer or assert
+chromosome count, sex-chromosome complement, clonality, phase, derivative structure, balance,
+normality or a complete karyotype. Automatic SV/BND/translocation/inversion-to-ISCN conversion is
+disabled. Every proposal therefore remains `requires_expert_review=true` and
+`clinical_release_allowed=false`.
+
+Before expanding or clinically using this path, validation must additionally include:
+
+- authorized, edition- and errata-controlled ISCN source material and an expert-approved expected
+  result corpus;
+- independent GRCh37 and GRCh38 positive, negative, ambiguous and boundary cases tied to exact
+  reference, cytoband and annotation-cache checksums;
+- parser/renderer round trips and regression tests for every supported construct;
+- event-to-fragment traceability, duplicate handling, partial-band and whole-chromosome edge cases;
+- explicit validation of sex-chromosome, clone/mosaic, phase, reciprocal/balanced and derivative
+  semantics before any of them is enabled;
+- user-interface evaluation showing that partial, unassessed and no-call states cannot be mistaken
+  for a complete or normal karyotype;
+- expert sign-off, change control and a release mechanism that cannot bypass required review.
+
+The introduction of structured proposal states improves safety and auditability but does not
+satisfy any of these clinical release gates or establish full ISCN 2024 conformance.

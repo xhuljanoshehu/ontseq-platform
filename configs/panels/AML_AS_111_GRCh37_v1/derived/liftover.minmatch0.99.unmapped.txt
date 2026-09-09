@@ -1,0 +1,2 @@
+#Split in new
+chrX	135801667	135881813	CT45A2

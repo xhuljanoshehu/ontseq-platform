@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from filesystem_support import symlink_or_skip
+
 from ontseq_platform.service.guard import (
     GuardError,
     host_is_loopback,
@@ -109,7 +111,7 @@ class RootBoundaryTests(unittest.TestCase):
             root.mkdir()
             outside.mkdir()
             (outside / "secret.bam").write_bytes(b"x")
-            (root / "link.bam").symlink_to(outside / "secret.bam")
+            symlink_or_skip(self, root / "link.bam", outside / "secret.bam")
             with self.assertRaises(GuardError):
                 resolve_within(root / "link.bam", [root])
 

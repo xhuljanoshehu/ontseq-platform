@@ -12,6 +12,9 @@ on:
       - ".github/workflows/cnv-qdnaseq.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   qdnaseq-real-tool:
     runs-on: ubuntu-latest

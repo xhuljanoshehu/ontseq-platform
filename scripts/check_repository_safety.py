@@ -69,6 +69,15 @@ IGNORED_PARTS = {
     "results",
     "work",
 }
+CHECKSUM_PINNED_PATTERNS = (
+    "configs/knowledge/*.json",
+    "configs/knowledge_bundles/**/*.json",
+    "configs/panels/*.bed",
+    "configs/panels/AML_AS_111_GRCh38_v1/**/*",
+    "configs/panels/AML_AS_111_GRCh37_v1/**/*",
+    "tests/fixtures/reference_cache/**/*",
+    "tests/fixtures/reference_catalog/**/*",
+)
 
 
 def _candidate_files() -> list[Path]:
@@ -141,6 +150,41 @@ def sensitive_content_reason(path: Path) -> str | None:
     return None
 
 
+def _checksum_pinned_files() -> list[Path]:
+    return sorted(
+        {
+            path
+            for pattern in CHECKSUM_PINNED_PATTERNS
+            for path in Path(".").glob(pattern)
+            if path.is_file()
+        }
+    )
+
+
+def _line_ending_attribute_failures(paths: list[Path]) -> list[str]:
+    if not paths:
+        return []
+    completed = subprocess.run(
+        ["git", "check-attr", "text", "--", *(path.as_posix() for path in paths)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return ["could not verify line-ending attributes for checksum-pinned files"]
+
+    attributes: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        path, attribute, value = line.rsplit(": ", 2)
+        if attribute == "text":
+            attributes[path] = value
+    return [
+        f"checksum-pinned file is not protected from line-ending conversion: {path}"
+        for path in paths
+        if attributes.get(path.as_posix()) != "unset"
+    ]
+
+
 def main() -> None:
     failures: list[str] = []
     for path in _candidate_files():
@@ -153,6 +197,7 @@ def main() -> None:
             failures.append(f"file exceeds 5 MiB repository limit: {path}")
         elif path.is_file() and (reason := sensitive_content_reason(path)):
             failures.append(f"{reason}: {path}")
+    failures.extend(_line_ending_attribute_failures(_checksum_pinned_files()))
     if failures:
         raise SystemExit("Repository safety check failed:\n- " + "\n- ".join(failures))
     print("Repository safety check passed")

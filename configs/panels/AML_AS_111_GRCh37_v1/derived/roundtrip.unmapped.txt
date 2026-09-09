@@ -1,0 +1,2 @@
+#Split in new
+chr17	35431943	35776922	ACACA

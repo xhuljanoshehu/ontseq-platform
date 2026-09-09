@@ -22,6 +22,7 @@ from ontseq_platform.cnv.qdnaseq import (
 def _policy(**overrides: object) -> QDNAseqPolicy:
     values: dict[str, object] = {
         "profile_id": "cnv-unit-test-v1",
+        "cytoband_affected_fraction": 0.66,
         "note": "technical defaults for unit tests only",
     }
     values.update(overrides)
@@ -45,6 +46,16 @@ def _fit(bin_size_kbp: int, cellularity: float) -> CnvFit:
 
 
 class CellularityBoundaryTests(unittest.TestCase):
+    def test_cytoband_threshold_is_required_versioned_policy_input(self) -> None:
+        policy = _policy()
+        self.assertEqual(policy.schema_version, "0.1.0")
+        self.assertAlmostEqual(policy.cytoband_affected_fraction, 0.66)
+        with self.assertRaises(ValidationError):
+            QDNAseqPolicy(
+                profile_id="missing-cytoband-threshold",
+                note="a threshold cannot silently fall back inside the annotation engine",
+            )
+
     def test_the_boundaries_are_carried_in_the_policy(self) -> None:
         policy = _policy()
         self.assertAlmostEqual(policy.cellularity_review_fraction, 0.20)

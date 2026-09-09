@@ -184,6 +184,18 @@ class StageBehaviourTests(unittest.TestCase):
         after = _target_coverage_plan(context).external_inputs
         self.assertNotEqual(before, after)
 
+    def test_selection_and_analysis_roi_are_fingerprinted_as_distinct_inputs(self) -> None:
+        context = self._context(self._manifest(AssayMode.ADAPTIVE_SAMPLING), policy=_policy())
+        selection = self.base / "selection-buffered.bed"
+        selection.write_text("chr1\t50\t250\tTARGET_A\n", encoding="utf-8")
+        context.config.selection_target_bed = selection
+
+        plan = _target_coverage_plan(context)
+
+        fingerprinted = {name for name, _checksum in plan.external_inputs}
+        self.assertIn("panel.bed", fingerprinted)
+        self.assertIn("selection_panel_buffered", fingerprinted)
+
 
 class _FakeStage:
     def __init__(self, stage: StageId, tools: dict[str, str] | None = None) -> None:

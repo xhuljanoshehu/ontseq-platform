@@ -21,4 +21,6 @@ note: >-
   5mC-versus-everything-else fraction and not a share of total cytosine modification. The
   expected modkit version is an engineering pin: re-pin it deliberately against the installed
   binary and record the change, because pileup output is not comparable across modkit majors.
-  This adapter has never been executed against the real modkit binary in this repository.
+  A local synthetic interoperability smoke passed with modkit 0.4.1 on 2026-09-08.
+  This does not establish analytical recovery, clinical validation or a real-binary CI gate;
+  the adapter verification status remains UNVERIFIED_ADAPTER.

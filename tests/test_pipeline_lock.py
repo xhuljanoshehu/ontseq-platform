@@ -8,14 +8,39 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ontseq_platform.pipeline.lock import (
     LOCK_FILENAME,
     LockHolder,
     RunAlreadyRunning,
+    _process_is_alive,
     read_holder,
     run_lock,
 )
+
+
+class ProcessLifetimeTests(unittest.TestCase):
+    def test_probe_does_not_terminate_a_live_child(self) -> None:
+        with subprocess.Popen(
+            [sys.executable, "-c", "import sys; print('ready', flush=True); sys.stdin.readline()"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        ) as child:
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertTrue(_process_is_alive(child.pid))
+                self.assertIsNone(child.poll())
+            finally:
+                child.communicate("\n", timeout=10)
+        self.assertFalse(_process_is_alive(child.pid))
+
+    @unittest.skipUnless(os.name == "nt", "Windows-specific signal boundary")
+    def test_windows_probe_never_calls_os_kill(self) -> None:
+        with patch("ontseq_platform.pipeline.lock.os.kill") as kill:
+            self.assertTrue(_process_is_alive(os.getpid()))
+        kill.assert_not_called()
 
 
 def _holder(**overrides: object) -> LockHolder:

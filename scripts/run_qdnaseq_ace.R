@@ -52,9 +52,31 @@ safe_pkg_version <- function(package) {
   as.character(utils::packageVersion(package))
 }
 
+qdnaseq_export_intervals <- function(feature_data) {
+  # QDNAseq annotations are 1-based inclusive. Its own exportBins(format="bed")
+  # subtracts one from start and leaves end unchanged. Apply that conversion only
+  # at the ONTSeq TSV boundary; native QDNAseq/ACE objects and RDS stay unchanged.
+  if (!all(c("start", "end") %in% names(feature_data))) fail("QDNAseq feature coordinates are missing")
+  if ("coordinate_system" %in% names(feature_data)) fail("QDNAseq export coordinates are already tagged; refusing a second conversion")
+  starts <- suppressWarnings(as.numeric(as.character(feature_data$start)))
+  ends <- suppressWarnings(as.numeric(as.character(feature_data$end)))
+  if (any(!is.finite(starts)) || any(!is.finite(ends)) ||
+      any(starts < 1) || any(ends < starts) ||
+      any(starts != floor(starts)) || any(ends != floor(ends)) ||
+      any(ends > .Machine$integer.max)) {
+    fail("QDNAseq native intervals must be valid 1-based inclusive integer coordinates")
+  }
+  exported <- feature_data
+  exported$start <- as.integer(starts - 1)
+  exported$end <- as.integer(ends)
+  exported$coordinate_system <- rep("zero_based_half_open", nrow(exported))
+  exported
+}
+
 collapse_segments <- function(called_template, feature_data) {
   df <- called_template
   if (!nrow(df)) return(data.frame())
+  feature_data <- qdnaseq_export_intervals(feature_data)
   idx <- as.integer(df$bin)
   if (any(is.na(idx)) || any(idx < 1L) || any(idx > nrow(feature_data))) {
     fail("ACE returned bin indices outside the QDNAseq feature table")
@@ -84,6 +106,7 @@ collapse_segments <- function(called_template, feature_data) {
       chromosome = paste0("chr", df$chr[ix[[1L]]]),
       start = min(df$start[ix], na.rm = TRUE),
       end = max(df$end[ix], na.rm = TRUE),
+      coordinate_system = "zero_based_half_open",
       bin_count = length(ix),
       absolute_copy_number = stats::median(as.numeric(df$segments[ix]), na.rm = TRUE),
       call = stats::median(call_key[ix], na.rm = TRUE),
@@ -241,6 +264,8 @@ for (bin_size in bin_sizes) {
   )
 
   fd <- Biobase::fData(segmented)
+  bins_path <- file.path(out_dir, sprintf("%s.%skbp.bins.tsv", sample_id, bin_size))
+  utils::write.table(qdnaseq_export_intervals(fd), bins_path, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
   segments <- collapse_segments(called$calledtemplate, fd)
   segment_path <- file.path(out_dir, sprintf("%s.%skbp.segments.tsv", sample_id, bin_size))
   utils::write.table(segments, segment_path, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
@@ -256,6 +281,15 @@ for (bin_size in bin_sizes) {
   ggplot2::ggsave(cn_plot, called$calledplot, width = 14, height = 7, dpi = 140)
 
   candidate_rows <- head(candidates, 12L)
+  model_path <- file.path(out_dir, sprintf("%s.%skbp.ace-models.tsv", sample_id, bin_size))
+  utils::write.table(
+    candidates,
+    model_path,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    na = ""
+  )
   runs[[length(runs) + 1L]] <- list(
     bin_size_kbp = bin_size,
     cellularity = cellularity_fraction,
@@ -269,6 +303,8 @@ for (bin_size in bin_sizes) {
     )),
     segment_file = basename(segment_path),
     chromosome_file = basename(chromosome_path),
+    bins_file = basename(bins_path),
+    model_file = basename(model_path),
     fit_plot = basename(fit_plot),
     copy_number_plot = basename(cn_plot),
     rds_file = basename(rds_path),
@@ -306,6 +342,10 @@ summary <- list(
   sample_id = sample_id,
   genome_build = genome_build,
   genome_annotation = genome,
+  coordinate_system = "zero_based_half_open",
+  source_coordinate_system = "one_based_inclusive",
+  coordinate_normalization = "qdnaseq_start_minus_one_end_unchanged",
+  native_rds_coordinate_system = "one_based_inclusive",
   primary_bin_size_kbp = primary_bin,
   segmentation_seed = SEGMENTATION_SEED,
   ace_penalty = penalty,

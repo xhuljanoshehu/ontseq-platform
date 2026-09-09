@@ -27,6 +27,7 @@ logs/
 .snakemake/
 runtime_readiness/
 resource_readiness/
+build-metadata/
 
 # References and databases are provisioned outside Git
 references/

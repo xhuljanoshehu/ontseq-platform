@@ -67,7 +67,7 @@ class ArgvTests(unittest.TestCase):
     def test_reference_precedes_reads(self) -> None:
         """minimap2 is positional; swapping these silently aligns the reference."""
         argv = self._argv(_policy())
-        self.assertEqual(argv[-2:], ["/ref.fa", "/reads.fastq"])
+        self.assertEqual(argv[-2:], [str(Path("/ref.fa")), str(Path("/reads.fastq"))])
 
 
 class ReadGroupHeaderTests(unittest.TestCase):

@@ -12,13 +12,14 @@ executable code at a commit is what counts. A stale version number in the one do
 people read first sends them to check the wrong thing, and a run's provenance record names
 a version that has to mean something specific.
 
-Checked here rather than in a test because it is a property of the tree, not of the code,
-and because ``make lint`` and CI already run this class of check. Deliberately not
-automatic repair: which file is wrong is a decision, not something to guess at.
+Checked here because it is a property of the tree and ``make versions`` and CI run this
+guard directly. Synthetic tests exercise its drift detection without modifying the tree.
+Deliberately not automatic repair: which file is wrong is a decision, not something to guess at.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import tomllib
@@ -33,9 +34,16 @@ CITATION = ROOT / "CITATION.cff"
 DESKTOP_PROJECT = ROOT / "desktop" / "ONTSeq.Desktop" / "ONTSeq.Desktop.csproj"
 DESKTOP_VERSION = ROOT / "desktop" / "ONTSeq.Desktop" / "Version.cs"
 DESKTOP_LAUNCHER = ROOT / "desktop" / "ONTSeq.Desktop" / "WslServiceLauncher.cs"
+DESKTOP_MODELS = ROOT / "desktop" / "ONTSeq.Desktop" / "Models.cs"
+DESKTOP_SETTINGS_EXAMPLE = ROOT / "desktop" / "desktop.settings.example.json"
 DESKTOP_CHANGELOG = ROOT / "desktop" / "ONTSeq.Desktop" / "CHANGELOG.md"
 DESKTOP_README = ROOT / "desktop" / "README.md"
+DESKTOP_PACKAGED_README = ROOT / "desktop" / "ONTSeq.Desktop" / "README.txt"
 DESKTOP_FIRST_RUN = ROOT / "desktop" / "README-FIRST-RUN.md"
+DESKTOP_ISOLATED_TESTING = ROOT / "desktop" / "ISOLATED-TESTING.md"
+OPERATOR_FIRST_RUN = ROOT / "docs" / "DESKTOP_FIRST_RUN.md"
+DESKTOP_API_CONTRACT = ROOT / "docs" / "DESKTOP_API_CONTRACT.md"
+REFERENCE_SYSTEM = ROOT / "docs" / "REFERENCE_SYSTEM.md"
 DESKTOP_WORKFLOW = ROOT / ".github" / "workflows" / "desktop-ci.yml"
 CHANGELOG = ROOT / "CHANGELOG.md"
 README = ROOT / "README.md"
@@ -109,24 +117,47 @@ def _desktop_version() -> str:
     return match.group(1)
 
 
-def _desktop_label_version() -> str:
+def _desktop_core_version() -> str:
     match = re.search(
-        r'\bValue\s*=\s*["\'](\d+\.\d+\.\d+)-engineering["\']',
+        r'\bCoreValue\s*=\s*"(\d+\.\d+\.\d+)"\s*;',
         DESKTOP_VERSION.read_text(encoding="utf-8"),
     )
     if match is None:
-        raise Mismatch(f"{DESKTOP_VERSION.relative_to(ROOT)} declares no engineering version")
+        raise Mismatch(f"{DESKTOP_VERSION.relative_to(ROOT)} declares no literal CoreValue")
     return match.group(1)
+
+
+def _require_derived_declaration(path: Path, pattern: str, label: str) -> None:
+    if not re.search(pattern, path.read_text(encoding="utf-8")):
+        raise Mismatch(
+            f"{path.relative_to(ROOT)} {label} must derive from DesktopVersion.CoreValue"
+        )
+
+
+def _desktop_label_version() -> str:
+    _require_derived_declaration(
+        DESKTOP_VERSION, r'\bValue\s*=\s*CoreValue\s*\+\s*"-engineering"\s*;', "Value"
+    )
+    return _desktop_core_version()
 
 
 def _desktop_runtime_version() -> str:
-    match = re.search(
-        r'\bReleaseVersion\s*=\s*["\'](\d+\.\d+\.\d+)["\']',
-        DESKTOP_LAUNCHER.read_text(encoding="utf-8"),
+    _require_derived_declaration(
+        DESKTOP_LAUNCHER,
+        r"\bReleaseVersion\s*=\s*DesktopVersion\.CoreValue\s*;",
+        "ReleaseVersion",
     )
-    if match is None:
-        raise Mismatch(f"{DESKTOP_LAUNCHER.relative_to(ROOT)} declares no ReleaseVersion")
-    return match.group(1)
+    return _desktop_core_version()
+
+
+def _desktop_resource_root() -> str:
+    _require_derived_declaration(
+        DESKTOP_MODELS,
+        r'\bDefaultResourceRootWsl\s*=\s*"~/.local/share/ontseq/resources-v"'
+        r"\s*\+\s*DesktopVersion\.CoreValue\s*;",
+        "DefaultResourceRootWsl",
+    )
+    return f"~/.local/share/ontseq/resources-v{_desktop_core_version()}"
 
 
 def _desktop_workflow_version() -> str:
@@ -158,6 +189,7 @@ def _problems() -> list[str]:
         (f"{PACKAGE_INIT.relative_to(ROOT)} __version__", _package_version()),
         ("CITATION.cff version", _citation_version()),
         (f"{DESKTOP_PROJECT.relative_to(ROOT)} <Version>", _desktop_version()),
+        (f"{DESKTOP_VERSION.relative_to(ROOT)} CoreValue", _desktop_core_version()),
         (
             f"{DESKTOP_VERSION.relative_to(ROOT)} engineering version",
             _desktop_label_version(),
@@ -173,6 +205,20 @@ def _problems() -> list[str]:
     ):
         if actual != declared:
             found.append(f"{label} is {actual}, but pyproject.toml declares {declared}")
+
+    expected_resource_root = f"~/.local/share/ontseq/resources-v{declared}"
+    resource_root = _desktop_resource_root()
+    if resource_root != expected_resource_root:
+        found.append(
+            f"Desktop resource default is {resource_root}, expected {expected_resource_root}"
+        )
+    with DESKTOP_SETTINGS_EXAMPLE.open(encoding="utf-8") as handle:
+        example = json.load(handle)
+    if not isinstance(example, dict) or example.get("resourceRootWsl") != expected_resource_root:
+        found.append(
+            f"{DESKTOP_SETTINGS_EXAMPLE.relative_to(ROOT)} resourceRootWsl must be "
+            f"{expected_resource_root}"
+        )
 
     # The changelog may lead with an Unreleased section; what must exist is a heading for
     # the version being declared, so a released version is never undocumented.
@@ -193,6 +239,13 @@ def _problems() -> list[str]:
         (DESKTOP_README, f"Current engineering build: Desktop/Core v{declared}."),
         (DESKTOP_README, f"## v{declared} user path"),
         (DESKTOP_README, f"runtime-v{declared}"),
+        (DESKTOP_README, expected_resource_root),
+        (DESKTOP_PACKAGED_README, expected_resource_root),
+        (DESKTOP_FIRST_RUN, expected_resource_root),
+        (DESKTOP_ISOLATED_TESTING, expected_resource_root),
+        (OPERATOR_FIRST_RUN, expected_resource_root),
+        (DESKTOP_API_CONTRACT, expected_resource_root),
+        (REFERENCE_SYSTEM, expected_resource_root),
         (DESKTOP_FIRST_RUN, f"# ONTSeq Desktop v{declared}"),
         (
             DESKTOP_FIRST_RUN,

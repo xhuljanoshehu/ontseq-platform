@@ -59,6 +59,9 @@ _CANONICAL_CHROMOSOME = re.compile(r"^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$")
 #: Columns in modkit's bedMethyl output (BED9+9). Fixed by the format, not by policy.
 _BEDMETHYL_COLUMNS = 18
 
+# Shared by normalization provenance and the pipeline's resume signature.
+REGION_ASSIGNMENT_METHOD = "interval-identity-v1"
+
 
 class ModificationCode(StrEnum):
     """The modified-base codes this adapter is prepared to normalize.
@@ -399,7 +402,7 @@ def _bed_regions(target_bed: Path) -> list[_Region]:
 
 def _assign_sites(
     sites: Sequence[_Site], regions: Sequence[_Region]
-) -> dict[tuple[str, ModificationCode], list[_Site]]:
+) -> dict[tuple[_Region, ModificationCode], list[_Site]]:
     """Bucket sites by region and code.
 
     Regions may overlap — a buffered panel routinely does — so a site is counted in every
@@ -407,7 +410,9 @@ def _assign_sites(
     about one design interval, exactly as the target-coverage lane treats overlapping
     intervals.
     """
-    buckets: dict[tuple[str, ModificationCode], list[_Site]] = {}
+    # A label may name several exons or targets. Preserve each interval's chromosome
+    # and coordinates so one row cannot inherit another interval's measurements.
+    buckets: dict[tuple[_Region, ModificationCode], list[_Site]] = {}
     bounded = [region for region in regions if region.start is not None]
     unbounded = {region.chromosome: region for region in regions if region.start is None}
 
@@ -422,7 +427,7 @@ def _assign_sites(
     for site in sites:
         whole = unbounded.get(site.chromosome)
         if whole is not None:
-            buckets.setdefault((whole.region_id, site.code), []).append(site)
+            buckets.setdefault((whole, site.code), []).append(site)
         candidates = by_chromosome.get(site.chromosome)
         if not candidates:
             continue
@@ -432,7 +437,7 @@ def _assign_sites(
         limit = bisect_right(starts[site.chromosome], site.start)
         for region in candidates[:limit]:
             if region.end is not None and site.start < region.end:
-                buckets.setdefault((region.region_id, site.code), []).append(site)
+                buckets.setdefault((region, site.code), []).append(site)
     return buckets
 
 
@@ -518,7 +523,7 @@ def normalize_methylation(
                 _summarize_region(
                     region,
                     code,
-                    assigned.get((region.region_id, code), []),
+                    assigned.get((region, code), []),
                     minimum_valid_coverage=policy.minimum_valid_coverage,
                 )
             )
@@ -573,7 +578,14 @@ def normalize_methylation(
             if target_bed is not None
             else None
         ),
-        tool=tool,
+        tool=tool.model_copy(
+            update={
+                "parameters": {
+                    **tool.parameters,
+                    "ontseq_region_assignment": REGION_ASSIGNMENT_METHOD,
+                }
+            }
+        ),
         warnings=collected,
         limitations=list(_LIMITATIONS),
     )

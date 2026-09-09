@@ -39,6 +39,11 @@ jobs:
       - name: Declared versions agree
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/check_version_consistency.py
+      - name: Wheel contains immutable GRCh38 authority assets
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          python -m pip wheel --no-deps --wheel-dir /tmp/ontseq-wheel .
+          python scripts/check_wheel_resources.py /tmp/ontseq-wheel/ontseq_platform-*.whl
       - name: Lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |

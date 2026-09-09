@@ -147,12 +147,22 @@ def annotate_sv_events(
                 event.secondary, genes=genes, cytobands=cytobands
             )
         flags = list(event.technical_flags)
+        notes = list(event.notes)
         for resource_type, resource in contexts:
+            if resource_type == "mappability":
+                # Generic mappability has no negative-direction contract. In particular, the
+                # packaged Umap BED marks unique 100-mers and must not become an artifact flag.
+                for label, locus in (("Primary", event.primary), ("Secondary", event.secondary)):
+                    if locus is not None and _overlaps(locus, resource):
+                        notes.append(
+                            f"{label} breakpoint overlaps mappability reference context; "
+                            "no artifact penalty or analytical sensitivity is inferred."
+                        )
+                continue
             if _overlaps(event.primary, resource):
                 flags.append(f"primary:{resource_type}")
             if event.secondary is not None and _overlaps(event.secondary, resource):
                 flags.append(f"secondary:{resource_type}")
-        notes = list(event.notes)
         if primary_nearest:
             notes.append(f"Primary breakpoint {primary_nearest}.")
         if secondary_nearest:

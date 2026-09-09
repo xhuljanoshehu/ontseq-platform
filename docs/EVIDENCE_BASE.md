@@ -111,6 +111,25 @@ The pipeline may create an evidence-linked ISCN proposal only. It must expose ev
 assumption, uncertainty and unsupported construct. Clinical release requires authorized ISCN
 materials, current errata, an expert-reviewed conformance corpus and human sign-off.
 
+The current `event-fragments-v0.2-unvalidated` implementation is an engineering boundary, not a
+nomenclature-conformance claim. Under result schema `0.3.0`, it can formalize only supported,
+build- and cytoband-resolved events originating in the typed CNV report. It records an explicit
+state, an event-by-event disposition, the versioned selection policy, BAM dictionary contract and
+checksum-bound GRCh37 or GRCh38 reference/cytoband/annotation-cache provenance. Missing or
+inconsistent provenance, failed QC or unavailable eligible CNV evidence yields `NOT_ASSESSED`
+with blockers.
+
+Before merge, the CNV artifact must match the manifest sample ID and genome build. A
+whole-chromosome `+chr`/`-chr` fragment requires an exact zero-to-reference-contig-end span; the
+broader segment-fraction threshold used for CNV classification alone cannot support that notation.
+
+SV-to-ISCN conversion is disabled: current BND/SV evidence does not establish reciprocity,
+balance, phase or derivative structure. The proposal also does not infer chromosome count,
+sex-chromosome complement, clonality, normality or a baseline karyotype. Consequently,
+`NO_RENDERABLE_CANDIDATE` is a technical no-call state, never evidence of a normal karyotype.
+Every rendered fragment remains unvalidated, requires expert cytogenetic review and is ineligible
+for automatic clinical release.
+
 ## Benchmark promotion gate
 
 A candidate can be promoted only when all items are committed or recorded in the controlled

@@ -38,6 +38,7 @@ class QDNAseqPolicy(StrictModel):
     ploidy_step: float = Field(default=0.05, gt=0)
     minimum_segment_bins: int = Field(default=1, ge=1)
     whole_chromosome_fraction: float = Field(default=0.90, gt=0, le=1)
+    cytoband_affected_fraction: float = Field(gt=0, le=1)
     cellularity_review_fraction: float = Field(default=0.20, gt=0, le=1)
     cellularity_critical_fraction: float = Field(default=0.10, gt=0, le=1)
     timeout_seconds: int = Field(default=7200, ge=60)
@@ -72,6 +73,8 @@ class CnvFit(StrictModel):
     alternatives: list[dict[str, float]] = Field(default_factory=list)
     segment_file: str
     chromosome_file: str
+    bins_file: str | None = None
+    model_file: str | None = None
     fit_plot: str
     copy_number_plot: str
     rds_file: str
@@ -141,7 +144,7 @@ def _int(row: Mapping[str, str], key: str) -> int:
 
 
 def _as_float(value: object, key: str) -> float:
-    if not isinstance(value, (int, float, str)):
+    if not isinstance(value, int | float | str):
         raise ValueError(f"invalid numeric value for {key}: {value!r}")
     try:
         parsed = float(value)
@@ -197,6 +200,9 @@ def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[
         "ploidy_min": policy.ploidy_min,
         "ploidy_max": policy.ploidy_max,
         "ploidy_step": policy.ploidy_step,
+        "coordinate_system": "zero_based_half_open",
+        "source_coordinate_system": "one_based_inclusive",
+        "coordinate_normalization": "qdnaseq_start_minus_one_end_unchanged",
     }
     return [
         ToolRecord(name="QDNAseq", version=qdna, parameters=shared),
@@ -285,6 +291,16 @@ def _parse_fit(raw: Mapping[str, object]) -> CnvFit:
         alternatives=alternatives,
         segment_file=_as_text(raw.get("segment_file"), "segment_file"),
         chromosome_file=_as_text(raw.get("chromosome_file"), "chromosome_file"),
+        bins_file=(
+            _as_text(raw.get("bins_file"), "bins_file")
+            if raw.get("bins_file") is not None
+            else None
+        ),
+        model_file=(
+            _as_text(raw.get("model_file"), "model_file")
+            if raw.get("model_file") is not None
+            else None
+        ),
         fit_plot=_as_text(raw.get("fit_plot"), "fit_plot"),
         copy_number_plot=_as_text(raw.get("copy_number_plot"), "copy_number_plot"),
         rds_file=_as_text(raw.get("rds_file"), "rds_file"),
@@ -337,10 +353,16 @@ def _events_from_primary_segments(
         chromosome = str(row["chromosome"])
         start = _int(row, "start")
         end = _int(row, "end")
+        if row.get("coordinate_system") != "zero_based_half_open":
+            raise ValueError("QDNAseq segment TSV must declare zero_based_half_open coordinates")
+        if start < 0:
+            raise ValueError(f"QDNAseq segment start is negative on {chromosome}")
         if end <= start:
             raise ValueError(f"QDNAseq segment end is not after start on {chromosome}")
         copy_number = max(0.0, _float(row, "absolute_copy_number"))
         contig_length = lengths.get(chromosome)
+        if contig_length is not None and end > contig_length:
+            raise ValueError(f"QDNAseq segment exceeds reference chromosome length on {chromosome}")
         if contig_length is None:
             unmeasured.add(chromosome)
         fraction = (end - start) / contig_length if contig_length else 0.0
@@ -349,6 +371,9 @@ def _events_from_primary_segments(
             event_type = EventType.CHROMOSOME_GAIN if direction_gain else EventType.CHROMOSOME_LOSS
         else:
             event_type = EventType.DUPLICATION if direction_gain else EventType.DELETION
+        whole_chromosome_span_confirmed = bool(
+            contig_length is not None and start == 0 and end == contig_length
+        )
         serial += 1
         agreement = consensus.get(chromosome)
         notes = [
@@ -365,6 +390,14 @@ def _events_from_primary_segments(
                 f"{agreement.agreeing_bins}/{agreement.contributing_bins}; "
                 f"median CN={agreement.median_copy_number:.3f}"
             )
+        if event_type in {EventType.CHROMOSOME_GAIN, EventType.CHROMOSOME_LOSS} and not (
+            whole_chromosome_span_confirmed
+        ):
+            notes.append(
+                "Whole-chromosome event classification met the versioned coverage-fraction "
+                "threshold, but the segment did not span the exact reference contig; +chr/-chr "
+                "ISCN rendering is therefore suppressed."
+            )
         quality = None
         if row.get("qnorm_log10") not in {None, ""}:
             quality = abs(_float(row, "qnorm_log10"))
@@ -375,6 +408,7 @@ def _events_from_primary_segments(
                 primary=Locus(chromosome=chromosome, start=start, end=end),
                 length_bp=end - start,
                 copy_number=copy_number,
+                whole_chromosome_span_confirmed=whole_chromosome_span_confirmed,
                 evidence=[
                     Evidence(
                         caller="QDNAseq+ACE",
@@ -480,6 +514,16 @@ def run_qdnaseq_ace(
             raise ValueError("QDNAseq summary sample ID does not match the manifest")
         if summary.get("genome_build") != genome_build.value:
             raise ValueError("QDNAseq summary genome build does not match the manifest")
+        expected_coordinates = {
+            "coordinate_system": "zero_based_half_open",
+            "source_coordinate_system": "one_based_inclusive",
+            "coordinate_normalization": "qdnaseq_start_minus_one_end_unchanged",
+        }
+        if any(summary.get(key) != value for key, value in expected_coordinates.items()):
+            raise ValueError(
+                "QDNAseq summary lacks the explicit zero_based_half_open export contract; "
+                "rerun CNV with the corrected QDNAseq R exporter"
+            )
         observed_primary = _as_int(summary.get("primary_bin_size_kbp"), "primary_bin_size_kbp")
         if observed_primary != policy.primary_bin_size_kbp:
             raise ValueError("QDNAseq summary primary bin does not match policy")
@@ -521,6 +565,10 @@ def run_qdnaseq_ace(
                     fit.rds_file,
                 }
             )
+            if fit.bins_file is not None:
+                expected_names.add(fit.bins_file)
+            if fit.model_file is not None:
+                expected_names.add(fit.model_file)
         missing = sorted(name for name in expected_names if not (staged / name).is_file())
         if missing:
             raise ValueError("QDNAseq result is incomplete; missing: " + ", ".join(missing))
