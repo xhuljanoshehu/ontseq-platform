@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - run: python -m pip download --only-binary=:all: --dest /tmp/audit-wheelhouse ruff mypy types-openpyxl types-PyYAML hypothesis pysam
+      - run: |
+          python -m pip download --only-binary=:all: --dest /tmp/audit-wheelhouse ruff mypy types-openpyxl types-PyYAML hypothesis pysam
       - uses: actions/upload-artifact@v7
         with:
           name: audit-offline-tools-py313
