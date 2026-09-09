@@ -20,14 +20,219 @@ jobs:
       - name: Apply exact reviewed source patch
         run: |
           git merge-base --is-ancestor 03ecba50b360a84df7d1a02c56f8f72c41f8359f HEAD
+          cat > /tmp/bed-repair.patch <<'PATCH'
+          diff --git a/CHANGELOG.md b/CHANGELOG.md
+          index b3881c803d23165813dd9413b974507c691593d4..909a7df2506e60f9092782aa37c3306018c65f30 100644
+          --- a/CHANGELOG.md
+          +++ b/CHANGELOG.md
+          @@ -7,6 +7,11 @@ validated release.
+           
+           ### Fixed
+           
+          +- Normalize labelled BED4/5 target selections to a separate BED3 file for modkit 0.4.1;
+          +  the pinned binary otherwise rejects them with zero valid positions. Preserve original
+          +  target labels/fingerprint, exact contig names/coordinates and BED6 strand restrictions.
+          +  Record `include_bed_format=bed3-or-bed6-v1`; no basecalling or probability cutoff changes.
+          +
+           - Restore optional, typed coverage arguments to HTML reporting and retain all coverage,
+             SV review, fusion, ISCN disposition and reference/panel provenance sections alongside
+             the new execution-state overview. Missing measurements remain unavailable, never zero.
+          diff --git a/docs/CLINICAL_VALIDATION.md b/docs/CLINICAL_VALIDATION.md
+          index 6da82b206ac9aa279e0d9e99053deb4b30a10d32..aaec6e76c0629fa57061320b6dc51c7fa8212b54 100644
+          --- a/docs/CLINICAL_VALIDATION.md
+          +++ b/docs/CLINICAL_VALIDATION.md
+          @@ -401,3 +401,15 @@ Primary methodological sources (germline scope, adapted here as a proposed resea
+             https://www.nature.com/articles/s41525-020-00154-9
+           - Oxford Nanopore modkit bedMethyl definitions:
+             https://software-docs.nanoporetech.com/modkit/intro_pileup.html
+          +
+          +### Pinned modkit BED interoperability follow-up (2026-09-09)
+          +
+          +The newly enabled real modkit 0.4.1 test failed on valid labelled BED4 targets with
+          +`zero valid positions parsed from BED file`. The adapter now writes a separate BED3
+          +projection for BED4/5 (or BED6 retaining the explicit strand). Aggregation still reads
+          +the original labelled BED, whose checksum remains in the result. Contig names and
+          +coordinates are unchanged. Provenance records `include_bed_format=bed3-or-bed6-v1`.
+          +Previously rejected target runs require recomputation; a completed synthetic test is
+          +not evidence of patient-level methylation accuracy. The global pipeline-version/commit
+          +resume signature binds the correction. Basecalling, coverage and confidence thresholds
+          +are unchanged.
+          diff --git a/src/ontseq_platform/methylation.py b/src/ontseq_platform/methylation.py
+          index 1e322938cea03ba1c0768a26fd8e80b19ca5b08d..4cff7da63642f05a89ce63d7945ee34de6d74127 100644
+          --- a/src/ontseq_platform/methylation.py
+          +++ b/src/ontseq_platform/methylation.py
+          @@ -616,6 +616,36 @@ def count_reads_with_modified_base_tags(
+               return int(text)
+           
+           
+          +def _modkit_include_bed(source: Path, destination: Path) -> Path:
+          +    """Write BED3/BED6 accepted by the pinned modkit include-position parser.
+          +
+          +    BED4/5 carry labels or scores, not strand restrictions, and must be projected to
+          +    BED3 for modkit 0.4.1. BED6+ retains its explicit strand. The original file remains
+          +    the source for aggregation labels and its fingerprint; contig spelling and interval
+          +    coordinates are never normalized here.
+          +    """
+          +    rows: list[str] = []
+          +    for number, raw in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+          +        line = raw.strip()
+          +        if not line or line.startswith(("#", "track ", "browser ")):
+          +            continue
+          +        fields = line.split("\t")
+          +        if len(fields) < 3:
+          +            raise ValueError(f"Target BED line {number} has fewer than three columns")
+          +        if len(fields) >= 6:
+          +            if fields[5] not in {"+", "-", "."}:
+          +                raise ValueError(f"Target BED line {number} has invalid strand")
+          +            selected = fields[:6]
+          +        else:
+          +            selected = fields[:3]
+          +        rows.append("\t".join(selected))
+          +    if not rows:
+          +        raise ValueError("Target BED contains no usable regions")
+          +    with destination.open("x", encoding="utf-8", newline="\n") as handle:
+          +        handle.write("\n".join(rows) + "\n")
+          +    return destination
+          +
+          +
+           def _build_argv(
+               *,
+               modkit: str,
+          @@ -740,7 +770,11 @@ def run_methylation(
+                           "presence of MM/ML tags was not verified before the pileup ran."
+                       )
+           
+          -    include_bed = target_bed if policy.region_source == MethylationRegionSource.TARGET_BED else None
+          +    include_bed = (
+          +        _modkit_include_bed(target_bed, output_dir / f"{manifest.sample_id}.modkit.include.bed")
+          +        if target_bed is not None and policy.region_source == MethylationRegionSource.TARGET_BED
+          +        else None
+          +    )
+               argv = _build_argv(
+                   modkit=modkit,
+                   bam=Path(manifest.input.path),
+          @@ -770,6 +804,7 @@ def run_methylation(
+                   "minimum_valid_coverage": policy.minimum_valid_coverage,
+                   "region_source": policy.region_source.value,
+                   "include_bed": include_bed.name if include_bed is not None else None,
+          +        "include_bed_format": "bed3-or-bed6-v1" if include_bed is not None else None,
+                   "expected_version": policy.expected_version,
+               }
+               return normalize_methylation(
+          diff --git a/tests/test_modkit_bed_adapter.py b/tests/test_modkit_bed_adapter.py
+          new file mode 100644
+          index 0000000000000000000000000000000000000000..27d29dd88b98ae7ec0fbe6145fcb94bed5076c37
+          --- /dev/null
+          +++ b/tests/test_modkit_bed_adapter.py
+          @@ -0,0 +1,101 @@
+          +"""Protect the modkit include-BED handoff independently of the real-binary lane."""
+          +
+          +from __future__ import annotations
+          +
+          +import tempfile
+          +import unittest
+          +from pathlib import Path
+          +
+          +from ontseq_platform.execution import CommandResult
+          +from ontseq_platform.methylation import MethylationPolicy, run_methylation
+          +from ontseq_platform.models import (
+          +    AlignedBamIntakeReport,
+          +    AnalysisModule,
+          +    AnalysisSpec,
+          +    AssayMode,
+          +    AssaySpec,
+          +    GenomeBuild,
+          +    InputKind,
+          +    InputSpec,
+          +    SampleManifest,
+          +    Verdict,
+          +)
+          +from ontseq_platform.reference import sha256_file
+          +
+          +
+          +class IncludeBedTests(unittest.TestCase):
+          +    def test_labels_do_not_reach_modkit_as_unsupported_four_or_five_column_bed(self) -> None:
+          +        for tail, expected in [
+          +            ("", "1\t0\t30\n"),
+          +            ("\tGENE", "1\t0\t30\n"),
+          +            ("\tGENE\t100", "1\t0\t30\n"),
+          +            ("\tGENE\t100\t-", "1\t0\t30\tGENE\t100\t-\n"),
+          +        ]:
+          +            with self.subTest(tail=tail), tempfile.TemporaryDirectory() as directory:
+          +                root = Path(directory)
+          +                bed = root / "original.bed"
+          +                bed.write_text("# synthetic\n1\t0\t30" + tail + "\n", encoding="utf-8")
+          +                original = bed.read_bytes()
+          +
+          +                class Runner:
+          +                    def __init__(self):
+          +                        self.calls: list[bytes] = []
+          +
+          +                    def run(self, argv, *, timeout_seconds=300):
+          +                        if argv[1] == "--version":
+          +                            return CommandResult(tuple(argv), 0, "mod_kit 0.4.1", "")
+          +                        if argv[1] == "view":
+          +                            return CommandResult(tuple(argv), 0, "1", "")
+          +                        include = Path(argv[argv.index("--include-bed") + 1])
+          +                        self.calls.append(include.read_bytes())
+          +                        # Known-confidence synthetic pileup: 15 modified out of 20 calls.
+          +                        Path(argv[3]).write_text(
+          +                            "1\t1\t2\tm\t20\t+\t1\t2\t0,0,0\t20\t75\t15\t5\t0\t0\t0\t0\t0\n",
+          +                            encoding="utf-8",
+          +                        )
+          +                        return CommandResult(tuple(argv), 0, "", "")
+          +
+          +                manifest = SampleManifest(
+          +                    sample_id="SYNTHETIC_BED",
+          +                    run_id="SYNTHETIC_RUN",
+          +                    input=InputSpec(
+          +                        kind=InputKind.ALIGNED_BAM,
+          +                        path=str(root / "synthetic.bam"),
+          +                        index_path=str(root / "synthetic.bam.bai"),
+          +                    ),
+          +                    assay=AssaySpec(
+          +                        mode=AssayMode.ADAPTIVE_SAMPLING,
+          +                        genome_build=GenomeBuild.GRCH38,
+          +                        reference_id="synthetic",
+          +                        target_bed=str(bed),
+          +                        target_bed_version="SYNTHETIC_V1",
+          +                    ),
+          +                    analysis=AnalysisSpec(
+          +                        profile="synthetic", modules=[AnalysisModule.METHYLATION]
+          +                    ),
+          +                )
+          +                intake = AlignedBamIntakeReport(
+          +                    sample_id=manifest.sample_id,
+          +                    reference_id="synthetic",
+          +                    genome_build=GenomeBuild.GRCH38,
+          +                    checks=[],
+          +                    verdict=Verdict.PASS,
+          +                )
+          +                policy = MethylationPolicy(
+          +                    profile_id="synthetic",
+          +                    status="technical_defaults_only",
+          +                    cpg_only=False,
+          +                    combine_strands=False,
+          +                    region_source="target_bed",
+          +                    note="Synthetic include-BED handoff regression",
+          +                )
+          +                runner = Runner()
+          +                report = run_methylation(
+          +                    manifest, intake, policy, output_dir=root / "out", runner=runner
+          +                )
+          +                self.assertEqual(runner.calls, [expected.encode()])
+          +                self.assertEqual(bed.read_bytes(), original)
+          +                self.assertEqual(report.target_bed_fingerprint.sha256, sha256_file(bed))
+          +                self.assertEqual(report.regions[0].region_id, "GENE" if tail else "1:0-30")
+          +                self.assertEqual(report.regions[0].mean_modified_fraction, 0.75)
+          +                self.assertEqual(report.tool.parameters["include_bed_format"], "bed3-or-bed6-v1")
+          PATCH
           python - <<'PY'
-          import base64, gzip, hashlib
+          import hashlib
           from pathlib import Path
-          encoded = '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'
-          patch = gzip.decompress(base64.b64decode(encoded))
+          patch = Path('/tmp/bed-repair.patch').read_bytes()
           assert len(patch) == 9643
           assert hashlib.sha256(patch).hexdigest() == 'dbef0583502ab000eafba6cca36f259138ff614007f5cb397bccc6009cc1ca82'
-          Path('/tmp/bed-repair.patch').write_bytes(patch)
           PY
           git apply --check --index /tmp/bed-repair.patch
           git apply --index /tmp/bed-repair.patch
