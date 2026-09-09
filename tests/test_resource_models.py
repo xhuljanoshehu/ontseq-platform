@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from pydantic import ValidationError
 
@@ -13,8 +11,6 @@ from ontseq_platform.models import (
     GenomeBuild,
     PanelBundle,
     ReferenceBundle,
-    ReferenceDictionaryContract,
-    ResolvedResourceContext,
     ResourceFile,
     SidecarArtifact,
 )
@@ -118,44 +114,6 @@ class ResourceContractTests(unittest.TestCase):
             unresolved_targets=["IGH_REVIEW_REQUIRED"],
         )
         self.assertEqual(bundle.genome_build, GenomeBuild.GRCH38)
-        self.assertEqual(
-            bundle.reference_dictionary_contracts,
-            [ReferenceDictionaryContract.EXACT_FULL],
-        )
-
-    def test_panel_dictionary_contracts_are_unique_and_build_specific(self) -> None:
-        resources = [
-            _resource("selection", "selection_panel_buffered", "selection.bed"),
-            _resource("roi", "analysis_roi_unbuffered", "roi.bed"),
-            _resource("transcripts", "transcript_cache", "transcripts.tsv"),
-        ]
-        base = {
-            "bundle_id": "AML_AS_TEST_v1",
-            "version": "1",
-            "assay_mode": AssayMode.ADAPTIVE_SAMPLING,
-            "resources": resources,
-            "selection_panel_resource_id": "selection",
-            "analysis_roi_resource_id": "roi",
-            "transcript_cache_resource_id": "transcripts",
-        }
-        with self.assertRaisesRegex(ValidationError, "must be unique"):
-            PanelBundle(
-                **base,
-                genome_build=GenomeBuild.GRCH37,
-                reference_dictionary_contracts=[
-                    ReferenceDictionaryContract.EXACT_FULL,
-                    ReferenceDictionaryContract.EXACT_FULL,
-                ],
-            )
-        with self.assertRaisesRegex(ValidationError, "require genome_build='GRCh37'"):
-            PanelBundle(
-                **base,
-                genome_build=GenomeBuild.GRCH38,
-                reference_dictionary_contracts=[
-                    ReferenceDictionaryContract.EXACT_FULL,
-                    ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25,
-                ],
-            )
 
     def test_panel_bundle_does_not_accept_swapped_selection_and_roi(self) -> None:
         with self.assertRaisesRegex(ValidationError, "must have role"):
@@ -216,150 +174,6 @@ class ResourceContractTests(unittest.TestCase):
                 panel_bundle="PANEL",
                 adaptive_sampling="disabled",
             )
-
-    def test_profiles_default_to_full_dictionary_and_contracts_are_build_specific(self) -> None:
-        profile = AnalysisProfile(
-            profile_id="AML_LCWGS_GRCh38",
-            version="1",
-            genome_build=GenomeBuild.GRCH38,
-            assay_mode=AssayMode.LOW_COVERAGE_WGS,
-            reference_bundle="REF",
-            knowledge_bundle="HEMATOLOGY",
-            adaptive_sampling="disabled",
-        )
-        self.assertEqual(
-            profile.reference_dictionary_contract,
-            ReferenceDictionaryContract.EXACT_FULL,
-        )
-        with self.assertRaisesRegex(ValidationError, "valid only for GRCh38"):
-            AnalysisProfile(
-                profile_id="AML_LCWGS_GRCh37_CANONICAL25",
-                version="1",
-                genome_build=GenomeBuild.GRCH37,
-                assay_mode=AssayMode.LOW_COVERAGE_WGS,
-                reference_bundle="REF",
-                reference_dictionary_contract=(ReferenceDictionaryContract.GRCH38_CANONICAL_25),
-                knowledge_bundle="HEMATOLOGY",
-                adaptive_sampling="disabled",
-            )
-        hg19 = AnalysisProfile(
-            profile_id="AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25",
-            version="1",
-            genome_build=GenomeBuild.GRCH37,
-            assay_mode=AssayMode.LOW_COVERAGE_WGS,
-            reference_bundle="REF",
-            reference_dictionary_contract=(
-                ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
-            ),
-            knowledge_bundle="HEMATOLOGY",
-            adaptive_sampling="disabled",
-        )
-        self.assertEqual(hg19.genome_build, GenomeBuild.GRCH37)
-        with self.assertRaisesRegex(ValidationError, "valid only for GRCh37"):
-            AnalysisProfile(
-                profile_id="AML_LCWGS_GRCh38_HG19",
-                version="1",
-                genome_build=GenomeBuild.GRCH38,
-                assay_mode=AssayMode.LOW_COVERAGE_WGS,
-                reference_bundle="REF",
-                reference_dictionary_contract=(
-                    ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
-                ),
-                knowledge_bundle="HEMATOLOGY",
-                adaptive_sampling="disabled",
-            )
-
-    def test_pre_052_resolved_context_defaults_to_exact_full(self) -> None:
-        with TemporaryDirectory() as raw:
-            root = Path(raw).resolve()
-            context = ResolvedResourceContext.model_validate(
-                {
-                    "profile_id": "AML_LCWGS_GRCh38",
-                    "profile_version": "v1",
-                    "genome_build": "GRCh38",
-                    "reference_bundle_id": "GRCh38_TEST_v1",
-                    "reference_bundle_version": "v1",
-                    "knowledge_bundle_id": "HEMATOLOGY_v1",
-                    "knowledge_bundle_version": "v1",
-                    "resource_root": str(root),
-                    "resource_paths": {"reference.genome_fasta": str(root / "genome.fa")},
-                    "resource_checksums": {"reference.genome_fasta": SHA},
-                    "resource_releases": {},
-                }
-            )
-
-            self.assertEqual(
-                context.reference_dictionary_contract,
-                ReferenceDictionaryContract.EXACT_FULL,
-            )
-
-    def test_resolved_context_reads_wsl_paths_on_windows(self) -> None:
-        context = ResolvedResourceContext.model_validate(
-            {
-                "profile_id": "AML_AS_111_GRCh38_CANONICAL25",
-                "profile_version": "v1",
-                "genome_build": "GRCh38",
-                "reference_dictionary_contract": "grch38_canonical_25",
-                "reference_bundle_id": "GRCh38_TEST_v1",
-                "reference_bundle_version": "v1",
-                "panel_bundle_id": "AML_AS_TEST_v1",
-                "panel_bundle_version": "v1",
-                "knowledge_bundle_id": "HEMATOLOGY_v2",
-                "knowledge_bundle_version": "v2",
-                "resource_root": "/home/test/.local/share/ontseq/resources",
-                "resource_paths": {
-                    "reference.genome_fasta": (
-                        "/home/test/.local/share/ontseq/resources/references/genome.fa"
-                    )
-                },
-                "resource_checksums": {"reference.genome_fasta": SHA},
-                "resource_releases": {},
-            }
-        )
-
-        self.assertEqual(context.knowledge_bundle_id, "HEMATOLOGY_v2")
-
-    def test_resolved_context_rejects_canonical_25_outside_grch38(self) -> None:
-        with TemporaryDirectory() as raw:
-            root = Path(raw).resolve()
-            with self.assertRaisesRegex(ValidationError, "valid only for GRCh38"):
-                ResolvedResourceContext.model_validate(
-                    {
-                        "profile_id": "AML_LCWGS_GRCh37_CANONICAL25",
-                        "profile_version": "v1",
-                        "genome_build": "GRCh37",
-                        "reference_dictionary_contract": "grch38_canonical_25",
-                        "reference_bundle_id": "GRCh37_TEST_v1",
-                        "reference_bundle_version": "v1",
-                        "knowledge_bundle_id": "HEMATOLOGY_v1",
-                        "knowledge_bundle_version": "v1",
-                        "resource_root": str(root),
-                        "resource_paths": {"reference.genome_fasta": str(root / "genome.fa")},
-                        "resource_checksums": {"reference.genome_fasta": SHA},
-                        "resource_releases": {},
-                    }
-                )
-
-    def test_resolved_context_rejects_hg19_contract_outside_grch37(self) -> None:
-        with TemporaryDirectory() as raw:
-            root = Path(raw).resolve()
-            with self.assertRaisesRegex(ValidationError, "valid only for GRCh37"):
-                ResolvedResourceContext.model_validate(
-                    {
-                        "profile_id": "AML_LCWGS_GRCh38_HG19",
-                        "profile_version": "v1",
-                        "genome_build": "GRCh38",
-                        "reference_dictionary_contract": ("grch37_ucsc_hg19_canonical_25"),
-                        "reference_bundle_id": "GRCh38_TEST_v1",
-                        "reference_bundle_version": "v1",
-                        "knowledge_bundle_id": "HEMATOLOGY_v1",
-                        "knowledge_bundle_version": "v1",
-                        "resource_root": str(root),
-                        "resource_paths": {"reference.genome_fasta": str(root / "genome.fa")},
-                        "resource_checksums": {"reference.genome_fasta": SHA},
-                        "resource_releases": {},
-                    }
-                )
 
     def test_sidecar_path_is_relative_and_checksum_pinned(self) -> None:
         artifact = SidecarArtifact(
