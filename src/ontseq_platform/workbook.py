@@ -22,7 +22,7 @@ from .reporting import (
     release_state,
     review_priority,
 )
-from .target_coverage import TargetCoverageReport
+from .target_coverage import TargetCoverageReport, validate_report_coverage
 
 HEADER_FILL = PatternFill("solid", fgColor="0B557A")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -765,6 +765,7 @@ def render_workbook(
     target_coverage: TargetCoverageReport | None = None,
     selection_coverage: TargetCoverageReport | None = None,
 ) -> Path:
+    validate_report_coverage(result, target_coverage, selection_coverage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     active_sheet = workbook.active

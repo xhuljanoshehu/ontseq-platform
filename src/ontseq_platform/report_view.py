@@ -106,16 +106,13 @@ _STATUS_MEANING = {
         "contract, observability and validation status."
     ),
     ModuleRunStatus.NO_CALL: (
-        "Analysis ran but did not produce an interpretable call. This is not a biological "
-        "negative result."
+        "Analysis ran without an interpretable call. This is not a biological negative result."
     ),
     ModuleRunStatus.FAILED: (
         "Execution was attempted and failed. Downstream absence of findings must not be "
         "interpreted biologically."
     ),
-    ModuleRunStatus.NOT_RUN: (
-        "The module did not run or was not applicable. This is not a negative result."
-    ),
+    ModuleRunStatus.NOT_RUN: ("Module did not run; this is not a biological negative result."),
 }
 
 _STATUS_CLASS = {

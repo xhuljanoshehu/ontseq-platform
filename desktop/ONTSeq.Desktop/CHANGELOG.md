@@ -1,5 +1,13 @@
 # ONTSeq Desktop changelog
 
+## 0.8.1-engineering — 2026-09-09
+
+- Restore the Core report API, coverage, structural-variant, ISCN and resource details.
+- Persist failed report/adapter stages and invalidate stale release markers on a retry.
+- Synchronize current application/versioned runtime/resource defaults; preserve saved
+  custom installations and independently versioned reference, panel and tool assets.
+- Engineering repair candidate only; no new clinical accuracy claim.
+
 ## 0.7.1-engineering — 2026-09-09
 
 - Distinguish preparation errors from a running BAM reader failure. Report the exact

@@ -11,7 +11,7 @@ cross-build or dictionary-contract fallback.
 
 The Core/CLI default root is `/opt/ontseq`; `ONTSEQ_RESOURCE_ROOT` or `--resource-root` may
 select a different absolute root. Fresh Desktop settings use
-`~/.local/share/ontseq/resources-v0.7.1`, derived from the Desktop/Core software version.
+`~/.local/share/ontseq/resources-v0.8.1`, derived from the Desktop/Core software version.
 Previously saved resource paths remain selected, including unversioned and custom paths.
 The release suffix names an installation directory; it does not update scientific contents.
 Reference, panel, knowledge and profile versions remain separately pinned by their manifests.

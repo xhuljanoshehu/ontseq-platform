@@ -332,3 +332,72 @@ Before expanding or clinically using this path, validation must additionally inc
 
 The introduction of structured proposal states improves safety and auditability but does not
 satisfy any of these clinical release gates or establish full ISCN 2024 conformance.
+
+## 2026-09-09 audit-repair impact (0.8.1 engineering candidate)
+
+This is a repair of reproducible failures, not a release of an analytically validated
+assay. The report API again accepts optional TargetCoverageReport inputs. The updated
+HTML retains the execution-state overview and restores coverage, SV/fusion review,
+ISCN dispositions and resource/panel provenance. Both export paths now reject coverage
+from a different sample/build and inconsistent/non-finite coverage values. Existing
+missing summary metrics remain missing. No valid measurement is replaced with zero.
+
+The runner records ordinary exceptions at adapter plan/execute/settle boundaries;
+KeyboardInterrupt and SystemExit still propagate. Each attempt invalidates previous
+release markers under the existing exclusive run lock. Existing review history is not
+removed. The methylation service test fixture now uses the normalized tool record,
+including interval-assignment provenance; its production identity checks are unchanged.
+
+Quantitation's binomial upper tail uses a log-PMF/decreasing-tail recurrence instead of
+overflowing combinatorial floats. The statistical model, nominal error rate and alpha
+are unchanged. High-depth inputs now produce finite results, invalid requested power is
+rejected, and purity is checked before a no-call return. Maximum-cardinality benchmark
+matching uses an explicit stack rather than Python recursion. Its preference ordering
+is unchanged; exhaustive 3x3 graph tests independently check cardinality. These changes
+require numerical review; they must not be described as measured improvements in
+clinical sensitivity or specificity. New pipeline-version/commit provenance invalidates
+old content-addressed stage signatures without changing input data.
+
+### Accuracy target and independent evidence still required
+
+The development objective is to approach 100% sensitivity and specificity **within a
+prespecified assay scope**, not to claim universal accuracy across every depth, tumour
+fraction, variant type or genomic region. The following is a proposed acceptance design,
+not an already completed validation or an automatic clinical-release gate:
+
+1. Lock assembly, chemistry/basecalling model, caller versions, policies, matching rules,
+   intended reportable regions and relevant variant classes before examining the holdout.
+   Keep patient/donor independence between development and holdout; multiple CpGs or reads
+   from one sample do not become independent biological validation samples.
+2. Evaluate lcWGS and Adaptive Sampling separately; stratify SNV/indel, insertion/deletion,
+   inversion, BND/translocation, CNV size and methylation task. Also stratify local depth,
+   variant allele fraction/tumour mixture, repeat context, GC and reference build. A good
+   aggregate score cannot justify an unevaluated or failing stratum.
+3. Report TP, FP, FN, recall/sensitivity, precision and confidence intervals; report false
+   positives per sample and no-call/failed-run rates separately. Specificity requires an
+   explicit independently established TN set and decision unit. It cannot be calculated
+   by assuming every uncalled base is a true negative. Do not relabel precision as
+   specificity or hide exclusions. Add an all-attempt diagnostic-yield accounting alongside
+   conditional calling metrics so abstention cannot manufacture apparent near-perfection.
+4. Use independent truth methods appropriate to the target: GIAB for its stated germline
+   small-variant/SV scope, laboratory cytogenetics/FISH/orthogonal sequencing for relevant
+   haematological rearrangements/CNV, and independent paired methylation measurements for
+   methylation. Caller agreement is not orthogonal truth; germline benchmarks do not
+   establish AML somatic sensitivity, fusion transcript expression, or methylation accuracy.
+5. Optimize precision-recall trade-offs on development data only. Then evaluate the frozen
+   model on an untouched holdout, including negatives, difficult positives and dilution
+   series with constant coverage. Report unsuccessful cases and detection uncertainty.
+
+Even a zero-error finite test gives an interval, not proof of a 100% population rate.
+For illustration only, zero errors among n independent Bernoulli trials has an exact
+one-sided 95% lower success bound of 0.05**(1/n); 299/299 is just above 99% on that bound.
+This calculation is not a recommended clinical sample count and does not account for
+clustering, multiple strata, batch effects or imperfect truth labels.
+
+Primary methodological sources (germline scope, adapted here as a proposed research design):
+- Krusche et al. Nature Biotechnology 2019, doi:10.1038/s41587-019-0054-x.
+  https://www.nist.gov/publications/best-practices-benchmarking-germline-small-variant-calls-human-genomes
+- Marshall et al. npj Genomic Medicine 2020, doi:10.1038/s41525-020-00154-9.
+  https://www.nature.com/articles/s41525-020-00154-9
+- Oxford Nanopore modkit bedMethyl definitions:
+  https://software-docs.nanoporetech.com/modkit/intro_pileup.html

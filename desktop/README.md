@@ -2,9 +2,9 @@
 
 Windows operator surface for the ONTSeq execution core. The desktop app does not reimplement bioinformatics; it launches the bundled Linux runtime through WSL2, talks to the loopback service, and opens the same persisted HTML/XLSX/result artifacts produced by the canonical backend.
 
-> **Current engineering build: Desktop/Core v0.7.1. Research Use Only, unsigned, not clinically validated.**
+> **Current engineering build: Desktop/Core v0.8.1. Research Use Only, unsigned, not clinically validated.**
 
-## v0.7.1 user path
+## v0.8.1 user path
 
 The local engineering candidate adds build-isolated GRCh37.p13/hg19 lcWGS and Adaptive
 Sampling profiles to the four existing GRCh38 profiles, plus a live, same-origin report workspace. This is an executable software
@@ -13,9 +13,9 @@ clinically validated release.
 
 1. Keep the complete package together. The runtime directory contains a pinned base tool
    archive, the Core v0.7.1 wheel, and their SHA256SUMS. Setup verifies both inputs, unpacks
-   the tools into a new `runtime-v0.7.1-<unique-id>` prefix, then installs the new Core
+   the tools into a new `runtime-v0.8.1-<unique-id>` prefix, then installs the new Core
    offline and verifies its version. It does not replace the existing runtime directory.
-   Fresh settings use `~/.local/share/ontseq/resources-v0.7.1` for resources. The release
+   Fresh settings use `~/.local/share/ontseq/resources-v0.8.1` for resources. The release
    suffix follows the Core version; previously saved resource paths remain selected.
 2. Select the reference family in **System einrichten**, then install or validate that
    family. GRCh37.p13 and UCSC hg19 use `GRCh37_GENCODE19_HG19_v2`,
@@ -158,7 +158,7 @@ The current profile-resource defaults for fresh settings are:
 
 ```json
 {
-  "resourceRootWsl": "~/.local/share/ontseq/resources-v0.7.1",
+  "resourceRootWsl": "~/.local/share/ontseq/resources-v0.8.1",
   "defaultProfile": "AML_LCWGS_GRCh38"
 }
 ```

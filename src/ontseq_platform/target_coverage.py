@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import math
 import re
 import statistics
 from collections.abc import Sequence
@@ -18,6 +19,7 @@ from .models import (
     GenomeBuild,
     InputKind,
     ModuleRunStatus,
+    PipelineResult,
     SampleManifest,
     StrictModel,
     TargetBedRole,
@@ -54,7 +56,7 @@ class TargetCoverageRegion(StrictModel):
     start: int = Field(ge=0)
     end: int = Field(gt=0)
     region_id: str = Field(min_length=1)
-    mean_depth: float = Field(ge=0)
+    mean_depth: float = Field(ge=0, allow_inf_nan=False)
     bases_at_threshold: dict[str, int]
     fraction_at_threshold: dict[str, float]
 
@@ -68,6 +70,18 @@ class TargetCoverageRegion(StrictModel):
         for key, bases in self.bases_at_threshold.items():
             if bases < 0 or bases > length:
                 raise ValueError(f"Target coverage count {key!r} is outside the region length")
+        labels = list(self.bases_at_threshold)
+        if any(re.fullmatch(r"[1-9][0-9]*x", label) is None for label in labels):
+            raise ValueError("Target coverage threshold labels must be positive integer depths")
+        ordered = sorted(labels, key=lambda label: int(label[:-1]))
+        counts = [self.bases_at_threshold[label] for label in ordered]
+        if any(left < right for left, right in zip(counts, counts[1:], strict=False)):
+            raise ValueError("Target coverage counts must be non-increasing with depth")
+        for key, bases in self.bases_at_threshold.items():
+            if not math.isclose(
+                self.fraction_at_threshold[key], bases / length, rel_tol=1e-9, abs_tol=1e-12
+            ):
+                raise ValueError("Target coverage fraction disagrees with its base count")
         for fraction in self.fraction_at_threshold.values():
             if not 0 <= fraction <= 1:
                 raise ValueError("Target coverage fractions must be between 0 and 1")
@@ -105,7 +119,53 @@ class TargetCoverageReport(StrictModel):
         interval_bases = sum(region.end - region.start for region in self.regions)
         if self.summary_metrics.get("interval_bases") != interval_bases:
             raise ValueError("Target coverage interval_bases is inconsistent")
+        # Old reports may omit optional summaries. Validate every supplied value but do
+        # not fabricate a measurement for an absent key.
+        expected_summaries = {
+            "interval_weighted_mean_depth": sum(
+                r.mean_depth * (r.end - r.start) for r in self.regions
+            )
+            / interval_bases,
+            "minimum_region_mean_depth": min(r.mean_depth for r in self.regions),
+            "median_region_mean_depth": statistics.median(r.mean_depth for r in self.regions),
+            "maximum_region_mean_depth": max(r.mean_depth for r in self.regions),
+            **{
+                f"interval_bases_at_{key}_fraction": sum(
+                    r.bases_at_threshold[key] for r in self.regions
+                )
+                / interval_bases
+                for key in expected_keys
+            },
+        }
+        for key, value in self.summary_metrics.items():
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Target coverage summary must be finite and nonnegative")
+            if key in expected_summaries and not math.isclose(
+                value, expected_summaries[key], rel_tol=1e-9, abs_tol=1e-12
+            ):
+                raise ValueError(
+                    f"Target coverage summary {key!r} disagrees with region measurements"
+                )
+        keys = [(r.chromosome.removeprefix("chr"), r.start, r.end) for r in self.regions]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Target coverage report contains duplicate genomic intervals")
         return self
+
+
+def validate_report_coverage(
+    result: PipelineResult,
+    target: TargetCoverageReport | None,
+    selection: TargetCoverageReport | None,
+) -> None:
+    """Both export surfaces must reject a sidecar belonging to a different sample/build."""
+    for report in (target, selection):
+        if report is None:
+            continue
+        if report.sample_id != result.manifest.sample_id:
+            raise ValueError("Coverage sidecar and result refer to different samples")
+        if report.genome_build != result.manifest.assay.genome_build:
+            raise ValueError("Coverage sidecar and result use different genome builds")
+        TargetCoverageReport.model_validate(report.model_dump())
 
 
 @dataclass(frozen=True)
@@ -149,8 +209,8 @@ def _parse_float(raw: str, *, field: str) -> float:
         value = float(raw)
     except ValueError as exc:
         raise ValueError(f"Invalid numeric value in {field}") from exc
-    if value < 0:
-        raise ValueError(f"Negative value in {field}")
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"Nonfinite or negative value in {field}")
     return value
 
 

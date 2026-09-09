@@ -42,7 +42,7 @@ from ..breakpoint_annotation import (
     annotate_events_from_cache,
 )
 from ..cutesv import run_cutesv
-from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
+from ..execution import StreamingCommandRunner, SubprocessRunner
 from ..iscn import ISCN_RULE_PROFILE
 from ..methylation import (
     REGION_ASSIGNMENT_METHOD,
@@ -1481,6 +1481,11 @@ def _run_locked(
     run_warnings: list[str],
 ) -> tuple[RunReport, ReleaseBundle | None]:
     """Execute the run. Split out so the lock covers every write, including the first."""
+    # A release describes one completed attempt, not a mutable run directory. Invalidate
+    # its completion markers before any write; a failed/aborted retry must not expose
+    # an earlier successful bundle as the result of this attempt. Review history stays.
+    for release_path in (RELEASE_JSON, RELEASE_CHECKSUMS):
+        envelope.path(release_path).unlink(missing_ok=True)
     envelope.atomic_write_text(
         "manifest/sample.manifest.json", config.manifest.model_dump_json(indent=2) + "\n"
     )
@@ -1579,9 +1584,11 @@ def _execute_stage(
         )
 
     started = datetime.now(UTC)
+    # Adapters are an extension boundary: persist ordinary programming errors as
+    # FAILED, too. BaseException (including KeyboardInterrupt/SystemExit) propagates.
     try:
         plan = implementation.plan(context)
-    except (StageFailure, ToolExecutionError, ValueError, OSError) as error:
+    except Exception as error:
         return StageRecord(
             **base,
             status=ModuleRunStatus.FAILED,
@@ -1627,7 +1634,7 @@ def _execute_stage(
         if implementation.settle is not None:
             try:
                 implementation.settle(context, [item.to_artifact() for item in prior.outputs])
-            except (StageFailure, ValueError, OSError) as error:
+            except Exception as error:
                 # The artifacts verified, so this is a bug rather than stale state; fail
                 # the stage instead of letting a half-settled context reach the next one.
                 return StageRecord(
@@ -1647,7 +1654,7 @@ def _execute_stage(
 
     try:
         result = implementation.execute(context, plan)
-    except (StageFailure, ToolExecutionError, ValueError, OSError) as error:
+    except Exception as error:
         return StageRecord(
             **base,
             status=ModuleRunStatus.FAILED,
@@ -1664,7 +1671,7 @@ def _execute_stage(
     }:
         try:
             implementation.settle(context, result.outputs)
-        except (StageFailure, ValueError, OSError) as error:
+        except Exception as error:
             return StageRecord(
                 **base,
                 status=ModuleRunStatus.FAILED,

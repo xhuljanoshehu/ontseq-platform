@@ -148,6 +148,12 @@ def _methylation_envelope(root: Path) -> tuple[str, str, Path]:
         policy=_policy(),
         tool=tool,
     )
+    # Normalization adds the region-assignment algorithm to tool provenance. The
+    # successful fixture must bind the exact normalized tool, just like the pipeline.
+    tool = methylation.tool
+    next(item for item in result.modules if item.module == AnalysisModule.METHYLATION).tools = [
+        tool
+    ]
     result.provenance.reference_checksums["bedmethyl"] = methylation.bedmethyl_fingerprint.sha256
     result_bytes = result.model_dump_json().encode("utf-8")
     result_path.write_bytes(result_bytes)
