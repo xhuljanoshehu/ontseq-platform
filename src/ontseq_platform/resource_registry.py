@@ -16,17 +16,50 @@ from .models import (
     GenomeBuild,
     KnowledgeBundle,
     PanelBundle,
+    PanelCoordinateMappingLock,
+    PanelResolutionSummary,
     ReferenceBundle,
+    ReferenceDictionaryContract,
     ReferenceLock,
     ResolvedResourceContext,
     ResourceBundle,
 )
-from .reference import sha256_file
+from .reference import (
+    GRCH37_UCSC_HG19_CANONICAL_25_FAI_ROLE,
+    GRCH37_UCSC_HG19_CANONICAL_25_FASTA_ROLE,
+    reference_lock_for_dictionary_contract,
+    reference_lock_from_fai,
+    sha256_file,
+    validate_grch37_ucsc_hg19_canonical_25,
+)
 
 DEFAULT_RESOURCE_ROOT = Path("/opt/ontseq")
 RESOURCE_ROOT_ENV = "ONTSEQ_RESOURCE_ROOT"
 
 BundleT = TypeVar("BundleT", bound=ResourceBundle, covariant=True)
+
+
+def _bed_interval_count(path: Path) -> int:
+    """Count non-comment BED rows after basic coordinate validation."""
+
+    count = 0
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\r\n").split("\t")
+            if len(fields) < 3:
+                raise ValueError(f"{path.name} line {line_number} has fewer than three BED fields")
+            try:
+                start, end = int(fields[1]), int(fields[2])
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path.name} line {line_number} has non-integer BED coordinates"
+                ) from exc
+            if start < 0 or end <= start:
+                raise ValueError(f"{path.name} line {line_number} has an invalid BED interval")
+            count += 1
+    return count
 
 
 @dataclass(frozen=True)
@@ -220,6 +253,15 @@ class ResourceRegistry:
                     f"profile {profile.profile_id!r} uses assay {profile.assay_mode.value}, but "
                     f"panel {panel.bundle.bundle_id!r} declares {panel.bundle.assay_mode.value}"
                 )
+            if (
+                profile.reference_dictionary_contract
+                not in panel.bundle.reference_dictionary_contracts
+            ):
+                raise ValueError(
+                    f"profile {profile.profile_id!r} uses dictionary contract "
+                    f"{profile.reference_dictionary_contract.value!r}, but panel "
+                    f"{panel.bundle.bundle_id!r} is not declared compatible with it"
+                )
 
         paths: dict[str, str] = {}
         checksums: dict[str, str] = {}
@@ -241,21 +283,140 @@ class ResourceRegistry:
                 verify_files=verify_files,
             )
         self._validate_reference_lock(profile, reference, paths)
+        panel_resolution = (
+            self._resolve_panel_resolution(panel, paths, checksums) if panel is not None else None
+        )
 
         return ResolvedResourceContext(
             profile_id=profile.profile_id,
             profile_version=profile.version,
             genome_build=profile.genome_build,
+            reference_dictionary_contract=profile.reference_dictionary_contract,
             reference_bundle_id=reference.bundle.bundle_id,
             reference_bundle_version=reference.bundle.version,
             panel_bundle_id=panel.bundle.bundle_id if panel else None,
             panel_bundle_version=panel.bundle.version if panel else None,
+            panel_resolution=panel_resolution,
             knowledge_bundle_id=knowledge.bundle.bundle_id,
             knowledge_bundle_version=knowledge.bundle.version,
             resource_root=str(self.resource_root),
             resource_paths=paths,
             resource_checksums=checksums,
             resource_releases=releases,
+        )
+
+    @staticmethod
+    def _resolve_panel_resolution(
+        panel: _RegisteredBundle[PanelBundle],
+        paths: dict[str, str],
+        checksums: dict[str, str],
+    ) -> PanelResolutionSummary:
+        """Bind reportable panel-resolution state to the already validated resource set."""
+
+        bundle = panel.bundle
+        selection = bundle.resource(bundle.selection_panel_resource_id)
+        analysis_roi = bundle.resource(bundle.analysis_roi_resource_id)
+        assert selection.sha256 is not None
+        assert analysis_roi.sha256 is not None
+        selection_count = _bed_interval_count(Path(paths["panel.selection_panel_buffered"]))
+        analysis_roi_count = _bed_interval_count(Path(paths["panel.analysis_roi_unbuffered"]))
+        if selection_count < 1:
+            raise ValueError("resolved panel selection contains no intervals")
+        lock_id = bundle.coordinate_mapping_lock_resource_id
+        if lock_id is None:
+            return PanelResolutionSummary(
+                mapping_status="native_build_not_required",
+                source_genome_build=bundle.genome_build,
+                target_genome_build=bundle.genome_build,
+                selection_interval_count=selection_count,
+                analysis_roi_interval_count=analysis_roi_count,
+                unresolved_target_labels=bundle.unresolved_targets,
+                selection_panel_sha256=selection.sha256,
+                analysis_roi_sha256=analysis_roi.sha256,
+            )
+
+        source_id = bundle.coordinate_mapping_source_resource_id
+        output_id = bundle.coordinate_mapping_output_resource_id
+        unmapped_id = bundle.coordinate_mapping_unmapped_resource_id
+        roundtrip_id = bundle.coordinate_mapping_roundtrip_output_resource_id
+        roundtrip_unmapped_id = bundle.coordinate_mapping_roundtrip_unmapped_resource_id
+        assert source_id is not None
+        assert output_id is not None
+        assert unmapped_id is not None
+        assert roundtrip_id is not None
+        assert roundtrip_unmapped_id is not None
+        lock = PanelCoordinateMappingLock.model_validate(
+            load_mapping(Path(paths["panel.coordinate_mapping_lock"]))
+        )
+        source = bundle.resource(source_id)
+        output = bundle.resource(output_id)
+        unmapped = bundle.resource(unmapped_id)
+        roundtrip = bundle.resource(roundtrip_id)
+        roundtrip_unmapped = bundle.resource(roundtrip_unmapped_id)
+        expected_values = {
+            "target genome build": (lock.target_genome_build, bundle.genome_build),
+            "source selection SHA256": (lock.source_selection_sha256, source.sha256),
+            "mapped output SHA256": (lock.mapped_output_sha256, output.sha256),
+            "unmapped output SHA256": (lock.unmapped_output_sha256, unmapped.sha256),
+            "final selection SHA256": (lock.final_selection_sha256, selection.sha256),
+            "source panel bundle ID": (
+                lock.source_panel_bundle_id,
+                bundle.coordinate_mapping_origin_bundle_id,
+            ),
+            "source panel resource ID": (
+                lock.source_panel_resource_id,
+                bundle.coordinate_mapping_origin_resource_id,
+            ),
+            "roundtrip mapped output SHA256": (
+                lock.roundtrip_mapped_output_sha256,
+                roundtrip.sha256,
+            ),
+            "roundtrip unmapped output SHA256": (
+                lock.roundtrip_unmapped_output_sha256,
+                roundtrip_unmapped.sha256,
+            ),
+        }
+        mismatches = [
+            label
+            for label, (lock_value, resource_value) in expected_values.items()
+            if lock_value != resource_value
+        ]
+        if mismatches:
+            raise ValueError(
+                "panel coordinate mapping lock does not match resolved resources: "
+                + ", ".join(mismatches)
+            )
+        if _bed_interval_count(Path(paths["panel.coordinate_mapping_roundtrip_output"])) != (
+            lock.roundtrip_mapped_interval_count
+        ):
+            raise ValueError("panel roundtrip mapped interval count disagrees with its lock")
+        if selection_count != lock.mapped_interval_count:
+            raise ValueError("panel final selection interval count disagrees with its lock")
+        lock_checksum = checksums["panel.coordinate_mapping_lock"]
+        return PanelResolutionSummary(
+            mapping_status=lock.status,
+            mapping_id=lock.mapping_id,
+            mapping_method=lock.mapping_method,
+            mapping_tool=lock.mapping_tool,
+            source_genome_build=lock.source_genome_build,
+            target_genome_build=lock.target_genome_build,
+            source_panel_bundle_id=lock.source_panel_bundle_id,
+            source_panel_resource_id=lock.source_panel_resource_id,
+            selection_interval_count=selection_count,
+            analysis_roi_interval_count=analysis_roi_count,
+            source_interval_count=lock.source_interval_count,
+            mapped_interval_count=lock.mapped_interval_count,
+            unmapped_target_labels=lock.unmapped_target_labels,
+            roundtrip_mapped_interval_count=lock.roundtrip_mapped_interval_count,
+            reciprocal_exact_interval_count=lock.reciprocal_exact_interval_count,
+            roundtrip_review_required_target_labels=(lock.roundtrip_review_required_target_labels),
+            unresolved_target_labels=bundle.unresolved_targets,
+            selection_panel_sha256=selection.sha256,
+            analysis_roi_sha256=analysis_roi.sha256,
+            coordinate_mapping_lock_sha256=lock_checksum,
+            roundtrip_mapping_output_sha256=roundtrip.sha256,
+            roundtrip_mapping_unmapped_sha256=roundtrip_unmapped.sha256,
+            runtime_mapping_allowed=lock.runtime_mapping_allowed,
         )
 
     @staticmethod
@@ -281,6 +442,31 @@ class ResourceRegistry:
             raise ValueError(
                 "reference lock source_fai_sha256 does not match the pinned FASTA index"
             )
+        if (
+            profile.reference_dictionary_contract
+            == ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
+        ):
+            fasta_key = f"reference.{GRCH37_UCSC_HG19_CANONICAL_25_FASTA_ROLE}"
+            fai_key = f"reference.{GRCH37_UCSC_HG19_CANONICAL_25_FAI_ROLE}"
+            if fasta_key not in paths or fai_key not in paths:
+                raise ValueError(
+                    "UCSC hg19 Canonical-25 profile requires its exact analysis FASTA and index"
+                )
+            contract_fai = Path(paths[fai_key])
+            contract_lock = reference_lock_from_fai(
+                contract_fai,
+                reference_id=reference.bundle.bundle_id,
+                genome_build=GenomeBuild.GRCH37,
+                allow_extra_contigs=False,
+            )
+            validate_grch37_ucsc_hg19_canonical_25(
+                (contig.name, contig.length) for contig in contract_lock.contigs
+            )
+            return
+        reference_lock_for_dictionary_contract(
+            reference_lock,
+            profile.reference_dictionary_contract,
+        )
 
     @staticmethod
     def _validate_cross_bundle_derivations(bundles: list[ResourceBundle]) -> None:

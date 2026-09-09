@@ -1944,6 +1944,16 @@
       "title": "QCMetrics",
       "type": "object"
     },
+    "ReferenceDictionaryContract": {
+      "description": "Explicit relationship between an aligned BAM and the reference bundle dictionary.",
+      "enum": [
+        "exact_full",
+        "grch38_canonical_25",
+        "grch37_ucsc_hg19_canonical_25"
+      ],
+      "title": "ReferenceDictionaryContract",
+      "type": "string"
+    },
     "ResolvedResourceContext": {
       "additionalProperties": false,
       "description": "Absolute, checksum-pinned resources selected for one analysis profile.",
@@ -1986,6 +1996,17 @@
           "default": null,
           "title": "Panel Bundle Version"
         },
+        "panel_resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PanelResolutionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "profile_id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
           "title": "Profile Id",
@@ -2005,6 +2026,10 @@
           "minLength": 1,
           "title": "Reference Bundle Version",
           "type": "string"
+        },
+        "reference_dictionary_contract": {
+          "$ref": "#/$defs/ReferenceDictionaryContract",
+          "default": "exact_full"
         },
         "resource_checksums": {
           "additionalProperties": {
@@ -2291,10 +2316,11 @@
       "default": "REVIEW_REQUIRED"
     },
     "schema_version": {
-      "default": "0.2.0",
+      "default": "0.3.0",
       "enum": [
         "0.1.0",
-        "0.2.0"
+        "0.2.0",
+        "0.3.0"
       ],
       "title": "Schema Version",
       "type": "string"

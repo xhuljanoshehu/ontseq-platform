@@ -3,10 +3,12 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .iscn_syntax import render_supported_cnv_fragment
 
 
 class StrictModel(BaseModel):
@@ -27,6 +29,14 @@ class AssayMode(StrEnum):
 class GenomeBuild(StrEnum):
     GRCH37 = "GRCh37"
     GRCH38 = "GRCh38"
+
+
+class ReferenceDictionaryContract(StrEnum):
+    """Explicit relationship between an aligned BAM and the reference bundle dictionary."""
+
+    EXACT_FULL = "exact_full"
+    GRCH38_CANONICAL_25 = "grch38_canonical_25"
+    GRCH37_UCSC_HG19_CANONICAL_25 = "grch37_ucsc_hg19_canonical_25"
 
 
 class CoordinateSystem(StrEnum):
@@ -416,10 +426,152 @@ class ReferenceBundle(ResourceBundle):
         return self
 
 
+class PanelCoordinateMappingLock(StrictModel):
+    """Immutable provenance for an offline, build-time panel coordinate mapping.
+
+    The lock describes an already materialized mapping result. It is never an instruction to
+    fetch a chain or execute mapping during resource activation or analysis.
+    """
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    mapping_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    status: Literal["controlled_build_time_unvalidated"]
+    source_genome_build: GenomeBuild
+    target_genome_build: GenomeBuild
+    source_panel_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    source_panel_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    source_selection_sha256: str = Field(pattern=_SHA256_PATTERN)
+    source_interval_count: int = Field(ge=1)
+    mapping_method: Literal["ucsc_liftover_chain"]
+    mapping_tool: Literal["UCSC liftOver"]
+    mapping_tool_url: str = Field(min_length=1)
+    mapping_tool_sha256: str = Field(pattern=_SHA256_PATTERN)
+    mapping_tool_size_bytes: int = Field(ge=1)
+    mapping_tool_build_id: str = Field(min_length=1)
+    mapping_tool_last_modified: datetime
+    chain_name: str = Field(min_length=1)
+    chain_url: str = Field(min_length=1)
+    chain_md5: str = Field(pattern=r"^[0-9a-f]{32}$")
+    chain_sha256: str = Field(pattern=_SHA256_PATTERN)
+    min_match: float = Field(gt=0, le=1)
+    min_blocks: float = Field(gt=0, le=1)
+    multiple: bool
+    mapped_output_sha256: str = Field(pattern=_SHA256_PATTERN)
+    unmapped_output_sha256: str = Field(pattern=_SHA256_PATTERN)
+    mapped_interval_count: int = Field(ge=0)
+    same_chromosome_mapped_count: int = Field(ge=0)
+    span_identical_count: int = Field(ge=0)
+    maximum_span_delta_bases: int = Field(ge=0)
+    maximum_span_delta_fraction: float = Field(ge=0)
+    unmapped_target_labels: list[str] = Field(default_factory=list)
+    split_target_labels: list[str] = Field(default_factory=list)
+    roundtrip_chain_name: str = Field(min_length=1)
+    roundtrip_chain_url: str = Field(min_length=1)
+    roundtrip_chain_md5: str = Field(pattern=r"^[0-9a-f]{32}$")
+    roundtrip_chain_sha256: str = Field(pattern=_SHA256_PATTERN)
+    roundtrip_min_match: float = Field(gt=0, le=1)
+    roundtrip_min_blocks: float = Field(gt=0, le=1)
+    roundtrip_multiple: bool
+    roundtrip_mapped_output_sha256: str = Field(pattern=_SHA256_PATTERN)
+    roundtrip_mapped_output_size_bytes: int = Field(ge=0)
+    roundtrip_unmapped_output_sha256: str = Field(pattern=_SHA256_PATTERN)
+    roundtrip_unmapped_output_size_bytes: int = Field(ge=0)
+    roundtrip_mapped_interval_count: int = Field(ge=0)
+    reciprocal_exact_interval_count: int = Field(ge=0)
+    roundtrip_unmapped_target_labels: list[str] = Field(default_factory=list)
+    roundtrip_split_target_labels: list[str] = Field(default_factory=list)
+    roundtrip_review_required_target_labels: list[str] = Field(default_factory=list)
+    final_selection_sha256: str = Field(pattern=_SHA256_PATTERN)
+    runtime_mapping_allowed: Literal[False] = False
+    note: str = ""
+
+    @model_validator(mode="after")
+    def mapping_counts_and_builds_are_consistent(self) -> PanelCoordinateMappingLock:
+        if self.source_genome_build == self.target_genome_build:
+            raise ValueError("panel coordinate mapping source and target builds must differ")
+        if len(self.unmapped_target_labels) != len(set(self.unmapped_target_labels)):
+            raise ValueError("panel mapping unmapped target labels must be unique")
+        if len(self.split_target_labels) != len(set(self.split_target_labels)):
+            raise ValueError("panel mapping split target labels must be unique")
+        if not set(self.split_target_labels).issubset(self.unmapped_target_labels):
+            raise ValueError("panel mapping split targets must also be declared unmapped")
+        if len(self.roundtrip_review_required_target_labels) != len(
+            set(self.roundtrip_review_required_target_labels)
+        ):
+            raise ValueError("panel mapping roundtrip review target labels must be unique")
+        if len(self.roundtrip_unmapped_target_labels) != len(
+            set(self.roundtrip_unmapped_target_labels)
+        ):
+            raise ValueError("panel mapping roundtrip unmapped target labels must be unique")
+        if len(self.roundtrip_split_target_labels) != len(set(self.roundtrip_split_target_labels)):
+            raise ValueError("panel mapping roundtrip split target labels must be unique")
+        if not set(self.roundtrip_split_target_labels).issubset(
+            self.roundtrip_unmapped_target_labels
+        ):
+            raise ValueError("panel mapping roundtrip split targets must be declared unmapped")
+        if not set(self.roundtrip_unmapped_target_labels).issubset(
+            self.roundtrip_review_required_target_labels
+        ):
+            raise ValueError("panel mapping roundtrip-unmapped targets must require review")
+        if set(self.roundtrip_review_required_target_labels).intersection(
+            self.unmapped_target_labels
+        ):
+            raise ValueError(
+                "forward-unmapped targets cannot also require mapped-interval roundtrip review"
+            )
+        if self.mapped_interval_count + len(self.unmapped_target_labels) != (
+            self.source_interval_count
+        ):
+            raise ValueError("panel mapping mapped and unmapped counts do not cover the source")
+        if self.same_chromosome_mapped_count > self.mapped_interval_count:
+            raise ValueError("same-chromosome mapping count exceeds mapped interval count")
+        if self.span_identical_count > self.mapped_interval_count:
+            raise ValueError("span-identical mapping count exceeds mapped interval count")
+        if (
+            self.roundtrip_mapped_interval_count + len(self.roundtrip_unmapped_target_labels)
+            != self.mapped_interval_count
+        ):
+            raise ValueError(
+                "panel mapping roundtrip mapped and unmapped counts do not cover forward mappings"
+            )
+        if self.reciprocal_exact_interval_count > self.roundtrip_mapped_interval_count:
+            raise ValueError("reciprocal-exact count exceeds roundtrip mapped interval count")
+        return self
+
+
 class PanelBundle(ResourceBundle):
     bundle_type: Literal["panel"] = "panel"
     genome_build: GenomeBuild
     assay_mode: AssayMode
+    reference_dictionary_contracts: list[ReferenceDictionaryContract] = Field(
+        default_factory=lambda: [ReferenceDictionaryContract.EXACT_FULL],
+        min_length=1,
+    )
+    target_gene_map_resource_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    coordinate_mapping_lock_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_source_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_output_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_unmapped_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_roundtrip_output_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_roundtrip_unmapped_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_origin_bundle_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
+    coordinate_mapping_origin_resource_id: str | None = Field(
+        default=None, pattern=_RESOURCE_ID_PATTERN
+    )
     selection_panel_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     analysis_roi_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     transcript_cache_resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
@@ -427,6 +579,25 @@ class PanelBundle(ResourceBundle):
 
     @model_validator(mode="after")
     def required_panel_resources_exist(self) -> PanelBundle:
+        if self.assay_mode != AssayMode.ADAPTIVE_SAMPLING:
+            raise ValueError("panel bundles require assay_mode='adaptive_sampling'")
+        if len(self.reference_dictionary_contracts) != len(
+            set(self.reference_dictionary_contracts)
+        ):
+            raise ValueError("panel reference_dictionary_contracts must be unique")
+        for contract in self.reference_dictionary_contracts:
+            if (
+                contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+                and self.genome_build != GenomeBuild.GRCH38
+            ):
+                raise ValueError("grch38_canonical_25 panels require genome_build='GRCh38'")
+            if (
+                contract == ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
+                and self.genome_build != GenomeBuild.GRCH37
+            ):
+                raise ValueError(
+                    "grch37_ucsc_hg19_canonical_25 panels require genome_build='GRCh37'"
+                )
         expected_roles = {
             self.selection_panel_resource_id: TargetBedRole.SELECTION_PANEL_BUFFERED.value,
             self.analysis_roi_resource_id: TargetBedRole.ANALYSIS_ROI_UNBUFFERED.value,
@@ -450,6 +621,112 @@ class PanelBundle(ResourceBundle):
                     f"panel resource {resource_id!r} with role {role!r} must declare "
                     "coordinate_system='zero_based_half_open'"
                 )
+        if self.target_gene_map_resource_id is not None:
+            gene_map = self.resource(self.target_gene_map_resource_id)
+            if gene_map.role != "target_gene_map":
+                raise ValueError("panel target gene map must have role 'target_gene_map'")
+            if gene_map.coordinate_system is not None:
+                raise ValueError("panel target gene maps must be coordinate-free")
+            for resource_id in (
+                self.analysis_roi_resource_id,
+                self.transcript_cache_resource_id,
+            ):
+                if self.target_gene_map_resource_id not in self.resource(resource_id).derived_from:
+                    raise ValueError(
+                        "panel ROI and transcript cache must derive from the target gene map"
+                    )
+        mapping_ids = (
+            self.coordinate_mapping_lock_resource_id,
+            self.coordinate_mapping_source_resource_id,
+            self.coordinate_mapping_output_resource_id,
+            self.coordinate_mapping_unmapped_resource_id,
+            self.coordinate_mapping_roundtrip_output_resource_id,
+            self.coordinate_mapping_roundtrip_unmapped_resource_id,
+        )
+        mapping_origin = (
+            self.coordinate_mapping_origin_bundle_id,
+            self.coordinate_mapping_origin_resource_id,
+        )
+        if any(item is not None for item in mapping_ids):
+            if any(item is None for item in mapping_ids):
+                raise ValueError("panel coordinate mapping resource IDs must be declared together")
+            if any(item is None for item in mapping_origin):
+                raise ValueError("panel coordinate mapping origin IDs must be declared together")
+            if self.target_gene_map_resource_id is None:
+                raise ValueError("coordinate-mapped panels require a target gene map")
+            lock_id, source_id, output_id, unmapped_id, roundtrip_id, roundtrip_unmapped_id = (
+                mapping_ids
+            )
+            assert lock_id is not None
+            assert source_id is not None
+            assert output_id is not None
+            assert unmapped_id is not None
+            assert roundtrip_id is not None
+            assert roundtrip_unmapped_id is not None
+            expected_mapping_roles = {
+                lock_id: "coordinate_mapping_lock",
+                source_id: "coordinate_mapping_source",
+                output_id: "coordinate_mapping_output",
+                unmapped_id: "coordinate_mapping_unmapped",
+                roundtrip_id: "coordinate_mapping_roundtrip_output",
+                roundtrip_unmapped_id: "coordinate_mapping_roundtrip_unmapped",
+            }
+            for resource_id, role in expected_mapping_roles.items():
+                if self.resource(resource_id).role != role:
+                    raise ValueError(
+                        f"panel coordinate mapping resource {resource_id!r} must have role {role!r}"
+                    )
+            output = self.resource(output_id)
+            if not output.generated or source_id not in output.derived_from:
+                raise ValueError("panel mapping output must derive from its source selection")
+            if lock_id not in output.derived_from:
+                raise ValueError("panel mapping output must derive from its mapping lock")
+            unmapped = self.resource(unmapped_id)
+            if (
+                not unmapped.generated
+                or source_id not in unmapped.derived_from
+                or lock_id not in unmapped.derived_from
+            ):
+                raise ValueError(
+                    "panel unmapped output must derive from its source selection and mapping lock"
+                )
+            for resource_id in (roundtrip_id, roundtrip_unmapped_id):
+                resource = self.resource(resource_id)
+                if (
+                    not resource.generated
+                    or output_id not in resource.derived_from
+                    or lock_id not in resource.derived_from
+                ):
+                    raise ValueError(
+                        "panel roundtrip outputs must derive from the forward mapping output "
+                        "and mapping lock"
+                    )
+            for resource_id in (
+                source_id,
+                output_id,
+                unmapped_id,
+                roundtrip_id,
+                roundtrip_unmapped_id,
+            ):
+                if (
+                    self.resource(resource_id).coordinate_system
+                    != CoordinateSystem.ZERO_BASED_HALF_OPEN
+                ):
+                    raise ValueError(
+                        "panel coordinate mapping BED resources require "
+                        "coordinate_system='zero_based_half_open'"
+                    )
+            if self.resource(lock_id).coordinate_system is not None:
+                raise ValueError("panel coordinate mapping locks must be coordinate-free")
+            selection = self.resource(self.selection_panel_resource_id)
+            if not selection.generated or output_id not in selection.derived_from:
+                raise ValueError("panel selection must derive from its mapped coordinate output")
+            if self.target_gene_map_resource_id is not None and (
+                self.target_gene_map_resource_id not in selection.derived_from
+            ):
+                raise ValueError("panel selection must derive from its target gene map")
+        elif any(item is not None for item in mapping_origin):
+            raise ValueError("panel coordinate mapping origin IDs require mapping resources")
         if len(self.unresolved_targets) != len(set(self.unresolved_targets)):
             raise ValueError("panel unresolved_targets must be unique")
         return self
@@ -477,6 +754,9 @@ class AnalysisProfile(StrictModel):
     genome_build: GenomeBuild
     assay_mode: AssayMode
     reference_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
     knowledge_bundle: str = Field(pattern=_RESOURCE_ID_PATTERN)
     panel_bundle: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
     adaptive_sampling: Literal["enabled", "disabled"]
@@ -484,6 +764,17 @@ class AnalysisProfile(StrictModel):
 
     @model_validator(mode="after")
     def assay_and_panel_are_consistent(self) -> AnalysisProfile:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 profiles")
+        if (
+            self.reference_dictionary_contract
+            == ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH37
+        ):
+            raise ValueError("grch37_ucsc_hg19_canonical_25 is valid only for GRCh37 profiles")
         if self.assay_mode == AssayMode.ADAPTIVE_SAMPLING:
             if self.adaptive_sampling != "enabled" or self.panel_bundle is None:
                 raise ValueError(
@@ -494,6 +785,113 @@ class AnalysisProfile(StrictModel):
         return self
 
 
+class PanelResolutionSummary(StrictModel):
+    """Run-bound summary of how an Adaptive Sampling panel reached its active build.
+
+    This is provenance for panel design resolution, not sample evidence.  In particular,
+    coordinate mapping does not establish analytical validation, and unresolved labels do not
+    describe negative findings in the analysed sample.
+    """
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    mapping_status: Literal[
+        "native_build_not_required",
+        "controlled_build_time_unvalidated",
+    ]
+    mapping_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    mapping_method: Literal["ucsc_liftover_chain"] | None = None
+    mapping_tool: Literal["UCSC liftOver"] | None = None
+    source_genome_build: GenomeBuild
+    target_genome_build: GenomeBuild
+    source_panel_bundle_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    source_panel_resource_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
+    selection_interval_count: int = Field(ge=1)
+    analysis_roi_interval_count: int = Field(ge=0)
+    source_interval_count: int | None = Field(default=None, ge=1)
+    mapped_interval_count: int | None = Field(default=None, ge=0)
+    unmapped_target_labels: list[str] = Field(default_factory=list)
+    roundtrip_mapped_interval_count: int | None = Field(default=None, ge=0)
+    reciprocal_exact_interval_count: int | None = Field(default=None, ge=0)
+    roundtrip_review_required_target_labels: list[str] = Field(default_factory=list)
+    unresolved_target_labels: list[str] = Field(default_factory=list)
+    selection_panel_sha256: str = Field(pattern=_SHA256_PATTERN)
+    analysis_roi_sha256: str = Field(pattern=_SHA256_PATTERN)
+    coordinate_mapping_lock_sha256: str | None = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    roundtrip_mapping_output_sha256: str | None = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    roundtrip_mapping_unmapped_sha256: str | None = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    runtime_mapping_allowed: Literal[False] = False
+
+    @model_validator(mode="after")
+    def mapping_state_is_consistent(self) -> PanelResolutionSummary:
+        label_groups = (
+            self.unmapped_target_labels,
+            self.roundtrip_review_required_target_labels,
+            self.unresolved_target_labels,
+        )
+        if any(len(labels) != len(set(labels)) for labels in label_groups):
+            raise ValueError("panel resolution target labels must be unique within each state")
+
+        mapping_values = (
+            self.mapping_id,
+            self.mapping_method,
+            self.mapping_tool,
+            self.source_panel_bundle_id,
+            self.source_panel_resource_id,
+            self.source_interval_count,
+            self.mapped_interval_count,
+            self.roundtrip_mapped_interval_count,
+            self.reciprocal_exact_interval_count,
+            self.coordinate_mapping_lock_sha256,
+            self.roundtrip_mapping_output_sha256,
+            self.roundtrip_mapping_unmapped_sha256,
+        )
+        if self.mapping_status == "native_build_not_required":
+            if self.source_genome_build != self.target_genome_build:
+                raise ValueError(
+                    "native panel resolution requires identical source and target builds"
+                )
+            if any(value is not None for value in mapping_values):
+                raise ValueError("native panel resolution cannot declare coordinate-mapping fields")
+            if self.unmapped_target_labels or self.roundtrip_review_required_target_labels:
+                raise ValueError("native panel resolution cannot declare coordinate-mapping labels")
+            if self.analysis_roi_interval_count > self.selection_interval_count:
+                raise ValueError("panel analysis ROI count cannot exceed selection count")
+            return self
+
+        if self.source_genome_build == self.target_genome_build:
+            raise ValueError("coordinate-mapped panel resolution requires different builds")
+        if any(value is None for value in mapping_values):
+            raise ValueError(
+                "coordinate-mapped panel resolution requires complete mapping provenance"
+            )
+        assert self.source_interval_count is not None
+        assert self.mapped_interval_count is not None
+        assert self.roundtrip_mapped_interval_count is not None
+        assert self.reciprocal_exact_interval_count is not None
+        if self.mapped_interval_count + len(self.unmapped_target_labels) != (
+            self.source_interval_count
+        ):
+            raise ValueError("panel resolution mapped and unmapped counts do not cover the source")
+        if self.roundtrip_mapped_interval_count > self.mapped_interval_count:
+            raise ValueError("panel resolution roundtrip count exceeds mapped interval count")
+        if self.reciprocal_exact_interval_count > self.roundtrip_mapped_interval_count:
+            raise ValueError("panel resolution reciprocal-exact count exceeds roundtrip count")
+        if self.selection_interval_count != self.mapped_interval_count:
+            raise ValueError("mapped panel selection count must equal the forward-mapped count")
+        if self.analysis_roi_interval_count > self.selection_interval_count:
+            raise ValueError("panel analysis ROI count cannot exceed selection count")
+        return self
+
+
 class ResolvedResourceContext(StrictModel):
     """Absolute, checksum-pinned resources selected for one analysis profile."""
 
@@ -501,10 +899,14 @@ class ResolvedResourceContext(StrictModel):
     profile_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     profile_version: str = Field(min_length=1)
     genome_build: GenomeBuild
+    reference_dictionary_contract: ReferenceDictionaryContract = (
+        ReferenceDictionaryContract.EXACT_FULL
+    )
     reference_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     reference_bundle_version: str = Field(min_length=1)
     panel_bundle_id: str | None = Field(default=None, pattern=_RESOURCE_ID_PATTERN)
     panel_bundle_version: str | None = None
+    panel_resolution: PanelResolutionSummary | None = None
     knowledge_bundle_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     knowledge_bundle_version: str = Field(min_length=1)
     resource_root: str = Field(min_length=1)
@@ -514,20 +916,68 @@ class ResolvedResourceContext(StrictModel):
 
     @model_validator(mode="after")
     def paths_checksums_and_optional_panel_are_consistent(self) -> ResolvedResourceContext:
+        if (
+            self.reference_dictionary_contract == ReferenceDictionaryContract.GRCH38_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH38
+        ):
+            raise ValueError("grch38_canonical_25 is valid only for GRCh38 contexts")
+        if (
+            self.reference_dictionary_contract
+            == ReferenceDictionaryContract.GRCH37_UCSC_HG19_CANONICAL_25
+            and self.genome_build != GenomeBuild.GRCH37
+        ):
+            raise ValueError("grch37_ucsc_hg19_canonical_25 is valid only for GRCh37 contexts")
         if (self.panel_bundle_id is None) != (self.panel_bundle_version is None):
             raise ValueError("panel bundle ID and version must either both be set or both be null")
+        if self.panel_resolution is not None:
+            if self.panel_bundle_id is None:
+                raise ValueError("panel resolution requires a resolved panel bundle")
+            if self.panel_resolution.target_genome_build != self.genome_build:
+                raise ValueError("panel resolution target build must match the resolved context")
+            summary_checksums = {
+                "panel.selection_panel_buffered": self.panel_resolution.selection_panel_sha256,
+                "panel.analysis_roi_unbuffered": self.panel_resolution.analysis_roi_sha256,
+            }
+            if self.panel_resolution.coordinate_mapping_lock_sha256 is not None:
+                summary_checksums["panel.coordinate_mapping_lock"] = (
+                    self.panel_resolution.coordinate_mapping_lock_sha256
+                )
+            if self.panel_resolution.roundtrip_mapping_output_sha256 is not None:
+                summary_checksums["panel.coordinate_mapping_roundtrip_output"] = (
+                    self.panel_resolution.roundtrip_mapping_output_sha256
+                )
+            if self.panel_resolution.roundtrip_mapping_unmapped_sha256 is not None:
+                summary_checksums["panel.coordinate_mapping_roundtrip_unmapped"] = (
+                    self.panel_resolution.roundtrip_mapping_unmapped_sha256
+                )
+            for key, expected in summary_checksums.items():
+                if self.resource_checksums.get(key) != expected:
+                    raise ValueError(
+                        f"panel resolution checksum for {key!r} does not match resolved resources"
+                    )
         if set(self.resource_paths) != set(self.resource_checksums):
             raise ValueError("every resolved resource path must have exactly one checksum")
-        root = Path(self.resource_root)
+        root: PurePosixPath | PureWindowsPath
+        if self.resource_root.startswith("/"):
+            root = PurePosixPath(self.resource_root)
+        else:
+            root = PureWindowsPath(self.resource_root)
         if not root.is_absolute():
             raise ValueError("resolved resource_root must be absolute")
-        resolved_root = root.resolve()
+        if ".." in root.parts:
+            raise ValueError("resolved resource_root must not contain parent traversal")
         for key, value in self.resource_paths.items():
-            path = Path(value)
+            path: PurePosixPath | PureWindowsPath
+            if isinstance(root, PurePosixPath):
+                path = PurePosixPath(value)
+            else:
+                path = PureWindowsPath(value)
             if not path.is_absolute():
                 raise ValueError(f"resolved resource path {key!r} must be absolute")
+            if ".." in path.parts:
+                raise ValueError(f"resolved resource path {key!r} contains parent traversal")
             try:
-                path.resolve().relative_to(resolved_root)
+                path.relative_to(root)
             except ValueError as exc:
                 raise ValueError(f"resolved resource path {key!r} escapes resource_root") from exc
         return self
@@ -981,6 +1431,19 @@ class GenomicEvent(StrictModel):
         labels = [item.label for item in self.breakpoint_annotations]
         if len(labels) != len(set(labels)):
             raise ValueError("breakpoint annotations must contain at most one item per label")
+        pathology_ids = [item.disease_id for item in self.known_pathologies]
+        if len(pathology_ids) != len(set(pathology_ids)):
+            raise ValueError("event pathologies must have unique disease IDs")
+        if self.whole_chromosome_span_confirmed:
+            if self.event_type not in {
+                EventType.CHROMOSOME_GAIN,
+                EventType.CHROMOSOME_LOSS,
+            }:
+                raise ValueError(
+                    "whole chromosome span confirmation is valid only for chromosome gain/loss"
+                )
+            if self.primary.start != 0:
+                raise ValueError("a confirmed whole chromosome span must begin at coordinate zero")
         return self
 
 
@@ -1364,7 +1827,7 @@ class Provenance(StrictModel):
 
 
 class PipelineResult(StrictModel):
-    schema_version: Literal["0.1.0", "0.2.0"] = "0.2.0"
+    schema_version: Literal["0.1.0", "0.2.0", "0.3.0"] = "0.3.0"
     manifest: SampleManifest
     qc: QCMetrics
     events: list[GenomicEvent]
