@@ -24,8 +24,48 @@ validated release.
   a new commit identity; unchanged corrected runs can still resume. Add a
   synthetic regression for repeated labels across disjoint, overlapping, empty and
   cross-chromosome intervals. See `docs/CLINICAL_VALIDATION.md` for validation impact.
+## 0.8.0 - 2026-09-09 (local engineering candidate)
+
+- Derive the default Desktop resource directory (`resources-v0.8.0`), runtime version and
+  Desktop label from one release constant. Include current resource-path examples in
+  `make versions` so future software releases cannot retain a stale default. Preserve
+  explicitly configured installations and independently versioned reference, panel,
+  knowledge and schema identities. This changes installation naming only, with no
+  biological output or analytical validation impact.
+- Reuse the interval-identity correction from the methylation handover branch
+  (`b2d5256`): BED targets sharing a label retain their own chromosome, coordinates,
+  call counts and missing-measurement status. Overlapping targets still independently
+  include shared sites. Previously these rows could inherit pooled counts, including
+  measurements from another chromosome or a measured value for an empty target.
+- Record `ontseq_region_assignment=interval-identity-v1` in newly normalized
+  methylation report tool parameters and stage resume signatures without rewriting
+  source tool metadata. Old runs must recompute this stage even before the fix receives
+  a new commit identity; unchanged corrected runs can still resume. Add a
+  synthetic regression for repeated labels across disjoint, overlapping, empty and
+  cross-chromosome intervals. See `docs/CLINICAL_VALIDATION.md` for validation impact.
 - Advance Core, Desktop and the local workspace together to 0.8.0. Reuse the installed
   GRCh37/GRCh38 reference families without downloads or analytical policy changes.
+
+### Fixed
+
+- Sniffles2 and cuteSV now validate a bracketed BND ALT as exactly one of the four VCF forms
+  before using its mate coordinate. Local sequence is limited to ASCII `ACGTN`, mate positions
+  to positive ASCII digits, and whitespace, comma-separated alleles and trailing content are
+  rejected rather than partially matched. Only explicit `<BND>` and `<TRA>` alleles may use the
+  `CHR2`/`END` fallback. For a bracketed allele, `CHR2` must agree with the ALT whenever present;
+  `END` is additionally compared when the complete `CHR2`/`END` mate pair is present. Safe
+  `chr`-prefix/integer normalization is bounded and conversion errors become counted rejections.
+  The ALT, record ID and internal bracket form remain absent from normalized evidence.
+
+### Validation impact
+
+- JSON and schema contracts are unchanged. Inputs previously accepted through a partial bracket
+  match, an unsupported non-bracket ALT, or contradictory duplicate mate coordinates can now have
+  fewer accepted events and explicit rejection counts. Valid four-form BND alleles and supported
+  symbolic records retain their mate coordinates. No caller threshold, consensus-matching rule,
+  confidence, fusion assertion or `reportable` value changes. This is defensive normalization,
+  not biological validation; intended-use truth data and the open validation work remain required
+  before promotion from draft review.
 
 ## 0.7.1 - 2026-09-09 (local engineering candidate)
 

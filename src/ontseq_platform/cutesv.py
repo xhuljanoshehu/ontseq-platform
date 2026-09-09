@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .breakends import BreakendParseError, resolve_breakend
 from .execution import CommandRunner, SubprocessRunner
 from .models import (
     AlignedBamIntakeReport,
@@ -30,7 +31,6 @@ from .models import (
 )
 from .reference import sha256_file
 
-_BND_MATE = re.compile(r"[\[\]]([^:\[\]]+):(\d+)[\[\]]")
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+(?:\.\d+)?)(?!\d)")
 _SV_TYPES = {
     "DEL": EventType.DELETION,
@@ -131,12 +131,21 @@ def _loci(
 ) -> tuple[Locus, Locus | None, int | None]:
     try:
         if event_type == EventType.TRANSLOCATION:
-            mate = _BND_MATE.search(alternate)
-            chromosome2 = mate.group(1) if mate else (_first(info.get("CHR2")) or "")
-            position2 = int(mate.group(2)) if mate else _integer(info.get("END"), "missing_mate")
+            try:
+                resolved = resolve_breakend(
+                    alternate,
+                    declared_chromosome=info.get("CHR2"),
+                    declared_position=info.get("END"),
+                )
+            except BreakendParseError as exc:
+                raise _RejectedRecord(exc.reason) from exc
             return (
                 Locus(chromosome=chromosome, start=position - 1, end=position),
-                Locus(chromosome=chromosome2, start=position2 - 1, end=position2),
+                Locus(
+                    chromosome=resolved.mate_chromosome,
+                    start=resolved.mate_position_0based,
+                    end=resolved.mate_position_0based + 1,
+                ),
                 None,
             )
         raw_length = _first(info.get("SVLEN"))

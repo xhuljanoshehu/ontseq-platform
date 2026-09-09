@@ -43,7 +43,15 @@ evidence/sv/<sample>.cutesv.json
 evidence/sv/<sample>.consensus.json
 ```
 
-No read names are copied into normalized or reviewer-facing artifacts.
+No read names are copied into normalized or reviewer-facing artifacts. For BND records, both
+caller adapters require exactly one of the four VCF bracketed ALT forms and retain only the mate
+coordinate. Local/inserted ALT sequence, record IDs and the internal bracket form are discarded.
+The parser accepts only ASCII `ACGTN` local bases and a positive ASCII mate position; whitespace,
+multiple alleles and trailing content fail closed. Only explicit `<BND>` or `<TRA>` symbolic
+alleles may use the `CHR2`/`END` fallback. For bracketed ALT, `CHR2` must agree whenever present;
+`END` is also compared when the complete pair is present. Position parsing is bounded to the VCF
+Integer range, and conversion failures become counted rejections. `END` alone is not treated as a
+redundant mate declaration because supported caller formats may use it differently.
 
 ## Locked technical policies
 

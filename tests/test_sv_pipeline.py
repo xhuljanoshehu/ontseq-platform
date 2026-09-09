@@ -93,6 +93,164 @@ class CuteSvAndConsensusTests(unittest.TestCase):
             self.assertAlmostEqual(event.evidence[0].variant_allele_fraction or 0, 0.6)
             self.assertFalse(event.reportable)
 
+    def test_cutesv_resolves_all_four_breakend_forms_without_persisting_alt_or_form(self) -> None:
+        cases = (
+            "AC[chr2:5000[",
+            "GT]chr2:5001]",
+            "[chr2:5002[CA",
+            "]chr2:5003]TG",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "calls.vcf"
+            records = "".join(
+                f"chr21\t{9827581 + index}\tPRIVATE_{index}\tN\t{alternate}\t60\tPASS\t"
+                "SVTYPE=BND;RE=30;PRECISE\tGT:DR:DV\t0/1:20:30\n"
+                for index, alternate in enumerate(cases)
+            )
+            path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n" + records,
+                encoding="utf-8",
+            )
+            report = normalize_cutesv_vcf(
+                path,
+                sample_id="SYNTHETIC_B418",
+                genome_build=GenomeBuild.GRCH37,
+                policy=CuteSvPolicy(
+                    profile_id="test",
+                    status="technical_defaults_only",
+                    note="test-only technical defaults",
+                ),
+                tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            )
+
+        self.assertEqual(report.accepted_record_count, 4)
+        self.assertEqual(
+            [event.secondary.start if event.secondary else None for event in report.events],
+            [4999, 5000, 5001, 5002],
+        )
+        serialized = report.model_dump_json()
+        for alternate in cases:
+            self.assertNotIn(alternate, serialized)
+        self.assertNotIn("PRIVATE_", serialized)
+        self.assertNotIn("breakend_alt_form", serialized)
+        self.assertNotIn("local_then_", serialized)
+
+    def test_cutesv_symbolic_breakend_uses_chr2_end_without_alt_form(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "calls.vcf"
+            path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
+                "chr21\t9827581\t.\tN\t<BND>\t60\tPASS\t"
+                "SVTYPE=BND;CHR2=chr2;END=133011913;RE=30;PRECISE\t"
+                "GT:DR:DV\t0/1:20:30\n",
+                encoding="utf-8",
+            )
+            report = normalize_cutesv_vcf(
+                path,
+                sample_id="SYNTHETIC_B418",
+                genome_build=GenomeBuild.GRCH37,
+                policy=CuteSvPolicy(
+                    profile_id="test",
+                    status="technical_defaults_only",
+                    note="test-only technical defaults",
+                ),
+                tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            )
+
+        event = report.events[0]
+        self.assertEqual(event.secondary.chromosome if event.secondary else None, "chr2")
+        self.assertEqual(event.secondary.start if event.secondary else None, 133011912)
+        self.assertNotIn("breakend_alt_form", report.model_dump_json())
+
+    def test_cutesv_bracket_breakend_info_mate_must_agree_with_alt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "calls.vcf"
+            info_values = (
+                "SVTYPE=BND;CHR2=2;END=05000;RE=30;PRECISE",
+                "SVTYPE=BND;CHR2=chr3;END=5000;RE=30;PRECISE",
+                "SVTYPE=BND;CHR2=chr2;END=5001;RE=30;PRECISE",
+            )
+            records = "".join(
+                f"chr21\t{9827581 + index}\t.\tN\tN[chr2:5000[\t60\tPASS\t"
+                f"{info}\tGT:DR:DV\t0/1:20:30\n"
+                for index, info in enumerate(info_values)
+            )
+            path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n" + records,
+                encoding="utf-8",
+            )
+            report = normalize_cutesv_vcf(
+                path,
+                sample_id="SYNTHETIC_B418",
+                genome_build=GenomeBuild.GRCH37,
+                policy=CuteSvPolicy(
+                    profile_id="test",
+                    status="technical_defaults_only",
+                    note="test-only technical defaults",
+                ),
+                tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            )
+
+        self.assertEqual(report.accepted_record_count, 1)
+        self.assertEqual(report.rejection_counts, {"conflicting_breakend_mate": 2})
+
+    def test_cutesv_chr2_end_fallback_rejects_other_non_bracket_alts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "calls.vcf"
+            records = "".join(
+                f"chr21\t{9827581 + index}\t.\tN\t{alternate}\t60\tPASS\t"
+                "SVTYPE=BND;CHR2=chr2;END=5000;RE=30;PRECISE\t"
+                "GT:DR:DV\t0/1:20:30\n"
+                for index, alternate in enumerate((".", "N", "<DEL>"))
+            )
+            path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n" + records,
+                encoding="utf-8",
+            )
+            report = normalize_cutesv_vcf(
+                path,
+                sample_id="SYNTHETIC_B418",
+                genome_build=GenomeBuild.GRCH37,
+                policy=CuteSvPolicy(
+                    profile_id="test",
+                    status="technical_defaults_only",
+                    note="test-only technical defaults",
+                ),
+                tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertEqual(report.rejection_counts, {"unsupported_breakend_alt": 3})
+
+    def test_cutesv_rejects_malformed_bracketed_breakend(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "calls.vcf"
+            path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
+                "chr21\t9827581\t.\tN\tN[chr2:5000[N\t60\tPASS\t"
+                "SVTYPE=BND;RE=30;PRECISE\tGT:DR:DV\t0/1:20:30\n",
+                encoding="utf-8",
+            )
+            report = normalize_cutesv_vcf(
+                path,
+                sample_id="SYNTHETIC_B418",
+                genome_build=GenomeBuild.GRCH37,
+                policy=CuteSvPolicy(
+                    profile_id="test",
+                    status="technical_defaults_only",
+                    note="test-only technical defaults",
+                ),
+                tool=ToolRecord(name="cuteSV", version="2.1.3"),
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertEqual(report.rejection_counts, {"malformed_breakend_alt": 1})
+
     def test_reversed_bnd_representations_merge_across_callers(self) -> None:
         policy = SvConsensusPolicy(
             profile_id="test",
