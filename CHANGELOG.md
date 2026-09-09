@@ -7,6 +7,11 @@ validated release.
 
 ### Fixed
 
+- Normalize labelled BED4/5 target selections to a separate BED3 file for modkit 0.4.1;
+  the pinned binary otherwise rejects them with zero valid positions. Preserve original
+  target labels/fingerprint, exact contig names/coordinates and BED6 strand restrictions.
+  Record `include_bed_format=bed3-or-bed6-v1`; no basecalling or probability cutoff changes.
+
 - Restore optional, typed coverage arguments to HTML reporting and retain all coverage,
   SV review, fusion, ISCN disposition and reference/panel provenance sections alongside
   the new execution-state overview. Missing measurements remain unavailable, never zero.

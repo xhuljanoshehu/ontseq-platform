@@ -401,3 +401,15 @@ Primary methodological sources (germline scope, adapted here as a proposed resea
   https://www.nature.com/articles/s41525-020-00154-9
 - Oxford Nanopore modkit bedMethyl definitions:
   https://software-docs.nanoporetech.com/modkit/intro_pileup.html
+
+### Pinned modkit BED interoperability follow-up (2026-09-09)
+
+The newly enabled real modkit 0.4.1 test failed on valid labelled BED4 targets with
+`zero valid positions parsed from BED file`. The adapter now writes a separate BED3
+projection for BED4/5 (or BED6 retaining the explicit strand). Aggregation still reads
+the original labelled BED, whose checksum remains in the result. Contig names and
+coordinates are unchanged. Provenance records `include_bed_format=bed3-or-bed6-v1`.
+Previously rejected target runs require recomputation; a completed synthetic test is
+not evidence of patient-level methylation accuracy. The global pipeline-version/commit
+resume signature binds the correction. Basecalling, coverage and confidence thresholds
+are unchanged.
