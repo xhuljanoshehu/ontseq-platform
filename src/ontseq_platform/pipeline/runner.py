@@ -444,7 +444,7 @@ def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     report = run_alignment(
         AlignmentInputs(
             unaligned_bam=Path(ctx.manifest.input.path),
-            reference_fasta=ctx.config.reference_fasta,
+            reference_fasta=Path(ctx.config.reference_fasta),
         ),
         policy,
         sample_id=ctx.sample_id,
@@ -1237,9 +1237,13 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         status=ModuleRunStatus.COMPLETED,
         reason="Module outcomes assembled into the validated result contract.",
         outputs=[artifact],
-        warnings=["Structural-variant evidence was omitted from the result."]
-        if sniffles is None
-        else [],
+        # "Omitted" must follow every SV artifact, not the Sniffles one: a cuteSV-only
+        # run produced consolidated events and must not be told they never happened.
+        warnings=(
+            ["Structural-variant evidence was omitted from the result."]
+            if sniffles is None and cutesv is None and consensus is None
+            else []
+        ),
     )
 
 
