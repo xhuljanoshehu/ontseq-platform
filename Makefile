@@ -4,7 +4,7 @@ install:
 	python -m pip install -e ".[dev]"
 
 test:
-	python -m unittest discover -s tests -v
+	python -m pytest
 
 lint:
 	ruff check .

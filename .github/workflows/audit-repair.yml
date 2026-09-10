@@ -1,0 +1,82 @@
+name: Audit repair regression
+
+on:
+  push:
+    branches: [fix/audit-20260909]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle tracked source for isolated offline reproduction
+        run: |
+          mkdir -p /tmp/ontseq-audit-source
+          git bundle create /tmp/ontseq-audit-source/ontseq-source.bundle HEAD
+          git rev-parse HEAD > /tmp/ontseq-audit-source/commit.txt
+          sha256sum /tmp/ontseq-audit-source/ontseq-source.bundle > /tmp/ontseq-audit-source/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: audit-source-${{ github.sha }}
+          path: /tmp/ontseq-audit-source/
+          retention-days: 7
+          if-no-files-found: error
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install test runtime
+        run: python -m pip install -e '.[dev,workflow]' pysam pytest-cov hypothesis
+      - name: Run independent checks and retain all outcomes
+        shell: bash
+        run: |
+          mkdir -p /tmp/ontseq-audit-checks
+          status=0
+          check() {
+            name="$1"; shift
+            "$@" > "/tmp/ontseq-audit-checks/$name.log" 2>&1
+            rc=$?
+            printf '%s\t%s\n' "$name" "$rc" | tee -a /tmp/ontseq-audit-checks/status.tsv
+            tail -n 20 "/tmp/ontseq-audit-checks/$name.log"
+            if [ "$rc" -ne 0 ]; then status=1; fi
+          }
+          set +e
+          check safety python scripts/check_repository_safety.py
+          check schemas python scripts/export_schemas.py --check
+          check versions python scripts/check_version_consistency.py
+          check lint ruff check .
+          check format ruff format --check .
+          check typing mypy src
+          check unittest python -m unittest discover -s tests -v
+          check pytest python -m pytest --tb=short --junitxml=/tmp/ontseq-audit-checks/pytest.xml
+          check demo python -m ontseq_platform demo --output-dir /tmp/ontseq-audit-demo
+          python -m pip freeze > /tmp/ontseq-audit-checks/environment.txt
+          exit "$status"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: audit-checks-py${{ matrix.python }}-${{ github.sha }}
+          path: /tmp/ontseq-audit-checks/
+          retention-days: 14
+          if-no-files-found: error

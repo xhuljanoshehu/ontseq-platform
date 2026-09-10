@@ -18,7 +18,7 @@ The child Desktop inherits the override. Only that process's setup writes to the
 settings file. Closing the launching shell or removing the variable does not change an
 already running Desktop. Without the variable, the original settings lookup is unchanged.
 
-Fresh settings default to `~/.local/share/ontseq/resources-v0.7.1`, with the suffix derived
+Fresh settings default to `~/.local/share/ontseq/resources-v0.8.1`, with the suffix derived
 from the Desktop/Core version. An existing settings file keeps its selected resource path.
 This naming convention does not update bundle contents or migrate an older installation.
 If a local resource directory is deliberately renamed, finish the move and full checksum
@@ -39,7 +39,7 @@ roundtrip review, while CT45A2, IGH and GPR128 remain mapping/ROI gaps.
 
 The runtime installer requires the unchanged base archive, matching versioned Core
 wheel, and `runtime/SHA256SUMS`. It verifies both artifacts, creates a new
-`~/.local/share/ontseq/runtime-v0.7.1-<unique-id>` directory, relocates the base runtime,
+`~/.local/share/ontseq/runtime-v0.8.1-<unique-id>` directory, relocates the base runtime,
 installs the wheel offline, and checks the exact Core version before saving the selected
 settings file. Existing runtime directories are not removed or overwritten. Package
 hashes are integrity records, not a publisher signature or clinical-validation claim.

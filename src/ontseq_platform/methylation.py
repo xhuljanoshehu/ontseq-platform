@@ -616,6 +616,36 @@ def count_reads_with_modified_base_tags(
     return int(text)
 
 
+def _modkit_include_bed(source: Path, destination: Path) -> Path:
+    """Write BED3/BED6 accepted by the pinned modkit include-position parser.
+
+    BED4/5 carry labels or scores, not strand restrictions, and must be projected to
+    BED3 for modkit 0.4.1. BED6+ retains its explicit strand. The original file remains
+    the source for aggregation labels and its fingerprint; contig spelling and interval
+    coordinates are never normalized here.
+    """
+    rows: list[str] = []
+    for number, raw in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith(("#", "track ", "browser ")):
+            continue
+        fields = line.split("\t")
+        if len(fields) < 3:
+            raise ValueError(f"Target BED line {number} has fewer than three columns")
+        if len(fields) >= 6:
+            if fields[5] not in {"+", "-", "."}:
+                raise ValueError(f"Target BED line {number} has invalid strand")
+            selected = fields[:6]
+        else:
+            selected = fields[:3]
+        rows.append("\t".join(selected))
+    if not rows:
+        raise ValueError("Target BED contains no usable regions")
+    with destination.open("x", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(rows) + "\n")
+    return destination
+
+
 def _build_argv(
     *,
     modkit: str,
@@ -740,7 +770,11 @@ def run_methylation(
                 "presence of MM/ML tags was not verified before the pileup ran."
             )
 
-    include_bed = target_bed if policy.region_source == MethylationRegionSource.TARGET_BED else None
+    include_bed = (
+        _modkit_include_bed(target_bed, output_dir / f"{manifest.sample_id}.modkit.include.bed")
+        if target_bed is not None and policy.region_source == MethylationRegionSource.TARGET_BED
+        else None
+    )
     argv = _build_argv(
         modkit=modkit,
         bam=Path(manifest.input.path),
@@ -770,6 +804,7 @@ def run_methylation(
         "minimum_valid_coverage": policy.minimum_valid_coverage,
         "region_source": policy.region_source.value,
         "include_bed": include_bed.name if include_bed is not None else None,
+        "include_bed_format": "bed3-or-bed6-v1" if include_bed is not None else None,
         "expected_version": policy.expected_version,
     }
     return normalize_methylation(

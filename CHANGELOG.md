@@ -3,6 +3,45 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## 0.8.1 — 2026-09-09
+
+### Fixed
+
+- Normalize labelled BED4/5 target selections to a separate BED3 file for modkit 0.4.1;
+  the pinned binary otherwise rejects them with zero valid positions. Preserve original
+  target labels/fingerprint, exact contig names/coordinates and BED6 strand restrictions.
+  Record `include_bed_format=bed3-or-bed6-v1`; no basecalling or probability cutoff changes.
+
+- Restore optional, typed coverage arguments to HTML reporting and retain all coverage,
+  SV review, fusion, ISCN disposition and reference/panel provenance sections alongside
+  the new execution-state overview. Missing measurements remain unavailable, never zero.
+- Reject cross-sample/build coverage exports and non-finite, contradictory or duplicated
+  coverage evidence before writing either HTML or Excel. Valid numerical values and
+  caller thresholds are unchanged.
+- Record ordinary exceptions at adapter planning/execution/adoption boundaries as FAILED;
+  interrupts still propagate. Remove previous release markers under the run lock before
+  retrying, so failed attempts cannot leave a stale success bundle visible.
+- Resolve Windows-only ctypes entry points inside their existing platform guards without
+  masking typing failures. Align the methylation API's positive test fixture with the
+  normalized tool provenance rather than weakening runtime identity checks.
+- Synchronize Core/Desktop/current operator instructions at 0.8.1, regenerate the two
+  stale readiness schemas and exercise pytest functions as well as unittest classes in CI.
+
+- Replace overflowing binomial-coefficient arithmetic with a stable decreasing-tail
+  recurrence and binary threshold search; reject invalid power/purity inputs. The
+  binomial model and error/power cutoffs are unchanged. Fix maximum-matching recursion
+  exhaustion on long ambiguous variant chains; compare all 512 three-by-three graphs
+  against an independent exhaustive oracle.
+- Add opt-in real modkit 0.4.1 integration in CI for 75%, measured zero, low-depth/empty
+  targets and missing MM tags; this tests interoperability, not clinical accuracy.
+
+### Validation impact
+
+- Presentation and rejection behavior change; no calling threshold, assembly, basecalling
+  model, biological classification or automatic clinical release is changed. No sensitivity
+  or specificity improvement is asserted without an independent stratified benchmark.
+- See `docs/CLINICAL_VALIDATION.md` for repair scope and accuracy acceptance requirements.
+
 ## Unreleased
 
 ## 0.8.0 - 2026-09-09 (local engineering candidate)

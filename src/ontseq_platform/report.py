@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import html
-import json
 from pathlib import Path
 
 from .models import PipelineResult
+from .report_formatting import cell as _cell
+from .report_formatting import tool_parameters
+from .report_sections import coverage_section, iscn_details, resource_details, sv_details
 from .report_view import AnnotationView, EventView, ReportView, build_report_view
-
-
-def _cell(value: object) -> str:
-    return html.escape("" if value is None else str(value))
+from .target_coverage import TargetCoverageReport, validate_report_coverage
 
 
 def _optional(value: object | None) -> str:
@@ -59,9 +57,9 @@ def _module_rows(view: ReportView) -> str:
     rows: list[str] = []
     for item in view.modules:
         reason = _cell(item.reason) or "not recorded"
+        row_class = "critical" if item.status.value == "FAILED" else "neutral"
         rows.append(
-            "<tr>"
-            f"<td>{_cell(item.name)}</td>"
+            f"<tr class='{row_class}'><td>{_cell(item.name)}</td>"
             f"<td><span class='state-label {_cell(item.css_class)}'>"
             f"{_cell(item.status.value)}</span></td>"
             f"<td>{reason}</td>"
@@ -217,7 +215,7 @@ def _tool_rows(result: PipelineResult) -> str:
         return "<tr><td colspan='3'>No tool provenance was recorded.</td></tr>"
     return "".join(
         f"<tr><td>{_cell(tool.name)}</td><td>{_cell(tool.version)}</td>"
-        f"<td><code>{_cell(json.dumps(tool.parameters, sort_keys=True))}</code></td></tr>"
+        f"<td><code>{_cell(tool_parameters(tool.name, tool.parameters))}</code></td></tr>"
         for tool in result.provenance.tools
     )
 
@@ -231,10 +229,21 @@ def _checksum_rows(view: ReportView) -> str:
     )
 
 
-def render_html(result: PipelineResult, output_path: Path) -> Path:
+def render_html(
+    result: PipelineResult,
+    output_path: Path,
+    *,
+    target_coverage: TargetCoverageReport | None = None,
+    selection_coverage: TargetCoverageReport | None = None,
+) -> Path:
+    validate_report_coverage(result, target_coverage, selection_coverage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     view = build_report_view(result)
     target_design = view.target_bed_version or "not applicable / not recorded"
+    metric_cards = "".join(
+        f"<div><span>{_cell(_metric_name(key))}</span><strong>{_optional(value)}</strong></div>"
+        for key, value in view.qc_metrics
+    )
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -374,6 +383,8 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
       background:var(--info-soft); border:1px solid #bfd1dd; border-radius:8px;
       padding:14px;
     }}
+    tr.critical {{ background:var(--critical-soft); }}
+    input[type="search"] {{ padding:8px; max-width:100%; }}
     footer {{ color:var(--muted); font-size:12px; padding:4px 2px 24px; }}
     @media (max-width:1000px) {{
       .identity {{ grid-template-columns:repeat(3,minmax(120px,1fr)); }}
@@ -420,7 +431,8 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
     <div class="layout">
       <nav aria-label="Report sections">
         <a href="#overview">Overview</a><a href="#modules">Module status</a>
-        <a href="#qc">Quality</a><a href="#events">Events</a>
+        <a href="#qc">Quality</a><a href="#coverage">Coverage</a>
+        <a href="#sv-review">SV review</a><a href="#events">Events</a>
         <a href="#iscn">ISCN proposal</a><a href="#warnings">Warnings</a>
         <a href="#provenance">Provenance</a>
       </nav>
@@ -454,10 +466,13 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
           <p><strong>QC verdict:</strong> {_cell(view.qc_verdict)}</p>
           <p class="muted">Normalized metrics are descriptive unless a validated QC policy
             explicitly defines an adequacy threshold.</p>
+          <div class="identity">{metric_cards}</div>
           <div class="table-wrap"><table><caption>Normalized QC metrics</caption>
             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
             <tbody>{_qc_rows(view)}</tbody></table></div>{_failed_gates(view)}
         </section>
+        {coverage_section(target_coverage, selection_coverage)}
+        {sv_details(result)}
         <section id="events">
           <h2>4 · Genomic events and evidence</h2>
           <p class="muted">Each normalized event is displayed with caller evidence and an
@@ -480,6 +495,7 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
               <strong>{_cell(result.iscn.review_status.value)}</strong>
             </div>
           </div>
+          {iscn_details(result)}
         </section>
         <section id="warnings">
           <h2>6 · Warnings and limitations</h2><ul>{_warnings(view)}</ul>
@@ -496,11 +512,13 @@ def render_html(result: PipelineResult, output_path: Path) -> Path:
           <div class="table-wrap"><table><caption>Tools and parameters</caption>
             <thead><tr><th>Tool</th><th>Version</th><th>Parameters</th></tr></thead>
             <tbody>{_tool_rows(result)}</tbody></table></div>
+          {resource_details(result)}
           <div class="table-wrap"><table><caption>Reference checksums</caption>
             <thead><tr><th>Resource</th><th>Checksum / lock value</th></tr></thead>
             <tbody>{_checksum_rows(view)}</tbody></table></div>
         </section>
-        <footer>ONTSeq portable report · offline/self-contained presentation · RUO.</footer>
+        <footer>ONTSeq portable report · offline/self-contained presentation · RUO.
+          This self-contained HTML has no CDN or remote runtime dependency.</footer>
       </main>
     </div>
   </div>

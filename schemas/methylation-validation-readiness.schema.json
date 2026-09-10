@@ -48,7 +48,7 @@
       "type": "boolean"
     },
     "software_version": {
-      "default": "0.7.0",
+      "default": "0.8.1",
       "title": "Software Version",
       "type": "string"
     },

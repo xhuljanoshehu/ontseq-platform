@@ -525,3 +525,67 @@ class SvRerunCleanupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnexpectedFailureTests(RunnerCase):
+    """A programming error must be a persisted failure, not a vanished stage."""
+
+    def test_unexpected_execute_exception_is_recorded_and_blocks_release(self) -> None:
+        with mock.patch.object(
+            self.stages[StageId.REPORT], "execute", side_effect=TypeError("signature mismatch")
+        ):
+            report, bundle = self._run()
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        failed = report.record_for(StageId.REPORT)
+        self.assertEqual(failed.status, ModuleRunStatus.FAILED)
+        self.assertIn("signature mismatch", failed.reason)
+        self.assertIn('"FAILED"', (self._envelope_root() / "provenance/run.json").read_text())
+        self.assertFalse((self._envelope_root() / LOCK_FILENAME).exists())
+
+    def test_unexpected_planning_exception_is_recorded(self) -> None:
+        with mock.patch.object(
+            self.stages[StageId.REPORT], "plan", side_effect=RuntimeError("planning bug")
+        ):
+            report, bundle = self._run()
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        self.assertEqual(report.record_for(StageId.REPORT).status, ModuleRunStatus.FAILED)
+
+    def test_unexpected_settle_exception_is_recorded_after_execution_and_resume(self) -> None:
+        for resumed in (False, True):
+            with self.subTest(resumed=resumed):
+                if resumed:
+                    self._run(force=True)
+                stage = self.stages[StageId.REPORT]
+
+                def fail_settle(ctx, outputs):
+                    raise KeyError("settle bug")
+
+                implementation = StageImplementation(stage.plan, stage.execute, fail_settle)
+                with mock.patch.object(stage, "implementation", return_value=implementation):
+                    report, bundle = self._run(force=not resumed)
+                self.assertFalse(report.passed)
+                self.assertIsNone(bundle)
+                self.assertEqual(report.record_for(StageId.REPORT).status, ModuleRunStatus.FAILED)
+
+    def test_keyboard_interrupt_is_not_swallowed(self) -> None:
+        with (
+            mock.patch.object(
+                self.stages[StageId.REPORT], "execute", side_effect=KeyboardInterrupt
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self._run()
+        self.assertFalse((self._envelope_root() / LOCK_FILENAME).exists())
+
+    def test_failed_rerun_cannot_leave_an_old_release_manifest(self) -> None:
+        _, bundle = self._run()
+        self.assertIsNotNone(bundle)
+        self.assertTrue((self._envelope_root() / "release/release.json").is_file())
+        self.stages[StageId.QC].fail = True
+        report, bundle = self._run(force=True)
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        self.assertFalse((self._envelope_root() / "release/release.json").exists())
+        self.assertFalse((self._envelope_root() / "release/checksums.sha256").exists())

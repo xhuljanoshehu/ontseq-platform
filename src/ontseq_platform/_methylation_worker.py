@@ -58,7 +58,8 @@ def _memory_limit() -> bool:
             ("peak_job_memory", ctypes.c_size_t),
         ]
 
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    # ctypes exports these names only on Windows; resolve them at this FFI boundary.
+    kernel = vars(ctypes)["WinDLL"]("kernel32", use_last_error=True)
     kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     kernel.CreateJobObjectW.restype = wintypes.HANDLE
     kernel.SetInformationJobObject.argtypes = [

@@ -273,10 +273,13 @@ def cancer_cell_fraction(
 
 
 def _binomial_upper_tail(k: int, n: int, p: float) -> float:
-    """``P(X >= k)`` for ``X ~ Binomial(n, p)``, computed exactly.
+    """P(X >= k) under the binomial model, without a normal approximation.
 
-    Exact rather than a normal approximation because the whole question here lives in the
-    tail, at small ``k`` and small ``p``, where the approximation is worst.
+    Start a decreasing tail with a log-PMF, then use probability ratios. This avoids
+    converting enormous binomial coefficients to floats (which overflow at deep
+    coverage) or multiplying an overflowing coefficient by an underflowed power.
+    Sum the lower tail when the upper-tail answer is near one. The geometric bound
+    limits omitted terms, since successive ratios decrease away from the mode.
     """
     if k <= 0:
         return 1.0
@@ -286,7 +289,33 @@ def _binomial_upper_tail(k: int, n: int, p: float) -> float:
         return 0.0
     if p >= 1.0:
         return 1.0
-    return math.fsum(math.comb(n, i) * p**i * (1.0 - p) ** (n - i) for i in range(k, n + 1))
+    if k == 1:
+        return -math.expm1(n * math.log1p(-p))
+    if k == n:
+        return math.exp(n * math.log(p))
+
+    upper = k > n * p
+    i = k if upper else k - 1
+    log_pmf = (
+        math.lgamma(n + 1)
+        - math.lgamma(i + 1)
+        - math.lgamma(n - i + 1)
+        + i * math.log(p)
+        + (n - i) * math.log1p(-p)
+    )
+    term = math.exp(log_pmf)
+    terms = [term]
+    total = term
+    while (i < n) if upper else (i > 0):
+        ratio = (n - i) / (i + 1) * p / (1 - p) if upper else i / (n - i + 1) * (1 - p) / p
+        if ratio < 1 and term * ratio / (1 - ratio) <= total * 1e-15:
+            break
+        term *= ratio
+        terms.append(term)
+        total += term
+        i += 1 if upper else -1
+    tail = math.fsum(terms)
+    return min(1.0, max(0.0, tail if upper else 1.0 - tail))
 
 
 def minimum_variant_reads(
@@ -303,10 +332,16 @@ def minimum_variant_reads(
         raise QuantitationError(f"error_rate must be in [0, 1), got {error_rate}")
     if not 0.0 < alpha < 1.0:
         raise QuantitationError(f"alpha must be in (0, 1), got {alpha}")
-    for k in range(1, depth + 1):
-        if _binomial_upper_tail(k, depth, error_rate) <= alpha:
-            return k
-    return depth + 1
+    # Tail probability decreases monotonically with k. The sentinel depth+1 has
+    # probability zero and preserves the explicit "not resolvable" outcome.
+    low, high = 1, depth + 1
+    while low < high:
+        middle = (low + high) // 2
+        if _binomial_upper_tail(middle, depth, error_rate) <= alpha:
+            high = middle
+        else:
+            low = middle + 1
+    return low
 
 
 def minimum_detectable_vaf(
@@ -323,6 +358,8 @@ def minimum_detectable_vaf(
     coverage, and it is the reason this assay's off-target fraction cannot carry somatic
     variant calling however good the caller is.
     """
+    if not 0.0 < power < 1.0:
+        raise QuantitationError(f"power must be in (0, 1), got {power}")
     needed = minimum_variant_reads(depth, error_rate=error_rate, alpha=alpha)
     if needed > depth:
         return None
@@ -352,11 +389,11 @@ def minimum_detectable_cancer_cell_fraction(
     to a small subclone. A value above 1 means no subclone is resolvable: even a variant in
     every tumour cell would sit below the detection floor.
     """
+    if not 0.0 < tumour_fraction <= 1.0:
+        raise QuantitationError(f"tumour_fraction must be in (0, 1], got {tumour_fraction}")
     floor = minimum_detectable_vaf(depth, error_rate=error_rate, alpha=alpha, power=power)
     if floor is None:
         return None
-    if not 0.0 < tumour_fraction <= 1.0:
-        raise QuantitationError(f"tumour_fraction must be in (0, 1], got {tumour_fraction}")
     resolvable = 2.0 * floor / tumour_fraction
     return resolvable if resolvable <= 1.0 else None
 
