@@ -20,8 +20,10 @@ note: >-
   --modified-bases 5mC 5hmC, which requires the locked reference FASTA. 5mC and 5hmC are
   reported as separate rows sharing the valid-call denominator (N_valid = N_mod + N_canonical +
   N_other_mod); no probability is folded from one class into another, and a model that emits
-  only 5mC simply produces no 5hmC rows. The expected modkit version is an engineering pin:
-  re-pin it deliberately against the installed binary and record the change, because pileup
-  output is not comparable across modkit majors. The adapter is exercised against the real
-  pinned binary in CI on synthetic MM/ML fixtures; that is tool interoperability, not analytical
-  recovery or clinical validation.
+  only 5mC simply produces no 5hmC rows. Historically, --ignore h redistributed p_h/2 to
+  canonical C and p_h/2 to 5mC at the probability-transformation stage; its effect on final
+  hard-call counts and fractions depended on competing probabilities and thresholds. The
+  expected modkit version is an engineering pin: re-pin it deliberately against the installed
+  binary and record the change, because pileup output is not comparable across modkit majors.
+  The adapter is exercised against the real pinned binary in CI on synthetic MM/ML fixtures;
+  that is tool interoperability, not analytical recovery or clinical validation.
