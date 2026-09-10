@@ -1,0 +1,62 @@
+name: One-shot Windows fixture repair
+
+on:
+  push:
+    branches:
+      - fix/methylation-modkit-060-migration
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Make relative-path fixture volume-independent
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path('desktop/ONTSeq.Desktop.Tests/Program.cs')
+          data = path.read_bytes()
+          old_lf = b'''    var unsupportedRelativeOutput = Path.GetRelativePath(Environment.CurrentDirectory,
+                  Path.Combine(root, "synthetic-relative-output-must-not-be-created"));
+          '''
+          new_lf = b'''    // Path.GetRelativePath returns the absolute destination when the checkout and
+              // temporary directory are on different Windows volumes. Keep this fixture
+              // unconditionally relative so it tests the validation rather than runner layout.
+              var unsupportedRelativeOutput =
+                  $"synthetic-relative-output-must-not-be-created-{Guid.NewGuid():N}";
+          '''
+          for newline in (b'\n', b'\r\n'):
+              old = old_lf.replace(b'\n', newline)
+              if old in data:
+                  new = new_lf.replace(b'\n', newline)
+                  path.write_bytes(data.replace(old, new, 1))
+                  break
+          else:
+              raise SystemExit('Expected cross-volume-sensitive fixture was not found')
+          '@ | python -
+          dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Desktop tests still fail with exit code $LASTEXITCODE" }
+      - name: Commit verified repair and remove diagnostics
+        shell: pwsh
+        run: |
+          Remove-Item '.github/windows-test-diagnostic.txt'
+          Remove-Item '.github/workflows/windows-test-fix.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(desktop): make relative-path test volume-independent'
+          git push origin HEAD:${{ github.ref_name }}
