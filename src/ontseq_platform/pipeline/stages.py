@@ -200,10 +200,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         title="modkit modified-base pileup",
         depends_on=(StageId.INTAKE,),
         applicable_for=_ALL_KINDS,
-        # modkit is not installed in continuous integration and no synthetic fixture in
-        # this repository carries real MM/ML tags, so the adapter has never met the real
-        # binary. Saying so here is the point of this field.
-        verification=VerificationStatus.UNVERIFIED_ADAPTER,
+        # CI executes this stage against the real pinned modkit 0.6.4 binary on synthetic
+        # MM/ML fixtures (see ``test_modkit_real_tool`` and the local-real-tool-smoke job),
+        # asserting a 75% modified region, a measured zero, low-depth/empty targets and
+        # the missing-tag refusal. That job is what earns the claim below; it is tool
+        # interoperability, not analytical recovery.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose=(
             "Aggregate modified-base calls that alignment already carries into per-region "

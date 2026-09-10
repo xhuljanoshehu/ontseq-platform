@@ -88,7 +88,7 @@ _TOOL_PARAMETERS = {
         "filter_threshold",
         "cpg_only",
         "combine_strands",
-        "ignored_codes",
+        "modified_bases",
         "ontseq_region_assignment",
         "modification_codes",
     },
