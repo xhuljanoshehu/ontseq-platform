@@ -15,7 +15,8 @@ from unittest.mock import patch
 from ontseq_platform.align import AlignmentPolicy
 from ontseq_platform.basecall import BasecallPolicy, model_signature
 from ontseq_platform.execution import CommandResult
-from ontseq_platform.models import ReferenceLock, SampleManifest
+from ontseq_platform.methylation import MethylationPolicy
+from ontseq_platform.models import CuteSvPolicy, ReferenceLock, SampleManifest
 from ontseq_platform.pipeline.checks import Check, CheckStatus
 from ontseq_platform.pipeline.lock import LOCK_FILENAME
 from ontseq_platform.preflight import PreflightRequest, preflight
@@ -26,6 +27,20 @@ ALIGNMENT_POLICY = AlignmentPolicy(
     status="technical_defaults_only",
     expected_minimap2_version="2.28",
     expected_samtools_version="1.24",
+    note="test",
+)
+
+METHYLATION_POLICY = MethylationPolicy(
+    profile_id="test",
+    status="technical_defaults_only",
+    cpg_only=False,
+    combine_strands=False,
+    note="test",
+)
+
+CUTESV_POLICY = CuteSvPolicy(
+    profile_id="test",
+    status="technical_defaults_only",
     note="test",
 )
 
@@ -296,10 +311,37 @@ class ToolTests(PreflightCase):
         that has to keep meaning something.
         """
         (self.bin / "sniffles").unlink()
-        results = self.results()
+        # With a cuteSV policy supplied, which is the realistic case: the CLI resolves one
+        # from a repository default on essentially every invocation. Leaving it at None made
+        # this assertion vacuous — it passed while the caller was still being probed.
+        results = self.results(self.request(cutesv_policy=CUTESV_POLICY))
         self.assertNotIn("tool.sniffles", results)
         self.assertNotIn("tool.cutesv", results)
         self.assertIs(results["sv.callers"].status, CheckStatus.SKIPPED)
+
+    def test_a_run_that_did_ask_for_sv_is_still_told_about_cutesv(self) -> None:
+        """The scope filter must not swallow the caller a run genuinely depends on."""
+        request = self.request(
+            manifest=self.manifest(modules=["qc", "sv"]), cutesv_policy=CUTESV_POLICY
+        )
+        self.assertIn("tool.cutesv", self.results(request))
+
+    def test_a_missing_modkit_fails_a_run_that_asked_for_methylation(self) -> None:
+        """A warning here would clear a run that cannot succeed.
+
+        Methylation is optional in the graph, so the tool served an optional stage and was
+        reported as a warning. But a run that requested the module probes modkit inside the
+        stage: the probe raises, the stage records FAILED, and ``summarize`` fails the run
+        on any FAILED stage. Preflight has to say so before the run, not after.
+        """
+        request = self.request(
+            manifest=self.manifest(modules=["qc", "methylation"]),
+            methylation_policy=METHYLATION_POLICY,
+        )
+        self.assertIs(self.results(request)["tool.modkit"].status, CheckStatus.FAILED)
+
+    def test_a_missing_modkit_is_not_news_to_a_run_that_did_not_ask(self) -> None:
+        self.assertNotIn("tool.modkit", self.results())
 
     def test_a_tool_whose_probe_fails_is_reported_as_unidentifiable(self) -> None:
         versions = {name: text for name, text in DEFAULT_VERSIONS.items() if name != "minimap2"}
@@ -567,12 +609,12 @@ class TargetCoverageTests(PreflightCase):
     def test_an_unparseable_target_bed_blocks_the_run(self) -> None:
         """The BED is parsed, not merely stat'ed: a truncated ROI fails the stage."""
         bed = self.target_bed("chr1\t1000\n", name="truncated")
-        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        found = self.results(self.adaptive_request(manifest=manifest))
         self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
 
     def test_a_target_bed_on_a_non_canonical_contig_blocks_the_run(self) -> None:
         bed = self.target_bed("chrUn_GL000220v1\t100\t200\tA\n", name="noncanonical")
-        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        found = self.results(self.adaptive_request(manifest=manifest))
         self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
 
     def test_missing_mosdepth_blocks_an_adaptive_run_rather_than_warning(self) -> None:

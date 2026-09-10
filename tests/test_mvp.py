@@ -291,6 +291,12 @@ class AlignedBamMVPTests(unittest.TestCase):
         self.assertIn("1 event(s) carried fusion evidence", fusion_module.reason)
         self.assertIn("1 matched a hematology review pattern", fusion_module.reason)
         self.assertEqual(result.provenance.reference_checksums["cutesv_vcf"], "b" * 64)
+        # A cuteSV-only run must not be told that SV calling never happened: the module
+        # outcome and the run warnings follow the evidence that reached the result.
+        sv_module = next(item for item in result.modules if item.module == AnalysisModule.SV)
+        self.assertEqual(sv_module.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual([tool.name for tool in sv_module.tools], ["cuteSV"])
+        self.assertNotIn("SV calling was not run in this artifact.", result.warnings)
 
     def test_failed_intake_cannot_be_assembled(self) -> None:
         manifest = _manifest()
