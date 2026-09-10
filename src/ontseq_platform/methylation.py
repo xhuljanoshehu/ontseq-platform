@@ -207,8 +207,7 @@ class MethylationRegionSummary(StrictModel):
             != self.valid_call_count
         ):
             raise ValueError(
-                "bedMethyl identity violated: N_valid must equal "
-                "N_mod + N_canonical + N_other_mod"
+                "bedMethyl identity violated: N_valid must equal N_mod + N_canonical + N_other_mod"
             )
         measured = self.sites_at_minimum_coverage > 0
         if measured != (self.mean_modified_fraction is not None):
@@ -380,12 +379,8 @@ def parse_bedmethyl(
             raise ValueError(f"bedMethyl line {line_number} has invalid coordinates")
         valid_coverage = _parse_int(fields[9], field=f"bedMethyl line {line_number} valid coverage")
         modified_calls = _parse_int(fields[11], field=f"bedMethyl line {line_number} Nmod")
-        canonical_calls = _parse_int(
-            fields[12], field=f"bedMethyl line {line_number} Ncanonical"
-        )
-        other_mod_calls = _parse_int(
-            fields[13], field=f"bedMethyl line {line_number} Nother_mod"
-        )
+        canonical_calls = _parse_int(fields[12], field=f"bedMethyl line {line_number} Ncanonical")
+        other_mod_calls = _parse_int(fields[13], field=f"bedMethyl line {line_number} Nother_mod")
         delete_calls = _parse_int(fields[14], field=f"bedMethyl line {line_number} Ndelete")
         fail_calls = _parse_int(fields[15], field=f"bedMethyl line {line_number} Nfail")
         diff_calls = _parse_int(fields[16], field=f"bedMethyl line {line_number} Ndiff")
@@ -747,10 +742,11 @@ def _build_argv(
     ]
     # modkit 0.6.x: --modified-bases declares exactly the modifications to tabulate and
     # requires the reference FASTA. It replaced --ignore, which 0.6.0 removed; the old
-    # --ignore h redistributed the ignored code's probability equally among the remaining
-    # classes, so the reported 5mC fraction was inflated by half the 5hmC probability.
-    # Nothing is folded here: each declared code gets its own rows and the shared
-    # valid-call denominator carries the other-modification counts.
+    # At the probability-transformation stage, --ignore h redistributed half of p_h to
+    # canonical C and half to 5mC. Its effect on final hard-call counts and fractions
+    # depended on competing probabilities and thresholds; it was not a universal fixed
+    # increase. Nothing is folded here: each declared code gets its own rows and the
+    # shared valid-call denominator carries the other-modification counts.
     argv.extend(
         [
             "--modified-bases",

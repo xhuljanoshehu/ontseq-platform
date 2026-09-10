@@ -66,10 +66,11 @@ Version 0.6.0 removed `--ignore` and changed the threshold algorithm. The lane t
   trailing-count layout older builds emitted.
 
 A re-pin across modkit majors is a semantic migration, not a version-string edit. The
-0.4.1 adapter used `--ignore h`, which redistributed the ignored code's probability
-equally among the remaining classes — the reported 5mC fraction was inflated by half the
-5hmC probability, not a pure 5mC measurement. That option no longer exists upstream, and
-the lane no longer offers it.
+0.4.1 adapter used `--ignore h`. At the probability-transformation stage, this
+added half of the 5hmC probability to canonical C and half to 5mC. The effect on final
+hard-call counts and reported fractions depended on competing probabilities and
+thresholds; it was not a universal fixed increase in the final 5mC fraction. That option
+no longer exists upstream, and the lane no longer offers it.
 
 ## Three refusals
 

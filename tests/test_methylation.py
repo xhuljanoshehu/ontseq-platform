@@ -145,8 +145,7 @@ class ParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.bedmethyl"
             path.write_text(
-                _row("chr1", 100, "m", 20, 12, canonical=5, other_mod=3, fail=2, nocall=1)
-                + "\n",
+                _row("chr1", 100, "m", 20, 12, canonical=5, other_mod=3, fail=2, nocall=1) + "\n",
                 encoding="utf-8",
             )
             sites, _ = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
