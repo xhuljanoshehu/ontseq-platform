@@ -1,0 +1,91 @@
+name: One-shot PR formatting repair
+
+on:
+  push:
+    branches:
+      - fix/methylation-modkit-060-migration
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Ruff
+        run: python -m pip install 'ruff>=0.6'
+      - name: Correct wording and format changed Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          code = Path('src/ontseq_platform/methylation.py')
+          text = code.read_text(encoding='utf-8')
+          old = '''    # --ignore h redistributed the ignored code's probability equally among the remaining
+              # classes, so the reported 5mC fraction was inflated by half the 5hmC probability.
+              # Nothing is folded here: each declared code gets its own rows and the shared
+              # valid-call denominator carries the other-modification counts.
+          '''
+          new = '''    # At the probability-transformation stage, --ignore h redistributed half of p_h to
+              # canonical C and half to 5mC. Its effect on final hard-call counts and fractions
+              # depended on competing probabilities and thresholds; it was not a universal fixed
+              # increase. Nothing is folded here: each declared code gets its own rows and the
+              # shared valid-call denominator carries the other-modification counts.
+          '''
+          if old not in text:
+              raise SystemExit('Expected methylation.py wording was not found')
+          code.write_text(text.replace(old, new), encoding='utf-8')
+
+          docs = Path('docs/METHYLATION_LANE.md')
+          text = docs.read_text(encoding='utf-8')
+          old = '''0.4.1 adapter used `--ignore h`, which redistributed the ignored code's probability
+          equally among the remaining classes — the reported 5mC fraction was inflated by half the
+          5hmC probability, not a pure 5mC measurement. That option no longer exists upstream, and
+          the lane no longer offers it.
+          '''
+          new = '''0.4.1 adapter used `--ignore h`. At the probability-transformation stage, this
+          added half of the 5hmC probability to canonical C and half to 5mC. The effect on final
+          hard-call counts and reported fractions depended on competing probabilities and
+          thresholds; it was not a universal fixed increase in the final 5mC fraction. That option
+          no longer exists upstream, and the lane no longer offers it.
+          '''
+          if old not in text:
+              raise SystemExit('Expected METHYLATION_LANE wording was not found')
+          docs.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          files=(
+            src/ontseq_platform/methylation.py
+            src/ontseq_platform/pipeline/stages.py
+            src/ontseq_platform/preflight.py
+            src/ontseq_platform/report_formatting.py
+            tests/test_methylation.py
+            tests/test_methylation_pipeline_integration.py
+            tests/test_methylation_profile.py
+            tests/test_modkit_bed_adapter.py
+            tests/test_modkit_real_tool.py
+            tests/test_pipeline_stages.py
+            tests/test_service_methylation.py
+          )
+          ruff check --fix "${files[@]}"
+          ruff format "${files[@]}"
+          ruff check "${files[@]}"
+          ruff format --check "${files[@]}"
+      - name: Commit repaired files and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/branch-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(ci): format methylation migration'
+          git push origin HEAD:${{ github.ref_name }}
