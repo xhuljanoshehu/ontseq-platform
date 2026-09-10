@@ -125,7 +125,7 @@ def test_missing_or_wrong_modkit_is_a_visible_prerequisite_failure(failure: str)
 def _methylation_envelope(root: Path) -> tuple[str, str, Path]:
     result = build_demo_result()
     result.manifest.analysis.modules.append(AnalysisModule.METHYLATION)
-    tool = ToolRecord(name="modkit", version="0.4.1")
+    tool = ToolRecord(name="modkit", version="0.6.4")
     result.modules = [item for item in result.modules if item.module != AnalysisModule.METHYLATION]
     result.modules.append(
         ModuleOutcome(
@@ -175,13 +175,13 @@ def _methylation_envelope(root: Path) -> tuple[str, str, Path]:
         git_commit="SYNTHETIC",
         started_at=timestamp,
         finished_at=timestamp,
-        unverified_stages=[StageId.METHYLATION],
+        unverified_stages=[],
         stages=[
             StageRecord(
                 stage=StageId.METHYLATION,
                 title="Methylation",
                 status=methylation.status,
-                verification=VerificationStatus.UNVERIFIED_ADAPTER,
+                verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
                 required=False,
                 reason="Synthetic only",
                 signature="a" * 64,

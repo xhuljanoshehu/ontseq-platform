@@ -28,7 +28,7 @@ from ontseq_platform.models import (
 
 @unittest.skipUnless(
     os.environ.get("ONTSEQ_MODKIT_REAL_TOOL") == "1",
-    "opt-in pinned modkit 0.4.1 interoperability lane",
+    "opt-in pinned modkit 0.6.4 interoperability lane",
 )
 class ModkitBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -68,6 +68,9 @@ class ModkitBinaryTests(unittest.TestCase):
                     record.mapping_quality = 60
                     record.cigarstring = "30M"
                     if tags:
+                        # MN is the sequence length at tag-writing time; modkit 0.6.x
+                        # requires correct MN tags for --combine-strands.
+                        record.set_tag("MN", 30)
                         record.set_tag("MM", "C+m?," + ",".join(["0"] * 10) + ";")
                         record.set_tag("ML", array.array("B", [probability] * 10))
                     target.write(record)
@@ -100,7 +103,7 @@ class ModkitBinaryTests(unittest.TestCase):
     def _policy(self) -> MethylationPolicy:
         return MethylationPolicy(
             profile_id="SYNTHETIC_MODKIT",
-            expected_version="0.4.1",
+            expected_version="0.6.4",
             status="technical_defaults_only",
             minimum_valid_coverage=5,
             cpg_only=True,
@@ -131,7 +134,7 @@ class ModkitBinaryTests(unittest.TestCase):
         self.assertIsNone(rows[120].mean_modified_fraction)
         self.assertIsNone(rows[240].mean_modified_fraction)
         self.assertEqual(report.tool.parameters["ontseq_region_assignment"], "interval-identity-v1")
-        self.assertEqual(report.tool.version, "0.4.1")
+        self.assertEqual(report.tool.version, "0.6.4")
 
     def test_real_bam_without_modification_tags_never_becomes_unmethylated(self) -> None:
         manifest, intake = self._inputs(tags=False)

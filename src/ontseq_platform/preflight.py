@@ -646,16 +646,11 @@ def _check_methylation(request: PreflightRequest, checks: CheckList) -> None:
             stage=StageId.METHYLATION,
         )
 
-    if not policy.cpg_only:
-        checks.skipped(
-            "methylation.reference",
-            "the policy does not restrict the pileup to a reference motif",
-        )
-    elif request.reference_fasta is None:
+    if request.reference_fasta is None:
         checks.failed(
             "methylation.reference",
-            "the policy restricts the pileup to CpG sites, which is a property of the "
-            "reference, but no reference FASTA was given",
+            "modkit --modified-bases requires the reference FASTA, so the methylation "
+            "lane always needs one",
             remedy="pass --reference-fasta",
             stage=StageId.METHYLATION,
         )

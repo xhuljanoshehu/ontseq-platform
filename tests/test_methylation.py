@@ -35,7 +35,7 @@ def _policy(**overrides: object) -> MethylationPolicy:
     defaults: dict[str, object] = {
         "profile_id": "synthetic",
         "status": "technical_defaults_only",
-        "expected_version": "0.4.1",
+        "expected_version": "0.6.4",
         "minimum_valid_coverage": 5,
         "note": "Synthetic technical policy",
     }
@@ -49,10 +49,17 @@ def _row(
     code: str,
     valid: int,
     modified: int,
+    *,
+    canonical: int | None = None,
+    other_mod: int = 0,
+    delete: int = 0,
+    fail: int = 0,
+    diff: int = 0,
+    nocall: int = 0,
 ) -> str:
-    """One bedMethyl record. Only columns 1-4, 10 and 12 carry meaning for this adapter."""
+    """One bedMethyl record. Columns 10-18 carry the count contract this adapter reads."""
+    canonical = valid - modified - other_mod if canonical is None else canonical
     percent = (modified / valid * 100) if valid else 0.0
-    canonical = valid - modified
     return "\t".join(
         [
             chromosome,
@@ -68,11 +75,11 @@ def _row(
             f"{percent:.2f}",
             str(modified),
             str(canonical),
-            "0",
-            "0",
-            "0",
-            "0",
-            "0",
+            str(other_mod),
+            str(delete),
+            str(fail),
+            str(diff),
+            str(nocall),
         ]
     )
 
@@ -133,8 +140,32 @@ class ParsingTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
 
+    def test_reads_the_count_columns_beyond_the_fraction(self) -> None:
+        """Canonical, other-mod, fail and nocall counts are evidence, not decoration."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(
+                _row("chr1", 100, "m", 20, 12, canonical=5, other_mod=3, fail=2, nocall=1)
+                + "\n",
+                encoding="utf-8",
+            )
+            sites, _ = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertEqual(sites[0].canonical_calls, 5)
+        self.assertEqual(sites[0].other_mod_calls, 3)
+        self.assertEqual(sites[0].fail_calls, 2)
+        self.assertEqual(sites[0].nocall_calls, 1)
+
+    def test_rejects_a_row_that_violates_the_bedmethyl_identity(self) -> None:
+        """N_valid must equal N_mod + N_canonical + N_other_mod; anything else is corrupt."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(_row("chr1", 100, "m", 20, 12, canonical=3) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as raised:
+                parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertIn("identity", str(raised.exception))
+
     def test_parses_the_version_banner(self) -> None:
-        self.assertEqual(modkit_version("mod_kit 0.4.1"), "0.4.1")
+        self.assertEqual(modkit_version("mod_kit 0.6.4"), "0.6.4")
 
 
 class NormalizationTests(unittest.TestCase):
@@ -147,7 +178,7 @@ class NormalizationTests(unittest.TestCase):
                 genome_build=GenomeBuild.GRCH38,
                 bedmethyl_path=path,
                 policy=_policy(**policy_overrides),
-                tool=ToolRecord(name="modkit", version="0.4.1"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
             )
 
     def test_aggregates_per_chromosome_by_call_weight(self) -> None:
@@ -165,6 +196,7 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(chr1.sites_at_minimum_coverage, 2)
         self.assertEqual(chr1.valid_call_count, 30)
         self.assertEqual(chr1.modified_call_count, 20)
+        self.assertEqual(chr1.canonical_call_count, 10)
         self.assertAlmostEqual(chr1.mean_modified_fraction or 0.0, 20 / 30)
         self.assertAlmostEqual(chr1.median_site_modified_fraction or 0.0, 0.625)
         self.assertEqual(report.regions[1].mean_modified_fraction, 0.0)
@@ -186,6 +218,20 @@ class NormalizationTests(unittest.TestCase):
             report.warnings,
         )
 
+    def test_failed_and_nocall_counts_are_reported_separately_from_canonical(self) -> None:
+        """A call that failed its threshold is not a measured unmethylated call."""
+        report = self._report([_row("chr1", 100, "m", 20, 15, fail=3, nocall=2)])
+        region = report.regions[0]
+        self.assertEqual(region.canonical_call_count, 5)
+        self.assertEqual(region.fail_call_count, 3)
+        self.assertEqual(region.nocall_call_count, 2)
+        self.assertEqual(report.summary_metrics["fail_call_count"], 3)
+        self.assertEqual(report.summary_metrics["nocall_call_count"], 2)
+
+    def test_a_site_of_only_failed_calls_is_not_a_measured_zero(self) -> None:
+        report = self._report([_row("chr1", 100, "m", 0, 0, fail=4)])
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+
     def test_a_version_mismatch_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             self._report([_row("chr1", 100, "m", 20, 15)], expected_version="0.5.0")
@@ -200,7 +246,7 @@ class NormalizationTests(unittest.TestCase):
                 genome_build=GenomeBuild.GRCH38,
                 bedmethyl_path=path,
                 policy=_policy(),
-                tool=ToolRecord(name="modkit", version="0.4.1"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
             )
             self.assertNotIn(directory, report.model_dump_json())
         self.assertIsNotNone(report.bedmethyl_fingerprint.sha256)
@@ -231,7 +277,7 @@ class RegionAggregationTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            tool = ToolRecord(name="modkit", version="0.4.1", parameters={"threads": 2})
+            tool = ToolRecord(name="modkit", version="0.6.4", parameters={"threads": 2})
             report = normalize_methylation(
                 sample_id="SYNTHETIC_001",
                 genome_build=GenomeBuild.GRCH38,
@@ -289,7 +335,7 @@ class RegionAggregationTests(unittest.TestCase):
                 genome_build=GenomeBuild.GRCH38,
                 bedmethyl_path=path,
                 policy=_policy(region_source="target_bed"),
-                tool=ToolRecord(name="modkit", version="0.4.1"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
                 regions=_bed_regions(bed),
                 target_bed=bed,
             )
@@ -315,7 +361,7 @@ class RegionAggregationTests(unittest.TestCase):
                 genome_build=GenomeBuild.GRCH38,
                 bedmethyl_path=path,
                 policy=_policy(region_source="target_bed"),
-                tool=ToolRecord(name="modkit", version="0.4.1"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
                 regions=_bed_regions(bed),
                 target_bed=bed,
             )
@@ -327,7 +373,7 @@ class RegionAggregationTests(unittest.TestCase):
 class _FakeRunner:
     """Stand in for modkit and samtools, writing the pileup a real run would produce."""
 
-    def __init__(self, *, version: str = "0.4.1", tagged_reads: str = "1200") -> None:
+    def __init__(self, *, version: str = "0.6.4", tagged_reads: str = "1200") -> None:
         self.version = version
         self.tagged_reads = tagged_reads
         self.commands: list[list[str]] = []
@@ -353,6 +399,7 @@ class AdapterTests(unittest.TestCase):
         bam = root / "sample.bam"
         bam.write_bytes(b"not a real bam")
         (root / "sample.bam.bai").write_bytes(b"")
+        (root / "reference.fa").write_text(">chr1\nACGTCG\n", encoding="utf-8")
         manifest = SampleManifest(
             sample_id="SYNTHETIC_001",
             run_id="RUN_001",
@@ -386,6 +433,7 @@ class AdapterTests(unittest.TestCase):
                     intake,
                     _policy(cpg_only=False, combine_strands=False),
                     output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
                     runner=_FakeRunner(tagged_reads="0"),
                 )
         self.assertIn("no MM modified-base tags", str(raised.exception))
@@ -400,10 +448,12 @@ class AdapterTests(unittest.TestCase):
                     intake,
                     _policy(cpg_only=False, combine_strands=False),
                     output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
                     runner=_FakeRunner(version="0.5.0"),
                 )
 
-    def test_a_cpg_restriction_without_a_reference_is_refused(self) -> None:
+    def test_methylation_without_a_reference_is_refused(self) -> None:
+        """modkit --modified-bases requires the reference, so the lane always needs it."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, intake = self._fixture(root)
@@ -423,13 +473,18 @@ class AdapterTests(unittest.TestCase):
                 intake,
                 _policy(cpg_only=False, combine_strands=False),
                 output_dir=root / "out",
+                reference_fasta=root / "reference.fa",
                 runner=runner,
             )
         self.assertEqual(report.status, ModuleRunStatus.COMPLETED)
         self.assertEqual(report.reads_with_modified_base_tags, 1200)
         self.assertEqual(report.tool.name, "modkit")
         pileup = next(item for item in runner.commands if "pileup" in item)
-        self.assertIn("--only-tabs", pileup)
+        self.assertIn("--modified-bases", pileup)
+        self.assertIn("5mC", pileup)
+        self.assertIn("--ref", pileup)
+        self.assertNotIn("--only-tabs", pileup)
+        self.assertNotIn("--ignore", pileup)
         self.assertIn("--filter-threshold", pileup)
 
     def test_an_unanswerable_tag_probe_warns_rather_than_blocking(self) -> None:
@@ -451,6 +506,7 @@ class AdapterTests(unittest.TestCase):
                 intake,
                 _policy(cpg_only=False, combine_strands=False),
                 output_dir=root / "out",
+                reference_fasta=root / "reference.fa",
                 runner=_NoFilterExpressions(),
             )
         self.assertIsNone(report.reads_with_modified_base_tags)
@@ -460,9 +516,9 @@ class AdapterTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
-    def test_a_code_cannot_be_both_reported_and_ignored(self) -> None:
+    def test_duplicate_modification_codes_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            _policy(modification_codes=["m"], ignored_codes=["m"])
+            _policy(modification_codes=["m", "m"])
 
     def test_strand_folding_requires_a_cpg_restriction(self) -> None:
         with self.assertRaises(ValueError):
