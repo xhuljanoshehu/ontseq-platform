@@ -44,6 +44,31 @@ validated release.
 
 ## Unreleased
 
+### Changed
+
+- Migrate the methylation pileup lane to modkit 0.6.4 semantics. The 0.6.0 removal of
+  `--ignore` ends the `ignored_codes` policy field; the pileup now declares the reported
+  modifications explicitly via `--modified-bases` (`m` → `5mC`, `h` → `5hmC`, `a` → `6mA`),
+  which requires the locked reference FASTA for every methylation run, not only for
+  CpG-restricted ones. The removed `--only-tabs` flag is dropped from the command.
+- The methylation report now carries the full bedMethyl count columns per region —
+  canonical, other-modification, failed, no-call, deletion and differing-base calls — and
+  validates the format's defining identity `N_valid = N_mod + N_canonical + N_other_mod`
+  before aggregating. Failed and no-call totals are also surfaced in summary metrics, so
+  "not measured" can never be read as "not modified".
+- The methylation stage is declared `verified_with_real_tool`: CI runs the pinned modkit
+  0.6.4 binary against synthetic MM/ML fixtures (75% modified, measured zero,
+  low-depth/empty targets, missing MM tags). This is tool interoperability, not analytical
+  recovery.
+
+### Validation impact
+
+- The methylation policy schema advances to 0.2.0 (the `ignored_codes` field is removed)
+  and the report schema advances to 0.2.0 with additive count fields. Existing policy
+  files must be re-pinned deliberately. No caller threshold, coverage floor,
+  reportability boundary or biological classification changes; no output becomes more
+  validated.
+
 ## 0.8.0 - 2026-09-09 (local engineering candidate)
 
 - Derive the default Desktop resource directory (`resources-v0.8.0`), runtime version and

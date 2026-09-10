@@ -33,7 +33,7 @@
       "type": "boolean"
     },
     "expected_version": {
-      "default": "0.4.1",
+      "default": "0.6.4",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "title": "Expected Version",
       "type": "string"
@@ -44,13 +44,6 @@
       "minimum": 0,
       "title": "Filter Threshold",
       "type": "number"
-    },
-    "ignored_codes": {
-      "items": {
-        "$ref": "#/$defs/ModificationCode"
-      },
-      "title": "Ignored Codes",
-      "type": "array"
     },
     "minimum_valid_coverage": {
       "default": 5,
@@ -81,8 +74,8 @@
       "default": "chromosome"
     },
     "schema_version": {
-      "const": "0.1.0",
-      "default": "0.1.0",
+      "const": "0.2.0",
+      "default": "0.2.0",
       "title": "Schema Version",
       "type": "string"
     },
