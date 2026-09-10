@@ -21,9 +21,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Make relative-path fixture volume-independent
+      - name: Repair and verify relative-path fixture
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
+          $patchLog = Join-Path $env:RUNNER_TEMP 'ontseq-patch.log'
+          $testLog = Join-Path $env:RUNNER_TEMP 'ontseq-desktop-test.log'
           @'
           from pathlib import Path
 
@@ -43,20 +46,43 @@ jobs:
               if old in data:
                   new = new_lf.replace(b'\n', newline)
                   path.write_bytes(data.replace(old, new, 1))
+                  print('patched')
                   break
           else:
               raise SystemExit('Expected cross-volume-sensitive fixture was not found')
-          '@ | python -
-          dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release
-          if ($LASTEXITCODE -ne 0) { throw "Desktop tests still fail with exit code $LASTEXITCODE" }
-      - name: Commit verified repair and remove diagnostics
-        shell: pwsh
-        run: |
-          Remove-Item '.github/windows-test-diagnostic.txt'
+          '@ | python - *>&1 | Tee-Object -FilePath $patchLog
+          $patchExit = $LASTEXITCODE
+          $testExit = 999
+          if ($patchExit -eq 0) {
+            & dotnet run --project desktop/ONTSeq.Desktop.Tests/ONTSeq.Desktop.Tests.csproj -c Release *>&1 |
+              Tee-Object -FilePath $testLog
+            $testExit = $LASTEXITCODE
+          }
+
+          if ($patchExit -eq 0 -and $testExit -eq 0) {
+            Remove-Item '.github/windows-test-diagnostic.txt' -ErrorAction SilentlyContinue
+            Remove-Item '.github/windows-fix-diagnostic.txt' -ErrorAction SilentlyContinue
+            $message = 'fix(desktop): make relative-path test volume-independent'
+          }
+          else {
+            git checkout -- desktop/ONTSeq.Desktop.Tests/Program.cs
+            @("patch_exit=$patchExit", "test_exit=$testExit", '--- patch ---') |
+              Set-Content -Encoding utf8 '.github/windows-fix-diagnostic.txt'
+            Get-Content $patchLog -Tail 80 |
+              Add-Content -Encoding utf8 '.github/windows-fix-diagnostic.txt'
+            if (Test-Path $testLog) {
+              '--- test ---' | Add-Content -Encoding utf8 '.github/windows-fix-diagnostic.txt'
+              Get-Content $testLog -Tail 250 |
+                Add-Content -Encoding utf8 '.github/windows-fix-diagnostic.txt'
+            }
+            $message = 'ci: record Windows fixture repair diagnostic'
+          }
+
           Remove-Item '.github/workflows/windows-test-fix.yml'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git diff --cached --check
-          git commit -m 'fix(desktop): make relative-path test volume-independent'
+          git commit -m $message
           git push origin HEAD:${{ github.ref_name }}
+          exit 0
