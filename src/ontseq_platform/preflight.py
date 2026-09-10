@@ -274,12 +274,19 @@ def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
     declared optional because an lcWGS run legitimately records it as out of scope — but an
     adaptive-sampling run neither skips it nor survives it failing: the runner refuses to
     continue without a policy and a target BED, and ``summarize`` fails a run on any FAILED
-    stage whether or not the graph called it required. Preflight has to apply the same rule,
-    or it clears a run that cannot succeed and reports the missing tool as a warning.
+    stage whether or not the graph called it required. Methylation has the same shape: the
+    graph calls it optional, but a manifest that requests the module turns a missing modkit
+    into a FAILED stage and a failed run. Preflight has to apply the same rule, or it
+    clears a run that cannot succeed and reports the missing tool as a warning.
     """
     fatal = {stage for stage in planned_stages(request.input_kind) if SPEC_BY_STAGE[stage].required}
     if _measures_targets(request):
         fatal.add(StageId.TARGET_COVERAGE)
+    if _analyses_methylation(request):
+        # Optional in the graph is not optional for the run that asked: the stage probes
+        # modkit, raises when it is absent and records FAILED, and ``summarize`` fails the
+        # run on any FAILED stage. A warning here would clear a run that cannot succeed.
+        fatal.add(StageId.METHYLATION)
     return frozenset(fatal)
 
 
@@ -437,7 +444,14 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
         requirements = [item for item in requirements if item.name != "modkit"]
     if not _analyses_structural_variants(request):
         requirements = [item for item in requirements if item.name not in {"sniffles", "cutesv"}]
-    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
+    if (
+        request.cutesv_policy is not None
+        and StageId.SV in planned_stages(request.input_kind)
+        and _analyses_structural_variants(request)
+    ):
+        # The append must share the scope filter's rule: re-adding a caller the filter just
+        # removed re-probes a tool the run never invokes, which is how a CNV-only run came
+        # to be told about — and held to — a cuteSV it had no reason to configure.
         requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
     for requirement in requirements:
         name = f"tool.{requirement.name}"
@@ -753,7 +767,7 @@ def _check_disk(request: PreflightRequest, checks: CheckList) -> None:
         checks.failed(
             "disk.free",
             f"{free_gb:.1f} GiB free, below the required {request.require_free_gb:.1f} GiB",
-            remedy="free space or point --output-dir at a larger filesystem",
+            remedy="free up space or point --output-dir at a larger filesystem",
         )
         return
     checks.ok(
@@ -818,8 +832,8 @@ def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None)
 
     Ordered the way a reader wants to read it: the input first, then the reference it is
     interpreted against, then the tools, then the place the output goes. Checks are never
-    short-circuited on the first failure — an operator fixing a broken setup should get the
-    whole list, not one problem per attempt.
+    short-circuited on the first failure — an operator fixing a broken setup should get
+    the whole list, not one problem per attempt.
     """
     command_runner = runner or SubprocessRunner()
     checks = CheckList()

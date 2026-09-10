@@ -129,24 +129,37 @@ def assemble_aligned_bam_mvp(
                     reason="Structured MVP result is ready for JSON, HTML and XLSX rendering",
                 )
             )
-        elif module == AnalysisModule.SV and sniffles_report is not None:
-            if sniffles_report.status == ModuleRunStatus.COMPLETED:
+        elif module == AnalysisModule.SV and (
+            sv_consensus_report is not None
+            or sniffles_report is not None
+            or cutesv_report is not None
+        ):
+            # The outcome follows the evidence that actually reached the result, not one
+            # caller's report: a cuteSV-only run produced consolidated events and must not
+            # be reported as though SV calling never happened.
+            reached = sv_consensus_report or sniffles_report or cutesv_report
+            assert reached is not None
+            if reached.status == ModuleRunStatus.COMPLETED:
                 reason = (
-                    "Sniffles2 candidates were normalized and technically prioritized into "
+                    "SV candidates were normalized and technically prioritized into "
                     "high/moderate/low review tiers; clinical reportability remains "
                     "benchmark_required"
                 )
             else:
                 reason = (
-                    "Sniffles2 produced no candidate passing the technical policy; this NO_CALL "
-                    "is not a biological negative"
+                    "SV calling produced no candidate passing the technical policy; this "
+                    "NO_CALL is not a biological negative"
                 )
             modules.append(
                 ModuleOutcome(
                     module=module,
-                    status=sniffles_report.status,
+                    status=reached.status,
                     reason=reason,
-                    tools=[sniffles_report.tool],
+                    tools=[
+                        report.tool
+                        for report in (sniffles_report, cutesv_report)
+                        if report is not None
+                    ],
                 )
             )
         elif module in {AnalysisModule.CNV, AnalysisModule.SV}:
@@ -241,7 +254,7 @@ def assemble_aligned_bam_mvp(
         "CNV and fusion interpretation remain disabled until benchmark acceptance criteria pass.",
         "No output may be used for diagnosis or treatment decisions.",
     ]
-    if sniffles_report is None:
+    if sniffles_report is None and cutesv_report is None and sv_consensus_report is None:
         warnings.insert(1, "SV calling was not run in this artifact.")
     else:
         warnings.insert(
@@ -249,8 +262,10 @@ def assemble_aligned_bam_mvp(
             "SV confidence tiers are automated technical prioritization only; all candidates "
             "remain non-reportable until assay-specific validation criteria pass.",
         )
-        warnings.extend(sniffles_report.warnings)
-        warnings.extend(sniffles_report.limitations)
+        for caller_report in (sniffles_report, cutesv_report, sv_consensus_report):
+            if caller_report is not None:
+                warnings.extend(caller_report.warnings)
+                warnings.extend(caller_report.limitations)
     if methylation_report is not None:
         warnings.extend(methylation_report.warnings)
         warnings.extend(methylation_report.limitations)
