@@ -44,6 +44,33 @@ validated release.
 
 ## Unreleased
 
+### Fixed
+
+- Preflight no longer re-adds cuteSV after the SV scope filter removed it: the re-append
+  now shares the filter's rule, so a run whose manifest omits `sv` is neither probed for
+  nor told about a caller it never invokes. Previously guaranteed noise, because a cuteSV
+  policy resolves from the repository default on essentially every invocation.
+- A missing modkit now blocks preflight when the manifest requests the methylation
+  module. The stage probes the binary and records FAILED, and `summarize` fails the run
+  on any FAILED stage; a warning here cleared a run that could not succeed.
+- `ontseq preflight` registers the QDNAseq/ACE CNV lane the way `ontseq run` does and
+  accepts the same CNV options, so it no longer announces that CNV has no adapter and
+  will record NOT_RUN for runs that then execute a real QDNAseq/ACE analysis.
+- A cuteSV-only run no longer reports that SV calling never happened: the SV module
+  outcome, the assemble-stage warning and the run warnings follow the evidence that
+  actually reached the result — the consensus when one exists — and the consensus's own
+  warnings and limitations are surfaced with it.
+- CI now asserts that every consensus event ID reaches the reviewer result end to end,
+  the regression guard whose absence once let the SV consensus silently drop out of
+  assembled output while its artifact kept looking used in the envelope.
+
+### Validation impact
+
+- Preflight/run agreement, one module outcome and warning text change; no caller
+  threshold, policy value, normalization rule, schema field or reportability boundary
+  changes, and no output becomes more validated. The fixes stop the tooling from
+  describing a run differently from the one it executes.
+
 ## 0.8.0 - 2026-09-09 (local engineering candidate)
 
 - Derive the default Desktop resource directory (`resources-v0.8.0`), runtime version and
@@ -156,8 +183,8 @@ validated release.
 ### Unified platform
 
 - Correct Windows/WSL text decoding so German diagnostics and Unicode paths survive
-  redirected stdout/stderr. Decode Linux UTF-8 and native WSL startup diagnostics at
-  the byte boundary; do not repair already misdecoded text by character substitution.
+  redirected stdout/stderr. Decode Linux UTF-8 and native WSL startup diagnostics at the
+  byte boundary; do not repair already misdecoded text by character substitution.
 - Name the selected reference build on setup actions and retain failure details after
   the resource-status refresh. Keep the setup body scrollable at supported small window
   sizes so long resource statuses cannot hide actions. GRCh37 and GRCh38 remain
@@ -395,7 +422,7 @@ The following methylation development changes are included in this integration:
   constructing the immutable panel authority. Analyses never invoke liftover, reheader BAMs or
   fall back to the GRCh38 panel or another dictionary contract.
 - The GRCh37 selection design is `110/111 mapped`, not a claim that all 111 source targets are
-  represented or that every projected boundary is reciprocal-exact. Native GENCODE-19
+  represented or that every projected boundary is reciprocal-exact. Native GRCh37
   ROI/transcript analysis is limited to 108 targets; `ACACA` roundtrip review and the three
   mapping/ROI gaps remain report-visible technical review items.
 - This remains unsigned Research Use Only engineering software. Adaptive Sampling on hg19 and
@@ -507,8 +534,8 @@ The following methylation development changes are included in this integration:
   version label proves execution. No caller threshold or reportability policy is promoted.
 - GRCh37 dictionary selection is explicit and fail-closed. `AML_LCWGS_GRCh37` requires the
   complete GENCODE 19 publisher dictionary (including scaffolds/patches/haplotypes), while
-  `AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` requires exactly the UCSC hg19 25-contig order and
-  `chrM=16571`. The latter intentionally differs from native GENCODE 19 `chrM=16569`; no BAM
+  `AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` requires exactly the UCSC hg19 25-contig order
+  and `chrM=16571`. The latter intentionally differs from native GENCODE 19 `chrM=16569`; no BAM
   reheader, reference substitution, automatic fallback or liftover is performed.
 - The hg19 contract changes only accepted input/reference binding. Nuclear GRCh37 annotation,
   caller policies and reportability boundaries are unchanged and require a separate analytical
@@ -570,8 +597,8 @@ The following methylation development changes are included in this integration:
 - Two explicit GRCh38 Canonical-25 profile variants now accept BAM dictionaries containing
   exactly `chr1`-`chr22`, `chrX`, `chrY` and `chrM`: `AML_LCWGS_GRCh38_CANONICAL25` and
   `AML_AS_111_GRCh38_CANONICAL25`.
-- Desktop exposes the dictionary contract with each profile so that the operator can select the
-  contract matching the reference used for alignment before starting a run.
+- Desktop exposes the dictionary contract with each profile so that the operator can select
+  the contract matching the reference used for alignment before starting a run.
 
 ### Changed
 
@@ -593,8 +620,8 @@ The following methylation development changes are included in this integration:
 ### Fixed
 
 - Packaged configuration defaults now resolve from the installed ONTSeq release rather than the
-  process working directory. Desktop profile services additionally receive absolute paths for the
-  cuteSV, Sniffles2/cuteSV consensus and SV evidence policies, preventing profile startup from
+  process working directory. Desktop profile services additionally receive absolute paths for
+  the cuteSV, Sniffles2/cuteSV consensus and SV evidence policies, preventing profile startup from
   failing when the application is launched outside a repository checkout.
 - The Windows/WSL runtime preflight now verifies the complete policy and tool contract before a
   run. The packed environment includes pinned cuteSV 2.1.3, retains mosdepth, rejects duplicated
@@ -658,9 +685,9 @@ The following methylation development changes are included in this integration:
 - `ontseq references repair GRCh38_GENCODE50_MANE1.5_v1` now repairs the complete pinned
   profile-resource family, including `HEMATOLOGY_v1`, `AML_AS_111_GRCh38_v1` and both profile
   manifests, with staged validation, path-atomic replacement and rollback instead of requiring
-  operators to delete divergent resources manually. Repair and official-ID import also require
-  the exact catalog Source-/Generator contract; changed sources or derivations require a new
-  bundle ID/version.
+  operators to delete divergent resources manually. Repair and official-ID import also reject
+  changed source or generator contracts under an unchanged bundle identity, while custom bundle
+  IDs remain importable.
 - Native UCSC hg38 cytobands now ignore the unnamed chrM placeholder instead of rejecting the
   publisher table; named cytogenetic bands remain strictly validated.
 - Pseudoautosomal panel symbols such as `P2RY8` are disambiguated by the explicitly declared
@@ -939,6 +966,7 @@ misread. Clinical/analytical validation status is unchanged.
   NM.
 - Connected the aligned-BAM Snakemake DAG to the candidate-only Sniffles2 adapter.
 - Bumped the research software foundation to version 0.3.0.
+- HTML and Excel reports now expose explicit per-module execution status.
 
 ### Validation impact
 
