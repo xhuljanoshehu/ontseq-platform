@@ -1,0 +1,9 @@
+patch_exit=0
+test_exit=-532462766
+--- patch ---
+patched
+--- test ---
+Unhandled exception. System.IO.InvalidDataException: Die Runtime benötigt einen neuen, versionsgebundenen Installationspfad.
+   at ONTSeq.Desktop.WslServiceLauncher.RuntimeInstallCoreCommand(RuntimePackage package, String target) in D:\a\ontseq-platform\ontseq-platform\desktop\ONTSeq.Desktop\WslServiceLauncher.cs:line 831
+   at Program.<Main>$(String[] args) in D:\a\ontseq-platform\ontseq-platform\desktop\ONTSeq.Desktop.Tests\Program.cs:line 1064
+   at Program.<Main>(String[] args)
