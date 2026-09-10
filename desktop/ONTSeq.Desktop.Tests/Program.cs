@@ -221,8 +221,11 @@ try
     var preparedOutput = Path.Combine(root, "synthetic-new-output");
     DesktopOutputDirectory.EnsureExists(preparedOutput);
     AssertEqual("True", Directory.Exists(preparedOutput).ToString(), "valid output directories can still be prepared");
-    var unsupportedRelativeOutput = Path.GetRelativePath(Environment.CurrentDirectory,
-        Path.Combine(root, "synthetic-relative-output-must-not-be-created"));
+    // Path.GetRelativePath returns the absolute destination when the checkout and
+    // temporary directory are on different Windows volumes. Keep this fixture
+    // unconditionally relative so it tests validation rather than runner layout.
+    var unsupportedRelativeOutput =
+        $"synthetic-relative-output-must-not-be-created-{Guid.NewGuid():N}";
     var unsupportedOutputTarget = Path.GetFullPath(unsupportedRelativeOutput);
     AssertEqual("False", Directory.Exists(unsupportedOutputTarget).ToString(), "unsupported output fixture starts absent");
     try
@@ -1059,7 +1062,7 @@ try
     var package = await RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None);
     AssertEqual(coreWheel, package.WheelPath, "runtime requires matching Core wheel sidecar");
     var installCommand = WslServiceLauncher.RuntimeInstallCoreCommand(
-        package, "/home/synthetic/.local/share/ontseq/runtime-v0.7.1-synthetic");
+        package, "/home/synthetic/.local/share/ontseq/runtime-v0.8.1-synthetic");
     AssertEqual("False", installCommand.Contains("rm ", StringComparison.Ordinal).ToString(),
         "runtime installation never removes an existing prefix");
     AssertEqual("True", installCommand.StartsWith("test ! -e ", StringComparison.Ordinal).ToString(),
