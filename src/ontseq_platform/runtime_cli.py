@@ -458,6 +458,9 @@ def _parser() -> argparse.ArgumentParser:
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
+    # Preflight registers the CNV lane the way the run does, so it takes the same options;
+    # a preflight configured differently from the run describes a different run.
+    _add_cnv_options(pf)
     pf.add_argument("--require-free-gb", type=float)
     pf.add_argument("--verbose", action="store_true")
     pf.add_argument("--json", action="store_true", dest="as_json")
@@ -711,7 +714,7 @@ def _doctor_checks(
     checks.append(
         {
             "check": "project-root",
-            "status": "pass",
+            "status": "pass" if project_root.is_dir() else "warn",
             "detail": str(project_root),
             "note": "runtime asset root resolved from the installed configuration tree",
         }
@@ -771,8 +774,8 @@ def _doctor_checks(
             {
                 "check": "output-dir-write",
                 "status": "pass" if writable else "fail",
-                "detail": message,
-                "note": f"test write into {output_root}",
+                "detail": str(test_file),
+                "note": "test write into the output directory",
             }
         )
 
@@ -786,7 +789,8 @@ def _doctor_checks(
 
 def _print_doctor(result: dict[str, object]) -> None:
     print(f"ONTSeq doctor: {result.get('status')}")
-    checks = result.get("checks", [])
+    print(f"python: {result.get('python')}")
+    checks = result.get("checks")
     if not isinstance(checks, list):
         return
     for item in checks:
@@ -794,8 +798,8 @@ def _print_doctor(result: dict[str, object]) -> None:
             continue
         status = str(item.get("status"))
         check = str(item.get("check"))
-        detail = item.get("detail")
-        note = item.get("note")
+        detail = str(item.get("detail"))
+        note = str(item.get("note"))
         print(f"{status:>6}  {check:<18} {detail}  ({note})")
 
 
@@ -805,7 +809,10 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "analyze", "serve", "watch"}:
+    # Preflight registers the CNV lane as well: it must describe the run it clears, and
+    # without registration it announced "cnv has no adapter and will record NOT_RUN" for
+    # runs that then executed a real QDNAseq/ACE analysis.
+    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:
         _register_cnv(args, selection)
     try:
         if handle_references_command(args):
@@ -998,7 +1005,7 @@ def main() -> None:
             serve(
                 ServiceConfig(
                     reference_lock=args.reference_lock,
-                    output_dir=args.output_dir,
+                    output_base=args.output_dir,
                     allowed_roots=list(args.allow_roots),
                     qc_policy=args.qc_policy,
                     sniffles_policy=_selected_policy(selection, StageId.SV, args.sniffles_policy),
@@ -1056,7 +1063,7 @@ def main() -> None:
                 code = review_exit_code(
                     review_report.state,
                     reviewers=len(review_report.reviewers),
-                    required_reviewers=args.require_reviewers,
+                    required_reviewers=args.required_reviewers,
                 )
                 if code:
                     raise SystemExit(code)
