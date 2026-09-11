@@ -47,6 +47,12 @@ class IncludeBedTests(unittest.TestCase):
                         if argv[1] == "--version":
                             return CommandResult(tuple(argv), 0, "mod_kit 0.6.4", "")
                         if argv[1] == "view":
+                            # This fixture is about the include-BED projection. It contains
+                            # one MM-tagged read but no independent same-base cytosine MM
+                            # groups, so the two samtools safety questions must not share
+                            # one canned answer.
+                            if any("C[+-]" in str(item) for item in argv):
+                                return CommandResult(tuple(argv), 0, "0", "")
                             return CommandResult(tuple(argv), 0, "1", "")
                         include = Path(argv[argv.index("--include-bed") + 1])
                         self.calls.append(include.read_bytes())
