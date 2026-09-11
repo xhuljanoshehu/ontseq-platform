@@ -154,6 +154,23 @@ class CancerCellFractionTests(unittest.TestCase):
                 AlleleObservation(10, 80), tumour_fraction=0.0, copy_number_state=NEUTRAL
             )
 
+    def test_zero_variant_reads_is_not_a_determinate_zero_ccf(self) -> None:
+        result = cancer_cell_fraction(
+            AlleleObservation(0, 80), tumour_fraction=0.5, copy_number_state=NEUTRAL
+        )
+        self.assertFalse(result.determinable)
+        self.assertEqual(result.status, NO_VARIANT_READS)
+        self.assertIsNone(result.point)
+        self.assertIsNone(result.subclonal_at(0.9))
+
+    def test_refuses_a_vaf_that_implies_ccf_above_one(self) -> None:
+        result = cancer_cell_fraction(
+            AlleleObservation(30, 80), tumour_fraction=0.5, copy_number_state=NEUTRAL
+        )
+        self.assertFalse(result.determinable)
+        self.assertEqual(result.status, VAF_EXCEEDS_HETEROZYGOUS_MODEL)
+        self.assertIsNone(result.point)
+
 
 class ForwardModelTests(unittest.TestCase):
     def test_forward_and_inverse_agree(self) -> None:
@@ -192,6 +209,12 @@ class CopyNumberTests(unittest.TestCase):
     def test_rejects_a_negative_ratio(self) -> None:
         with self.assertRaises(QuantitationError):
             copy_number_from_ratio(ratio=-0.1, tumour_fraction=0.5)
+
+    def test_refuses_a_ratio_below_the_zero_copy_mixture_floor(self) -> None:
+        # With 50% tumour, even a homozygous tumour deletion leaves one normal-cell copy
+        # per mixed cell: the observed ratio cannot fall below 0.5 under this model.
+        with self.assertRaises(QuantitationError):
+            copy_number_from_ratio(ratio=0.49, tumour_fraction=0.5)
 
 
 class DetectionLimitTests(unittest.TestCase):
