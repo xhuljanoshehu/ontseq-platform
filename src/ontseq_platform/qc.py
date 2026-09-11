@@ -142,6 +142,36 @@ def write_read_length_histogram(
     return output_path
 
 
+def read_length_histogram_from_tsv(text: str) -> list[tuple[int, int | None, int, int]]:
+    """Parse the normalized read-length TSV sidecar back into numeric bins.
+
+    The writer above and this reader are the two ends of one format contract, so both
+    live in this module and cannot drift apart. Malformed rows fail closed: a report
+    must never draw a distribution from partially parsed data.
+    """
+    bins: list[tuple[int, int | None, int, int]] = []
+    lines = text.splitlines()
+    if not lines:
+        return bins
+    if lines[0] != "start_bp\tend_bp\tread_count\tbase_count":
+        raise ValueError("Read-length histogram sidecar has an unexpected header")
+    for line_number, line in enumerate(lines[1:], start=2):
+        fields = line.split("\t")
+        if len(fields) != 4:
+            raise ValueError(f"Read-length histogram line {line_number} has wrong column count")
+        try:
+            start = int(fields[0])
+            end = int(fields[1]) if fields[1] else None
+            count = int(fields[2])
+            bases = int(fields[3])
+        except ValueError as exc:
+            raise ValueError(f"Read-length histogram line {line_number} is not numeric") from exc
+        if start < 0 or (end is not None and end <= start) or count < 0 or bases < 0:
+            raise ValueError(f"Read-length histogram line {line_number} is out of range")
+        bins.append((start, end, count, bases))
+    return bins
+
+
 def evaluate_qc_metrics(
     metrics: dict[str, float | int | str | None], policy: QCPolicy
 ) -> QCMetrics:

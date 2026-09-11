@@ -81,9 +81,10 @@ from ..models import (
     Verdict,
 )
 from ..mvp import assemble_aligned_bam_mvp
-from ..qc import run_cramino_qc
+from ..qc import read_length_histogram_from_tsv, run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
+from ..report_plots import ReadLengthBin
 from ..sniffles import run_sniffles
 from ..sv_annotation import annotate_sv_events, load_interval_resource
 from ..sv_consensus import build_consensus_report
@@ -1283,11 +1284,23 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if selection_path.is_file()
         else None
     )
+    histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
+    qc_histogram = (
+        [
+            ReadLengthBin(start=start, end=end, count=count, bases=bases)
+            for start, end, count, bases in read_length_histogram_from_tsv(
+                histogram_path.read_text(encoding="utf-8")
+            )
+        ]
+        if histogram_path.is_file()
+        else None
+    )
     render_html(
         result,
         ctx.envelope.path(ctx.path(REPORT_HTML)),
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
+        qc_histogram=qc_histogram,
     )
     render_workbook(
         result,

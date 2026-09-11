@@ -188,3 +188,112 @@ def coverage_depth_svg(
     parts.append(_text(_LEFT, _TOP - 6, "mean depth per target (×)", anchor="start", size=9))
     parts.append("</svg>")
     return "".join(parts)
+
+
+@dataclass(frozen=True)
+class ReadLengthBin:
+    """One normalized Cramino read-length bin; ``end=None`` marks the open final bin."""
+
+    start: int
+    end: int | None
+    count: int
+    bases: int
+
+
+def read_length_histogram_svg(
+    bins: Sequence[ReadLengthBin],
+    *,
+    title: str,
+    n50_bp: int | None = None,
+) -> str:
+    """Render the normalized read-length distribution as an inline-SVG histogram.
+
+    Values come from the Cramino histogram sidecar verbatim. The open final bin
+    (no end) is drawn in the soft accent colour so it cannot be mistaken for a
+    measured closed bin. An empty input renders as an empty string, so the caller
+    omits the figure entirely.
+    """
+    if not bins:
+        return ""
+    for item in bins:
+        if (
+            not isinstance(item.start, int)
+            or isinstance(item.start, bool)
+            or (
+                item.end is not None
+                and (not isinstance(item.end, int) or isinstance(item.end, bool))
+            )
+            or not isinstance(item.count, int)
+            or isinstance(item.count, bool)
+            or not isinstance(item.bases, int)
+            or isinstance(item.bases, bool)
+            or item.start < 0
+            or (item.end is not None and item.end <= item.start)
+            or item.count < 0
+            or item.bases < 0
+        ):
+            raise ValueError("A read-length bin is not numeric/valid")
+    ordered = sorted(bins, key=lambda item: (item.start, item.end is None, item.end or 0))
+    closed_widths = [item.end - item.start for item in ordered if item.end is not None]
+    if not closed_widths:
+        return ""
+    open_width = closed_widths[len(closed_widths) // 2]
+    spans = [
+        (item.start, item.end if item.end is not None else item.start + open_width, item)
+        for item in ordered
+    ]
+    x_max = max(end for _, end, _ in spans)
+    if x_max <= 0:
+        return ""
+    plot_right = _WIDTH - _RIGHT
+    plot_bottom = _HEIGHT - 46
+    span_y = plot_bottom - _TOP
+    y_max = _nice_ceiling(max(item.count for _, _, item in spans))
+    if y_max <= 0:
+        return ""
+
+    def x_of(value: float) -> float:
+        return _LEFT + (plot_right - _LEFT) * (value / x_max)
+
+    def y_of(value: float) -> float:
+        return plot_bottom - span_y * (value / y_max)
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {_WIDTH} {_HEIGHT}" role="img" '
+        f'aria-label="{html.escape(title)}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block">',
+        f"<title>{html.escape(title)}</title>",
+    ]
+    for fraction, label_value in ((0.0, "0"), (0.5, f"{y_max / 2:g}"), (1.0, f"{y_max:g}")):
+        y = plot_bottom - span_y * fraction
+        parts.append(
+            f'<line x1="{_LEFT}" y1="{y:.1f}" x2="{plot_right}" y2="{y:.1f}" '
+            f'stroke="{_GRID}" stroke-width="1"/>'
+        )
+        parts.append(_text(_LEFT - 8, y + 3.5, label_value, anchor="end"))
+    if n50_bp is not None and 0 < n50_bp <= x_max:
+        x = x_of(n50_bp)
+        parts.append(
+            f'<line x1="{x:.1f}" y1="{_TOP}" x2="{x:.1f}" y2="{plot_bottom}" '
+            f'stroke="{_REFERENCE}" stroke-width="1" stroke-dasharray="5 4"/>'
+        )
+        parts.append(_text(x + 4, _TOP + 10, "N50", anchor="start", color=_REFERENCE, size=9))
+    for start, end, item in spans:
+        x0 = x_of(start)
+        x1 = x_of(end)
+        top = y_of(item.count)
+        end_label = "open" if item.end is None else f"{end:,}"
+        tooltip = (
+            f"{start:,}–{end_label} bp · {item.count:,} reads · {item.bases / 1_000_000:.2f} Mb"
+        )
+        fill = _ACCENT if item.end is not None else _ACCENT_SOFT
+        parts.append(
+            f'<rect x="{x0:.2f}" y="{top:.2f}" width="{max(x1 - x0, 0.5):.2f}" '
+            f'height="{plot_bottom - top:.2f}" fill="{fill}">'
+            f"<title>{tooltip}</title></rect>"
+        )
+    for value in (0, x_max // 2, x_max):
+        parts.append(_text(x_of(value), plot_bottom + 16, f"{value / 1000:g} kb", size=9))
+    parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
+    parts.append("</svg>")
+    return "".join(parts)

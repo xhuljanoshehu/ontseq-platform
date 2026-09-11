@@ -53,6 +53,11 @@ validated release.
   report — no value is recomputed, no JavaScript or CDN reference is added, and the
   portable report stays offline and checksummed. No caller, threshold, normalization,
   contract or reportability change.
+- Render the QC section's read-length distribution as an inline-SVG histogram fed by the
+  normalized Cramino histogram sidecar, with the N50 marker from the normalized QC
+  metrics. The sidecar parser fails closed on malformed rows; runs without histogram
+  output render no figure. Presentation only: no metric, gate, contract or
+  reportability change.
 
 ### Fixed
 
