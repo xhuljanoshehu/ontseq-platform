@@ -44,7 +44,7 @@ jobs:
             done
           fi
 
-          # Current main is authoritative for files where #62 or later work overlaps.
+          # Current main is authoritative where later work overlaps this stale branch.
           git checkout origin/main -- CHANGELOG.md src/ontseq_platform/preflight.py src/ontseq_platform/runtime_cli.py
 
           python - <<'PY'
@@ -79,21 +79,36 @@ jobs:
 
           test = Path("tests/test_preflight.py")
           text = test.read_text()
-          broken = "self.adaptive_request(manifest=manifest)"
-          if text.count(broken) != 2:
-              raise SystemExit("expected exactly two known broken adaptive-BED test calls")
-          test.write_text(text.replace(broken, "self.adaptive_request(manifest=self.adaptive_manifest(bed))"))
+
+          old = '''        bed = self.target_bed("chr1\\t1000\\n", name="truncated")
+        found = self.results(self.adaptive_request(manifest=manifest))
+'''
+          new = '''        bed = self.target_bed("chr1\\t1000\\n", name="truncated")
+        found = self.results(
+            self.adaptive_request(manifest=self.adaptive_manifest(bed))
+        )
+'''
+          if text.count(old) != 1:
+              raise SystemExit("truncated-BED regression-test anchor changed unexpectedly")
+          text = text.replace(old, new, 1)
+
+          old = '''        bed = self.target_bed("chrUn_GL000220v1\\t100\\t200\\tA\\n", name="noncanonical")
+        found = self.results(self.adaptive_request(manifest=manifest))
+'''
+          new = '''        bed = self.target_bed("chrUn_GL000220v1\\t100\\t200\\tA\\n", name="noncanonical")
+        found = self.results(
+            self.adaptive_request(manifest=self.adaptive_manifest(bed))
+        )
+'''
+          if text.count(old) != 1:
+              raise SystemExit("noncanonical-BED regression-test anchor changed unexpectedly")
+          test.write_text(text.replace(old, new, 1))
           PY
 
-          # The repair workflow is temporary and must not become part of the PR.
+          # Temporary repair machinery must not become part of the PR.
           git rm .github/workflows/pr61-repair.yml
           git add -A
-
-          if git diff --cached --check; then
-            echo "Patch whitespace check passed"
-          else
-            exit 1
-          fi
+          git diff --cached --check
 
           python -m pip install --disable-pip-version-check -q -e . pytest ruff mypy
           ruff check src tests
