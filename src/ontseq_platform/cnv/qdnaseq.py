@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -130,17 +131,20 @@ def _float(row: Mapping[str, str], key: str) -> float:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
-    if parsed != parsed:
-        raise ValueError(f"invalid NaN value for {key}")
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite numeric value for {key}: {value!r}")
     return parsed
 
 
 def _int(row: Mapping[str, str], key: str) -> int:
     value = row.get(key, "")
     try:
-        return int(float(value))
+        parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid integer value for {key}: {value!r}") from exc
+    if not math.isfinite(parsed) or not parsed.is_integer():
+        raise ValueError(f"invalid integer value for {key}: {value!r}")
+    return int(parsed)
 
 
 def _as_float(value: object, key: str) -> float:
@@ -150,8 +154,8 @@ def _as_float(value: object, key: str) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
-    if parsed != parsed:
-        raise ValueError(f"invalid NaN value for {key}")
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite numeric value for {key}: {value!r}")
     return parsed
 
 
@@ -399,8 +403,25 @@ def _events_from_primary_segments(
                 "ISCN rendering is therefore suppressed."
             )
         quality = None
-        if row.get("qnorm_log10") not in {None, ""}:
-            quality = abs(_float(row, "qnorm_log10"))
+        raw_qnorm = row.get("qnorm_log10")
+        if raw_qnorm not in {None, ""}:
+            try:
+                qnorm_log10 = float(raw_qnorm)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid numeric value for qnorm_log10: {raw_qnorm!r}") from exc
+            if math.isnan(qnorm_log10) or qnorm_log10 == math.inf:
+                raise ValueError(f"invalid qnorm_log10 value: {raw_qnorm!r}")
+            if qnorm_log10 == -math.inf:
+                # ACE can emit -Inf when the normalized probability reaches zero or
+                # underflows R's finite range. Preserve that fact, but do not convert it
+                # to +Inf in the generic Evidence.quality field, which is required to be
+                # a finite reviewer-facing score.
+                notes.append(
+                    "ACE qnorm_log10=-Inf (zero/underflow sentinel); no finite normalized "
+                    "quality score is available for this segment."
+                )
+            else:
+                quality = abs(qnorm_log10)
         events.append(
             GenomicEvent(
                 event_id=f"CNV_{sample_id}_{serial:04d}",
