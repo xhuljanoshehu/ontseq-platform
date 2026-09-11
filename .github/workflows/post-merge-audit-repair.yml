@@ -1,0 +1,70 @@
+name: Post-merge audit repair
+
+on:
+  push:
+    branches:
+      - fix/post-merge-audit-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Apply audited fixes
+        run: python scripts/post_merge_audit_apply.py
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev,workflow]" pysam
+
+      - name: Format and static checks
+        run: |
+          ruff format \
+            src/ontseq_platform/pipeline/input_digest.py \
+            src/ontseq_platform/pipeline/runner.py \
+            src/ontseq_platform/cnv/extension.py \
+            src/ontseq_platform/target_coverage_extension.py \
+            src/ontseq_platform/methylation.py \
+            tests/test_run_input_digest_cache.py \
+            tests/test_methylation.py \
+            tests/test_methylation_pipeline_integration.py \
+            tests/test_modkit_real_tool.py
+          ruff check src tests
+          ruff format --check src tests
+          mypy src
+          git diff --check
+
+      - name: Focused regression suite
+        run: |
+          pytest -q \
+            tests/test_run_input_digest_cache.py \
+            tests/test_methylation.py \
+            tests/test_methylation_pipeline_integration.py \
+            tests/test_target_coverage_extension.py \
+            tests/test_qdnaseq_runtime.py \
+            tests/test_pipeline_runner.py \
+            tests/test_pipeline_resume_integrity.py
+
+      - name: Commit repaired branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/post_merge_audit_apply.py .github/workflows/post-merge-audit-repair.yml
+          git add -A
+          git diff --cached --check
+          git status --short
+          git commit -m "fix: harden post-merge runtime and methylation paths"
+          git push origin HEAD:fix/post-merge-audit-20260911
