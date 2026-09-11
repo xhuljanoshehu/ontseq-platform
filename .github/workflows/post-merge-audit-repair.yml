@@ -24,7 +24,7 @@ jobs:
           cache: pip
 
       - name: Apply audited fixes
-        run: python scripts/post_merge_audit_apply.py
+        run: python scripts/post_merge_audit_apply_v2.py
 
       - name: Install development dependencies
         run: python -m pip install -e ".[dev,workflow]" pysam
@@ -62,7 +62,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/post_merge_audit_apply.py .github/workflows/post-merge-audit-repair.yml
+          git rm \
+            scripts/post_merge_audit_apply.py \
+            scripts/post_merge_audit_apply_v2.py \
+            .github/workflows/post-merge-audit-repair.yml
           git add -A
           git diff --cached --check
           git status --short
