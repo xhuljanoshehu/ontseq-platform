@@ -1,5 +1,14 @@
 # ONTSeq Desktop changelog
 
+## 0.8.2-engineering — 2026-09-11
+
+- Repair the Windows engineering bundle so `runtime/` contains the pinned base runtime,
+  the matching Core wheel, and `SHA256SUMS` exactly as the installer requires.
+- Verify both runtime payload hashes before publishing the Desktop artifact and add a
+  dedicated CI contract that fails if an installer input is omitted again.
+- Correct stale current-run documentation that still named Core v0.7.1.
+- No caller thresholds, reference bundles, biological algorithms or reportability rules change.
+
 ## 0.8.1-engineering — 2026-09-09
 
 - Restore the Core report API, coverage, structural-variant, ISCN and resource details.

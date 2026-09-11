@@ -103,7 +103,7 @@ Desktop also omits `run_id`; Core derives the canonical `<sample>-<UTC timestamp
 returns it in the HTTP 202 job. Desktop uses that returned ID for polling and output links.
 
 The service is started with `--resource-root`, taken from `resourceRootWsl` (default
-`~/.local/share/ontseq/resources-v0.8.1`, below the WSL user's `$HOME`). The default follows
+`~/.local/share/ontseq/resources-v0.8.2`, below the WSL user's `$HOME`). The default follows
 the Desktop/Core release; explicitly saved resource paths remain selected. Core/CLI keeps its separate
 `/opt/ontseq` default. The service must resolve the profile's pinned bundle IDs and must not fall back to an
 explicit path or another build.

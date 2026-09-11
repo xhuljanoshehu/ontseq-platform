@@ -566,7 +566,7 @@ Folgende Aussagen sind derzeit **nicht** durch dieses Repository belegt:
 
 ## 14. Entwicklungsstatus
 
-Python-Core und Desktop: `0.8.1` (lokaler Engineering-Kandidat vom 2026-09-09).
+Python-Core und Desktop: `0.8.2` (lokaler Engineering-Kandidat vom 2026-09-11).
 Dieser Arbeitsstand ist keine Behauptung über eine veröffentlichte GitHub-Version oder
 klinische Freigabe. Änderungen und Validation impact stehen in [`CHANGELOG.md`](CHANGELOG.md).
 
