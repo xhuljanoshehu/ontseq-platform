@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -130,17 +131,20 @@ def _float(row: Mapping[str, str], key: str) -> float:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
-    if parsed != parsed:
-        raise ValueError(f"invalid NaN value for {key}")
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite numeric value for {key}: {value!r}")
     return parsed
 
 
 def _int(row: Mapping[str, str], key: str) -> int:
     value = row.get(key, "")
     try:
-        return int(float(value))
+        parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid integer value for {key}: {value!r}") from exc
+    if not math.isfinite(parsed) or not parsed.is_integer():
+        raise ValueError(f"invalid integer value for {key}: {value!r}")
+    return int(parsed)
 
 
 def _as_float(value: object, key: str) -> float:
@@ -150,8 +154,8 @@ def _as_float(value: object, key: str) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise ValueError(f"invalid numeric value for {key}: {value!r}") from exc
-    if parsed != parsed:
-        raise ValueError(f"invalid NaN value for {key}")
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite numeric value for {key}: {value!r}")
     return parsed
 
 

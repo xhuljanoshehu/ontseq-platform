@@ -87,6 +87,49 @@ class QDNAseqCoordinateTests(unittest.TestCase):
                             consensus={},
                         )
 
+    def test_fractional_integer_fields_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "segments.tsv"
+            path.write_text(
+                "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall\tcoordinate_system\n"
+                "chr7\t0\t500\t1.5\t1\t-1\tzero_based_half_open\n"
+            )
+            with self.assertRaisesRegex(ValueError, "invalid integer value for bin_count"):
+                _events_from_primary_segments(
+                    path,
+                    sample_id="SYNTH",
+                    fit=_fit(),
+                    tools=[],
+                    reference_lock=_lock(),
+                    minimum_segment_bins=1,
+                    whole_chromosome_fraction=0.9,
+                    consensus={},
+                )
+
+    def test_non_finite_numeric_fields_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "segments.tsv"
+            for field, absolute_copy_number, call in (
+                ("absolute_copy_number", "inf", "-1"),
+                ("call", "1", "-inf"),
+            ):
+                with self.subTest(field=field):
+                    path.write_text(
+                        "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall\tcoordinate_system\n"
+                        f"chr7\t0\t500\t1\t{absolute_copy_number}\t{call}\tzero_based_half_open\n"
+                    )
+                    with self.assertRaisesRegex(ValueError, "non-finite numeric value"):
+                        _events_from_primary_segments(
+                            path,
+                            sample_id="SYNTH",
+                            fit=_fit(),
+                            tools=[],
+                            reference_lock=_lock(),
+                            minimum_segment_bins=1,
+                            whole_chromosome_fraction=0.9,
+                            consensus={},
+                        )
+
     @unittest.skipUnless(
         shutil.which("Rscript"), "Rscript is required for actual R exporter regression"
     )
