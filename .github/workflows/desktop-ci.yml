@@ -235,7 +235,7 @@ jobs:
           -p:PublishSingleFile=true
           -o desktop/publish
       - name: Add pinned Linux runtime to desktop bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
           path: desktop/publish/runtime
