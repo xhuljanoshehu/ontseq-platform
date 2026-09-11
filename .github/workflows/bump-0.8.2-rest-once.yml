@@ -1,0 +1,217 @@
+name: One-time 0.8.2 non-workflow release bump
+
+on:
+  push:
+    branches: [fix/desktop-bundle-0.8.2-active]
+    paths:
+      - ".github/workflows/bump-0.8.2-rest-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/desktop-bundle-0.8.2-active
+          fetch-depth: 0
+      - name: Update non-workflow release surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path(".")
+
+          def replace_exact(path: str, old: str, new: str, *, minimum: int = 1) -> None:
+              file = ROOT / path
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count < minimum:
+                  raise SystemExit(
+                      f"{path}: expected at least {minimum} occurrence(s) of {old!r}, found {count}"
+                  )
+              file.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_exact("pyproject.toml", 'version = "0.8.1"', 'version = "0.8.2"')
+          replace_exact("src/ontseq_platform/__init__.py", '__version__ = "0.8.1"', '__version__ = "0.8.2"')
+          replace_exact("CITATION.cff", "version: 0.8.1", "version: 0.8.2")
+          replace_exact(
+              "desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj",
+              "<Version>0.8.1</Version>",
+              "<Version>0.8.2</Version>",
+          )
+          replace_exact(
+              "desktop/ONTSeq.Desktop/Version.cs",
+              'CoreValue = "0.8.1"',
+              'CoreValue = "0.8.2"',
+          )
+
+          lock = ROOT / "uv.lock"
+          text = lock.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r'(\[\[package\]\]\nname = "ontseq-platform"\nversion = ")0\.8\.1('
+              r'"\nsource = \{ editable = "\." \})'
+          )
+          text, count = pattern.subn(r'\g<1>0.8.2\g<2>', text, count=1)
+          if count != 1:
+              raise SystemExit(
+                  "uv.lock: expected exactly one editable ontseq-platform 0.8.1 block, "
+                  f"found {count}"
+              )
+          lock.write_text(text, encoding="utf-8")
+
+          replace_exact(
+              "desktop/desktop.settings.example.json",
+              "resources-v0.8.1",
+              "resources-v0.8.2",
+          )
+
+          replace_exact(
+              "desktop/README.md",
+              "Current engineering build: Desktop/Core v0.8.1.",
+              "Current engineering build: Desktop/Core v0.8.2.",
+          )
+          replace_exact("desktop/README.md", "## v0.8.1 user path", "## v0.8.2 user path")
+          replace_exact("desktop/README.md", "runtime-v0.8.1", "runtime-v0.8.2")
+          replace_exact("desktop/README.md", "resources-v0.8.1", "resources-v0.8.2")
+          replace_exact("desktop/README.md", "Core v0.7.1 wheel", "Core v0.8.2 wheel")
+
+          replace_exact(
+              "desktop/ONTSeq.Desktop/README.txt",
+              "ONTSeq Desktop v0.7.1 engineering shell",
+              "ONTSeq Desktop v0.8.2 engineering shell",
+          )
+          replace_exact(
+              "desktop/ONTSeq.Desktop/README.txt",
+              "resources-v0.8.1",
+              "resources-v0.8.2",
+          )
+
+          replace_exact(
+              "desktop/README-FIRST-RUN.md",
+              "ONTSeq Desktop v0.8.1",
+              "ONTSeq Desktop v0.8.2",
+          )
+          replace_exact(
+              "desktop/README-FIRST-RUN.md",
+              "ontseq-desktop-v0.8.1-win-x64-setup-engineering",
+              "ontseq-desktop-v0.8.2-win-x64-setup-engineering",
+          )
+          replace_exact("desktop/README-FIRST-RUN.md", "Core v0.7.1", "Core v0.8.2")
+          replace_exact("desktop/README-FIRST-RUN.md", "resources-v0.8.1", "resources-v0.8.2")
+
+          for path in (
+              "desktop/ISOLATED-TESTING.md",
+              "docs/DESKTOP_FIRST_RUN.md",
+              "docs/DESKTOP_API_CONTRACT.md",
+              "docs/REFERENCE_SYSTEM.md",
+          ):
+              replace_exact(path, "resources-v0.8.1", "resources-v0.8.2")
+          replace_exact("desktop/ISOLATED-TESTING.md", "runtime-v0.8.1", "runtime-v0.8.2")
+          replace_exact(
+              "docs/DESKTOP_FIRST_RUN.md",
+              "ONTSeq Desktop v0.8.1",
+              "ONTSeq Desktop v0.8.2",
+          )
+
+          for path in (
+              "schemas/methylation-holdout-readiness.schema.json",
+              "schemas/methylation-validation-readiness.schema.json",
+          ):
+              replace_exact(path, '"default": "0.8.1"', '"default": "0.8.2"')
+
+          desktop_changelog = ROOT / "desktop/ONTSeq.Desktop/CHANGELOG.md"
+          text = desktop_changelog.read_text(encoding="utf-8")
+          marker = "# ONTSeq Desktop changelog\n\n"
+          section = (
+              "## 0.8.2-engineering — 2026-09-11\n\n"
+              "- Repair the Windows engineering bundle so `runtime/` contains the pinned base runtime,\n"
+              "  the matching Core wheel, and `SHA256SUMS` exactly as the installer requires.\n"
+              "- Verify both runtime payload hashes before publishing the Desktop artifact and add a\n"
+              "  dedicated CI contract that fails if an installer input is omitted again.\n"
+              "- Correct stale current-run documentation that still named Core v0.7.1.\n"
+              "- No caller thresholds, reference bundles, biological algorithms or reportability rules change.\n\n"
+          )
+          if marker not in text:
+              raise SystemExit("desktop changelog header not found")
+          if "## 0.8.2-engineering" not in text:
+              desktop_changelog.write_text(text.replace(marker, marker + section, 1), encoding="utf-8")
+
+          changelog = ROOT / "CHANGELOG.md"
+          text = changelog.read_text(encoding="utf-8")
+          marker = (
+              "All notable changes to this research software are recorded here. The project has no clinically\n"
+              "validated release.\n\n"
+          )
+          section = (
+              "## 0.8.2 — 2026-09-11\n\n"
+              "### Fixed\n\n"
+              "- Repair the Windows engineering bundle: include the matching Core wheel and `SHA256SUMS`\n"
+              "  beside the pinned Linux/R runtime instead of publishing only the runtime tarball.\n"
+              "- Verify the runtime archive and Core wheel against the packaged SHA-256 manifest before\n"
+              "  artifact upload, and fail CI if any installer input is missing.\n"
+              "- Add a dedicated Desktop bundle-contract regression and correct stale current operator\n"
+              "  documentation that still referred to Core v0.7.1.\n\n"
+              "### Validation impact\n\n"
+              "- Packaging/integrity behavior changes only. CNV/SV/methylation algorithms, thresholds,\n"
+              "  reference/panel content and reportability semantics are unchanged. This remains an\n"
+              "  unsigned Research Use Only engineering build, not an analytically validated release.\n\n"
+          )
+          if marker not in text:
+              raise SystemExit("root changelog introduction not found")
+          if "## 0.8.2 —" not in text:
+              changelog.write_text(text.replace(marker, marker + section, 1), encoding="utf-8")
+
+          readme = ROOT / "README.md"
+          text = readme.read_text(encoding="utf-8")
+          old_status = "Python-Core und Desktop: `0.8.1` (lokaler Engineering-Kandidat vom 2026-09-09)."
+          new_status = "Python-Core und Desktop: `0.8.2` (lokaler Engineering-Kandidat vom 2026-09-11)."
+          if old_status not in text:
+              raise SystemExit("README current development-status line not found")
+          readme.write_text(text.replace(old_status, new_status, 1), encoding="utf-8")
+
+          validation = ROOT / "docs/CLINICAL_VALIDATION.md"
+          text = validation.read_text(encoding="utf-8")
+          anchor = (
+              "The software is a research prototype. No output is validated for diagnosis, prognosis,\n"
+              "treatment selection or patient release.\n\n"
+          )
+          note = (
+              "### 0.8.2 Desktop packaging repair impact, 2026-09-11\n\n"
+              "The Windows engineering bundle now carries the exact three installer inputs already required\n"
+              "by the Desktop contract: the pinned base runtime, the matching Core wheel and their SHA-256\n"
+              "manifest. CI verifies presence and hashes before artifact publication. This repairs deployment\n"
+              "integrity only; analytical code, caller parameters, reference bundles, biological thresholds and\n"
+              "reportability semantics are unchanged. Existing 0.8.1 Windows artifacts missing these files are\n"
+              "not installable and must not be repaired by inventing checksums locally.\n\n"
+          )
+          if anchor not in text:
+              raise SystemExit("clinical validation current-classification anchor not found")
+          if "### 0.8.2 Desktop packaging repair impact" not in text:
+              validation.write_text(text.replace(anchor, anchor + note, 1), encoding="utf-8")
+          PY
+          git diff --check
+      - name: Commit non-workflow 0.8.2 release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml uv.lock src/ontseq_platform/__init__.py CITATION.cff \
+            desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj desktop/ONTSeq.Desktop/Version.cs \
+            desktop/desktop.settings.example.json desktop/ONTSeq.Desktop/CHANGELOG.md \
+            desktop/README.md desktop/ONTSeq.Desktop/README.txt desktop/README-FIRST-RUN.md \
+            desktop/ISOLATED-TESTING.md docs/DESKTOP_FIRST_RUN.md \
+            docs/DESKTOP_API_CONTRACT.md docs/REFERENCE_SYSTEM.md \
+            schemas/methylation-holdout-readiness.schema.json \
+            schemas/methylation-validation-readiness.schema.json \
+            CHANGELOG.md README.md docs/CLINICAL_VALIDATION.md
+          git commit -m "chore(release): bump non-workflow surfaces to 0.8.2"
+          git push origin HEAD:fix/desktop-bundle-0.8.2-active
