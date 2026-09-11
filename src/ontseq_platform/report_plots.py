@@ -297,3 +297,129 @@ def read_length_histogram_svg(
     parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
     parts.append("</svg>")
     return "".join(parts)
+
+
+@dataclass(frozen=True)
+class CnvChromosomeBar:
+    """One chromosome's normalized multi-bin copy-number consensus."""
+
+    chromosome: str
+    median_cn: float
+    min_cn: float
+    max_cn: float
+    rounded_cn: int
+
+
+def cnv_genome_svg(
+    chromosomes: Sequence[CnvChromosomeBar],
+    *,
+    title: str,
+    baseline: float,
+) -> str:
+    """Median copy number per chromosome with min–max whiskers, as inline SVG.
+
+    Values come verbatim from the normalized QDNAseq/ACE report: the bar is the
+    chromosome-level median across bin sizes, the whisker is its min–max range,
+    and ``baseline`` is the fitted ACE ploidy drawn as a dashed reference. A
+    median of zero is a measured value and stays visible as a flat marker. An
+    empty input renders as an empty string, so the caller omits the figure.
+    """
+    if not chromosomes:
+        return ""
+    for item in chromosomes:
+        values = (item.median_cn, item.min_cn, item.max_cn)
+        if (
+            any(
+                not isinstance(value, int | float) or isinstance(value, bool)
+                for value in values
+            )
+            or any(not math.isfinite(value) for value in values)
+            or item.min_cn < 0
+            or item.min_cn > item.median_cn
+            or item.median_cn > item.max_cn
+            or not isinstance(item.rounded_cn, int)
+            or isinstance(item.rounded_cn, bool)
+            or item.rounded_cn < 0
+        ):
+            raise ValueError("A CNV chromosome bar is not numeric/valid")
+    if not isinstance(baseline, int | float) or isinstance(baseline, bool):
+        raise ValueError("The CNV baseline must be numeric")
+    if not math.isfinite(baseline) or baseline <= 0:
+        raise ValueError("The CNV baseline must be a positive finite value")
+    ordered = sorted(chromosomes, key=lambda item: chromosome_sort_key(item.chromosome))
+    y_max = _nice_ceiling(max(max(item.max_cn for item in ordered), baseline, 1.0))
+    plot_right = _WIDTH - _RIGHT
+    plot_bottom = _HEIGHT - 56
+    span = plot_bottom - _TOP
+    count = len(ordered)
+    slot = (plot_right - _LEFT) / count
+    bar_width = max(2.0, min(28.0, slot * 0.55))
+
+    def y_of(value: float) -> float:
+        return plot_bottom - span * (value / y_max)
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {_WIDTH} {_HEIGHT}" role="img" '
+        f'aria-label="{html.escape(title)}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block">',
+        f"<title>{html.escape(title)}</title>",
+    ]
+    for fraction, label_value in ((0.0, "0"), (0.5, f"{y_max / 2:g}"), (1.0, f"{y_max:g}")):
+        y = plot_bottom - span * fraction
+        parts.append(
+            f'<line x1="{_LEFT}" y1="{y:.1f}" x2="{plot_right}" y2="{y:.1f}" '
+            f'stroke="{_GRID}" stroke-width="1"/>'
+        )
+        parts.append(_text(_LEFT - 8, y + 3.5, label_value, anchor="end"))
+    baseline_y = y_of(baseline)
+    parts.append(
+        f'<line x1="{_LEFT}" y1="{baseline_y:.1f}" x2="{plot_right}" y2="{baseline_y:.1f}" '
+        f'stroke="{_REFERENCE}" stroke-width="1" stroke-dasharray="5 4"/>'
+    )
+    parts.append(
+        _text(
+            plot_right - 4,
+            baseline_y - 4,
+            f"fitted ploidy {baseline:g}",
+            anchor="end",
+            color=_REFERENCE,
+            size=9,
+        )
+    )
+    for index, item in enumerate(ordered):
+        center = _LEFT + slot * (index + 0.5)
+        tooltip = (
+            f"{html.escape(item.chromosome)} · median CN {item.median_cn:.3f} · "
+            f"rounded {item.rounded_cn} · range {item.min_cn:.3f}–{item.max_cn:.3f}"
+        )
+        parts.append(
+            f'<line x1="{center:.2f}" y1="{y_of(item.max_cn):.2f}" '
+            f'x2="{center:.2f}" y2="{y_of(item.min_cn):.2f}" '
+            f'stroke="{_INK}" stroke-width="1"/>'
+        )
+        for cap_value in (item.min_cn, item.max_cn):
+            parts.append(
+                f'<line x1="{center - 3:.2f}" y1="{y_of(cap_value):.2f}" '
+                f'x2="{center + 3:.2f}" y2="{y_of(cap_value):.2f}" '
+                f'stroke="{_INK}" stroke-width="1"/>'
+            )
+        if item.median_cn == 0:
+            # A measured zero median stays visible instead of vanishing.
+            parts.append(
+                f'<rect x="{center - bar_width / 2:.2f}" y="{plot_bottom - 2:.2f}" '
+                f'width="{bar_width:.2f}" height="2" fill="{_ACCENT_SOFT}">'
+                f"<title>{tooltip} (measured zero)</title></rect>"
+            )
+        else:
+            parts.append(
+                f'<rect x="{center - bar_width / 2:.2f}" y="{y_of(item.median_cn):.2f}" '
+                f'width="{bar_width:.2f}" '
+                f'height="{plot_bottom - y_of(item.median_cn):.2f}" fill="{_ACCENT}">'
+                f"<title>{tooltip}</title></rect>"
+            )
+        parts.append(_text(center, plot_bottom + 14, item.chromosome, size=8))
+    parts.append(
+        _text(_LEFT, _TOP - 6, "median copy number per chromosome", anchor="start", size=9)
+    )
+    parts.append("</svg>")
+    return "".join(parts)
