@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows.Media;
 
 namespace ONTSeq.Desktop;
 
@@ -638,6 +639,16 @@ public sealed class ServiceLaunchScopeMismatchException : InvalidOperationExcept
 
 public sealed record StageDisplay(string Title, string Status, string Reason)
 {
+    // Timeline colors mirror the portable report's status semantics: NO_CALL stays
+    // neutral amber, NOT_RUN neutral gray; only FAILED is red, and a stage that has
+    // not reported yet stays hollow.
+    private static readonly Brush CompletedBrush = FrozenBrush("#2E7D5B");
+    private static readonly Brush NoCallBrush = FrozenBrush("#B26A00");
+    private static readonly Brush FailedBrush = FrozenBrush("#B3261E");
+    private static readonly Brush NotRunBrush = FrozenBrush("#8A93A3");
+    private static readonly Brush RunningBrush = FrozenBrush("#174A6E");
+    private static readonly Brush PendingBrush = FrozenBrush("#9AA4B2");
+
     public string Symbol => Status switch
     {
         "COMPLETED" => "✓",
@@ -647,4 +658,39 @@ public sealed record StageDisplay(string Title, string Status, string Reason)
         "RUNNING" => "●",
         _ => "○"
     };
+
+    public Brush DotFill => Status switch
+    {
+        "COMPLETED" => CompletedBrush,
+        "NO_CALL" => NoCallBrush,
+        "FAILED" => FailedBrush,
+        "NOT_RUN" => NotRunBrush,
+        "RUNNING" => RunningBrush,
+        _ => Brushes.White
+    };
+
+    public Brush DotStroke => Status is "COMPLETED" or "NO_CALL" or "FAILED" or "NOT_RUN" or "RUNNING"
+        ? DotFill
+        : PendingBrush;
+
+    public string StatusCaption => Status switch
+    {
+        "COMPLETED" => "abgeschlossen",
+        "NO_CALL" => "kein verwertbarer Call",
+        "FAILED" => "fehlgeschlagen",
+        "NOT_RUN" => "nicht gelaufen",
+        "RUNNING" => "läuft",
+        _ => "ausstehend"
+    };
+
+    public string NodeToolTip => string.IsNullOrWhiteSpace(Reason)
+        ? $"{Title} · {StatusCaption}"
+        : $"{Title} · {StatusCaption}: {Reason}";
+
+    private static Brush FrozenBrush(string hex)
+    {
+        var brush = (SolidColorBrush)new BrushConverter().ConvertFromInvariantString(hex)!;
+        brush.Freeze();
+        return brush;
+    }
 }

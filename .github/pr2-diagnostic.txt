@@ -1,7 +1,0 @@
-patch_exit=1
-build_exit=999
-test_exit=999
---- log tail ---
-patched desktop/ONTSeq.Desktop/Models.cs
-patched desktop/ONTSeq.Desktop/MainWindow.xaml
-desktop/ONTSeq.Desktop/CHANGELOG.md: expected 1 match, found 0

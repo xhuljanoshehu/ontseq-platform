@@ -29,6 +29,11 @@
 
 ## Unreleased
 
+- Show run progress additionally as a horizontal stage timeline in the Desktop panel:
+  one node per stage with German status caption and tooltip. NO_CALL stays neutral
+  amber, NOT_RUN neutral gray, only FAILED is red, and stages without a report yet
+  stay hollow. Presentation only; stage semantics, provenance and backend status are
+  unchanged.
 - Default new resource installations to `~/.local/share/ontseq/resources-v0.7.1`, derived
   from the same release constant as the Desktop label and runtime installer. Keep saved
   custom roots selected; relocating an existing installation requires an explicit local
