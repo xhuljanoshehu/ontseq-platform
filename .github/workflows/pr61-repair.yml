@@ -1,0 +1,104 @@
+name: Repair PR61 on current main
+
+on:
+  push:
+    branches:
+      - fix/preflight-run-parity-pr58-residuals
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Rebuild conflicted files and repair tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          if [ "$merge_status" -ne 0 ]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            for path in "${conflicts[@]}"; do
+              case "$path" in
+                CHANGELOG.md|src/ontseq_platform/preflight.py)
+                  ;;
+                *)
+                  echo "Unexpected merge conflict: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+          fi
+
+          # Current main is authoritative for files where #62 or later work overlaps.
+          git checkout origin/main -- CHANGELOG.md src/ontseq_platform/preflight.py src/ontseq_platform/runtime_cli.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          preflight = Path("src/ontseq_platform/preflight.py")
+          text = preflight.read_text()
+          old = """    if _measures_targets(request):\n        fatal.add(StageId.TARGET_COVERAGE)\n    return frozenset(fatal)\n"""
+          new = """    if _measures_targets(request):\n        fatal.add(StageId.TARGET_COVERAGE)\n    if _analyses_methylation(request):\n        # Optional in the graph is not optional for a run that explicitly requested it:\n        # the methylation stage fails if modkit cannot execute, so preflight must block too.\n        fatal.add(StageId.METHYLATION)\n    return frozenset(fatal)\n"""
+          if text.count(old) != 1:
+              raise SystemExit("preflight fatal-stage anchor changed unexpectedly")
+          text = text.replace(old, new, 1)
+
+          old = """    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):\n        requirements.append(ToolRequirement(name=\"cutesv\", stages=(StageId.SV,), required=False))\n"""
+          new = """    if (\n        request.cutesv_policy is not None\n        and StageId.SV in planned_stages(request.input_kind)\n        and _analyses_structural_variants(request)\n    ):\n        requirements.append(ToolRequirement(name=\"cutesv\", stages=(StageId.SV,), required=False))\n"""
+          if text.count(old) != 1:
+              raise SystemExit("preflight cuteSV anchor changed unexpectedly")
+          preflight.write_text(text.replace(old, new, 1))
+
+          cli = Path("src/ontseq_platform/runtime_cli.py")
+          text = cli.read_text()
+          old = """    pf = sub.add_parser(\"preflight\", help=\"Check run preconditions without creating output\")\n    _add_execution_options(pf, include_qc=False)\n    pf.add_argument(\"--require-free-gb\", type=float)\n"""
+          new = """    pf = sub.add_parser(\"preflight\", help=\"Check run preconditions without creating output\")\n    _add_execution_options(pf, include_qc=False)\n    _add_cnv_options(pf)\n    pf.add_argument(\"--require-free-gb\", type=float)\n"""
+          if text.count(old) != 1:
+              raise SystemExit("runtime preflight parser anchor changed unexpectedly")
+          text = text.replace(old, new, 1)
+          old = '    if args.command in {"run", "analyze", "serve", "watch"}:\n        _register_cnv(args, selection)\n'
+          new = '    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:\n        _register_cnv(args, selection)\n'
+          if text.count(old) != 1:
+              raise SystemExit("runtime CNV-registration anchor changed unexpectedly")
+          cli.write_text(text.replace(old, new, 1))
+
+          test = Path("tests/test_preflight.py")
+          text = test.read_text()
+          broken = "self.adaptive_request(manifest=manifest)"
+          if text.count(broken) != 2:
+              raise SystemExit("expected exactly two known broken adaptive-BED test calls")
+          test.write_text(text.replace(broken, "self.adaptive_request(manifest=self.adaptive_manifest(bed))"))
+          PY
+
+          # The repair workflow is temporary and must not become part of the PR.
+          git rm .github/workflows/pr61-repair.yml
+          git add -A
+
+          if git diff --cached --check; then
+            echo "Patch whitespace check passed"
+          else
+            exit 1
+          fi
+
+          python -m pip install --disable-pip-version-check -q -e . pytest ruff mypy
+          ruff check src tests
+          mypy src
+          pytest -q tests/test_preflight.py tests/test_cli_surface.py tests/test_mvp.py
+
+          git commit -m "fix: rebuild PR61 parity changes on current main"
+          git push origin HEAD:fix/preflight-run-parity-pr58-residuals
