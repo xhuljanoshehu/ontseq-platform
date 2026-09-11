@@ -637,7 +637,8 @@ public sealed class ServiceLaunchScopeMismatchException : InvalidOperationExcept
     }
 }
 
-public sealed record StageDisplay(string Title, string Status, string Reason)
+public sealed record StageDisplay(string Title, string Status, string Reason,
+    double? DurationSeconds = null)
 {
     // Timeline colors mirror the portable report's status semantics: NO_CALL stays
     // neutral amber, NOT_RUN neutral gray; only FAILED is red, and a stage that has
@@ -683,9 +684,20 @@ public sealed record StageDisplay(string Title, string Status, string Reason)
         _ => "ausstehend"
     };
 
+    // Persisted stage duration, rendered compactly in German locale. An absent
+    // or negative duration stays empty rather than displaying a placeholder value.
+    public string DurationText => DurationSeconds is not double seconds || seconds < 0
+        ? ""
+        : seconds < 60
+            ? $"{seconds:0.0} s"
+            : $"{(int)seconds / 60} min {(int)seconds % 60:00} s";
+
     public string NodeToolTip => string.IsNullOrWhiteSpace(Reason)
-        ? $"{Title} · {StatusCaption}"
-        : $"{Title} · {StatusCaption}: {Reason}";
+        ? $"{Title} · {StatusCaption}{DurationSuffix}"
+        : $"{Title} · {StatusCaption}{DurationSuffix}: {Reason}";
+
+    private string DurationSuffix =>
+        DurationText.Length == 0 ? "" : $" · {DurationText}";
 
     private static Brush FrozenBrush(string hex)
     {

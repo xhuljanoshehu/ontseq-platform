@@ -29,6 +29,10 @@
 
 ## Unreleased
 
+- Show each stage's measured duration (persisted `duration_seconds` provenance) next
+  to its status in the run list and in the timeline tooltips; absent durations stay
+  empty instead of showing a placeholder. Presentation only; no backend, contract
+  or provenance change.
 - Show run progress additionally as a horizontal stage timeline in the Desktop panel:
   one node per stage with German status caption and tooltip. NO_CALL stays neutral
   amber, NOT_RUN neutral gray, only FAILED is red, and stages without a report yet

@@ -162,12 +162,14 @@
                                         <ColumnDefinition Width="32" />
                                         <ColumnDefinition Width="230" />
                                         <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="80" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="{Binding Symbol}" FontWeight="Bold" FontSize="16" />
                                     <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="2" Text="{Binding Status}" Foreground="#4F6073" />
-                                    <TextBlock Grid.Column="3" Text="{Binding Reason}" Foreground="#758294" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding DurationText}" Foreground="#4F6073" ToolTip="{Binding NodeToolTip}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding Reason}" Foreground="#758294" TextTrimming="CharacterEllipsis" ToolTip="{Binding Reason}" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
