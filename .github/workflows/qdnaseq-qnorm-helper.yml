@@ -1,0 +1,71 @@
+name: Repair PR65 qnorm sentinel
+
+on:
+  push:
+    branches:
+      - repair/qdnaseq-qnorm-pr65
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Repair qnorm sentinel and push PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          test = Path("tests/test_qdnaseq_coordinates.py")
+          text = test.read_text(encoding="utf-8")
+          anchor = '''    def test_non_finite_numeric_fields_fail_closed(self) -> None:\n'''
+          addition = '''    def test_negative_infinite_qnorm_is_preserved_without_infinite_quality(self) -> None:\n        with tempfile.TemporaryDirectory() as raw:\n            path = Path(raw) / "segments.tsv"\n            path.write_text(\n                "chromosome\\tstart\\tend\\tbin_count\\tabsolute_copy_number\\tcall\\tqnorm_log10\\tcoordinate_system\\n"\n                "chr7\\t0\\t500\\t1\\t1\\t-1\\t-Inf\\tzero_based_half_open\\n"\n            )\n            events, warnings = _events_from_primary_segments(\n                path,\n                sample_id="SYNTH",\n                fit=_fit(),\n                tools=[],\n                reference_lock=_lock(),\n                minimum_segment_bins=1,\n                whole_chromosome_fraction=0.9,\n                consensus={},\n            )\n            self.assertFalse(warnings)\n            self.assertEqual(len(events), 1)\n            self.assertIsNone(events[0].evidence[0].quality)\n            self.assertTrue(any("qnorm_log10=-Inf" in note for note in events[0].notes))\n\n''' + anchor
+          if text.count(anchor) != 1:
+              raise SystemExit("QDNAseq non-finite test anchor changed unexpectedly")
+          test.write_text(text.replace(anchor, addition, 1), encoding="utf-8")
+          PY
+
+          python -m pip install --disable-pip-version-check -q -e . pytest
+          set +e
+          pytest -q tests/test_qdnaseq_coordinates.py -k negative_infinite_qnorm
+          red_status=$?
+          set -e
+          if [ "$red_status" -eq 0 ]; then
+            echo "qnorm sentinel regression unexpectedly passed before fix" >&2
+            exit 1
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+
+          src = Path("src/ontseq_platform/cnv/qdnaseq.py")
+          text = src.read_text(encoding="utf-8")
+          old = '''        quality = None\n        if row.get("qnorm_log10") not in {None, ""}:\n            quality = abs(_float(row, "qnorm_log10"))\n        events.append(\n'''
+          new = '''        quality = None\n        raw_qnorm = row.get("qnorm_log10")\n        if raw_qnorm not in {None, ""}:\n            try:\n                qnorm_log10 = float(raw_qnorm)\n            except (TypeError, ValueError) as exc:\n                raise ValueError(\n                    f"invalid numeric value for qnorm_log10: {raw_qnorm!r}"\n                ) from exc\n            if math.isnan(qnorm_log10) or qnorm_log10 == math.inf:\n                raise ValueError(f"invalid qnorm_log10 value: {raw_qnorm!r}")\n            if qnorm_log10 == -math.inf:\n                # ACE emits -Inf when this probability reaches zero or underflows R's\n                # finite range. Preserve the sentinel in provenance, but never expose\n                # +Inf through the generic reviewer-facing Evidence.quality field.\n                notes.append(\n                    "ACE qnorm_log10=-Inf (zero/underflow sentinel); no finite normalized "\n                    "quality score is available for this segment."\n                )\n            else:\n                quality = abs(qnorm_log10)\n        events.append(\n'''
+          if text.count(old) != 1:
+              raise SystemExit("QDNAseq qnorm normalization anchor changed unexpectedly")
+          src.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+          python -m pip install --disable-pip-version-check -q ruff mypy types-PyYAML types-openpyxl
+          ruff format src/ontseq_platform/cnv/qdnaseq.py tests/test_qdnaseq_coordinates.py
+          ruff check .
+          ruff format --check .
+          mypy src
+          pytest -q tests/test_qdnaseq_coordinates.py tests/test_qdnaseq_runtime.py
+
+          rm -f .github/workflows/qdnaseq-qnorm-repair.yml .github/workflows/qdnaseq-qnorm-helper.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve QDNAseq qnorm underflow sentinel safely"
+          git push origin HEAD:fix/qdnaseq-parser-numeric-invariants
