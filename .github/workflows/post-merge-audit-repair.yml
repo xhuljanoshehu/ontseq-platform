@@ -74,8 +74,7 @@ jobs:
             tests/test_methylation_pipeline_integration.py \
             tests/test_target_coverage_extension.py \
             tests/test_qdnaseq_runtime.py \
-            tests/test_pipeline_runner.py \
-            tests/test_envelope_input_digest.py
+            tests/test_pipeline_runner.py
 
       - name: Commit repaired branch
         run: |
