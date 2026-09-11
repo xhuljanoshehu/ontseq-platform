@@ -1,0 +1,169 @@
+name: One-shot report-plot wiring
+
+on:
+  push:
+    branches:
+      - feat/report-coverage-plots
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install package with dev tools
+        run: python -m pip install -e '.[dev]'
+      - name: Patch, verify, commit
+        shell: bash
+        run: |
+          set -uo pipefail
+          LOG=/tmp/pr1-wire.log
+          python - <<'PYEOF' > "$LOG" 2>&1
+          from pathlib import Path
+
+          def patch(path, replacements):
+              p = Path(path)
+              data = p.read_bytes()
+              nl = '\r\n' if b'\r\n' in data else '\n'
+              for old_s, new_s in replacements:
+                  old = old_s.replace('\n', nl).encode('utf-8')
+                  new = new_s.replace('\n', nl).encode('utf-8')
+                  if data.count(old) != 1:
+                      raise SystemExit(f'{path}: expected 1 match, found {data.count(old)}')
+                  data = data.replace(old, new, 1)
+              p.write_bytes(data)
+              print(f'patched {path}')
+
+          patch('src/ontseq_platform/report_sections.py', [
+              (
+                  '''from .report_formatting import cell as _cell
+          from .report_formatting import optional_number
+          from .reporting import (
+          ''',
+                  '''from .report_formatting import cell as _cell
+          from .report_formatting import optional_number
+          from .report_plots import CoverageBar, coverage_depth_svg
+          from .reporting import (
+          ''',
+              ),
+              (
+                  '''def coverage_section(
+              target: TargetCoverageReport | None, selection: TargetCoverageReport | None
+          ) -> str:
+          ''',
+                  '''def _coverage_figure(report: TargetCoverageReport, label: str) -> str:
+              """Bar plot of the report's own per-target means; nothing is recomputed here."""
+              bars = [
+                  CoverageBar(
+                      region_id=region.region_id,
+                      chromosome=region.chromosome,
+                      start=region.start,
+                      mean_depth=region.mean_depth,
+                  )
+                  for region in report.regions
+              ]
+              reference_depths = [value for value in report.policy.thresholds if value >= 10]
+              svg = coverage_depth_svg(
+                  bars,
+                  title=f"{label}: per-target mean depth",
+                  reference_depths=reference_depths,
+              )
+              if not svg:
+                  return ""
+              labels = "/".join(f"{value}×" for value in reference_depths) or "no"
+              caption = (
+                  f"{_cell(label)}: mean depth per target in genome order; dashed lines mark the "
+                  f"coverage policy's descriptive {labels} bins. A rendering of the normalized "
+                  "values only — descriptive technical evidence, not an adequacy or reportability "
+                  "assessment."
+              )
+              return (
+                  "<figure class='plot' style='margin:14px 0'>"
+                  + svg
+                  + f"<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>{caption}"
+                  "</figcaption></figure>"
+              )
+
+
+          def coverage_section(
+              target: TargetCoverageReport | None, selection: TargetCoverageReport | None
+          ) -> str:
+          ''',
+              ),
+              (
+                  '''        pieces.append(
+                      f"<h3>{label}</h3><p>Role: {_cell(report.target_bed_role.value)}; "
+                      f"design: {_cell(report.target_bed_version)}; status: {_cell(report.status.value)}</p>"
+                  )
+          ''',
+                  '''        pieces.append(
+                      f"<h3>{label}</h3><p>Role: {_cell(report.target_bed_role.value)}; "
+                      f"design: {_cell(report.target_bed_version)}; status: {_cell(report.status.value)}</p>"
+                  )
+                  figure = _coverage_figure(report, label)
+                  if figure:
+                      pieces.append(figure)
+          ''',
+              ),
+          ])
+
+          patch('CHANGELOG.md', [
+              (
+                  '''## Unreleased
+
+          ### Fixed
+          ''',
+                  '''## Unreleased
+
+          ### Added
+
+          - Render the coverage section's per-target mean depth as a deterministic inline-SVG bar
+            plot in the portable HTML report: genome order, dashed reference lines at the coverage
+            policy's descriptive ≥10× bins, and measured-zero targets drawn as visible flat markers
+            rather than missing bars. Pure presentation of the already-normalized target-coverage
+            report — no value is recomputed, no JavaScript or CDN reference is added, and the
+            portable report stays offline and checksummed. No caller, threshold, normalization,
+            contract or reportability change.
+
+          ### Fixed
+          ''',
+              ),
+          ])
+          PYEOF
+          patch_status=$?
+          verify_status=0
+          if [ $patch_status -eq 0 ]; then
+            {
+              ruff format src/ontseq_platform/report_plots.py src/ontseq_platform/report_sections.py tests/test_report_plots.py &&
+              ruff check . &&
+              ruff format --check . &&
+              python -m pytest -q
+            } >> "$LOG" 2>&1
+            verify_status=$?
+          fi
+          if [ $patch_status -eq 0 ] && [ $verify_status -eq 0 ]; then
+            rm .github/workflows/pr1-wire.yml
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git diff --cached --check
+            git commit -m 'feat(report): render per-target coverage as inline SVG'
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            git checkout -- .
+            rm -f .github/workflows/pr1-wire.yml
+            { echo "patch_exit=$patch_status"; echo "verify_exit=$verify_status"; echo '--- log tail ---'; tail -n 150 "$LOG"; } > .github/pr1-diagnostic.txt
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m 'ci: record report-plot wiring diagnostic'
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+          exit 0
