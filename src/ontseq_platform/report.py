@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from .models import PipelineResult
 from .report_formatting import cell as _cell
 from .report_formatting import tool_parameters
+from .report_plots import ReadLengthBin, read_length_histogram_svg
 from .report_sections import coverage_section, iscn_details, resource_details, sv_details
 from .report_view import AnnotationView, EventView, ReportView, build_report_view
 from .target_coverage import TargetCoverageReport, validate_report_coverage
@@ -229,12 +231,34 @@ def _checksum_rows(view: ReportView) -> str:
     )
 
 
+def _qc_histogram_figure(bins: Sequence[ReadLengthBin] | None, view: ReportView) -> str:
+    """Read-length distribution from the normalized Cramino histogram sidecar."""
+    if not bins:
+        return ""
+    n50 = next((value for key, value in view.qc_metrics if key == "n50_bp"), None)
+    svg = read_length_histogram_svg(
+        bins,
+        title="Read length distribution",
+        n50_bp=n50 if isinstance(n50, int) and not isinstance(n50, bool) else None,
+    )
+    if not svg:
+        return ""
+    return (
+        "<figure class='plot' style='margin:14px 0'>"
+        + svg
+        + "<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>Read length "
+        "distribution from the normalized Cramino histogram; the dashed line marks N50. "
+        "Descriptive technical evidence, not an adequacy assessment.</figcaption></figure>"
+    )
+
+
 def render_html(
     result: PipelineResult,
     output_path: Path,
     *,
     target_coverage: TargetCoverageReport | None = None,
     selection_coverage: TargetCoverageReport | None = None,
+    qc_histogram: Sequence[ReadLengthBin] | None = None,
 ) -> Path:
     validate_report_coverage(result, target_coverage, selection_coverage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +268,7 @@ def render_html(
         f"<div><span>{_cell(_metric_name(key))}</span><strong>{_optional(value)}</strong></div>"
         for key, value in view.qc_metrics
     )
+    qc_histogram_figure = _qc_histogram_figure(qc_histogram, view)
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -469,7 +494,7 @@ def render_html(
           <div class="identity">{metric_cards}</div>
           <div class="table-wrap"><table><caption>Normalized QC metrics</caption>
             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-            <tbody>{_qc_rows(view)}</tbody></table></div>{_failed_gates(view)}
+            <tbody>{_qc_rows(view)}</tbody></table></div>{qc_histogram_figure}{_failed_gates(view)}
         </section>
         {coverage_section(target_coverage, selection_coverage)}
         {sv_details(result)}

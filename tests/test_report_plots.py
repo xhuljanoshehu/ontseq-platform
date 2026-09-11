@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
+from ontseq_platform.demo import build_demo_result
 from ontseq_platform.models import (
     FileFingerprint,
     GenomeBuild,
     ModuleRunStatus,
     ToolRecord,
 )
-from ontseq_platform.report_plots import CoverageBar, chromosome_sort_key, coverage_depth_svg
+from ontseq_platform.qc import read_length_histogram_from_tsv
+from ontseq_platform.report import render_html
+from ontseq_platform.report_plots import (
+    CoverageBar,
+    ReadLengthBin,
+    chromosome_sort_key,
+    coverage_depth_svg,
+    read_length_histogram_svg,
+)
 from ontseq_platform.report_sections import coverage_section
 from ontseq_platform.target_coverage import (
     TargetCoveragePolicy,
@@ -166,6 +177,76 @@ class CoverageSectionPlotTests(unittest.TestCase):
         document = coverage_section(None, None)
         self.assertNotIn("<svg", document)
         self.assertIn("Coverage is not assessed.", document)
+
+
+class ReadLengthHistogramTsvTests(unittest.TestCase):
+    def test_roundtrip_parse(self) -> None:
+        text = "start_bp\tend_bp\tread_count\tbase_count\n0\t1000\t50\t40000\n1000\t\t12\t36000\n"
+        self.assertEqual(
+            read_length_histogram_from_tsv(text),
+            [(0, 1000, 50, 40000), (1000, None, 12, 36000)],
+        )
+
+    def test_empty_text_parses_to_no_bins(self) -> None:
+        self.assertEqual(read_length_histogram_from_tsv(""), [])
+
+    def test_malformed_rows_fail_closed(self) -> None:
+        with self.assertRaises(ValueError):
+            read_length_histogram_from_tsv("wrong\theader\n")
+        with self.assertRaises(ValueError):
+            read_length_histogram_from_tsv(
+                "start_bp\tend_bp\tread_count\tbase_count\n0\t100\t-1\t0\n"
+            )
+        with self.assertRaises(ValueError):
+            read_length_histogram_from_tsv("start_bp\tend_bp\tread_count\tbase_count\n0\tx\t1\t0\n")
+
+
+class ReadLengthHistogramSvgTests(unittest.TestCase):
+    def test_empty_renders_nothing(self) -> None:
+        self.assertEqual(read_length_histogram_svg([], title="empty"), "")
+
+    def test_output_is_deterministic_and_wellformed(self) -> None:
+        bins = [
+            ReadLengthBin(0, 1000, 50, 40000),
+            ReadLengthBin(1000, 2000, 120, 180000),
+            ReadLengthBin(2000, None, 30, 90000),
+        ]
+        first = read_length_histogram_svg(bins, title="t", n50_bp=1500)
+        self.assertEqual(first, read_length_histogram_svg(bins, title="t", n50_bp=1500))
+        ET.fromstring(first)
+
+    def test_n50_marker_and_open_bin_are_drawn(self) -> None:
+        bins = [ReadLengthBin(0, 1000, 50, 40000), ReadLengthBin(1000, None, 30, 90000)]
+        svg = read_length_histogram_svg(bins, title="t", n50_bp=800)
+        self.assertIn("N50", svg)
+        self.assertIn("open", svg)
+
+    def test_invalid_bins_are_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            read_length_histogram_svg([ReadLengthBin(0, 1000, -1, 0)], title="t")
+        with self.assertRaises(ValueError):
+            read_length_histogram_svg([ReadLengthBin(1000, 500, 1, 10)], title="t")
+
+
+class ReportHistogramIntegrationTests(unittest.TestCase):
+    def test_render_html_includes_the_histogram_when_supplied(self) -> None:
+        result = build_demo_result()
+        bins = [
+            ReadLengthBin(0, 1000, 50, 40000),
+            ReadLengthBin(1000, 2000, 120, 180000),
+            ReadLengthBin(2000, None, 30, 90000),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_html(result, Path(temporary) / "report.html", qc_histogram=bins)
+            document = path.read_text(encoding="utf-8")
+        self.assertIn("Read length distribution", document)
+
+    def test_render_html_without_histogram_renders_no_figure(self) -> None:
+        result = build_demo_result()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_html(result, Path(temporary) / "report.html")
+            document = path.read_text(encoding="utf-8")
+        self.assertNotIn("Read length distribution", document)
 
 
 if __name__ == "__main__":
