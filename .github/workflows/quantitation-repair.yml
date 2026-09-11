@@ -73,8 +73,8 @@ jobs:
           src.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
 
-          git rm .github/workflows/quantitation-repair.yml
-          git add src/ontseq_platform/quantitation.py tests/test_quantitation.py .github/workflows/quantitation-repair.yml
+          rm -f .github/workflows/quantitation-repair.yml
+          git add -A
           git diff --cached --check
 
           python -m pip install --disable-pip-version-check -q ruff mypy types-PyYAML types-openpyxl
