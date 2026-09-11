@@ -58,6 +58,11 @@ validated release.
   metrics. The sidecar parser fails closed on malformed rows; runs without histogram
   output render no figure. Presentation only: no metric, gate, contract or
   reportability change.
+- Render a deterministic genome-wide copy-number overview in the CNV section: median
+  copy number per chromosome from the multi-bin consensus with min–max whiskers and
+  the fitted ACE ploidy as the dashed reference, next to the retained ACE PNG panels.
+  Pure presentation of the normalized QDNAseq/ACE report; no fit, threshold, contract
+  or reportability change.
 
 ### Fixed
 
@@ -549,7 +554,7 @@ The following methylation development changes are included in this integration:
 - Native GRCh37.p13 / GENCODE 19 reference family and an explicit lcWGS profile, isolated
   from the existing four GRCh38 profiles. Native GRCh37 annotations deliberately have no MANE.
 - Explicit `AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` profile for ordered BAM dictionaries
-  containing exactly `chr1`-`chr22`, `chrX`, `chrY` and UCSC hg19 `chrM=16571`.
+  containing exactly `chr1`-`chr22`, `chrX`, `chrY` and `chrM`: `AML_LCWGS_GRCh38_CANONICAL25`.
 - Build-bound gene/transcript/cytoband cache consumption in SV and CNV annotation.
 - A separately versioned coordinate-free GRCh37 hematology review bundle, preserving the
   original source scope and without transferring GRCh38 coordinates or target coverage.
@@ -898,7 +903,7 @@ analytical or clinical validation.
   GRCh37/hg19 resources.
 - A canonical real-tool GRCh38 CI gate that exercises 100/500/1000-kbp QDNAseq + ACE,
   verifies the expected synthetic chromosome 7 loss and chromosome 8 gain, checks the
-  generated HTML/XLSX/JSON artifacts and proves content-addressed resume.
+  generated HTML/XLSX/JSON artifacts and proves content-addressable resume.
 
 ### Changed
 
