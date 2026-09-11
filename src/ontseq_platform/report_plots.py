@@ -58,11 +58,12 @@ def _nice_ceiling(value: float) -> float:
     """Smallest 1/2/2.5/5×10^n step ≥ ``value``, so axis maxima stay readable."""
     if not math.isfinite(value) or value <= 0:
         return 1.0
-    magnitude = 10 ** math.floor(math.log10(value))
+    # 10.0 keeps the exponentiation typed (and valued) as float for negative exponents.
+    magnitude = 10.0 ** math.floor(math.log10(value))
     for factor in (1, 2, 2.5, 5, 10):
         if factor * magnitude >= value:
             return factor * magnitude
-    return 10 * magnitude
+    return 10.0 * magnitude
 
 
 def _text(
