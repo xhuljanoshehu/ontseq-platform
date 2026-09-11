@@ -24,7 +24,7 @@ jobs:
           cache: pip
 
       - name: Apply audited fixes
-        run: python scripts/post_merge_audit_apply_v2.py
+        run: python scripts/post_merge_audit_apply_v3.py
 
       - name: Install development dependencies
         run: python -m pip install -e ".[dev,workflow]" pysam
@@ -84,6 +84,7 @@ jobs:
           git rm \
             scripts/post_merge_audit_apply.py \
             scripts/post_merge_audit_apply_v2.py \
+            scripts/post_merge_audit_apply_v3.py \
             .github/workflows/post-merge-audit-repair.yml
           git add -A
           git diff --cached --check
