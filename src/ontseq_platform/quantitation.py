@@ -262,12 +262,23 @@ def cancer_cell_fraction(
         return CancerCellFraction(status=NOT_COPY_NEUTRAL, point=None, interval=None)
     if observation.total_reads < min_depth:
         return CancerCellFraction(status=DEPTH_TOO_LOW, point=None, interval=None)
+    if observation.variant_reads == 0:
+        # Zero observed variant reads provides an upper bound, not evidence that a known
+        # variant occupies exactly zero tumour cells. Keep "not observed" distinct from
+        # a determinate biological fraction.
+        return CancerCellFraction(status=NO_VARIANT_READS, point=None, interval=None)
+
+    scale = 2.0 / tumour_fraction
+    implied = observation.vaf * scale
+    if implied > 1.0:
+        # Clipping this to one would hide that the supplied tumour fraction, copy-neutral
+        # heterozygous model and observed VAF cannot all be true simultaneously.
+        return CancerCellFraction(status=VAF_EXCEEDS_HETEROZYGOUS_MODEL, point=None, interval=None)
 
     band = wilson_interval(observation, confidence=confidence)
-    scale = 2.0 / tumour_fraction
     return CancerCellFraction(
         status=DETERMINABLE,
-        point=min(1.0, observation.vaf * scale),
+        point=implied,
         interval=Interval(low=min(1.0, band.low * scale), high=min(1.0, band.high * scale)),
     )
 
@@ -426,6 +437,13 @@ def copy_number_from_ratio(*, ratio: float, tumour_fraction: float) -> float:
         raise QuantitationError(f"tumour_fraction must be in (0, 1], got {tumour_fraction}")
     if ratio < 0.0:
         raise QuantitationError(f"ratio cannot be negative, got {ratio}")
+    minimum_ratio = 1.0 - tumour_fraction
+    if ratio < minimum_ratio:
+        raise QuantitationError(
+            f"ratio {ratio} is below the physical mixture floor {minimum_ratio} for "
+            f"tumour_fraction={tumour_fraction}; the diploid-normal mixture model would "
+            "require a negative tumour copy number"
+        )
     return (2.0 * ratio - 2.0 * (1.0 - tumour_fraction)) / tumour_fraction
 
 
