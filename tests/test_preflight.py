@@ -609,12 +609,12 @@ class TargetCoverageTests(PreflightCase):
     def test_an_unparseable_target_bed_blocks_the_run(self) -> None:
         """The BED is parsed, not merely stat'ed: a truncated ROI fails the stage."""
         bed = self.target_bed("chr1\t1000\n", name="truncated")
-        found = self.results(self.adaptive_request(manifest=manifest))
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
         self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
 
     def test_a_target_bed_on_a_non_canonical_contig_blocks_the_run(self) -> None:
         bed = self.target_bed("chrUn_GL000220v1\t100\t200\tA\n", name="noncanonical")
-        found = self.results(self.adaptive_request(manifest=manifest))
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
         self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
 
     def test_missing_mosdepth_blocks_an_adaptive_run_rather_than_warning(self) -> None:

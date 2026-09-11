@@ -60,7 +60,7 @@ gzip compressed. Version 0.6.1 is the only accepted extraction release; both the
 model and the command builder enforce it. This is a source-reviewed compatibility pin,
 not an executed-binary validation. The reviewed upstream commit is
 [`481e3c9e7930f3f499eadf1ef441606f33e6881c`](https://github.com/nanoporetech/modkit/tree/481e3c9e7930f3f499eadf1ef441606f33e6881c).
-The separate descriptive pileup policy's existing 0.4.1 pin does not apply to this adapter.
+The separate descriptive pileup policy's 0.6.4 pin does not apply to this adapter.
 In particular, 0.4.1 extract-full tables omit `alignment_start` and `alignment_end` and are
 rejected; the parser does not fabricate those coordinates. Other releases need their own
 schema and executable conformance review before admission.

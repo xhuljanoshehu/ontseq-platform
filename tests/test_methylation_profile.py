@@ -42,7 +42,7 @@ def test_profile_methylation_is_opt_in_with_assay_specific_policy(
     assert config.reference_fasta is not None
     if include:
         assert config.methylation_policy is not None
-        assert config.methylation_policy.expected_version == "0.4.1"
+        assert config.methylation_policy.expected_version == "0.6.4"
         expected = "target_bed" if "AS_111" in profile else "chromosome"
         assert config.methylation_policy.region_source.value == expected
         assert config.methylation_policy.status == "technical_defaults_only"

@@ -50,7 +50,7 @@
           "type": "boolean"
         },
         "expected_version": {
-          "default": "0.4.1",
+          "default": "0.6.4",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
           "title": "Expected Version",
           "type": "string"
@@ -61,13 +61,6 @@
           "minimum": 0,
           "title": "Filter Threshold",
           "type": "number"
-        },
-        "ignored_codes": {
-          "items": {
-            "$ref": "#/$defs/ModificationCode"
-          },
-          "title": "Ignored Codes",
-          "type": "array"
         },
         "minimum_valid_coverage": {
           "default": 5,
@@ -98,8 +91,8 @@
           "default": "chromosome"
         },
         "schema_version": {
-          "const": "0.1.0",
-          "default": "0.1.0",
+          "const": "0.2.0",
+          "default": "0.2.0",
           "title": "Schema Version",
           "type": "string"
         },
@@ -138,10 +131,28 @@
       "additionalProperties": false,
       "description": "One region, one modification code.\n\n``start``/``end`` are present for BED-derived rows and absent for chromosome rows: the\nadapter aggregates the pileup it was given and does not read contig lengths, so it\ncannot honestly claim a chromosome span it never saw.",
       "properties": {
+        "canonical_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Canonical Call Count",
+          "type": "integer"
+        },
         "chromosome": {
           "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
           "title": "Chromosome",
           "type": "string"
+        },
+        "delete_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Delete Call Count",
+          "type": "integer"
+        },
+        "diff_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Diff Call Count",
+          "type": "integer"
         },
         "end": {
           "anyOf": [
@@ -155,6 +166,12 @@
           ],
           "default": null,
           "title": "End"
+        },
+        "fail_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Fail Call Count",
+          "type": "integer"
         },
         "mean_modified_fraction": {
           "anyOf": [
@@ -208,6 +225,18 @@
         "modified_call_count": {
           "minimum": 0,
           "title": "Modified Call Count",
+          "type": "integer"
+        },
+        "nocall_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Nocall Call Count",
+          "type": "integer"
+        },
+        "other_mod_call_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Other Mod Call Count",
           "type": "integer"
         },
         "region_id": {
@@ -366,8 +395,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "0.1.0",
-      "default": "0.1.0",
+      "const": "0.2.0",
+      "default": "0.2.0",
       "title": "Schema Version",
       "type": "string"
     },

@@ -36,6 +36,8 @@ class IncludeBedTests(unittest.TestCase):
                 bed = root / "original.bed"
                 bed.write_text("# synthetic\n1\t0\t30" + tail + "\n", encoding="utf-8")
                 original = bed.read_bytes()
+                fasta = root / "reference.fa"
+                fasta.write_text(">1\nACGT\n", encoding="utf-8")
 
                 class Runner:
                     def __init__(self):
@@ -43,7 +45,7 @@ class IncludeBedTests(unittest.TestCase):
 
                     def run(self, argv, *, timeout_seconds=300):
                         if argv[1] == "--version":
-                            return CommandResult(tuple(argv), 0, "mod_kit 0.4.1", "")
+                            return CommandResult(tuple(argv), 0, "mod_kit 0.6.4", "")
                         if argv[1] == "view":
                             return CommandResult(tuple(argv), 0, "1", "")
                         include = Path(argv[argv.index("--include-bed") + 1])
@@ -91,7 +93,12 @@ class IncludeBedTests(unittest.TestCase):
                 )
                 runner = Runner()
                 report = run_methylation(
-                    manifest, intake, policy, output_dir=root / "out", runner=runner
+                    manifest,
+                    intake,
+                    policy,
+                    output_dir=root / "out",
+                    reference_fasta=fasta,
+                    runner=runner,
                 )
                 self.assertEqual(runner.calls, [expected.encode()])
                 self.assertEqual(bed.read_bytes(), original)

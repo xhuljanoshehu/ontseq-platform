@@ -7,6 +7,12 @@ reads them, via modkit's ``pileup``, and normalizes the result the same way ever
 lane in this repository is normalized: a versioned policy, a locked tool version, an
 explicit status, and numbers that state what they are.
 
+The adapter targets modkit 0.6.x semantics. Version 0.6.0 removed ``--ignore`` and
+introduced ``--modified-bases``, which declares exactly the modifications the pileup
+tabulates and requires the reference FASTA. The policy therefore names the reported codes
+explicitly, and the lane always needs the locked reference. A re-pin across modkit majors
+is a semantic migration, not a version-string edit.
+
 Three decisions are load-bearing and deliberately not configurable away:
 
 **An empty pileup is never "unmethylated".** A BAM basecalled without a modified-base
@@ -84,6 +90,15 @@ MODIFICATION_NAMES: dict[ModificationCode, str] = {
     ModificationCode.SIX_MA: "N6-methyladenine",
 }
 
+#: What each code is called in modkit's ``--modified-bases`` vocabulary. These long names
+#: are what the adapter passes on the command line, so the mapping is fixed here rather
+#: than re-derived per call.
+MODKIT_MODIFICATION_NAMES: dict[ModificationCode, str] = {
+    ModificationCode.FIVE_MC: "5mC",
+    ModificationCode.FIVE_HMC: "5hmC",
+    ModificationCode.SIX_MA: "6mA",
+}
+
 
 class MethylationRegionSource(StrEnum):
     """What the rows of the report are aggregated over."""
@@ -95,15 +110,19 @@ class MethylationRegionSource(StrEnum):
 
 
 class MethylationPolicy(StrictModel):
-    schema_version: Literal["0.1.0"] = "0.1.0"
+    schema_version: Literal["0.2.0"] = "0.2.0"
     profile_id: str = Field(min_length=1)
     status: Literal["technical_defaults_only", "validated"]
     #: modkit is version-locked like every other caller. This default is an engineering
     #: pin, not a recommendation: re-pin it deliberately against the installed binary and
     #: record the change, because a pileup is not comparable across modkit majors.
-    expected_version: str = Field(default="0.4.1", pattern=r"^\d+\.\d+\.\d+$")
-    #: Codes the report is allowed to contain. A code in the pileup and not here fails the
-    #: run rather than being discarded.
+    #: 0.6.0 removed ``--ignore`` and changed the threshold algorithm, so a version bump
+    #: is a semantic migration, not a rename.
+    expected_version: str = Field(default="0.6.4", pattern=r"^\d+\.\d+\.\d+$")
+    #: Codes the report is allowed to contain. They are declared to modkit via
+    #: ``--modified-bases`` (long names), so a code outside this list is not tabulated at
+    #: all; a code in the pileup and not here still fails the run rather than being
+    #: discarded.
     modification_codes: list[ModificationCode] = Field(
         default_factory=lambda: [ModificationCode.FIVE_MC], min_length=1
     )
@@ -113,9 +132,6 @@ class MethylationPolicy(StrictModel):
     #: Fold the reverse-strand call of a CpG onto its forward-strand partner. Only
     #: meaningful with ``cpg_only``.
     combine_strands: bool = True
-    #: Codes handed to ``--ignore``: their calls are folded into the canonical count
-    #: rather than reported. Must not overlap ``modification_codes``.
-    ignored_codes: list[ModificationCode] = Field(default_factory=list)
     #: modkit's per-call confidence threshold. Explicit on purpose — see the module
     #: docstring. 0.8 is a technical starting point and not a validated cut-off.
     filter_threshold: float = Field(default=0.8, ge=0, le=1)
@@ -133,14 +149,6 @@ class MethylationPolicy(StrictModel):
     def policy_is_internally_consistent(self) -> MethylationPolicy:
         if len(set(self.modification_codes)) != len(self.modification_codes):
             raise ValueError("Methylation policy contains duplicate modification codes")
-        if len(set(self.ignored_codes)) != len(self.ignored_codes):
-            raise ValueError("Methylation policy contains duplicate ignored codes")
-        overlap = set(self.ignored_codes) & set(self.modification_codes)
-        if overlap:
-            raise ValueError(
-                "A modification code cannot be both reported and ignored: "
-                + ", ".join(sorted(item.value for item in overlap))
-            )
         if self.combine_strands and not self.cpg_only:
             raise ValueError("combine_strands requires cpg_only; strands are folded per CpG")
         return self
@@ -167,6 +175,16 @@ class MethylationRegionSummary(StrictModel):
     #: Summed valid calls and modified calls over the sites that entered the aggregates.
     valid_call_count: int = Field(ge=0)
     modified_call_count: int = Field(ge=0)
+    #: The bedMethyl count classes that complete the valid denominator. ``canonical`` and
+    #: ``other_mod`` satisfy ``N_valid = N_mod + N_canonical + N_other_mod``; the four
+    #: remaining columns are calls that did NOT enter the denominator and are reported so
+    #: that "not measured" can never be read as "not modified".
+    canonical_call_count: int = Field(default=0, ge=0)
+    other_mod_call_count: int = Field(default=0, ge=0)
+    fail_call_count: int = Field(default=0, ge=0)
+    nocall_call_count: int = Field(default=0, ge=0)
+    delete_call_count: int = Field(default=0, ge=0)
+    diff_call_count: int = Field(default=0, ge=0)
     #: Call-weighted modified fraction. ``None`` when no site met the coverage floor —
     #: never 0.0, which would read as a measured absence of methylation.
     mean_modified_fraction: float | None = Field(default=None, ge=0, le=1)
@@ -184,6 +202,13 @@ class MethylationRegionSummary(StrictModel):
             raise ValueError("More qualifying sites than sites were counted")
         if self.modified_call_count > self.valid_call_count:
             raise ValueError("Modified calls cannot exceed valid calls")
+        if (
+            self.modified_call_count + self.canonical_call_count + self.other_mod_call_count
+            != self.valid_call_count
+        ):
+            raise ValueError(
+                "bedMethyl identity violated: N_valid must equal N_mod + N_canonical + N_other_mod"
+            )
         measured = self.sites_at_minimum_coverage > 0
         if measured != (self.mean_modified_fraction is not None):
             raise ValueError("mean_modified_fraction must be present exactly when a site qualified")
@@ -199,7 +224,7 @@ class MethylationRegionSummary(StrictModel):
 
 
 class MethylationReport(StrictModel):
-    schema_version: Literal["0.1.0"] = "0.1.0"
+    schema_version: Literal["0.2.0"] = "0.2.0"
     sample_id: str
     genome_build: GenomeBuild
     status: ModuleRunStatus
@@ -255,6 +280,12 @@ class _Site:
     code: ModificationCode
     valid_coverage: int
     modified_calls: int
+    canonical_calls: int
+    other_mod_calls: int
+    fail_calls: int
+    nocall_calls: int
+    delete_calls: int
+    diff_calls: int
 
     @property
     def modified_fraction(self) -> float:
@@ -262,7 +293,7 @@ class _Site:
 
 
 def modkit_version(text: str) -> str:
-    """Parse modkit's ``--version`` banner (``mod_kit 0.4.1``).
+    """Parse modkit's ``--version`` banner (``mod_kit 0.6.4``).
 
     Public for the same reason :func:`ontseq_platform.target_coverage.mosdepth_version` is:
     a preflight that reads the version differently from the adapter can clear a run the
@@ -285,11 +316,11 @@ def _open_text(path: Path) -> list[str]:
 def _split_bedmethyl(line: str) -> list[str]:
     """Split one bedMethyl row.
 
-    The adapter passes ``--only-tabs`` so every column is tab-separated. Older modkit
-    builds separate the nine trailing count columns with spaces instead, and a file
-    produced that way is still perfectly readable — so a row that does not split into the
-    expected column count on tabs is retried on arbitrary whitespace. No bedMethyl column
-    may contain a space, which is what makes the retry safe rather than a guess.
+    modkit 0.6.x writes every column tab-separated. Older builds separate the nine
+    trailing count columns with spaces instead, and a file produced that way is still
+    perfectly readable — so a row that does not split into the expected column count on
+    tabs is retried on arbitrary whitespace. No bedMethyl column may contain a space,
+    which is what makes the retry safe rather than a guess.
     """
     fields = line.split("\t")
     if len(fields) == _BEDMETHYL_COLUMNS:
@@ -306,7 +337,9 @@ def parse_bedmethyl(
 
     A modification code outside ``allowed_codes`` is refused rather than ignored: the
     policy declares what the run is reporting, and a model that also emitted 5hmC changes
-    what a 5mC fraction means.
+    what a 5mC fraction means. Every row must satisfy the format's defining identity
+    ``N_valid = N_mod + N_canonical + N_other_mod``; a row that does not is corrupt, and
+    aggregating it would turn failed or missing calls into measured zeros.
     """
     if not path.is_file():
         raise ValueError("modkit bedMethyl output is missing")
@@ -346,9 +379,20 @@ def parse_bedmethyl(
             raise ValueError(f"bedMethyl line {line_number} has invalid coordinates")
         valid_coverage = _parse_int(fields[9], field=f"bedMethyl line {line_number} valid coverage")
         modified_calls = _parse_int(fields[11], field=f"bedMethyl line {line_number} Nmod")
+        canonical_calls = _parse_int(fields[12], field=f"bedMethyl line {line_number} Ncanonical")
+        other_mod_calls = _parse_int(fields[13], field=f"bedMethyl line {line_number} Nother_mod")
+        delete_calls = _parse_int(fields[14], field=f"bedMethyl line {line_number} Ndelete")
+        fail_calls = _parse_int(fields[15], field=f"bedMethyl line {line_number} Nfail")
+        diff_calls = _parse_int(fields[16], field=f"bedMethyl line {line_number} Ndiff")
+        nocall_calls = _parse_int(fields[17], field=f"bedMethyl line {line_number} Nnocall")
         if modified_calls > valid_coverage:
             raise ValueError(
                 f"bedMethyl line {line_number} reports more modified calls than valid calls"
+            )
+        if modified_calls + canonical_calls + other_mod_calls != valid_coverage:
+            raise ValueError(
+                f"bedMethyl line {line_number} violates the format identity: "
+                "N_valid must equal N_mod + N_canonical + N_other_mod"
             )
         key = (chromosome, start, raw_code)
         if key in seen:
@@ -362,6 +406,12 @@ def parse_bedmethyl(
                 code=code,
                 valid_coverage=valid_coverage,
                 modified_calls=modified_calls,
+                canonical_calls=canonical_calls,
+                other_mod_calls=other_mod_calls,
+                fail_calls=fail_calls,
+                nocall_calls=nocall_calls,
+                delete_calls=delete_calls,
+                diff_calls=diff_calls,
             )
         )
     return sites, skipped_non_canonical
@@ -454,6 +504,12 @@ def _summarize_region(
     qualifying = [site for site in sites if site.valid_coverage >= minimum_valid_coverage]
     valid_calls = sum(site.valid_coverage for site in qualifying)
     modified_calls = sum(site.modified_calls for site in qualifying)
+    canonical_calls = sum(site.canonical_calls for site in qualifying)
+    other_mod_calls = sum(site.other_mod_calls for site in qualifying)
+    fail_calls = sum(site.fail_calls for site in qualifying)
+    nocall_calls = sum(site.nocall_calls for site in qualifying)
+    delete_calls = sum(site.delete_calls for site in qualifying)
+    diff_calls = sum(site.diff_calls for site in qualifying)
     mean_fraction: float | None = None
     median_fraction: float | None = None
     mean_coverage: float | None = None
@@ -472,6 +528,12 @@ def _summarize_region(
         sites_at_minimum_coverage=len(qualifying),
         valid_call_count=valid_calls,
         modified_call_count=modified_calls,
+        canonical_call_count=canonical_calls,
+        other_mod_call_count=other_mod_calls,
+        fail_call_count=fail_calls,
+        nocall_call_count=nocall_calls,
+        delete_call_count=delete_calls,
+        diff_call_count=diff_calls,
         mean_modified_fraction=mean_fraction,
         median_site_modified_fraction=median_fraction,
         mean_valid_coverage=mean_coverage,
@@ -481,8 +543,12 @@ def _summarize_region(
 _LIMITATIONS: tuple[str, ...] = (
     "Modified-base fractions are descriptive technical measurements. No methylation "
     "threshold, region set or classifier in this repository is analytically validated.",
-    "The modkit adapter has not been executed against the real binary in this repository's "
-    "continuous integration; its behaviour on real modified-base data is an assumption.",
+    "The modkit adapter is exercised against the real pinned binary in continuous "
+    "integration on synthetic MM/ML fixtures. That establishes tool interoperability, "
+    "not analytical recovery on biological data.",
+    "The pileup tabulates only the modification codes the policy declares via "
+    "--modified-bases. Modifications outside the policy are not tabulated and cannot be "
+    "discovered from this report.",
     "Aggregated fractions depend on the basecalling model that produced the MM/ML tags. "
     "Runs basecalled with different models are not comparable.",
     "Strand-folded CpG values combine both strands of one dinucleotide; they are not "
@@ -548,6 +614,10 @@ def normalize_methylation(
             modified = sum(site.modified_calls for site in qualifying)
             summary_metrics[f"mean_modified_fraction_{code.value}"] = modified / valid_calls
             summary_metrics[f"mean_valid_coverage_{code.value}"] = valid_calls / len(qualifying)
+    # Calls that failed their threshold or carried no call are not measured zeros; the
+    # totals make that visible at the report level, not only per region.
+    summary_metrics["fail_call_count"] = sum(site.fail_calls for site in sites)
+    summary_metrics["nocall_call_count"] = sum(site.nocall_calls for site in sites)
     if skipped_non_canonical:
         collected.append(
             f"{skipped_non_canonical} pileup row(s) on non-canonical contigs were excluded; "
@@ -620,9 +690,9 @@ def _modkit_include_bed(source: Path, destination: Path) -> Path:
     """Write BED3/BED6 accepted by the pinned modkit include-position parser.
 
     BED4/5 carry labels or scores, not strand restrictions, and must be projected to
-    BED3 for modkit 0.4.1. BED6+ retains its explicit strand. The original file remains
-    the source for aggregation labels and its fingerprint; contig spelling and interval
-    coordinates are never normalized here.
+    BED3 for the pinned parser. BED6+ retains its explicit strand. The original file
+    remains the source for aggregation labels and its fingerprint; contig spelling and
+    interval coordinates are never normalized here.
     """
     rows: list[str] = []
     for number, raw in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
@@ -653,7 +723,7 @@ def _build_argv(
     output_path: Path,
     log_path: Path,
     policy: MethylationPolicy,
-    reference_fasta: Path | None,
+    reference_fasta: Path,
     include_bed: Path | None,
     threads: int,
 ) -> list[str]:
@@ -666,19 +736,29 @@ def _build_argv(
         str(threads),
         "--filter-threshold",
         f"{policy.filter_threshold:g}",
-        "--only-tabs",
         "--suppress-progress",
         "--log-filepath",
         str(log_path),
     ]
+    # modkit 0.6.x: --modified-bases declares exactly the modifications to tabulate and
+    # requires the reference FASTA. It replaced --ignore, which 0.6.0 removed; the old
+    # At the probability-transformation stage, --ignore h redistributed half of p_h to
+    # canonical C and half to 5mC. Its effect on final hard-call counts and fractions
+    # depended on competing probabilities and thresholds; it was not a universal fixed
+    # increase. Nothing is folded here: each declared code gets its own rows and the
+    # shared valid-call denominator carries the other-modification counts.
+    argv.extend(
+        [
+            "--modified-bases",
+            *(MODKIT_MODIFICATION_NAMES[code] for code in policy.modification_codes),
+            "--ref",
+            str(reference_fasta),
+        ]
+    )
     if policy.cpg_only:
-        if reference_fasta is None:
-            raise ValueError("cpg_only requires the locked reference FASTA")
-        argv.extend(["--cpg", "--ref", str(reference_fasta)])
+        argv.append("--cpg")
         if policy.combine_strands:
             argv.append("--combine-strands")
-    for code in policy.ignored_codes:
-        argv.extend(["--ignore", code.value])
     if include_bed is not None:
         argv.extend(["--include-bed", str(include_bed)])
     return argv
@@ -709,12 +789,12 @@ def run_methylation(
         raise ValueError("Methylation cannot run after a failed aligned-BAM intake gate")
     if threads < 1:
         raise ValueError("threads must be at least 1")
-    if policy.cpg_only and reference_fasta is None:
+    if reference_fasta is None:
         raise ValueError(
-            "cpg_only restricts the pileup to a reference motif and therefore requires the "
-            "locked reference FASTA"
+            "modkit --modified-bases requires the locked reference FASTA, so the "
+            "methylation lane always needs one"
         )
-    if reference_fasta is not None and not reference_fasta.is_file():
+    if not reference_fasta.is_file():
         raise ValueError("Reference FASTA is missing or unreadable")
 
     target_bed: Path | None = None
@@ -800,7 +880,7 @@ def run_methylation(
         "cpg_only": policy.cpg_only,
         "combine_strands": policy.combine_strands,
         "modification_codes": [code.value for code in policy.modification_codes],
-        "ignored_codes": [code.value for code in policy.ignored_codes],
+        "modified_bases": [MODKIT_MODIFICATION_NAMES[code] for code in policy.modification_codes],
         "minimum_valid_coverage": policy.minimum_valid_coverage,
         "region_source": policy.region_source.value,
         "include_bed": include_bed.name if include_bed is not None else None,

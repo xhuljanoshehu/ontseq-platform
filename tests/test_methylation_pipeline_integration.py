@@ -54,7 +54,7 @@ from ontseq_platform.pipeline.stages import StageId
 class _ModkitVersionOnly:
     def run(self, argv: list[str], *, timeout_seconds: int = 300) -> CommandResult:
         assert argv == ["modkit", "--version"]
-        return CommandResult(argv=argv, returncode=0, stdout="mod_kit 0.4.1", stderr="")
+        return CommandResult(argv=argv, returncode=0, stdout="mod_kit 0.6.4", stderr="")
 
     def run_to_file(
         self, argv: list[str], output_path: Path, *, timeout_seconds: int = 300
@@ -141,7 +141,7 @@ class _Fixture:
             genome_build=self.config.manifest.assay.genome_build,
             bedmethyl_path=self.bedmethyl,
             policy=self.policy,
-            tool=ToolRecord(name="modkit", version="0.4.1"),
+            tool=ToolRecord(name="modkit", version="0.6.4"),
         )
 
     def stage(self, relative: str, model) -> StageImplementation:
@@ -195,7 +195,7 @@ def test_optional_methylation_reaches_schema_030_and_preserves_resource_and_iscn
     assert report.passed, report.verdict_reason
     assert release is not None
     assert calls == 1
-    assert StageId.METHYLATION in report.unverified_stages
+    assert StageId.METHYLATION not in report.unverified_stages
     result = fixture.result()
     assert result.schema_version == "0.3.0"
     assert result.reference_context == fixture.config.resource_context
