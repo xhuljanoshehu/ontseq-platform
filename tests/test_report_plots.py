@@ -17,8 +17,8 @@ from ontseq_platform.models import (
 from ontseq_platform.qc import read_length_histogram_from_tsv
 from ontseq_platform.report import render_html
 from ontseq_platform.report_plots import (
-    CoverageBar,
     CnvChromosomeBar,
+    CoverageBar,
     ReadLengthBin,
     chromosome_sort_key,
     cnv_genome_svg,
@@ -278,16 +278,12 @@ class CnvGenomeSvgTests(unittest.TestCase):
         self.assertIn("range 0.990–1.040", svg)
 
     def test_measured_zero_median_stays_visible(self) -> None:
-        svg = cnv_genome_svg(
-            [CnvChromosomeBar("chr5", 0.0, 0.0, 0.1, 0)], title="t", baseline=2.0
-        )
+        svg = cnv_genome_svg([CnvChromosomeBar("chr5", 0.0, 0.0, 0.1, 0)], title="t", baseline=2.0)
         self.assertIn("measured zero", svg)
 
     def test_invalid_values_are_refused(self) -> None:
         with self.assertRaises(ValueError):
-            cnv_genome_svg(
-                [CnvChromosomeBar("chr1", 2.0, 2.5, 3.0, 2)], title="t", baseline=2.0
-            )
+            cnv_genome_svg([CnvChromosomeBar("chr1", 2.0, 2.5, 3.0, 2)], title="t", baseline=2.0)
         with self.assertRaises(ValueError):
             cnv_genome_svg(
                 [CnvChromosomeBar("chr1", float("nan"), 1.0, 3.0, 2)],
@@ -295,9 +291,7 @@ class CnvGenomeSvgTests(unittest.TestCase):
                 baseline=2.0,
             )
         with self.assertRaises(ValueError):
-            cnv_genome_svg(
-                [CnvChromosomeBar("chr1", 2.0, 1.0, 3.0, 2)], title="t", baseline=0.0
-            )
+            cnv_genome_svg([CnvChromosomeBar("chr1", 2.0, 1.0, 3.0, 2)], title="t", baseline=0.0)
 
 
 if __name__ == "__main__":
