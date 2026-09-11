@@ -1,0 +1,25 @@
+name: Desktop bundle contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  packaging-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every runtime installer input in the Desktop workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/desktop-ci.yml
+          grep -F 'python -m pip wheel --no-deps' "$workflow"
+          grep -F 'SHA256SUMS' "$workflow"
+          grep -F '$wheel = "desktop/publish/runtime/' "$workflow"
+          grep -F '$checksums = "desktop/publish/runtime/SHA256SUMS"' "$workflow"
