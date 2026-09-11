@@ -113,7 +113,7 @@ class CoverageDepthSvgTests(unittest.TestCase):
 
     def test_labels_are_escaped(self) -> None:
         svg = coverage_depth_svg(
-            [CoverageBar('<script>alert(1)</script>', "chr1", 0, 5.0)], title="t"
+            [CoverageBar("<script>alert(1)</script>", "chr1", 0, 5.0)], title="t"
         )
         self.assertNotIn("<script>", svg)
         self.assertIn("&lt;script&gt;", svg)

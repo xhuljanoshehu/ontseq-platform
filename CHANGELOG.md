@@ -44,6 +44,16 @@ validated release.
 
 ## Unreleased
 
+### Added
+
+- Render the coverage section's per-target mean depth as a deterministic inline-SVG bar
+  plot in the portable HTML report: genome order, dashed reference lines at the coverage
+  policy's descriptive ≥10× bins, and measured-zero targets drawn as visible flat markers
+  rather than missing bars. Pure presentation of the already-normalized target-coverage
+  report — no value is recomputed, no JavaScript or CDN reference is added, and the
+  portable report stays offline and checksummed. No caller, threshold, normalization,
+  contract or reportability change.
+
 ### Fixed
 
 - Reuse stable external-input SHA-256 values within one run invocation instead of reading
