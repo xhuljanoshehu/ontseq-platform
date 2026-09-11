@@ -273,9 +273,7 @@ def cancer_cell_fraction(
     if implied > 1.0:
         # Clipping this to one would hide that the supplied tumour fraction, copy-neutral
         # heterozygous model and observed VAF cannot all be true simultaneously.
-        return CancerCellFraction(
-            status=VAF_EXCEEDS_HETEROZYGOUS_MODEL, point=None, interval=None
-        )
+        return CancerCellFraction(status=VAF_EXCEEDS_HETEROZYGOUS_MODEL, point=None, interval=None)
 
     band = wilson_interval(observation, confidence=confidence)
     return CancerCellFraction(
