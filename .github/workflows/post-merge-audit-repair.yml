@@ -41,6 +41,26 @@ jobs:
             tests/test_methylation.py \
             tests/test_methylation_pipeline_integration.py \
             tests/test_modkit_real_tool.py
+          ruff check --fix \
+            src/ontseq_platform/pipeline/input_digest.py \
+            src/ontseq_platform/pipeline/runner.py \
+            src/ontseq_platform/cnv/extension.py \
+            src/ontseq_platform/target_coverage_extension.py \
+            src/ontseq_platform/methylation.py \
+            tests/test_run_input_digest_cache.py \
+            tests/test_methylation.py \
+            tests/test_methylation_pipeline_integration.py \
+            tests/test_modkit_real_tool.py
+          ruff format \
+            src/ontseq_platform/pipeline/input_digest.py \
+            src/ontseq_platform/pipeline/runner.py \
+            src/ontseq_platform/cnv/extension.py \
+            src/ontseq_platform/target_coverage_extension.py \
+            src/ontseq_platform/methylation.py \
+            tests/test_run_input_digest_cache.py \
+            tests/test_methylation.py \
+            tests/test_methylation_pipeline_integration.py \
+            tests/test_modkit_real_tool.py
           ruff check src tests
           ruff format --check src tests
           mypy src
