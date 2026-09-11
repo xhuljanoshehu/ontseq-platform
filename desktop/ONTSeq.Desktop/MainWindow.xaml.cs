@@ -773,7 +773,8 @@ public partial class MainWindow : Window
     {
         StageItems.Clear();
         foreach (var stage in stages)
-            StageItems.Add(new StageDisplay(stage.Title, stage.Status, stage.Reason));
+            StageItems.Add(new StageDisplay(
+        stage.Title, stage.Status, stage.Reason, stage.DurationSeconds));
 
         var concluded = stages.Count(s => s.Status is "COMPLETED" or "NO_CALL" or "FAILED" or "NOT_RUN");
         RunProgress.IsIndeterminate = false;
