@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import math
 import os
 import re
 import tempfile
@@ -120,9 +121,12 @@ def _optional_float(value: str | bool | None, *, reason: str) -> float | None:
     if first is None:
         return None
     try:
-        return float(first)
+        number = float(first)
     except ValueError as exc:
         raise _RejectedRecord(reason) from exc
+    if not math.isfinite(number):
+        raise _RejectedRecord(reason)
+    return number
 
 
 def _optional_nonnegative_float(value: str | bool | None, *, reason: str) -> float | None:
@@ -143,7 +147,7 @@ def _coverage_context(value: str | bool | None) -> list[float]:
             number = float(item)
         except ValueError as exc:
             raise _RejectedRecord("malformed_coverage") from exc
-        if number < 0:
+        if not math.isfinite(number) or number < 0:
             raise _RejectedRecord("malformed_coverage")
         result.append(number)
     return result
@@ -193,7 +197,7 @@ def _quality(raw: str) -> float | None:
         value = float(raw)
     except ValueError as exc:
         raise _RejectedRecord("malformed_quality") from exc
-    if value < 0:
+    if not math.isfinite(value) or value < 0:
         raise _RejectedRecord("malformed_quality")
     return value
 

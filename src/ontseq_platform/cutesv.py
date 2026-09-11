@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import math
 import os
 import re
 import shutil
@@ -90,7 +91,7 @@ def _quality(raw: str) -> float | None:
         value = float(raw)
     except ValueError as exc:
         raise _RejectedRecord("malformed_quality") from exc
-    if value < 0:
+    if not math.isfinite(value) or value < 0:
         raise _RejectedRecord("malformed_quality")
     return value
 
