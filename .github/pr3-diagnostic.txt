@@ -1,0 +1,5 @@
+patch_exit=1
+build_exit=999
+test_exit=999
+--- log tail ---
+desktop/ONTSeq.Desktop/Models.cs: expected 1 match, found 0
