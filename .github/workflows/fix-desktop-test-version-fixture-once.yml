@@ -1,0 +1,79 @@
+name: One-time Desktop test version fixture repair
+
+on:
+  push:
+    branches: [fix/desktop-bundle-0.8.2-active]
+    paths:
+      - ".github/workflows/fix-desktop-test-version-fixture-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/desktop-bundle-0.8.2-active
+      - name: Derive runtime fixture version from the compiled Desktop assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("desktop/ONTSeq.Desktop.Tests/Program.cs")
+          text = path.read_text(encoding="utf-8")
+
+          anchor = (
+              'const string UnicodeOutputFixture = "DNS-Auflösung fehlgeschlagen – Grüße, Straße, '
+              'Methylierung 🧬\\n";\n'
+          )
+          addition = (
+              'var currentCoreVersion = typeof(WslServiceLauncher).Assembly.GetName().Version?.ToString(3)\n'
+              '    ?? throw new InvalidOperationException("Missing Desktop assembly version");\n'
+          )
+          if addition not in text:
+              if anchor not in text:
+                  raise SystemExit("Program.cs: version-fixture insertion anchor not found")
+              text = text.replace(anchor, anchor + addition, 1)
+
+          replacements = {
+              'RuntimePackage.VerifyAsync(archivePath, "0.7.1", CancellationToken.None)':
+                  'RuntimePackage.VerifyAsync(archivePath, currentCoreVersion, CancellationToken.None)',
+              'var coreWheel = Path.Combine(runtimeFolder, "ontseq_platform-0.7.1-py3-none-any.whl");':
+                  'var coreWheel = Path.Combine(runtimeFolder, $"ontseq_platform-{currentCoreVersion}-py3-none-any.whl");',
+              'RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None)':
+                  'RuntimePackage.VerifyAsync(baseArchive, currentCoreVersion, CancellationToken.None)',
+              'package, "/home/synthetic/.local/share/ontseq/runtime-v0.8.1-synthetic");':
+                  'package, $"/home/synthetic/.local/share/ontseq/runtime-v{currentCoreVersion}-synthetic");',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"Program.cs: expected stale fixture not found: {old}")
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          git diff --check
+          grep -F 'currentCoreVersion' desktop/ONTSeq.Desktop.Tests/Program.cs
+          if grep -F 'RuntimePackage.VerifyAsync(baseArchive, "0.7.1"' desktop/ONTSeq.Desktop.Tests/Program.cs; then
+            echo 'stale hard-coded Core fixture remains' >&2
+            exit 1
+          fi
+          if grep -F 'runtime-v0.8.1-synthetic' desktop/ONTSeq.Desktop.Tests/Program.cs; then
+            echo 'stale hard-coded runtime target remains' >&2
+            exit 1
+          fi
+      - name: Commit targeted fixture repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add desktop/ONTSeq.Desktop.Tests/Program.cs
+          git commit -m "test(desktop): derive runtime fixture from release version"
+          git push origin HEAD:fix/desktop-bundle-0.8.2-active
