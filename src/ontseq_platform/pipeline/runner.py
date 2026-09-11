@@ -93,6 +93,7 @@ from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_ta
 from ..workbook import render_workbook
 from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
+from .input_digest import RunInputDigestCache
 from .lock import run_lock
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
 from .review import current_state as review_state
@@ -212,6 +213,22 @@ class RunContext:
     #: pipeline just produced, so downstream adapters need no special casing.
     manifest: SampleManifest
     artifacts: dict[StageId, list[Artifact]] = field(default_factory=dict)
+    input_digests: RunInputDigestCache = field(default_factory=RunInputDigestCache, repr=False)
+
+    def fingerprint_external_input(
+        self, path: Path, *, label: str | None = None
+    ) -> tuple[str, str]:
+        if not path.is_file():
+            raise StageFailure("required external input is missing")
+        try:
+            digest, stable = self.input_digests.digest(path)
+        except OSError as exc:
+            raise StageFailure("required external input could not be fingerprinted") from exc
+        if not stable:
+            raise StageFailure(
+                f"{label or 'required external input'} changed while it was being fingerprinted"
+            )
+        return (label or path.name, digest)
 
     @property
     def sample_id(self) -> str:
@@ -305,14 +322,11 @@ def _stable_digest(path: Path) -> tuple[str, bool]:
     return digest, stable
 
 
-def _external_fingerprint(path: Path, *, label: str | None = None) -> tuple[str, str]:
-    """Fingerprint an input from outside the envelope by name and content."""
-    digest, stable = _stable_digest(path)
-    if not stable:
-        raise StageFailure(
-            f"{label or 'required external input'} changed while it was being fingerprinted"
-        )
-    return (label or path.name, digest)
+def _external_fingerprint(
+    ctx: RunContext, path: Path, *, label: str | None = None
+) -> tuple[str, str]:
+    """Fingerprint a plan input through this run's stable-digest cache."""
+    return ctx.fingerprint_external_input(path, label=label)
 
 
 # --------------------------------------------------------------------------------------
@@ -399,7 +413,7 @@ def _align_plan(ctx: RunContext) -> StagePlan:
         raise StageFailure("an unaligned input requires an alignment policy")
     if ctx.config.reference_fasta is None:
         raise StageFailure("alignment requires --reference-fasta")
-    reference = _external_fingerprint(ctx.config.reference_fasta)
+    reference = _external_fingerprint(ctx, ctx.config.reference_fasta)
     minimap2 = ctx.config.executable("minimap2")
     samtools = ctx.config.executable("samtools")
     return StagePlan(
@@ -414,7 +428,7 @@ def _align_plan(ctx: RunContext) -> StagePlan:
             "minimap2": _probe(ctx.runner, minimap2, [minimap2, "--version"], tool="minimap2"),
             "samtools": _probe(ctx.runner, samtools, [samtools, "--version"], tool="samtools"),
         },
-        external_inputs=(reference, _external_fingerprint(Path(ctx.manifest.input.path))),
+        external_inputs=(reference, _external_fingerprint(ctx, Path(ctx.manifest.input.path))),
     )
 
 
@@ -495,8 +509,8 @@ def _intake_plan(ctx: RunContext) -> StagePlan:
             "samtools": _probe(ctx.runner, samtools, [samtools, "--version"], tool="samtools")
         },
         external_inputs=(
-            _external_fingerprint(Path(ctx.manifest.input.path), label="aligned_bam"),
-            _external_fingerprint(Path(index_path), label="bam_index"),
+            _external_fingerprint(ctx, Path(ctx.manifest.input.path), label="aligned_bam"),
+            _external_fingerprint(ctx, Path(index_path), label="bam_index"),
         ),
     )
 
@@ -581,7 +595,7 @@ def _qc_plan(ctx: RunContext) -> StagePlan:
         tool_versions={
             "cramino": _probe(ctx.runner, cramino, [cramino, "--version"], tool="cramino")
         },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        external_inputs=(_external_fingerprint(ctx, Path(ctx.manifest.input.path)),),
     )
 
 
@@ -629,12 +643,13 @@ def _target_coverage_plan(ctx: RunContext) -> StagePlan:
         raise StageFailure("adaptive sampling requires assay.target_bed")
     mosdepth = ctx.config.executable("mosdepth")
     external_inputs = [
-        _external_fingerprint(Path(target_bed)),
-        _external_fingerprint(Path(ctx.manifest.input.path)),
+        _external_fingerprint(ctx, Path(target_bed)),
+        _external_fingerprint(ctx, Path(ctx.manifest.input.path)),
     ]
     if ctx.config.selection_target_bed is not None:
         external_inputs.append(
             _external_fingerprint(
+                ctx,
                 ctx.config.selection_target_bed,
                 label="selection_panel_buffered",
             )
@@ -807,7 +822,7 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
     if ctx.config.sv_evidence_policy is not None:
         evidence_policy = ctx.config.sv_evidence_policy
         parameters["sv_evidence_policy"] = evidence_policy.model_dump(mode="json")
-    external_inputs = [_external_fingerprint(Path(ctx.manifest.input.path))]
+    external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
     if cute_policy is not None:
         if ctx.config.reference_fasta is None:
             raise StageFailure("cuteSV requires --reference-fasta")
@@ -823,7 +838,7 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
                 "sv_consensus_policy": consensus.model_dump(mode="json"),
             }
         )
-        external_inputs.append(_external_fingerprint(ctx.config.reference_fasta))
+        external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
     annotation_resources = [
         item
         for item in [ctx.config.gene_annotation, ctx.config.cytoband_annotation]
@@ -831,22 +846,22 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
     ]
     annotation_resources.extend(ctx.config.sv_context_resources)
     for path, resource_lock in annotation_resources:
-        external_inputs.append(_external_fingerprint(path, label=resource_lock.resource_id))
+        external_inputs.append(_external_fingerprint(ctx, path, label=resource_lock.resource_id))
         parameters[f"resource_lock:{resource_lock.resource_id}"] = resource_lock.model_dump(
             mode="json"
         )
     if ctx.config.annotation_cache is not None:
         external_inputs.append(
-            _external_fingerprint(ctx.config.annotation_cache, label="annotation_cache")
+            _external_fingerprint(ctx, ctx.config.annotation_cache, label="annotation_cache")
         )
         parameters["annotation_cache"] = "GRCh38 compiled SQLite"
     for resource_type, path in sorted(ctx.config.context_resource_paths.items()):
-        external_inputs.append(_external_fingerprint(path, label=resource_type))
+        external_inputs.append(_external_fingerprint(ctx, path, label=resource_type))
         parameters[f"context_bundle:{resource_type}"] = str(path)
     if ctx.config.aml_knowledge is not None:
         knowledge_path, knowledge_lock = ctx.config.aml_knowledge
         external_inputs.append(
-            _external_fingerprint(knowledge_path, label=knowledge_lock.resource_id)
+            _external_fingerprint(ctx, knowledge_path, label=knowledge_lock.resource_id)
         )
         parameters[f"knowledge_lock:{knowledge_lock.resource_id}"] = knowledge_lock.model_dump(
             mode="json"
@@ -1023,22 +1038,21 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
             "the manifest requests the methylation module but no methylation policy was "
             "supplied. Refusing to continue: an unparameterised pileup is not reproducible"
         )
-    if policy.cpg_only and ctx.config.reference_fasta is None:
+    if ctx.config.reference_fasta is None:
         raise StageFailure(
-            "the methylation policy restricts the pileup to CpG sites, which is a property "
-            "of the reference; pass --reference-fasta"
+            "modkit --modified-bases requires the locked reference FASTA for every methylation run"
         )
     modkit = ctx.config.executable("modkit")
-    external_inputs = [_external_fingerprint(Path(ctx.manifest.input.path))]
+    external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
     if ctx.config.reference_fasta is not None:
-        external_inputs.append(_external_fingerprint(ctx.config.reference_fasta))
+        external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
     if policy.region_source == MethylationRegionSource.TARGET_BED:
         if not ctx.manifest.assay.target_bed:
             raise StageFailure(
                 "the methylation policy aggregates over the target design but the manifest "
                 "declares no target BED"
             )
-        external_inputs.append(_external_fingerprint(Path(ctx.manifest.assay.target_bed)))
+        external_inputs.append(_external_fingerprint(ctx, Path(ctx.manifest.assay.target_bed)))
     return StagePlan(
         parameters={
             "requested": True,

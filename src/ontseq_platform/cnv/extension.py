@@ -109,11 +109,13 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
     versions = _probe_r_packages(ctx)
     bam = Path(ctx.manifest.input.path)
     external_inputs = [
-        (bam.name, sha256_file(bam)),
-        (settings.script.name, sha256_file(settings.script)),
+        ctx.fingerprint_external_input(bam),
+        ctx.fingerprint_external_input(settings.script),
     ]
     if ctx.config.annotation_cache is not None:
-        external_inputs.append(("annotation_cache", sha256_file(ctx.config.annotation_cache)))
+        external_inputs.append(
+            ctx.fingerprint_external_input(ctx.config.annotation_cache, label="annotation_cache")
+        )
     return StagePlan(
         parameters={
             "requested": True,

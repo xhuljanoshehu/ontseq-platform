@@ -44,6 +44,28 @@ validated release.
 
 ## Unreleased
 
+### Fixed
+
+- Reuse stable external-input SHA-256 values within one run invocation instead of reading
+  the same multi-gigabyte BAM once per stage plan. The cache is run-scoped and keyed by
+  resolved path plus filesystem identity/state; unstable reads are never cached. Intake
+  mutation detection and release/artifact verification remain uncached and still re-read
+  bytes deliberately. CNV and Adaptive-Sampling coverage extension plans share the same
+  run-scoped cache.
+- Make methylation planning match execution after the modkit 0.6.4 migration: every
+  `--modified-bases` run requires the locked reference FASTA, including non-CpG policies.
+- Fail closed around two modkit 0.6.4 scientific-correctness hazards: independent same-base
+  cytosine MM groups are rejected before pileup, and a zero-exit pileup that reports any
+  `failed processing` records has its partial bedMethyl output discarded. These guards do
+  not validate methylation accuracy; they prevent known silent-tool failure modes from
+  becoming plausible normalized fractions.
+
+### Validation impact
+
+- No CNV/SV/methylation threshold, caller score, reportability boundary or biological
+  classifier changes. Hashing changes only duplicate I/O. Methylation acceptance becomes
+  stricter for inputs exposed to known modkit 0.6.4 failure modes.
+
 ### Changed
 
 - Migrate the methylation pileup lane to modkit 0.6.4 semantics. The 0.6.0 removal of

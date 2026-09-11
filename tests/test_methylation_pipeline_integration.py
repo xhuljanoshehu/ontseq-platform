@@ -187,6 +187,21 @@ class _Fixture:
         )
 
 
+def test_non_cpg_methylation_plan_still_requires_the_reference(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    policy = fixture.policy.model_copy(update={"cpg_only": False, "combine_strands": False})
+    config = replace(fixture.config, methylation_policy=policy, reference_fasta=None)
+    context = RunContext(
+        config=config,
+        envelope=fixture.envelope(),
+        runner=_ModkitVersionOnly(),
+        manifest=config.manifest,
+    )
+
+    with pytest.raises(StageFailure, match="reference FASTA"):
+        IMPLEMENTATIONS[StageId.METHYLATION].plan(context)
+
+
 def test_optional_methylation_reaches_schema_030_and_preserves_resource_and_iscn_contracts(
     tmp_path: Path,
 ) -> None:

@@ -9,7 +9,6 @@ from typing import cast
 
 from .models import AlignedBamIntakeReport, AssayMode, ModuleRunStatus
 from .pipeline import runner as pipeline_runner
-from .pipeline.envelope import sha256_file
 from .pipeline.runner import StageImplementation, StagePlan, StageResult
 from .pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from .target_coverage import TargetCoveragePolicy, run_target_coverage
@@ -85,8 +84,8 @@ def _target_coverage_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
         },
         tool_versions={"mosdepth": version},
         external_inputs=(
-            (target_bed.name, sha256_file(target_bed)),
-            (bam.name, sha256_file(bam)),
+            ctx.fingerprint_external_input(target_bed),
+            ctx.fingerprint_external_input(bam),
         ),
     )
 
