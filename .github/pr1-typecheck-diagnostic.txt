@@ -1,0 +1,5 @@
+mypy_exit=1
+--- mypy src ---
+src/ontseq_platform/report_plots.py:64: error: Returning Any from function declared to return "float"  [no-any-return]
+src/ontseq_platform/report_plots.py:65: error: Returning Any from function declared to return "float"  [no-any-return]
+Found 2 errors in 1 file (checked 96 source files)
