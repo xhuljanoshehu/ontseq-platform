@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from .models import GenomicEvent, PipelineResult, ResolvedResourceContext
 from .report_formatting import cell as _cell
 from .report_formatting import optional_number
+from .report_plots import CoverageBar, coverage_depth_svg
 from .reporting import (
     fusion_assessment,
     fusion_review_events,
@@ -279,6 +280,40 @@ def resource_details(result: PipelineResult) -> str:
     )
 
 
+def _coverage_figure(report: TargetCoverageReport, label: str) -> str:
+    """Bar plot of the report's own per-target means; nothing is recomputed here."""
+    bars = [
+        CoverageBar(
+            region_id=region.region_id,
+            chromosome=region.chromosome,
+            start=region.start,
+            mean_depth=region.mean_depth,
+        )
+        for region in report.regions
+    ]
+    reference_depths = [value for value in report.policy.thresholds if value >= 10]
+    svg = coverage_depth_svg(
+        bars,
+        title=f"{label}: per-target mean depth",
+        reference_depths=reference_depths,
+    )
+    if not svg:
+        return ""
+    labels = "/".join(f"{value}×" for value in reference_depths) or "no"
+    caption = (
+        f"{_cell(label)}: mean depth per target in genome order; dashed lines mark the "
+        f"coverage policy's descriptive {labels} bins. A rendering of the normalized "
+        "values only — descriptive technical evidence, not an adequacy or reportability "
+        "assessment."
+    )
+    return (
+        "<figure class='plot' style='margin:14px 0'>"
+        + svg
+        + f"<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>{caption}"
+        "</figcaption></figure>"
+    )
+
+
 def coverage_section(
     target: TargetCoverageReport | None, selection: TargetCoverageReport | None
 ) -> str:
@@ -323,6 +358,9 @@ def coverage_section(
             f"<h3>{label}</h3><p>Role: {_cell(report.target_bed_role.value)}; "
             f"design: {_cell(report.target_bed_version)}; status: {_cell(report.status.value)}</p>"
         )
+        figure = _coverage_figure(report, label)
+        if figure:
+            pieces.append(figure)
         pieces.append(
             table(
                 label + " coverage",
