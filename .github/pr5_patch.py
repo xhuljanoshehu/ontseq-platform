@@ -6,24 +6,26 @@ from pathlib import Path
 def patch(path, replacements):
     p = Path(path)
     data = p.read_bytes()
-    nl = '\r\n' if b'\r\n' in data else '\n'
+    nl = "\r\n" if b"\r\n" in data else "\n"
     for old_s, new_s in replacements:
-        old = old_s.replace('\n', nl).encode('utf-8')
-        new = new_s.replace('\n', nl).encode('utf-8')
+        old = old_s.replace("\n", nl).encode("utf-8")
+        new = new_s.replace("\n", nl).encode("utf-8")
         if data.count(old) != 1:
-            raise SystemExit(f'{path}: expected 1 match, found {data.count(old)}')
+            raise SystemExit(f"{path}: expected 1 match, found {data.count(old)}")
         data = data.replace(old, new, 1)
     p.write_bytes(data)
-    print(f'patched {path}')
+    print(f"patched {path}")
 
 
-patch('src/ontseq_platform/report_plots.py', [
-    (
-        '''    parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
+patch(
+    "src/ontseq_platform/report_plots.py",
+    [
+        (
+            """    parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
     parts.append("</svg>")
     return "".join(parts)
-''',
-        '''    parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
+""",
+            '''    parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
     parts.append("</svg>")
     return "".join(parts)
 
@@ -153,27 +155,30 @@ def cnv_genome_svg(
     parts.append("</svg>")
     return "".join(parts)
 ''',
-    ),
-])
+        ),
+    ],
+)
 
-patch('src/ontseq_platform/cnv/extension.py', [
-    (
-        '''from ..report import render_html
+patch(
+    "src/ontseq_platform/cnv/extension.py",
+    [
+        (
+            """from ..report import render_html
 from ..sidecars import tabular_sidecar
-''',
-        '''from ..report import render_html
+""",
+            """from ..report import render_html
 from ..report_plots import CnvChromosomeBar, cnv_genome_svg
 from ..sidecars import tabular_sidecar
-''',
-    ),
-    (
-        '''    images: list[str] = []
+""",
+        ),
+        (
+            """    images: list[str] = []
     for label, name in (
         ("ACE purity/ploidy fit landscape", cnv.primary_fit.fit_plot),
         ("Absolute copy-number profile", cnv.primary_fit.copy_number_plot),
     ):
-''',
-        '''    bars = [
+""",
+            """    bars = [
         CnvChromosomeBar(
             chromosome=chromosome.chromosome,
             median_cn=chromosome.median_copy_number,
@@ -206,30 +211,33 @@ from ..sidecars import tabular_sidecar
         ("ACE purity/ploidy fit landscape", cnv.primary_fit.fit_plot),
         ("Absolute copy-number profile", cnv.primary_fit.copy_number_plot),
     ):
-''',
-    ),
-    (
-        '''        f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
+""",
+        ),
+        (
+            """        f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
         "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
-''',
-        '''        f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
+""",
+            """        f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
         + genome_figure
         + "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
-''',
-    ),
-])
+""",
+        ),
+    ],
+)
 
-patch('tests/test_report_plots.py', [
-    (
-        '''from ontseq_platform.report_plots import (
+patch(
+    "tests/test_report_plots.py",
+    [
+        (
+            """from ontseq_platform.report_plots import (
     CoverageBar,
     ReadLengthBin,
     chromosome_sort_key,
     coverage_depth_svg,
     read_length_histogram_svg,
 )
-''',
-        '''from ontseq_platform.report_plots import (
+""",
+            """from ontseq_platform.report_plots import (
     CoverageBar,
     CnvChromosomeBar,
     ReadLengthBin,
@@ -238,13 +246,13 @@ patch('tests/test_report_plots.py', [
     coverage_depth_svg,
     read_length_histogram_svg,
 )
-''',
-    ),
-    (
-        '''if __name__ == "__main__":
+""",
+        ),
+        (
+            """if __name__ == "__main__":
     unittest.main()
-''',
-        '''class CnvGenomeSvgTests(unittest.TestCase):
+""",
+            """class CnvGenomeSvgTests(unittest.TestCase):
     def test_empty_renders_nothing(self) -> None:
         self.assertEqual(cnv_genome_svg([], title="empty", baseline=2.0), "")
 
@@ -291,17 +299,20 @@ patch('tests/test_report_plots.py', [
 
 if __name__ == "__main__":
     unittest.main()
-''',
-    ),
-])
+""",
+        ),
+    ],
+)
 
-patch('CHANGELOG.md', [
-    (
-        '''  reportability change.
+patch(
+    "CHANGELOG.md",
+    [
+        (
+            """  reportability change.
 
 ### Fixed
-''',
-        '''  reportability change.
+""",
+            """  reportability change.
 - Render a deterministic genome-wide copy-number overview in the CNV section: median
   copy number per chromosome from the multi-bin consensus with min–max whiskers and
   the fitted ACE ploidy as the dashed reference, next to the retained ACE PNG panels.
@@ -309,6 +320,7 @@ patch('CHANGELOG.md', [
   or reportability change.
 
 ### Fixed
-''',
-    ),
-])
+""",
+        ),
+    ],
+)

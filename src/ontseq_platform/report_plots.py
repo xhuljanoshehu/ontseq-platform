@@ -329,10 +329,7 @@ def cnv_genome_svg(
     for item in chromosomes:
         values = (item.median_cn, item.min_cn, item.max_cn)
         if (
-            any(
-                not isinstance(value, int | float) or isinstance(value, bool)
-                for value in values
-            )
+            any(not isinstance(value, int | float) or isinstance(value, bool) for value in values)
             or any(not math.isfinite(value) for value in values)
             or item.min_cn < 0
             or item.min_cn > item.median_cn
