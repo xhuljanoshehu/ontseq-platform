@@ -280,6 +280,10 @@ def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
     fatal = {stage for stage in planned_stages(request.input_kind) if SPEC_BY_STAGE[stage].required}
     if _measures_targets(request):
         fatal.add(StageId.TARGET_COVERAGE)
+    if _analyses_methylation(request):
+        # Optional in the graph is not optional for a run that explicitly requested it:
+        # the methylation stage fails if modkit cannot execute, so preflight must block too.
+        fatal.add(StageId.METHYLATION)
     return frozenset(fatal)
 
 
@@ -437,7 +441,11 @@ def _check_tools(request: PreflightRequest, runner: CommandRunner, checks: Check
         requirements = [item for item in requirements if item.name != "modkit"]
     if not _analyses_structural_variants(request):
         requirements = [item for item in requirements if item.name not in {"sniffles", "cutesv"}]
-    if request.cutesv_policy is not None and StageId.SV in planned_stages(request.input_kind):
+    if (
+        request.cutesv_policy is not None
+        and StageId.SV in planned_stages(request.input_kind)
+        and _analyses_structural_variants(request)
+    ):
         requirements.append(ToolRequirement(name="cutesv", stages=(StageId.SV,), required=False))
     for requirement in requirements:
         name = f"tool.{requirement.name}"

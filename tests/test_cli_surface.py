@@ -81,6 +81,33 @@ class CommandSetTests(unittest.TestCase):
                 break
         self.assertEqual(profile_choices, (*PROFILE_IDS, *GRCH37_PROFILE_IDS))
 
+    def test_preflight_accepts_the_cnv_options_the_run_accepts(self) -> None:
+        """A preflight configured differently from the run describes a different run.
+
+        Preflight registers the CNV lane the way the run does, and ``_register_cnv``
+        reads the options straight off the namespace — a parser that never declared them
+        dies with AttributeError before doing any work.
+        """
+        args = runtime_cli._parser().parse_args(
+            [
+                "preflight",
+                "manifest.yaml",
+                "--reference-lock",
+                "lock.json",
+                "--run-id",
+                "RUN_001",
+                "--cnv-policy",
+                "cnv.yaml",
+                "--qdnaseq-rscript",
+                "Rscript",
+                "--qdnaseq-script",
+                "run_qdnaseq_ace.R",
+            ]
+        )
+        self.assertEqual(args.cnv_policy, Path("cnv.yaml"))
+        self.assertEqual(args.qdnaseq_rscript, "Rscript")
+        self.assertEqual(args.qdnaseq_script, Path("run_qdnaseq_ace.R"))
+
 
 class OverviewTests(unittest.TestCase):
     def test_a_bare_invocation_names_both_command_groups(self) -> None:

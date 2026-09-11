@@ -458,6 +458,7 @@ def _parser() -> argparse.ArgumentParser:
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
+    _add_cnv_options(pf)
     pf.add_argument("--require-free-gb", type=float)
     pf.add_argument("--verbose", action="store_true")
     pf.add_argument("--json", action="store_true", dest="as_json")
@@ -805,7 +806,7 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "analyze", "serve", "watch"}:
+    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:
         _register_cnv(args, selection)
     try:
         if handle_references_command(args):
