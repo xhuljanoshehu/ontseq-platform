@@ -93,7 +93,7 @@ jobs:
           git add -A
           git diff --cached --check
 
-          python -m pip install --disable-pip-version-check -q -e . pytest ruff mypy
+          python -m pip install --disable-pip-version-check -q -e . pytest ruff mypy types-PyYAML types-openpyxl
           ruff check src tests
           mypy src
           pytest -q tests/test_preflight.py tests/test_cli_surface.py tests/test_mvp.py
