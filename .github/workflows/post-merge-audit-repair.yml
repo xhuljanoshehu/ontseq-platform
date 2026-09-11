@@ -75,7 +75,7 @@ jobs:
             tests/test_target_coverage_extension.py \
             tests/test_qdnaseq_runtime.py \
             tests/test_pipeline_runner.py \
-            tests/test_pipeline_resume_integrity.py
+            tests/test_envelope_input_digest.py
 
       - name: Commit repaired branch
         run: |
