@@ -60,6 +60,8 @@ from .models import (
 from .reference import sha256_file
 
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)")
+_MODKIT_FAILED_PROCESSING = re.compile(r"(?i)(\d+)\s+failed processing\b")
+_INDEPENDENT_CYTOSINE_GROUP_EXPR = '[MM] =~ "C[+-][^;]*;.*C[+-][^;]*;"'
 _CANONICAL_CHROMOSOME = re.compile(r"^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$")
 
 #: Columns in modkit's bedMethyl output (BED9+9). Fixed by the format, not by policy.
@@ -686,6 +688,51 @@ def count_reads_with_modified_base_tags(
     return int(text)
 
 
+def count_reads_with_independent_cytosine_mod_groups(
+    bam: Path,
+    *,
+    runner: CommandRunner,
+    samtools: str = "samtools",
+    threads: int = 4,
+) -> int | None:
+    """Count reads with two independent cytosine MM groups.
+
+    modkit 0.6.4 can silently advance same-base MM groups together and lose or
+    misassign calls. A single multi-code group is not matched; only two separate C
+    groups are treated as the known-risk representation.
+    """
+
+    result = runner.run(
+        [
+            samtools,
+            "view",
+            "-c",
+            "-@",
+            str(threads),
+            "-e",
+            _INDEPENDENT_CYTOSINE_GROUP_EXPR,
+            str(bam),
+        ],
+        timeout_seconds=7200,
+    )
+    if result.returncode != 0:
+        return None
+    text = result.stdout.strip()
+    if not text.isdigit():
+        return None
+    return int(text)
+
+
+def _modkit_failed_processing_count(log_path: Path, *diagnostics: str) -> int:
+    """Return the largest record-failure count reported by a nominally successful pileup."""
+
+    texts = [item for item in diagnostics if item]
+    if log_path.is_file():
+        texts.append(log_path.read_text(encoding="utf-8", errors="replace"))
+    counts = [int(match) for text in texts for match in _MODKIT_FAILED_PROCESSING.findall(text)]
+    return max(counts, default=0)
+
+
 def _modkit_include_bed(source: Path, destination: Path) -> Path:
     """Write BED3/BED6 accepted by the pinned modkit include-position parser.
 
@@ -831,6 +878,7 @@ def run_methylation(
 
     warnings: list[str] = []
     tagged_reads: int | None = None
+    independent_cytosine_groups: int | None = None
     if policy.verify_modified_base_tags:
         tagged_reads = count_reads_with_modified_base_tags(
             Path(manifest.input.path),
@@ -848,6 +896,27 @@ def run_methylation(
             warnings.append(
                 "The installed samtools could not evaluate a tag filter expression, so the "
                 "presence of MM/ML tags was not verified before the pileup ran."
+            )
+
+    if version == "0.6.4":
+        independent_cytosine_groups = count_reads_with_independent_cytosine_mod_groups(
+            Path(manifest.input.path),
+            runner=command_runner,
+            samtools=samtools,
+            threads=threads,
+        )
+        if independent_cytosine_groups is None:
+            raise ValueError(
+                "modkit 0.6.4 has a known silent-error path for independent same-base MM "
+                "groups, but samtools could not verify whether this BAM contains that "
+                "representation. Refusing an unverified methylation pileup"
+            )
+        if independent_cytosine_groups > 0:
+            raise ValueError(
+                f"The aligned BAM contains {independent_cytosine_groups} read(s) with "
+                "independent cytosine MM groups. modkit 0.6.4 can silently lose or "
+                "misassign calls for this valid representation; refusing the pileup until "
+                "a corrected pinned modkit release is validated"
             )
 
     include_bed = (
@@ -870,6 +939,13 @@ def run_methylation(
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         tail = detail[-1] if detail else "no diagnostic output"
         raise ValueError(f"modkit pileup failed with exit code {result.returncode}: {tail}")
+    failed_processing = _modkit_failed_processing_count(log_path, result.stdout, result.stderr)
+    if failed_processing:
+        bedmethyl_path.unlink(missing_ok=True)
+        raise ValueError(
+            f"modkit pileup exited successfully but reported {failed_processing} failed "
+            "record(s); refusing partial bedMethyl output"
+        )
     if not bedmethyl_path.is_file():
         raise ValueError("modkit pileup reported success but produced no bedMethyl output")
 
@@ -886,6 +962,7 @@ def run_methylation(
         "include_bed": include_bed.name if include_bed is not None else None,
         "include_bed_format": "bed3-or-bed6-v1" if include_bed is not None else None,
         "expected_version": policy.expected_version,
+        "modkit_064_independent_cytosine_group_guard": independent_cytosine_groups,
     }
     return normalize_methylation(
         sample_id=manifest.sample_id,

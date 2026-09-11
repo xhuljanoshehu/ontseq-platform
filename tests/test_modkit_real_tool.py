@@ -136,6 +136,76 @@ class ModkitBinaryTests(unittest.TestCase):
         self.assertEqual(report.tool.parameters["ontseq_region_assignment"], "interval-identity-v1")
         self.assertEqual(report.tool.version, "0.6.4")
 
+    def test_real_samtools_detects_independent_same_base_groups_before_modkit(self) -> None:
+        reference = self.root / "independent.fa"
+        reference.write_text(">chr1\nCC\n", encoding="utf-8")
+        self.pysam.faidx(str(reference))
+        bam = self.root / "independent.bam"
+        header = {
+            "HD": {"VN": "1.6", "SO": "coordinate"},
+            "SQ": [{"SN": "chr1", "LN": 2}],
+        }
+        with self.pysam.AlignmentFile(str(bam), "wb", header=header) as target:
+            record = self.pysam.AlignedSegment()
+            record.query_name = "INDEPENDENT_GROUPS"
+            record.query_sequence = "CC"
+            record.query_qualities = array.array("B", [40, 40])
+            record.flag = 0
+            record.reference_id = 0
+            record.reference_start = 0
+            record.mapping_quality = 60
+            record.cigarstring = "2M"
+            record.set_tag("MN", 2)
+            record.set_tag("MM", "C+m?,0;C+h?,1;")
+            record.set_tag("ML", array.array("B", [200, 250]))
+            target.write(record)
+        self.pysam.index(str(bam))
+        manifest = SampleManifest(
+            sample_id="INDEPENDENT_MODKIT",
+            run_id="SYNTHETIC_RUN",
+            input=InputSpec(
+                kind=InputKind.ALIGNED_BAM,
+                path=str(bam),
+                index_path=str(bam) + ".bai",
+            ),
+            assay=AssaySpec(
+                mode=AssayMode.LOW_COVERAGE_WGS,
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="synthetic-independent-reference",
+            ),
+            analysis=AnalysisSpec(profile="synthetic", modules=[AnalysisModule.METHYLATION]),
+        )
+        intake = AlignedBamIntakeReport(
+            sample_id=manifest.sample_id,
+            reference_id=manifest.assay.reference_id,
+            genome_build=GenomeBuild.GRCH38,
+            checks=[],
+            verdict=Verdict.PASS,
+        )
+        policy = MethylationPolicy(
+            profile_id="SYNTHETIC_INDEPENDENT_GROUPS",
+            expected_version="0.6.4",
+            status="technical_defaults_only",
+            modification_codes=["m", "h"],
+            cpg_only=False,
+            combine_strands=False,
+            region_source="chromosome",
+            note="Regression for the modkit 0.6.4 independent-group safety gate",
+        )
+
+        with self.assertRaisesRegex(ValueError, "independent cytosine MM groups"):
+            run_methylation(
+                manifest,
+                intake,
+                policy,
+                output_dir=self.root / "independent-output",
+                reference_fasta=reference,
+                threads=1,
+            )
+        self.assertFalse(
+            (self.root / "independent-output" / "INDEPENDENT_MODKIT.modkit.bedmethyl").exists()
+        )
+
     def test_real_bam_without_modification_tags_never_becomes_unmethylated(self) -> None:
         manifest, intake = self._inputs(tags=False)
         with self.assertRaisesRegex(ValueError, "no MM modified-base tags"):

@@ -72,7 +72,19 @@ hard-call counts and reported fractions depended on competing probabilities and
 thresholds; it was not a universal fixed increase in the final 5mC fraction. That option
 no longer exists upstream, and the lane no longer offers it.
 
-## Three refusals
+## Five refusals
+
+**Known modkit 0.6.4 same-base MM-group risk fails closed.** The pinned
+release can silently lose or misassign calls when one read carries independent modification
+groups for the same canonical cytosine (for example separate `C+m` and `C+h` groups). ONTSeq
+checks the complete BAM with the pinned samtools filter-expression engine before pileup and
+refuses this representation. A single multi-code group is not rejected. This is an upstream
+tool limitation, not a methylation threshold.
+
+**A nominally successful pileup with failed records is not accepted.** modkit 0.6.4 can exit
+zero while its log reports records that failed processing. ONTSeq inspects that diagnostic;
+any non-zero `failed processing` count deletes the partial bedMethyl result and fails the
+stage.
 
 **An empty pileup is never reported as "unmethylated".** A BAM basecalled without a
 modified-base model carries no `MM`/`ML` tags, and modkit answers that with an empty file —
@@ -149,8 +161,11 @@ The stage is deselectable like any other component: `--without methylation`, or 
 
 - Not validated. No threshold, region set or classifier here has analytical or clinical
   performance data behind it.
-- The real-binary CI lane proves the adapter meets the pinned modkit 0.6.4 on synthetic
-  fixtures. It proves nothing about analytical recovery on biological data.
+- The real-binary CI lane proves selected interoperability cases against pinned modkit
+  0.6.4. It does not establish correctness for every valid MM/ML representation, and
+  current upstream 0.6.4 limitations require the explicit same-base-group and failed-
+  processing refusals above. It proves nothing about analytical recovery on biological
+  data.
 - The pileup tabulates only the modification codes the policy declares. Modifications
   outside the policy are not tabulated and cannot be discovered from this report.
 - Aggregated fractions depend on the basecalling model that produced the tags. Runs

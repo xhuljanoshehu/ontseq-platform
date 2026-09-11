@@ -372,9 +372,18 @@ class RegionAggregationTests(unittest.TestCase):
 class _FakeRunner:
     """Stand in for modkit and samtools, writing the pileup a real run would produce."""
 
-    def __init__(self, *, version: str = "0.6.4", tagged_reads: str = "1200") -> None:
+    def __init__(
+        self,
+        *,
+        version: str = "0.6.4",
+        tagged_reads: str = "1200",
+        independent_cytosine_groups: str = "0",
+        failed_processing: int = 0,
+    ) -> None:
         self.version = version
         self.tagged_reads = tagged_reads
+        self.independent_cytosine_groups = independent_cytosine_groups
+        self.failed_processing = failed_processing
         self.commands: list[list[str]] = []
         self.rows: list[str] = [_row("chr1", 100, "m", 20, 15)]
 
@@ -384,9 +393,20 @@ class _FakeRunner:
         if argv[1:2] == ["--version"]:
             return CommandResult(tuple(argv), 0, f"mod_kit {self.version}", "")
         if "view" in argv:
-            return CommandResult(tuple(argv), 0, self.tagged_reads, "")
+            count = (
+                self.independent_cytosine_groups
+                if any("C[+-]" in item for item in argv)
+                else self.tagged_reads
+            )
+            return CommandResult(tuple(argv), 0, count, "")
         if "pileup" in argv:
             Path(argv[3]).write_text("\n".join(self.rows) + "\n", encoding="utf-8")
+            if self.failed_processing:
+                log_path = Path(argv[argv.index("--log-filepath") + 1])
+                log_path.write_text(
+                    f"[ERROR] ~{self.failed_processing} failed processing\n",
+                    encoding="utf-8",
+                )
             return CommandResult(tuple(argv), 0, "", "")
         raise AssertionError(f"unexpected command: {argv}")
 
@@ -462,6 +482,40 @@ class AdapterTests(unittest.TestCase):
                 )
         self.assertIn("reference FASTA", str(raised.exception))
 
+    def test_modkit_064_refuses_independent_same_base_cytosine_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            runner = _FakeRunner(independent_cytosine_groups="2")
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=runner,
+                )
+        self.assertIn("independent cytosine MM groups", str(raised.exception))
+
+    def test_success_exit_with_failed_processing_is_refused_and_output_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            runner = _FakeRunner(failed_processing=3)
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=runner,
+                )
+            output = root / "out" / "SYNTHETIC_001.modkit.bedmethyl"
+            self.assertFalse(output.exists())
+        self.assertIn("reported 3 failed record", str(raised.exception))
+
     def test_a_completed_pileup_is_normalized_and_records_the_tag_count(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -494,6 +548,11 @@ class AdapterTests(unittest.TestCase):
                 argv = [str(item) for item in argv]
                 if "view" in argv:
                     self.commands.append(argv)
+                    if any("C[+-]" in item for item in argv):
+                        # The generic MM-tag-presence probe may be unavailable without
+                        # making the independent same-base-group corruption-risk check
+                        # unknowable. Those are deliberately separate safety questions.
+                        return CommandResult(tuple(argv), 0, "0", "")
                     return CommandResult(tuple(argv), 1, "", "unrecognised option -e")
                 return super().run(argv, timeout_seconds=timeout_seconds)
 
