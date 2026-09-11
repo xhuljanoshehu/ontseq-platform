@@ -107,6 +107,23 @@ jobs:
             exit 1
           fi
           test -s ontseq-linux-runtime.tar.gz
+      - name: Assemble checksummed Desktop runtime installer payload
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          package_dir=desktop-runtime-package
+          wheel="ontseq_platform-${{ env.ONTSEQ_VERSION }}-py3-none-any.whl"
+          rm -rf "$package_dir"
+          mkdir -p "$package_dir"
+          cp ontseq-linux-runtime.tar.gz "$package_dir/ontseq-linux-runtime.tar.gz"
+          micromamba run -n ontseq-qdnaseq-cnv python -m pip wheel --no-deps \
+            --wheel-dir "$package_dir" .
+          test -s "$package_dir/$wheel"
+          (
+            cd "$package_dir"
+            sha256sum ontseq-linux-runtime.tar.gz "$wheel" > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
       - name: Prove packed runtime works after relocation
         shell: bash
         run: |
@@ -211,7 +228,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ontseq-linux-runtime-v${{ env.ONTSEQ_VERSION }}
-          path: ontseq-linux-runtime.tar.gz
+          path: desktop-runtime-package/
           if-no-files-found: error
           retention-days: 1
 
@@ -260,12 +277,31 @@ jobs:
         run: |
           $exe = "desktop/publish/ONTSeq.Desktop.exe"
           $runtime = "desktop/publish/runtime/ontseq-linux-runtime.tar.gz"
+          $wheel = "desktop/publish/runtime/ontseq_platform-${{ env.ONTSEQ_VERSION }}-py3-none-any.whl"
+          $checksums = "desktop/publish/runtime/SHA256SUMS"
           $buildInfo = "desktop/publish/BUILD-INFO.txt"
           $firstRun = "desktop/publish/README-FIRST-RUN.md"
           $readme = "desktop/publish/README.md"
           $changelog = "desktop/publish/CHANGELOG.md"
-          foreach ($path in @($exe, $runtime, $buildInfo, $firstRun, $readme, $changelog)) {
+          foreach ($path in @($exe, $runtime, $wheel, $checksums, $buildInfo, $firstRun, $readme, $changelog)) {
             if (-not (Test-Path $path)) { throw "Required bundle file is missing: $path" }
+          }
+          $expectedHashes = @{}
+          foreach ($line in Get-Content $checksums) {
+            if ($line -notmatch '^([0-9a-fA-F]{64}) [ *](.+)$') {
+              throw "Invalid SHA256SUMS line in Desktop bundle: $line"
+            }
+            $expectedHashes[$Matches[2]] = $Matches[1].ToLowerInvariant()
+          }
+          foreach ($path in @($runtime, $wheel)) {
+            $name = Split-Path $path -Leaf
+            if (-not $expectedHashes.ContainsKey($name)) {
+              throw "SHA256SUMS does not cover required bundle file: $name"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            if ($actual -ne $expectedHashes[$name]) {
+              throw "SHA256 mismatch for required bundle file: $name"
+            }
           }
           $expectedCommit = (git rev-parse HEAD).Trim().ToLowerInvariant()
           $embeddedCommit = (& tar -xOf $runtime share/ontseq/git-commit.txt).Trim().ToLowerInvariant()
@@ -284,7 +320,7 @@ jobs:
           if (-not (Select-String -Path $firstRun -SimpleMatch "Desktop v${{ env.ONTSEQ_VERSION }}" -Quiet)) {
             throw "First-run documentation is not versioned for v${{ env.ONTSEQ_VERSION }}"
           }
-          Get-Item $exe,$runtime,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
+          Get-Item $exe,$runtime,$wheel,$checksums,$buildInfo,$firstRun,$readme,$changelog | Select-Object Name,Length,LastWriteTime
       - name: Upload unsigned setup engineering artifact
         uses: actions/upload-artifact@v7
         with:
