@@ -350,14 +350,14 @@ def _verified_iscn_resource_provenance(
         cytobands = Path(context.resource_paths["reference.cytobands"])
         cache_summary = validate_annotation_cache(
             configured_cache,
-            expected_build=ctx.config.manifest.assay.genome_build.value,
+            expected_build=ctx.manifest.assay.genome_build.value,
         )
         with closing(
             sqlite3.connect(f"file:{configured_cache.as_posix()}?mode=ro", uri=True)
         ) as connection:
             require_annotation_cache_build(
                 connection,
-                expected_build=ctx.config.manifest.assay.genome_build.value,
+                expected_build=ctx.manifest.assay.genome_build.value,
             )
             metadata = dict(connection.execute("SELECT key, value FROM metadata").fetchall())
         reference_lock_sha256 = sha256_file(reference_lock)
