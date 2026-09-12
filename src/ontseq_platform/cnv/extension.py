@@ -49,7 +49,12 @@ from ..sidecars import tabular_sidecar
 from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
 from .cytoband import AffectedBandGroup, CnvDirection, CnvSegment, Cytoband, annotate_cnv_cytobands
-from .qdnaseq import QDNAseqCallReport, QDNAseqPolicy, run_qdnaseq_ace
+from .qdnaseq import (
+    WHOLE_CHROMOSOME_CONFIRMATION,
+    QDNAseqCallReport,
+    QDNAseqPolicy,
+    run_qdnaseq_ace,
+)
 
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
@@ -131,6 +136,9 @@ def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
             "cytoband_policy_schema": settings.policy.schema_version,
             "cytoband_policy_id": settings.policy.profile_id,
             "cytoband_affected_fraction": settings.policy.cytoband_affected_fraction,
+            "whole_chromosome_fraction": settings.policy.whole_chromosome_fraction,
+            "whole_chromosome_span_basis": settings.policy.whole_chromosome_span_basis,
+            "whole_chromosome_confirmation": WHOLE_CHROMOSOME_CONFIRMATION,
             "threads": ctx.config.threads,
         },
         tool_versions=versions,

@@ -493,6 +493,37 @@ class MethylationHeatmapSvgTests(unittest.TestCase):
 
 
 class ReportMethylationIntegrationTests(unittest.TestCase):
+    def test_nested_targets_with_shared_label_keep_distinct_heatmap_cells(self) -> None:
+        report = _methylation_report()
+        report.regions = [
+            _methylation_row(
+                region_id="ROI_A",
+                chromosome="chr1",
+                start=100,
+                end=500,
+                code="m",
+                fraction=0.25,
+                modified_call_count=20,
+            ),
+            _methylation_row(
+                region_id="ROI_A",
+                chromosome="chr1",
+                start=100,
+                end=300,
+                code="m",
+                fraction=0.75,
+                modified_call_count=60,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_html(
+                build_demo_result(), Path(temporary) / "report.html", methylation_report=report
+            )
+            document = path.read_text(encoding="utf-8")
+        self.assertIn("ROI_A · 5mC · 75.0%", document)
+        self.assertIn("ROI_A · 5mC · 25.0%", document)
+        self.assertLess(document.index("75.0%"), document.index("25.0%"))
+
     def test_render_html_includes_the_heatmap_when_supplied(self) -> None:
         result = build_demo_result()
         with tempfile.TemporaryDirectory() as temporary:

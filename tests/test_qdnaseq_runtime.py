@@ -495,6 +495,11 @@ class QDNAseqRuntimeTests(unittest.TestCase):
             )
 
             self.assertTrue(output.is_dir())
+            for tool in report.tools:
+                if tool.name in {"QDNAseq", "ACE"}:
+                    self.assertEqual(
+                        tool.parameters["whole_chromosome_confirmation"], "classified-event-span-v1"
+                    )
             self.assertEqual(report.primary_fit.bin_size_kbp, 500)
             self.assertAlmostEqual(report.primary_fit.cellularity, 0.57)
             self.assertAlmostEqual(report.primary_fit.ploidy, 2.0)

@@ -309,6 +309,35 @@ class WholeChromosomeSpanBasisTests(unittest.TestCase):
                 any("ISCN rendering is therefore suppressed" in note for note in events[0].notes)
             )
 
+    def test_full_assessable_extent_below_fraction_stays_a_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "segments.tsv"
+            for copy_number, call, expected in (
+                (3, 1, EventType.DUPLICATION),
+                (1, -1, EventType.DELETION),
+            ):
+                with self.subTest(event_type=expected):
+                    path.write_text(
+                        "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall"
+                        "\tcoordinate_system\n"
+                        f"chr8\t30000000\t146364022\t200\t{copy_number}\t{call}"
+                        "\tzero_based_half_open\n",
+                        encoding="utf-8",
+                    )
+                    events = self._events(
+                        path,
+                        basis="assessable_bin_extent",
+                        extents={"chr8": (30_000_000, 146_364_022)},
+                    )
+                    self.assertEqual(len(events), 1)
+                    event = events[0]
+                    self.assertEqual(event.event_type, expected)
+                    self.assertFalse(event.whole_chromosome_span_confirmed)
+                    self.assertIsNone(event.assessable_span_start)
+                    self.assertIsNone(event.assessable_span_end)
+                    self.assertFalse(event.reportable)
+                    self.assertFalse(any("span confirmed" in note for note in event.notes))
+
 
 if __name__ == "__main__":
     unittest.main()
