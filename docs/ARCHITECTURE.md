@@ -154,8 +154,11 @@ The current regular path is intentionally narrow:
 - only events originating in the typed CNV call report are eligible;
 - the CNV artifact sample ID and genome build must match the run manifest before its events are
   merged;
-- `+chr`/`-chr` fragments additionally require an exact zero-to-contig-end span against the
-  locked reference; the broader CNV classification fraction is not sufficient ISCN evidence;
+- `+chr`/`-chr` fragments additionally require a confirmed whole-chromosome span under the
+  versioned `whole_chromosome_span_basis`: either an exact zero-to-contig-end segment against the
+  locked reference, or full coverage of that chromosome's assessable QDNAseq bins when the CNV
+  policy selects `assessable_bin_extent`; the broader CNV classification fraction alone is not
+  sufficient ISCN evidence;
 - each eligible segmental deletion/duplication must have usable named cytobands from the selected
   build's locked coordinate-to-cytoband resources;
 - every result event receives a structured disposition, whether rendered, unsupported,

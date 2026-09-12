@@ -3,6 +3,22 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased
+
+- Confirm a whole-chromosome ISCN span against the assessable QDNAseq bin extent instead of the
+  raw contig ends. QDNAseq drops telomeric, blacklisted and residual-filtered bins, so the former
+  exact zero-to-contig-end rule was unreachable through this lane: every real whole-chromosome
+  candidate was classified as a gain or loss and then omitted as an unsupported construct. The
+  basis is versioned in the CNV policy as `whole_chromosome_span_basis`, shipped as
+  `assessable_bin_extent`, and is reported in the ISCN policy parameters. `exact_contig` keeps the
+  previous behaviour, and a bin table without the exporter's `use` flag falls back to it.
+- Record the assessed region on the event (`assessable_span_start`, `assessable_span_end`) so the
+  model still verifies a confirmation instead of trusting the caller, and state in the event notes
+  which basis confirmed or suppressed the span. Filtered regions are never asserted to be
+  unchanged sequence.
+- No caller threshold, classification fraction, reference bundle or reportability rule changes.
+  Whole-chromosome proposals remain research-use-only and require cytogenetic expert review.
+
 ## 0.8.1 — 2026-09-09
 
 ### Fixed

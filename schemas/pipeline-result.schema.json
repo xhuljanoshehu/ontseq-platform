@@ -790,6 +790,34 @@
           "title": "Annotations",
           "type": "array"
         },
+        "assessable_span_end": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Half-open end of that assessable region; a confirmed segment must cover it completely",
+          "title": "Assessable Span End"
+        },
+        "assessable_span_start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Zero-based start of the assessable region a whole-chromosome confirmation was measured against when the versioned CNV policy does not require an exact contig span",
+          "title": "Assessable Span Start"
+        },
         "breakpoint_annotations": {
           "items": {
             "$ref": "#/$defs/BreakpointAnnotation"
@@ -977,7 +1005,7 @@
         },
         "whole_chromosome_span_confirmed": {
           "default": false,
-          "description": "True only when the source CNV span exactly covers the locked reference contig; required before +chr/-chr ISCN rendering",
+          "description": "True only when the source CNV span covers the whole chromosome under the versioned span basis: an exact locked-contig span, or the recorded assessable span; required before +chr/-chr ISCN rendering",
           "title": "Whole Chromosome Span Confirmed",
           "type": "boolean"
         }

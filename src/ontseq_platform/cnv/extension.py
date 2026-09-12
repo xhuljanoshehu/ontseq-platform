@@ -586,7 +586,10 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             policy_parameters={
                 "automatic_unvalidated_sv_to_iscn": False,
                 "sex_chromosomes_assessed": False,
-                "exact_full_chromosome_span_required_for_iscn": True,
+                "exact_full_chromosome_span_required_for_iscn": (
+                    _settings().policy.whole_chromosome_span_basis == "exact_contig"
+                ),
+                "whole_chromosome_span_basis": _settings().policy.whole_chromosome_span_basis,
                 "cnv_policy_profile_id": _settings().policy.profile_id,
                 "cnv_policy_schema_version": _settings().policy.schema_version,
                 "whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
@@ -594,8 +597,10 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             },
             technical_assumptions=[
                 "Whole-chromosome candidate classification uses the versioned QDNAseq "
-                "segment-fraction threshold; +chr/-chr rendering additionally requires an "
-                "exact zero-to-contig-end span.",
+                "segment-fraction threshold; +chr/-chr rendering additionally requires a "
+                "confirmed whole-chromosome span under the versioned span basis, either an "
+                "exact zero-to-contig-end segment or full coverage of that chromosome's "
+                "assessable QDNAseq bins.",
                 "Segmental fragments require one contiguous affected cytoband group at the "
                 "versioned affected-fraction threshold.",
                 "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
