@@ -1,4 +1,4 @@
-"""Regression tests for the portable report's inline-SVG coverage plot."""
+"""Regression tests for the portable report's inline-SVG plots."""
 
 from __future__ import annotations
 
@@ -17,9 +17,11 @@ from ontseq_platform.models import (
 from ontseq_platform.qc import read_length_histogram_from_tsv
 from ontseq_platform.report import render_html
 from ontseq_platform.report_plots import (
+    CnvChromosomeBar,
     CoverageBar,
     ReadLengthBin,
     chromosome_sort_key,
+    cnv_genome_svg,
     coverage_depth_svg,
     read_length_histogram_svg,
 )
@@ -247,6 +249,49 @@ class ReportHistogramIntegrationTests(unittest.TestCase):
             path = render_html(result, Path(temporary) / "report.html")
             document = path.read_text(encoding="utf-8")
         self.assertNotIn("Read length distribution", document)
+
+
+class CnvGenomeSvgTests(unittest.TestCase):
+    def test_empty_renders_nothing(self) -> None:
+        self.assertEqual(cnv_genome_svg([], title="empty", baseline=2.0), "")
+
+    def test_output_is_deterministic_and_wellformed(self) -> None:
+        bars = [
+            CnvChromosomeBar("chr2", 2.01, 1.98, 2.05, 2),
+            CnvChromosomeBar("chr1", 1.02, 0.99, 1.04, 1),
+            CnvChromosomeBar("chr10", 3.2, 3.0, 3.4, 3),
+        ]
+        first = cnv_genome_svg(bars, title="t", baseline=2.0)
+        self.assertEqual(first, cnv_genome_svg(bars, title="t", baseline=2.0))
+        ET.fromstring(first)
+
+    def test_genome_order_and_labels(self) -> None:
+        bars = [
+            CnvChromosomeBar("chr10", 3.2, 3.0, 3.4, 3),
+            CnvChromosomeBar("chr2", 2.01, 1.98, 2.05, 2),
+            CnvChromosomeBar("chr1", 1.02, 0.99, 1.04, 1),
+        ]
+        svg = cnv_genome_svg(bars, title="t", baseline=2.0)
+        self.assertLess(svg.index("chr1 · median"), svg.index("chr2 · median"))
+        self.assertLess(svg.index("chr2 · median"), svg.index("chr10 · median"))
+        self.assertIn("fitted ploidy 2", svg)
+        self.assertIn("range 0.990–1.040", svg)
+
+    def test_measured_zero_median_stays_visible(self) -> None:
+        svg = cnv_genome_svg([CnvChromosomeBar("chr5", 0.0, 0.0, 0.1, 0)], title="t", baseline=2.0)
+        self.assertIn("measured zero", svg)
+
+    def test_invalid_values_are_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            cnv_genome_svg([CnvChromosomeBar("chr1", 2.0, 2.5, 3.0, 2)], title="t", baseline=2.0)
+        with self.assertRaises(ValueError):
+            cnv_genome_svg(
+                [CnvChromosomeBar("chr1", float("nan"), 1.0, 3.0, 2)],
+                title="t",
+                baseline=2.0,
+            )
+        with self.assertRaises(ValueError):
+            cnv_genome_svg([CnvChromosomeBar("chr1", 2.0, 1.0, 3.0, 2)], title="t", baseline=0.0)
 
 
 if __name__ == "__main__":

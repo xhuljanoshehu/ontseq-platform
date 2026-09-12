@@ -43,6 +43,7 @@ from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..report import render_html
+from ..report_plots import CnvChromosomeBar, cnv_genome_svg
 from ..sidecars import tabular_sidecar
 from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
@@ -654,6 +655,34 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         "</tr>"
         for chromosome in cnv.chromosome_consensus
     )
+    bars = [
+        CnvChromosomeBar(
+            chromosome=chromosome.chromosome,
+            median_cn=chromosome.median_copy_number,
+            min_cn=chromosome.min_copy_number,
+            max_cn=chromosome.max_copy_number,
+            rounded_cn=chromosome.rounded_copy_number,
+        )
+        for chromosome in cnv.chromosome_consensus
+    ]
+    genome_svg = cnv_genome_svg(
+        bars,
+        title="Genome-wide copy-number overview",
+        baseline=cnv.primary_fit.ploidy,
+    )
+    genome_figure = (
+        "<h3>Genome-wide copy-number overview</h3><figure class='plot' "
+        "style='margin:14px 0'>"
+        + genome_svg
+        + "<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>Median copy "
+        "number per chromosome from the multi-bin consensus; whiskers show each "
+        "chromosome's min–max range across bin sizes; the dashed line marks the "
+        "fitted ACE ploidy. Autosomes only — no X/Y statement is made or implied. "
+        "Descriptive technical evidence, not an adequacy or reportability assessment."
+        "</figcaption></figure>"
+        if genome_svg
+        else ""
+    )
     images: list[str] = []
     for label, name in (
         ("ACE purity/ploidy fit landscape", cnv.primary_fit.fit_plot),
@@ -674,7 +703,8 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         f"cellularity {cnv.primary_fit.cellularity:.3f}; "
         f"ploidy {cnv.primary_fit.ploidy:.3f}; "
         f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
-        "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
+        + genome_figure
+        + "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
         "<th>Cellularity</th><th>Ploidy</th><th>Fit error</th><th>Segments</th>"
         f"</tr></thead><tbody>{fit_rows}</tbody></table>"
         "<h3>Chromosome-level consensus</h3><table><thead><tr><th>Chromosome</th>"
