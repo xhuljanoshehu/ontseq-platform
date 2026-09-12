@@ -1,0 +1,43 @@
+name: Diagnose PR 72 merge conflicts
+
+on:
+  push:
+    branches:
+      - fix/desktop-bundle-0.8.2-active
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Record exact conflict set
+        shell: bash
+        run: |
+          set -u
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main > .github/pr72-merge-output.txt 2>&1
+          status=$?
+          set -e
+          {
+            echo "merge_exit=$status"
+            git diff --name-only --diff-filter=U
+          } > .github/pr72-conflicts.txt
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          else
+            git reset --hard HEAD
+          fi
+          rm -f .github/workflows/diag-pr72-conflicts.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'ci: capture PR 72 merge-conflict diagnostic'
+          git push origin HEAD:${{ github.ref_name }}
