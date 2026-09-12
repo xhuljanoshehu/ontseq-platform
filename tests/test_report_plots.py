@@ -8,6 +8,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ontseq_platform.demo import build_demo_result
+from ontseq_platform.methylation import (
+    MODKIT_MODIFICATION_NAMES,
+    MethylationPolicy,
+    MethylationRegionSource,
+    MethylationRegionSummary,
+    MethylationReport,
+    ModificationCode,
+)
 from ontseq_platform.models import (
     FileFingerprint,
     GenomeBuild,
@@ -19,10 +27,12 @@ from ontseq_platform.report import render_html
 from ontseq_platform.report_plots import (
     CnvChromosomeBar,
     CoverageBar,
+    MethylationCell,
     ReadLengthBin,
     chromosome_sort_key,
     cnv_genome_svg,
     coverage_depth_svg,
+    methylation_heatmap_svg,
     read_length_histogram_svg,
 )
 from ontseq_platform.report_sections import coverage_section
@@ -101,6 +111,130 @@ def _report() -> TargetCoverageReport:
         tool=ToolRecord(name="mosdepth", version="0.3.14", parameters={}),
         warnings=[policy.note],
         limitations=["Technical bins are descriptive only."],
+    )
+
+
+def _methylation_row(
+    *,
+    region_id: str,
+    chromosome: str,
+    start: int,
+    end: int,
+    code: ModificationCode,
+    fraction: float | None,
+    sites_total: int = 10,
+    sites_at_minimum_coverage: int = 8,
+    valid_call_count: int = 80,
+    modified_call_count: int = 60,
+) -> MethylationRegionSummary:
+    if fraction is None:
+        sites_at_minimum_coverage = 0
+        valid_call_count = 0
+        modified_call_count = 0
+        canonical = 0
+        mean_coverage = None
+        median = None
+    else:
+        canonical = valid_call_count - modified_call_count
+        mean_coverage = valid_call_count / sites_at_minimum_coverage
+        median = fraction
+    return MethylationRegionSummary(
+        region_id=region_id,
+        chromosome=chromosome,
+        start=start,
+        end=end,
+        modification_code=code,
+        modification_name=MODKIT_MODIFICATION_NAMES[code],
+        sites_total=sites_total,
+        sites_at_minimum_coverage=sites_at_minimum_coverage,
+        valid_call_count=valid_call_count,
+        modified_call_count=modified_call_count,
+        canonical_call_count=canonical,
+        other_mod_call_count=0,
+        mean_modified_fraction=fraction,
+        median_site_modified_fraction=median,
+        mean_valid_coverage=mean_coverage,
+    )
+
+
+def _methylation_report() -> MethylationReport:
+    policy = MethylationPolicy(
+        profile_id="synthetic-heatmap",
+        status="technical_defaults_only",
+        expected_version="0.6.4",
+        modification_codes=[ModificationCode.FIVE_MC, ModificationCode.FIVE_HMC],
+        note="Synthetic heatmap policy",
+        region_source=MethylationRegionSource.TARGET_BED,
+    )
+    regions = [
+        _methylation_row(
+            region_id="ROI_A",
+            chromosome="chr1",
+            start=100,
+            end=300,
+            code=ModificationCode.FIVE_MC,
+            fraction=0.75,
+        ),
+        _methylation_row(
+            region_id="ROI_A",
+            chromosome="chr1",
+            start=100,
+            end=300,
+            code=ModificationCode.FIVE_HMC,
+            fraction=0.1,
+            modified_call_count=8,
+        ),
+        _methylation_row(
+            region_id="ROI_ZERO",
+            chromosome="chr2",
+            start=0,
+            end=50,
+            code=ModificationCode.FIVE_MC,
+            fraction=0.0,
+            modified_call_count=0,
+        ),
+        _methylation_row(
+            region_id="ROI_ZERO",
+            chromosome="chr2",
+            start=0,
+            end=50,
+            code=ModificationCode.FIVE_HMC,
+            fraction=None,
+        ),
+        _methylation_row(
+            region_id="ROI_C",
+            chromosome="chr10",
+            start=10,
+            end=20,
+            code=ModificationCode.FIVE_MC,
+            fraction=0.4,
+            modified_call_count=32,
+        ),
+        _methylation_row(
+            region_id="ROI_C",
+            chromosome="chr10",
+            start=10,
+            end=20,
+            code=ModificationCode.FIVE_HMC,
+            fraction=None,
+        ),
+    ]
+    return MethylationReport(
+        sample_id="SYNTHETIC_001",
+        genome_build=GenomeBuild.GRCH38,
+        status=ModuleRunStatus.COMPLETED,
+        policy=policy,
+        region_source=MethylationRegionSource.TARGET_BED,
+        summary_metrics={
+            "region_row_count": len(regions),
+            "fail_call_count": 3,
+            "nocall_call_count": 7,
+        },
+        regions=regions,
+        bedmethyl_fingerprint=FileFingerprint(size_bytes=42, sha256="c" * 64),
+        tool=ToolRecord(name="modkit", version="0.6.4", parameters={}),
+        warnings=[policy.note],
+        limitations=["Descriptive technical measurements only."],
     )
 
 
@@ -292,6 +426,94 @@ class CnvGenomeSvgTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             cnv_genome_svg([CnvChromosomeBar("chr1", 2.0, 1.0, 3.0, 2)], title="t", baseline=0.0)
+
+
+class MethylationHeatmapSvgTests(unittest.TestCase):
+    def test_empty_renders_nothing(self) -> None:
+        self.assertEqual(methylation_heatmap_svg([], title="empty"), "")
+
+    def test_output_is_deterministic_and_wellformed(self) -> None:
+        cells = [
+            MethylationCell("A", "chr2", 0, "5mC", 0.75, 80, 8, 10),
+            MethylationCell("B", "chr1", 10, "5mC", None, 0, 0, 4),
+        ]
+        first = methylation_heatmap_svg(cells, title="t")
+        self.assertEqual(first, methylation_heatmap_svg(cells, title="t"))
+        ET.fromstring(first)
+
+    def test_genome_order_and_unmeasurable_cells(self) -> None:
+        cells = [
+            MethylationCell("TEN", "chr10", 0, "5mC", 0.4, 40, 4, 4),
+            MethylationCell("TWO", "chr2", 0, "5mC", 0.0, 80, 8, 8),
+            MethylationCell("ONE", "chr1", 0, "5mC", None, 0, 0, 3),
+        ]
+        svg = methylation_heatmap_svg(cells, title="t")
+        self.assertLess(svg.index("ONE · 5mC"), svg.index("TWO · 5mC"))
+        self.assertLess(svg.index("TWO · 5mC"), svg.index("TEN · 5mC"))
+        self.assertIn("not measurable", svg)
+        self.assertIn("url(#meth-nocall)", svg)
+        self.assertIn("0.0%", svg)
+
+    def test_modification_row_order_is_canonical(self) -> None:
+        cells = [
+            MethylationCell("A", "chr1", 0, "5hmC", 0.1, 10, 2, 2),
+            MethylationCell("A", "chr1", 0, "5mC", 0.8, 10, 2, 2),
+        ]
+        svg = methylation_heatmap_svg(cells, title="t")
+        five_mc = svg.index(">5mC<")
+        five_hmc = svg.index(">5hmC<")
+        self.assertLess(five_mc, five_hmc)
+
+    def test_labels_are_escaped(self) -> None:
+        svg = methylation_heatmap_svg(
+            [MethylationCell("<script>", "chr1", 0, "5mC", 0.5, 10, 2, 2)],
+            title="t",
+        )
+        self.assertNotIn("<script>", svg)
+        self.assertIn("&lt;script&gt;", svg)
+
+    def test_invalid_values_are_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            methylation_heatmap_svg(
+                [MethylationCell("A", "chr1", 0, "5mC", 1.2, 10, 2, 2)], title="t"
+            )
+        with self.assertRaises(ValueError):
+            methylation_heatmap_svg(
+                [MethylationCell("A", "chr1", 0, "5mC", float("nan"), 10, 2, 2)],
+                title="t",
+            )
+        with self.assertRaises(ValueError):
+            methylation_heatmap_svg(
+                [
+                    MethylationCell("A", "chr1", 0, "5mC", 0.1, 10, 2, 2),
+                    MethylationCell("A", "chr1", 0, "5mC", 0.2, 10, 2, 2),
+                ],
+                title="t",
+            )
+
+
+class ReportMethylationIntegrationTests(unittest.TestCase):
+    def test_render_html_includes_the_heatmap_when_supplied(self) -> None:
+        result = build_demo_result()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_html(
+                result,
+                Path(temporary) / "report.html",
+                methylation_report=_methylation_report(),
+            )
+            document = path.read_text(encoding="utf-8")
+        self.assertIn("Modified-base fractions", document)
+        self.assertIn("not measurable", document)
+        self.assertIn("failed-threshold calls 3", document)
+        self.assertIn('href="#methylation"', document)
+
+    def test_render_html_without_methylation_omits_the_section(self) -> None:
+        result = build_demo_result()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render_html(result, Path(temporary) / "report.html")
+            document = path.read_text(encoding="utf-8")
+        self.assertNotIn("Modified-base fractions", document)
+        self.assertNotIn('href="#methylation"', document)
 
 
 if __name__ == "__main__":
