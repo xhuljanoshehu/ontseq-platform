@@ -1301,6 +1301,7 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
         qc_histogram=qc_histogram,
+        methylation_report=load_methylation_report(ctx),
     )
     render_workbook(
         result,

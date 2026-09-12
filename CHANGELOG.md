@@ -63,6 +63,12 @@ validated release.
   the fitted ACE ploidy as the dashed reference, next to the retained ACE PNG panels.
   Pure presentation of the normalized QDNAseq/ACE report; no fit, threshold, contract
   or reportability change.
+- Render the normalized methylation report as a deterministic inline-SVG heatmap:
+  regions in genome order, one row per modification code, measured fractions on a
+  0-1 blue scale, and coverage-floor misses as hatched not-measurable cells rather
+  than zeros. Failed and no-call totals from summary metrics stay visible beside
+  the figure. Presentation only: no pileup, threshold, contract or reportability
+  change.
 
 ### Fixed
 

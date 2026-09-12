@@ -42,8 +42,9 @@ from ..pipeline import runner as pipeline_runner
 from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
+from ..qc import read_length_histogram_from_tsv
 from ..report import render_html
-from ..report_plots import CnvChromosomeBar, cnv_genome_svg
+from ..report_plots import CnvChromosomeBar, ReadLengthBin, cnv_genome_svg
 from ..sidecars import tabular_sidecar
 from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
@@ -798,11 +799,24 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
         if selection_path.is_file()
         else None
     )
+    histogram_path = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
+    qc_histogram = (
+        [
+            ReadLengthBin(start=start, end=end, count=count, bases=bases)
+            for start, end, count, bases in read_length_histogram_from_tsv(
+                histogram_path.read_text(encoding="utf-8")
+            )
+        ]
+        if histogram_path.is_file()
+        else None
+    )
     render_html(
         result,
         html_path,
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
+        qc_histogram=qc_histogram,
+        methylation_report=pipeline_runner.load_methylation_report(ctx),
     )
     render_workbook(
         result,
