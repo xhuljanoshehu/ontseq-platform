@@ -297,3 +297,298 @@ def read_length_histogram_svg(
     parts.append(_text(_LEFT, _TOP - 6, "reads per length bin", anchor="start", size=9))
     parts.append("</svg>")
     return "".join(parts)
+
+
+@dataclass(frozen=True)
+class CnvChromosomeBar:
+    """One chromosome's normalized multi-bin copy-number consensus."""
+
+    chromosome: str
+    median_cn: float
+    min_cn: float
+    max_cn: float
+    rounded_cn: int
+
+
+def cnv_genome_svg(
+    chromosomes: Sequence[CnvChromosomeBar],
+    *,
+    title: str,
+    baseline: float,
+) -> str:
+    """Median copy number per chromosome with min–max whiskers, as inline SVG.
+
+    Values come verbatim from the normalized QDNAseq/ACE report: the bar is the
+    chromosome-level median across bin sizes, the whisker is its min–max range,
+    and ``baseline`` is the fitted ACE ploidy drawn as a dashed reference. A
+    median of zero is a measured value and stays visible as a flat marker. An
+    empty input renders as an empty string, so the caller omits the figure.
+    """
+    if not chromosomes:
+        return ""
+    for item in chromosomes:
+        values = (item.median_cn, item.min_cn, item.max_cn)
+        if (
+            any(not isinstance(value, int | float) or isinstance(value, bool) for value in values)
+            or any(not math.isfinite(value) for value in values)
+            or item.min_cn < 0
+            or item.min_cn > item.median_cn
+            or item.median_cn > item.max_cn
+            or not isinstance(item.rounded_cn, int)
+            or isinstance(item.rounded_cn, bool)
+            or item.rounded_cn < 0
+        ):
+            raise ValueError("A CNV chromosome bar is not numeric/valid")
+    if not isinstance(baseline, int | float) or isinstance(baseline, bool):
+        raise ValueError("The CNV baseline must be numeric")
+    if not math.isfinite(baseline) or baseline <= 0:
+        raise ValueError("The CNV baseline must be a positive finite value")
+    ordered = sorted(chromosomes, key=lambda item: chromosome_sort_key(item.chromosome))
+    y_max = _nice_ceiling(max(max(item.max_cn for item in ordered), baseline, 1.0))
+    plot_right = _WIDTH - _RIGHT
+    plot_bottom = _HEIGHT - 56
+    span = plot_bottom - _TOP
+    count = len(ordered)
+    slot = (plot_right - _LEFT) / count
+    bar_width = max(2.0, min(28.0, slot * 0.55))
+
+    def y_of(value: float) -> float:
+        return plot_bottom - span * (value / y_max)
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {_WIDTH} {_HEIGHT}" role="img" '
+        f'aria-label="{html.escape(title)}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block">',
+        f"<title>{html.escape(title)}</title>",
+    ]
+    for fraction, label_value in ((0.0, "0"), (0.5, f"{y_max / 2:g}"), (1.0, f"{y_max:g}")):
+        y = plot_bottom - span * fraction
+        parts.append(
+            f'<line x1="{_LEFT}" y1="{y:.1f}" x2="{plot_right}" y2="{y:.1f}" '
+            f'stroke="{_GRID}" stroke-width="1"/>'
+        )
+        parts.append(_text(_LEFT - 8, y + 3.5, label_value, anchor="end"))
+    baseline_y = y_of(baseline)
+    parts.append(
+        f'<line x1="{_LEFT}" y1="{baseline_y:.1f}" x2="{plot_right}" y2="{baseline_y:.1f}" '
+        f'stroke="{_REFERENCE}" stroke-width="1" stroke-dasharray="5 4"/>'
+    )
+    parts.append(
+        _text(
+            plot_right - 4,
+            baseline_y - 4,
+            f"fitted ploidy {baseline:g}",
+            anchor="end",
+            color=_REFERENCE,
+            size=9,
+        )
+    )
+    for index, item in enumerate(ordered):
+        center = _LEFT + slot * (index + 0.5)
+        tooltip = (
+            f"{html.escape(item.chromosome)} · median CN {item.median_cn:.3f} · "
+            f"rounded {item.rounded_cn} · range {item.min_cn:.3f}–{item.max_cn:.3f}"
+        )
+        parts.append(
+            f'<line x1="{center:.2f}" y1="{y_of(item.max_cn):.2f}" '
+            f'x2="{center:.2f}" y2="{y_of(item.min_cn):.2f}" '
+            f'stroke="{_INK}" stroke-width="1"/>'
+        )
+        for cap_value in (item.min_cn, item.max_cn):
+            parts.append(
+                f'<line x1="{center - 3:.2f}" y1="{y_of(cap_value):.2f}" '
+                f'x2="{center + 3:.2f}" y2="{y_of(cap_value):.2f}" '
+                f'stroke="{_INK}" stroke-width="1"/>'
+            )
+        if item.median_cn == 0:
+            # A measured zero median stays visible instead of vanishing.
+            parts.append(
+                f'<rect x="{center - bar_width / 2:.2f}" y="{plot_bottom - 2:.2f}" '
+                f'width="{bar_width:.2f}" height="2" fill="{_ACCENT_SOFT}">'
+                f"<title>{tooltip} (measured zero)</title></rect>"
+            )
+        else:
+            parts.append(
+                f'<rect x="{center - bar_width / 2:.2f}" y="{y_of(item.median_cn):.2f}" '
+                f'width="{bar_width:.2f}" '
+                f'height="{plot_bottom - y_of(item.median_cn):.2f}" fill="{_ACCENT}">'
+                f"<title>{tooltip}</title></rect>"
+            )
+        parts.append(_text(center, plot_bottom + 14, item.chromosome, size=8))
+    parts.append(
+        _text(_LEFT, _TOP - 6, "median copy number per chromosome", anchor="start", size=9)
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+@dataclass(frozen=True)
+class MethylationCell:
+    """One already-normalized region × modification measurement."""
+
+    region_id: str
+    chromosome: str
+    start: int | None
+    modification_label: str
+    fraction: float | None
+    valid_call_count: int
+    sites_at_minimum_coverage: int
+    sites_total: int
+
+
+_METH_ZERO = (244, 246, 249)
+_METH_ONE = (29, 95, 138)
+_CODE_RANK = {"5mC": 0, "5hmC": 1, "6mA": 2}
+_NOCALL_FILL = "#d9dde4"
+_NOCALL_HATCH = "#9aa3b2"
+
+
+def _rgb_hex(channels: tuple[int, int, int]) -> str:
+    return f"#{channels[0]:02x}{channels[1]:02x}{channels[2]:02x}"
+
+
+def _methylation_fill(fraction: float) -> str:
+    mixed = [
+        round(start + (end - start) * fraction)
+        for start, end in zip(_METH_ZERO, _METH_ONE, strict=True)
+    ]
+    return _rgb_hex((mixed[0], mixed[1], mixed[2]))
+
+
+def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> str:
+    """Region × modification heatmap of already-normalized modified fractions.
+
+    ``fraction=None`` is a coverage-floor miss and is drawn hatched, never as a
+    measured zero. A measured 0.0 is a pale filled cell. An empty input renders
+    as an empty string, so the caller omits the figure entirely.
+    """
+    if not cells:
+        return ""
+    seen: set[tuple[str, int | None, str, str]] = set()
+    for item in cells:
+        counts = (item.valid_call_count, item.sites_at_minimum_coverage, item.sites_total)
+        if (
+            any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in counts
+            )
+            or item.sites_at_minimum_coverage > item.sites_total
+        ):
+            raise ValueError("A methylation heatmap cell is not numeric/valid")
+        if item.start is not None and (
+            not isinstance(item.start, int) or isinstance(item.start, bool) or item.start < 0
+        ):
+            raise ValueError("A methylation heatmap cell is not numeric/valid")
+        if item.fraction is not None and (
+            not isinstance(item.fraction, int | float)
+            or isinstance(item.fraction, bool)
+            or not math.isfinite(item.fraction)
+            or item.fraction < 0
+            or item.fraction > 1
+        ):
+            raise ValueError("A methylation heatmap fraction is not in 0-1")
+        key = (item.chromosome, item.start, item.region_id, item.modification_label)
+        if key in seen:
+            raise ValueError("Methylation heatmap cells contain a duplicate region/code pair")
+        seen.add(key)
+
+    def column_key(
+        column: tuple[str, int | None, str],
+    ) -> tuple[tuple[int, str], bool, int, str]:
+        chromosome, start, region_id = column
+        return (chromosome_sort_key(chromosome), start is None, start or 0, region_id)
+
+    columns = sorted(
+        {(item.chromosome, item.start, item.region_id) for item in cells},
+        key=column_key,
+    )
+    rows = sorted(
+        {item.modification_label for item in cells},
+        key=lambda name: (_CODE_RANK.get(name, 50), name),
+    )
+    lookup = {
+        (item.chromosome, item.start, item.region_id, item.modification_label): item
+        for item in cells
+    }
+    left = 72
+    top = 40
+    bottom = 52
+    cell_height = 28
+    height = top + cell_height * len(rows) + bottom
+    plot_right = _WIDTH - _RIGHT
+    slot = (plot_right - left) / len(columns)
+    gap = 1.0
+    cell_width = max(2.0, slot - gap)
+
+    parts: list[str] = [
+        f'<svg viewBox="0 0 {_WIDTH} {height}" role="img" '
+        f'aria-label="{html.escape(title)}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block">',
+        f"<title>{html.escape(title)}</title>",
+        '<defs><pattern id="meth-nocall" patternUnits="userSpaceOnUse" '
+        'width="6" height="6"><rect width="6" height="6" '
+        f'fill="{_NOCALL_FILL}"/>'
+        f'<path d="M0 6 L6 0" stroke="{_NOCALL_HATCH}" stroke-width="1"/>'
+        "</pattern>"
+        '<linearGradient id="meth-scale" x1="0" x2="1" y1="0" y2="0">'
+        f'<stop offset="0" stop-color="{_rgb_hex(_METH_ZERO)}"/>'
+        f'<stop offset="1" stop-color="{_rgb_hex(_METH_ONE)}"/>'
+        "</linearGradient></defs>",
+    ]
+    parts.append(f'<rect x="{left:.1f}" y="10" width="120" height="8" fill="url(#meth-scale)"/>')
+    parts.append(_text(left, 8, "0%", anchor="start", size=9))
+    parts.append(_text(left + 120, 8, "100%", anchor="end", size=9))
+    parts.append(
+        f'<rect x="{left + 136:.1f}" y="10" width="12" height="8" fill="url(#meth-nocall)"/>'
+    )
+    parts.append(_text(left + 152, 17, "not measurable", anchor="start", size=9))
+    for row_index, label in enumerate(rows):
+        y = top + cell_height * row_index
+        parts.append(_text(left - 8, y + cell_height / 2 + 3, label, anchor="end", size=10))
+        for column_index, column in enumerate(columns):
+            current = lookup.get((*column, label))
+            x = left + slot * column_index + gap / 2
+            if current is None:
+                continue
+            region = html.escape(current.region_id)
+            code = html.escape(current.modification_label)
+            if current.fraction is None:
+                tooltip = f"{region} · {code} · not measurable"
+                fill = "url(#meth-nocall)"
+            else:
+                tooltip = (
+                    f"{region} · {code} · {current.fraction:.1%} · "
+                    f"{current.valid_call_count} valid calls"
+                )
+                fill = _methylation_fill(float(current.fraction))
+            parts.append(
+                f'<rect x="{x:.2f}" y="{y + 2:.2f}" width="{cell_width:.2f}" '
+                f'height="{cell_height - 4:.2f}" fill="{fill}">'
+                f"<title>{tooltip}</title></rect>"
+            )
+    group_start = 0
+    plot_bottom = top + cell_height * len(rows)
+    for index in range(1, len(columns) + 1):
+        boundary = index == len(columns) or columns[index][0] != columns[group_start][0]
+        if not boundary:
+            continue
+        left_edge = left + slot * group_start
+        right_edge = left + slot * index
+        if group_start > 0:
+            parts.append(
+                f'<line x1="{left_edge:.1f}" y1="{top}" x2="{left_edge:.1f}" '
+                f'y2="{plot_bottom}" stroke="{_GRID}" stroke-width="1"/>'
+            )
+        if right_edge - left_edge >= 26:
+            parts.append(
+                _text(
+                    (left_edge + right_edge) / 2,
+                    plot_bottom + 14,
+                    columns[group_start][0],
+                    size=9,
+                )
+            )
+        group_start = index
+    parts.append(_text(left, top - 8, "modified fraction by region", anchor="start", size=9))
+    parts.append("</svg>")
+    return "".join(parts)

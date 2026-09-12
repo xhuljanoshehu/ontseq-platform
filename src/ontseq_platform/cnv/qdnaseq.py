@@ -39,6 +39,7 @@ class QDNAseqPolicy(StrictModel):
     ploidy_step: float = Field(default=0.05, gt=0)
     minimum_segment_bins: int = Field(default=1, ge=1)
     whole_chromosome_fraction: float = Field(default=0.90, gt=0, le=1)
+    whole_chromosome_span_basis: Literal["exact_contig", "assessable_bin_extent"] = "exact_contig"
     cytoband_affected_fraction: float = Field(gt=0, le=1)
     cellularity_review_fraction: float = Field(default=0.20, gt=0, le=1)
     cellularity_critical_fraction: float = Field(default=0.10, gt=0, le=1)
@@ -180,6 +181,40 @@ def _contig_lengths(reference_lock: ReferenceLock) -> dict[str, int]:
         if name in canonical:
             result[name] = item.length
     return result
+
+
+def _assessable_bin_extents(path: Path) -> dict[str, tuple[int, int]]:
+    """Return the first and last assessable bin coordinate per chromosome.
+
+    QDNAseq itself drops telomeric, blacklisted and residual-filtered bins, so a segment can
+    never reach the raw contig ends through this lane. The extent measured here is the part of
+    the contig the run could actually assess. It is read from the exporter's own ``use`` flag
+    rather than from a tolerance, and an exporter without that flag yields no extent at all so
+    the caller keeps the stricter exact-contig rule.
+    """
+
+    rows = _read_tsv(path)
+    if rows and "use" not in rows[0]:
+        return {}
+    extents: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        if row.get("coordinate_system") != "zero_based_half_open":
+            raise ValueError("QDNAseq bin TSV must declare zero_based_half_open coordinates")
+        if (row.get("use") or "").strip().upper() != "TRUE":
+            continue
+        chromosome = str(row["chromosome"])
+        if not chromosome.startswith("chr"):
+            chromosome = f"chr{chromosome}"
+        start, end = _int(row, "start"), _int(row, "end")
+        if start < 0:
+            raise ValueError(f"QDNAseq bin start is negative on {chromosome}")
+        if end <= start:
+            raise ValueError(f"QDNAseq bin end is not after start on {chromosome}")
+        current = extents.get(chromosome)
+        extents[chromosome] = (
+            (start, end) if current is None else (min(current[0], start), max(current[1], end))
+        )
+    return extents
 
 
 def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[ToolRecord]:
@@ -339,6 +374,8 @@ def _events_from_primary_segments(
     minimum_segment_bins: int,
     whole_chromosome_fraction: float,
     consensus: Mapping[str, CnvChromosomeConsensus],
+    whole_chromosome_span_basis: str = "exact_contig",
+    assessable_extents: Mapping[str, tuple[int, int]] | None = None,
 ) -> tuple[list[GenomicEvent], list[str]]:
     rows = _read_tsv(path)
     lengths = _contig_lengths(reference_lock)
@@ -375,9 +412,16 @@ def _events_from_primary_segments(
             event_type = EventType.CHROMOSOME_GAIN if direction_gain else EventType.CHROMOSOME_LOSS
         else:
             event_type = EventType.DUPLICATION if direction_gain else EventType.DELETION
-        whole_chromosome_span_confirmed = bool(
-            contig_length is not None and start == 0 and end == contig_length
+        exact_span = bool(contig_length is not None and start == 0 and end == contig_length)
+        extent = (assessable_extents or {}).get(chromosome)
+        assessable_span = bool(
+            whole_chromosome_span_basis == "assessable_bin_extent"
+            and contig_length is not None
+            and extent is not None
+            and start <= extent[0]
+            and end >= extent[1]
         )
+        whole_chromosome_span_confirmed = exact_span or assessable_span
         serial += 1
         agreement = consensus.get(chromosome)
         notes = [
@@ -394,13 +438,21 @@ def _events_from_primary_segments(
                 f"{agreement.agreeing_bins}/{agreement.contributing_bins}; "
                 f"median CN={agreement.median_copy_number:.3f}"
             )
+        if assessable_span and not exact_span and extent is not None:
+            notes.append(
+                "Whole-chromosome span confirmed against the assessable QDNAseq bin extent "
+                f"{chromosome}:{extent[0]}-{extent[1]} of {contig_length} bp "
+                f"({fraction:.1%} of the contig). Filtered telomeric, blacklisted and "
+                "residual-filtered bins were not assessed and are not asserted to be unchanged."
+            )
         if event_type in {EventType.CHROMOSOME_GAIN, EventType.CHROMOSOME_LOSS} and not (
             whole_chromosome_span_confirmed
         ):
             notes.append(
                 "Whole-chromosome event classification met the versioned coverage-fraction "
-                "threshold, but the segment did not span the exact reference contig; +chr/-chr "
-                "ISCN rendering is therefore suppressed."
+                "threshold, but the segment did not cover the span required by the versioned "
+                f"basis '{whole_chromosome_span_basis}'; +chr/-chr ISCN rendering is therefore "
+                "suppressed."
             )
         quality = None
         raw_qnorm = row.get("qnorm_log10")
@@ -422,6 +474,14 @@ def _events_from_primary_segments(
                 )
             else:
                 quality = abs(qnorm_log10)
+        # Record what was assessable for whole-chromosome candidates so the confirmation stays
+        # checkable in the result JSON instead of resting on the caller's word.
+        recorded_extent = (
+            extent
+            if extent is not None
+            and event_type in {EventType.CHROMOSOME_GAIN, EventType.CHROMOSOME_LOSS}
+            else None
+        )
         events.append(
             GenomicEvent(
                 event_id=f"CNV_{sample_id}_{serial:04d}",
@@ -430,6 +490,8 @@ def _events_from_primary_segments(
                 length_bp=end - start,
                 copy_number=copy_number,
                 whole_chromosome_span_confirmed=whole_chromosome_span_confirmed,
+                assessable_span_start=recorded_extent[0] if recorded_extent else None,
+                assessable_span_end=recorded_extent[1] if recorded_extent else None,
                 evidence=[
                     Evidence(
                         caller="QDNAseq+ACE",
@@ -564,6 +626,24 @@ def run_qdnaseq_ace(
         consensus_by_chr = {item.chromosome: item for item in consensus}
         tools = _tool_records(summary, policy)
 
+        assessable_extents: dict[str, tuple[int, int]] = {}
+        span_warnings: list[str] = []
+        if policy.whole_chromosome_span_basis == "assessable_bin_extent":
+            if primary.bins_file is None:
+                span_warnings.append(
+                    "The primary QDNAseq run exported no bin table, so the assessable "
+                    "whole-chromosome span could not be measured; +chr/-chr ISCN rendering keeps "
+                    "the stricter exact-contig rule for this run."
+                )
+            else:
+                assessable_extents = _assessable_bin_extents(staged / primary.bins_file)
+                if not assessable_extents:
+                    span_warnings.append(
+                        "The primary QDNAseq bin table carries no assessable-bin flag, so the "
+                        "assessable whole-chromosome span could not be measured; +chr/-chr ISCN "
+                        "rendering keeps the stricter exact-contig rule for this run."
+                    )
+
         events, classification_warnings = _events_from_primary_segments(
             staged / primary.segment_file,
             sample_id=sample_id,
@@ -573,6 +653,8 @@ def run_qdnaseq_ace(
             minimum_segment_bins=policy.minimum_segment_bins,
             whole_chromosome_fraction=policy.whole_chromosome_fraction,
             consensus=consensus_by_chr,
+            whole_chromosome_span_basis=policy.whole_chromosome_span_basis,
+            assessable_extents=assessable_extents,
         )
 
         expected_names = {summary_path.name, consensus_name}
@@ -596,6 +678,7 @@ def run_qdnaseq_ace(
 
         warnings: list[str] = []
         warnings.extend(classification_warnings)
+        warnings.extend(span_warnings)
         for chromosome in consensus:
             if chromosome.agreeing_bins < chromosome.contributing_bins:
                 disagreements = chromosome.contributing_bins - chromosome.agreeing_bins
@@ -640,6 +723,14 @@ def run_qdnaseq_ace(
                     "autosomes 1-22. No statement about X or Y copy number is made or "
                     "implied. Absence of an X/Y finding in this report is not evidence of "
                     "a normal X/Y complement."
+                ),
+                (
+                    "Whole-chromosome ISCN spans are confirmed under the versioned basis "
+                    f"'{policy.whole_chromosome_span_basis}'. With assessable_bin_extent the "
+                    "segment must cover every assessable bin of that chromosome; filtered "
+                    "telomeric, blacklisted and residual-filtered regions are not assessed and "
+                    "are not asserted to be unchanged. This is a versioned technical basis, not "
+                    "a validated clinical criterion."
                 ),
                 (
                     "Whole-chromosome versus focal classification uses a technical length "

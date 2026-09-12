@@ -3,6 +3,8 @@
 **Status:** engineering research note  
 **Decision scope:** visualization/rendering only; no scientific caller or reportability decisions.
 
+> **Implementation update, 2026-09-12:** The portable report now uses semantic HTML and deterministic pure-Python inline SVG for read-length, coverage, CNV and methylation views, backed by normalized artifacts and a typed review-view layer. No heavy frontend dependency has been adopted. JBrowse 2, IGV.js, Gosling.js, Ideogram.js and ECharts remain candidates for a separate linked/local workspace and require the spikes and supply-chain gates below.
+
 ## 1. Constraints specific to ONTSeq
 
 A suitable visualization stack must satisfy more than “can draw a chart”.
@@ -243,7 +245,7 @@ Heavy genome-browser code is excluded from this artifact.
 
 ### Why a view-model layer is required
 
-Current `report.py` reads `PipelineResult` directly and assembles HTML strings. A view model would:
+The original direct-rendering gap has been reduced: `report.py` now consumes a typed `ReportView` for core reviewer fields, while optional module artifacts feed bounded deterministic plot helpers. Further view-model coverage would:
 
 - decide display order without altering scientific values;
 - normalize units/labels;

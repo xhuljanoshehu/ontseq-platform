@@ -42,7 +42,9 @@ from ..pipeline import runner as pipeline_runner
 from ..pipeline.envelope import Artifact, sha256_file
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
+from ..qc import read_length_histogram_from_tsv
 from ..report import render_html
+from ..report_plots import CnvChromosomeBar, ReadLengthBin, cnv_genome_svg
 from ..sidecars import tabular_sidecar
 from ..target_coverage import TargetCoverageReport
 from ..workbook import render_workbook
@@ -584,7 +586,10 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             policy_parameters={
                 "automatic_unvalidated_sv_to_iscn": False,
                 "sex_chromosomes_assessed": False,
-                "exact_full_chromosome_span_required_for_iscn": True,
+                "exact_full_chromosome_span_required_for_iscn": (
+                    _settings().policy.whole_chromosome_span_basis == "exact_contig"
+                ),
+                "whole_chromosome_span_basis": _settings().policy.whole_chromosome_span_basis,
                 "cnv_policy_profile_id": _settings().policy.profile_id,
                 "cnv_policy_schema_version": _settings().policy.schema_version,
                 "whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
@@ -592,8 +597,10 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
             },
             technical_assumptions=[
                 "Whole-chromosome candidate classification uses the versioned QDNAseq "
-                "segment-fraction threshold; +chr/-chr rendering additionally requires an "
-                "exact zero-to-contig-end span.",
+                "segment-fraction threshold; +chr/-chr rendering additionally requires a "
+                "confirmed whole-chromosome span under the versioned span basis, either an "
+                "exact zero-to-contig-end segment or full coverage of that chromosome's "
+                "assessable QDNAseq bins.",
                 "Segmental fragments require one contiguous affected cytoband group at the "
                 "versioned affected-fraction threshold.",
                 "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
@@ -654,6 +661,34 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         "</tr>"
         for chromosome in cnv.chromosome_consensus
     )
+    bars = [
+        CnvChromosomeBar(
+            chromosome=chromosome.chromosome,
+            median_cn=chromosome.median_copy_number,
+            min_cn=chromosome.min_copy_number,
+            max_cn=chromosome.max_copy_number,
+            rounded_cn=chromosome.rounded_copy_number,
+        )
+        for chromosome in cnv.chromosome_consensus
+    ]
+    genome_svg = cnv_genome_svg(
+        bars,
+        title="Genome-wide copy-number overview",
+        baseline=cnv.primary_fit.ploidy,
+    )
+    genome_figure = (
+        "<h3>Genome-wide copy-number overview</h3><figure class='plot' "
+        "style='margin:14px 0'>"
+        + genome_svg
+        + "<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>Median copy "
+        "number per chromosome from the multi-bin consensus; whiskers show each "
+        "chromosome's min–max range across bin sizes; the dashed line marks the "
+        "fitted ACE ploidy. Autosomes only — no X/Y statement is made or implied. "
+        "Descriptive technical evidence, not an adequacy or reportability assessment."
+        "</figcaption></figure>"
+        if genome_svg
+        else ""
+    )
     images: list[str] = []
     for label, name in (
         ("ACE purity/ploidy fit landscape", cnv.primary_fit.fit_plot),
@@ -674,7 +709,8 @@ def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -
         f"cellularity {cnv.primary_fit.cellularity:.3f}; "
         f"ploidy {cnv.primary_fit.ploidy:.3f}; "
         f"fit error {cnv.primary_fit.fit_error:.6g}.</p>"
-        "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
+        + genome_figure
+        + "<h3>Multi-resolution fits</h3><table><thead><tr><th>Bin (kbp)</th>"
         "<th>Cellularity</th><th>Ploidy</th><th>Fit error</th><th>Segments</th>"
         f"</tr></thead><tbody>{fit_rows}</tbody></table>"
         "<h3>Chromosome-level consensus</h3><table><thead><tr><th>Chromosome</th>"
@@ -768,11 +804,24 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
         if selection_path.is_file()
         else None
     )
+    histogram_path = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
+    qc_histogram = (
+        [
+            ReadLengthBin(start=start, end=end, count=count, bases=bases)
+            for start, end, count, bases in read_length_histogram_from_tsv(
+                histogram_path.read_text(encoding="utf-8")
+            )
+        ]
+        if histogram_path.is_file()
+        else None
+    )
     render_html(
         result,
         html_path,
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
+        qc_histogram=qc_histogram,
+        methylation_report=pipeline_runner.load_methylation_report(ctx),
     )
     render_workbook(
         result,

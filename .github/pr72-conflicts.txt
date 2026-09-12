@@ -1,2 +1,0 @@
-merge_exit=1
-CHANGELOG.md

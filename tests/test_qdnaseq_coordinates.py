@@ -9,8 +9,19 @@ from pathlib import Path
 
 from test_qdnaseq_runtime import FakeQDNAseqRunner, _lock, _policy
 
-from ontseq_platform.cnv.qdnaseq import CnvFit, _events_from_primary_segments, run_qdnaseq_ace
-from ontseq_platform.models import EventType, GenomeBuild, ReferenceContig, ReferenceLock
+from ontseq_platform.cnv.qdnaseq import (
+    CnvFit,
+    _assessable_bin_extents,
+    _events_from_primary_segments,
+    run_qdnaseq_ace,
+)
+from ontseq_platform.models import (
+    EventType,
+    GenomeBuild,
+    GenomicEvent,
+    ReferenceContig,
+    ReferenceLock,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -197,6 +208,106 @@ class QDNAseqCoordinateTests(unittest.TestCase):
             )
             self.assertEqual(events[-1].event_type, EventType.CHROMOSOME_GAIN)
             self.assertTrue(all(not event.reportable for event in events))
+
+
+class WholeChromosomeSpanBasisTests(unittest.TestCase):
+    """QDNAseq filters telomeric and blacklisted bins, so a real whole-chromosome segment
+    never reaches the raw contig ends. The versioned span basis decides which evidence a
+    +chr/-chr fragment requires."""
+
+    def _lock_chr8(self) -> ReferenceLock:
+        return ReferenceLock(
+            reference_id="SYNTHETIC_SPAN",
+            genome_build=GenomeBuild.GRCH37,
+            contigs=[ReferenceContig(name="chr8", length=146_364_022)],
+            source_fai_sha256="b" * 64,
+        )
+
+    def _segments(self, root: Path, start: int) -> Path:
+        path = root / "segments.tsv"
+        path.write_text(
+            "chromosome\tstart\tend\tbin_count\tabsolute_copy_number\tcall\tcoordinate_system\n"
+            f"chr8\t{start}\t146364022\t243\t9\t3\tzero_based_half_open\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def _events(
+        self,
+        path: Path,
+        *,
+        basis: str = "exact_contig",
+        extents: dict[str, tuple[int, int]] | None = None,
+    ) -> list[GenomicEvent]:
+        events, _ = _events_from_primary_segments(
+            path,
+            sample_id="SYNTH",
+            fit=_fit(),
+            tools=[],
+            reference_lock=self._lock_chr8(),
+            minimum_segment_bins=1,
+            whole_chromosome_fraction=0.9,
+            consensus={},
+            whole_chromosome_span_basis=basis,
+            assessable_extents=extents,
+        )
+        return events
+
+    def test_assessable_extent_reads_the_exporter_use_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            bins = Path(raw) / "bins.tsv"
+            bins.write_text(
+                "chromosome\tstart\tend\tuse\tcoordinate_system\n"
+                "8\t0\t500000\tFALSE\tzero_based_half_open\n"
+                "8\t500000\t1000000\tTRUE\tzero_based_half_open\n"
+                "8\t145864022\t146364022\tTRUE\tzero_based_half_open\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_assessable_bin_extents(bins), {"chr8": (500_000, 146_364_022)})
+
+    def test_exporter_without_use_flag_yields_no_extent(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            bins = Path(raw) / "bins.tsv"
+            bins.write_text(
+                "chromosome\tstart\tend\tcoordinate_system\n"
+                "8\t500000\t1000000\tzero_based_half_open\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_assessable_bin_extents(bins), {})
+
+    def test_filtered_first_bin_suppresses_the_span_under_the_exact_contig_basis(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            events = self._events(self._segments(Path(raw), 500_000))
+            self.assertEqual(events[0].event_type, EventType.CHROMOSOME_GAIN)
+            self.assertFalse(events[0].whole_chromosome_span_confirmed)
+
+    def test_full_assessable_coverage_confirms_the_span(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            events = self._events(
+                self._segments(Path(raw), 500_000),
+                basis="assessable_bin_extent",
+                extents={"chr8": (500_000, 146_364_022)},
+            )
+            self.assertEqual(events[0].event_type, EventType.CHROMOSOME_GAIN)
+            self.assertTrue(events[0].whole_chromosome_span_confirmed)
+            self.assertTrue(
+                any("assessable QDNAseq bin extent" in note for note in events[0].notes)
+            )
+
+    def test_partial_assessable_coverage_still_suppresses_the_span(self) -> None:
+        # 5 Mbp missing at the p-arm end stays above the 0.9 classification fraction, so the
+        # event is still a chromosome gain, but it no longer covers the assessable extent.
+        with tempfile.TemporaryDirectory() as raw:
+            events = self._events(
+                self._segments(Path(raw), 5_000_000),
+                basis="assessable_bin_extent",
+                extents={"chr8": (500_000, 146_364_022)},
+            )
+            self.assertEqual(events[0].event_type, EventType.CHROMOSOME_GAIN)
+            self.assertFalse(events[0].whole_chromosome_span_confirmed)
+            self.assertTrue(
+                any("ISCN rendering is therefore suppressed" in note for note in events[0].notes)
+            )
 
 
 if __name__ == "__main__":

@@ -3,10 +3,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from .methylation import MODKIT_MODIFICATION_NAMES, MethylationReport
 from .models import PipelineResult
 from .report_formatting import cell as _cell
 from .report_formatting import tool_parameters
-from .report_plots import ReadLengthBin, read_length_histogram_svg
+from .report_plots import (
+    MethylationCell,
+    ReadLengthBin,
+    methylation_heatmap_svg,
+    read_length_histogram_svg,
+)
 from .report_sections import coverage_section, iscn_details, resource_details, sv_details
 from .report_view import AnnotationView, EventView, ReportView, build_report_view
 from .target_coverage import TargetCoverageReport, validate_report_coverage
@@ -252,6 +258,47 @@ def _qc_histogram_figure(bins: Sequence[ReadLengthBin] | None, view: ReportView)
     )
 
 
+def _methylation_section(report: MethylationReport | None) -> str:
+    """Region × modification heatmap from the normalized methylation report."""
+    if report is None:
+        return ""
+    cells = [
+        MethylationCell(
+            region_id=region.region_id,
+            chromosome=region.chromosome,
+            start=region.start,
+            modification_label=MODKIT_MODIFICATION_NAMES[region.modification_code],
+            fraction=region.mean_modified_fraction,
+            valid_call_count=region.valid_call_count,
+            sites_at_minimum_coverage=region.sites_at_minimum_coverage,
+            sites_total=region.sites_total,
+        )
+        for region in report.regions
+    ]
+    svg = methylation_heatmap_svg(cells, title="Modified-base fractions by region")
+    if not svg:
+        return ""
+    fail_calls = report.summary_metrics.get("fail_call_count", 0)
+    nocall_calls = report.summary_metrics.get("nocall_call_count", 0)
+    return (
+        "<section id='methylation'>"
+        "<h2>Modified-base fractions</h2>"
+        "<p class='muted'>Call-weighted modified fractions from the normalized "
+        "modkit pileup. Grey hatched cells are below the coverage floor "
+        "(not measurable), never a measured zero. Descriptive technical "
+        "evidence, not a classifier or reportability assessment.</p>"
+        f"<p class='muted'>Status {_cell(report.status.value)}; "
+        f"failed-threshold calls {fail_calls}; no-call counts {nocall_calls}.</p>"
+        "<figure class='plot' style='margin:14px 0'>"
+        + svg
+        + "<figcaption style='color:#5e687a;font-size:12px;margin-top:6px'>"
+        "Rows are modification codes; columns are regions in genome order. "
+        "The colour scale is the already-normalized mean modified fraction. "
+        "A measured 0% is a pale filled cell; an unmeasurable region is hatched."
+        "</figcaption></figure></section>"
+    )
+
+
 def render_html(
     result: PipelineResult,
     output_path: Path,
@@ -259,6 +306,7 @@ def render_html(
     target_coverage: TargetCoverageReport | None = None,
     selection_coverage: TargetCoverageReport | None = None,
     qc_histogram: Sequence[ReadLengthBin] | None = None,
+    methylation_report: MethylationReport | None = None,
 ) -> Path:
     validate_report_coverage(result, target_coverage, selection_coverage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,6 +317,8 @@ def render_html(
         for key, value in view.qc_metrics
     )
     qc_histogram_figure = _qc_histogram_figure(qc_histogram, view)
+    methylation_section = _methylation_section(methylation_report)
+    methylation_nav = '<a href="#methylation">Methylation</a>' if methylation_section else ""
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -457,6 +507,7 @@ def render_html(
       <nav aria-label="Report sections">
         <a href="#overview">Overview</a><a href="#modules">Module status</a>
         <a href="#qc">Quality</a><a href="#coverage">Coverage</a>
+        {methylation_nav}
         <a href="#sv-review">SV review</a><a href="#events">Events</a>
         <a href="#iscn">ISCN proposal</a><a href="#warnings">Warnings</a>
         <a href="#provenance">Provenance</a>
@@ -497,6 +548,7 @@ def render_html(
             <tbody>{_qc_rows(view)}</tbody></table></div>{qc_histogram_figure}{_failed_gates(view)}
         </section>
         {coverage_section(target_coverage, selection_coverage)}
+        {methylation_section}
         {sv_details(result)}
         <section id="events">
           <h2>4 · Genomic events and evidence</h2>

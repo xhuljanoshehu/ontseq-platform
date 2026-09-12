@@ -1398,8 +1398,24 @@ class GenomicEvent(StrictModel):
     whole_chromosome_span_confirmed: bool = Field(
         default=False,
         description=(
-            "True only when the source CNV span exactly covers the locked reference contig; "
-            "required before +chr/-chr ISCN rendering"
+            "True only when the source CNV span covers the whole chromosome under the versioned "
+            "span basis: an exact locked-contig span, or the recorded assessable span; required "
+            "before +chr/-chr ISCN rendering"
+        ),
+    )
+    assessable_span_start: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based start of the assessable region a whole-chromosome confirmation was "
+            "measured against when the versioned CNV policy does not require an exact contig span"
+        ),
+    )
+    assessable_span_end: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Half-open end of that assessable region; a confirmed segment must cover it completely"
         ),
     )
     genes: list[str] = Field(default_factory=list)
@@ -1434,6 +1450,14 @@ class GenomicEvent(StrictModel):
         pathology_ids = [item.disease_id for item in self.known_pathologies]
         if len(pathology_ids) != len(set(pathology_ids)):
             raise ValueError("event pathologies must have unique disease IDs")
+        if (self.assessable_span_start is None) != (self.assessable_span_end is None):
+            raise ValueError("an assessable span requires both a start and an end")
+        if (
+            self.assessable_span_start is not None
+            and self.assessable_span_end is not None
+            and self.assessable_span_end <= self.assessable_span_start
+        ):
+            raise ValueError("an assessable span must end after it starts")
         if self.whole_chromosome_span_confirmed:
             if self.event_type not in {
                 EventType.CHROMOSOME_GAIN,
@@ -1442,8 +1466,20 @@ class GenomicEvent(StrictModel):
                 raise ValueError(
                     "whole chromosome span confirmation is valid only for chromosome gain/loss"
                 )
-            if self.primary.start != 0:
-                raise ValueError("a confirmed whole chromosome span must begin at coordinate zero")
+            # Either the segment reaches the locked contig start, or it covers every assessable
+            # base the caller could measure on that chromosome. Filtered telomeric and blacklisted
+            # bins are never silently treated as unchanged sequence.
+            covers_assessable = (
+                self.assessable_span_start is not None
+                and self.assessable_span_end is not None
+                and self.primary.start <= self.assessable_span_start
+                and self.primary.end >= self.assessable_span_end
+            )
+            if self.primary.start != 0 and not covers_assessable:
+                raise ValueError(
+                    "a confirmed whole chromosome span must begin at coordinate zero or cover "
+                    "the recorded assessable span"
+                )
         return self
 
 
