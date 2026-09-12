@@ -23,23 +23,17 @@ jobs:
       - name: Capture lint, type check and test output
         shell: bash
         run: |
-          set -uo pipefail
           {
             echo '=== ruff check . ==='
-            ruff check .
-            echo "ruff_check_exit=$?"
+            ruff check . || true
             echo '=== ruff format --check . ==='
-            ruff format --check .
-            echo "ruff_format_exit=$?"
+            ruff format --check . || true
             echo '=== mypy src ==='
-            mypy src
-            echo "mypy_exit=$?"
+            mypy src || true
             echo '=== pytest tests/test_report_plots.py ==='
-            python -m pytest tests/test_report_plots.py -q
-            echo "pytest_plots_exit=$?"
+            python -m pytest tests/test_report_plots.py -q || true
             echo '=== pytest full suite ==='
-            python -m pytest -q
-            echo "pytest_full_exit=$?"
+            python -m pytest -q || true
           } > .github/pr73-lint-report.txt 2>&1
           rm -f .github/workflows/diag.yml
           git config user.name 'github-actions[bot]'
