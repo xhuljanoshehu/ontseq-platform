@@ -1,4 +1,4 @@
-"""Regression tests for the portable report's inline-SVG coverage plot."""
+"""Regression tests for the portable report's inline-SVG plots."""
 
 from __future__ import annotations
 
