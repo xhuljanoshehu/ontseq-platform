@@ -3,6 +3,8 @@
 **Status:** design/traceability artifact  
 **Rule:** a visualization may only render a datum that is present in a versioned normalized contract or an explicitly identified generated artifact. Missing information is displayed as unavailable; it is never reconstructed from presentation files or inferred from visual context.
 
+> **Implementation update, 2026-09-12:** ONTSeq now retains a normalized Cramino read-length histogram sidecar and renders deterministic inline-SVG read-length, target-coverage, CNV-genome and methylation heatmap figures in the offline HTML report. The report also uses a typed review-view layer and explicit module-state semantics. Interactive linked selection, evidence inspectors and read-level browsing remain future work.
+
 ## 1. Data ownership hierarchy
 
 1. **Normalized contracts / `result.json`** — authoritative structured reviewer data.
@@ -58,9 +60,9 @@ Current normalized fields from `parse_cramino_json`:
 | `modal_identity_percent` | % | exact value | — | may be estimated |
 | `identity_estimated` | boolean-like text | explicit note | — | must remain visible with identity metrics |
 
-### Current gap
+### Implemented read-length distribution
 
-The present canonical Cramino normalization stores aggregate metrics, not the full read-length histogram. Therefore the modernized report must not fabricate a read-length histogram from N50/mean/median alone. A histogram becomes available only if the pipeline intentionally retains and normalizes an appropriate distribution artifact.
+The pipeline intentionally retains a normalized Cramino read-length histogram sidecar and the portable report renders it as deterministic inline SVG. N50 is shown only as a marker on that measured distribution; the renderer never reconstructs a histogram from N50, mean or median. Missing/empty sidecars omit the figure rather than fabricating evidence.
 
 ## 5. Adaptive Sampling target coverage
 
@@ -321,17 +323,17 @@ For each visualization added to the portable report:
 9. empty/NO_CALL/FAILED/NOT_RUN fixtures are mandatory;
 10. values such as VAF=0, CN=0, coverage=0 and empty event lists are tested explicitly so valid zeroes never disappear as falsey UI values.
 
-## 14. First implementation backlog, ordered by value/risk
+## 14. Implementation backlog and status (updated 2026-09-12)
 
-1. Introduce a report view-model layer so presentation stops reaching directly into `PipelineResult` everywhere.
-2. Add a reviewer state strip with exact module semantics.
-3. Add CNV fit and chromosome-consensus sections from the existing QDNAseq/ACE contract.
-4. Add target-coverage matrix/distribution from `TargetCoverageReport` when present.
-5. Expand SV evidence columns to expose available support/VAF/coverage/precision without inference.
-6. Add evidence inspector/cross-selection in the portable HTML using local-only JS.
-7. Add build-aware chromosome/segment visualization.
-8. Perform JBrowse 2 versus IGV.js technical spike for local BAM/VCF review.
-9. Add loopback-only evidence service and lazy read-level viewer.
-10. Only after the above: reviewer annotation/audit UX.
+1. **Implemented:** typed report view-model layer separates reviewer presentation from scientific contracts.
+2. **Implemented:** reviewer state strip preserves `COMPLETED`, `NO_CALL`, `FAILED` and `NOT_RUN`.
+3. **Partly implemented:** static CNV chromosome-consensus genome plot is shipped; an interactive fit explorer remains pending.
+4. **Partly implemented:** target-coverage tables and deterministic depth plot are shipped; linked matrix/distribution interactions remain pending.
+5. **Implemented:** portable-report SV evidence exposes support reads, local coverage, VAF, quality, strands, precision and filters without inference.
+6. **Pending:** evidence inspector and cross-selection in the portable/local workspace.
+7. **Partly implemented:** build-aware cytoband annotation and static chromosome summaries exist; interactive linked segment visualization remains pending.
+8. **Pending:** bounded JBrowse 2 versus IGV.js technical spike for local BAM/VCF review.
+9. **Pending:** loopback-only evidence service and lazy read-level viewer.
+10. **Pending:** reviewer annotation/audit UX after the evidence workspace is validated.
 
-This ordering deliberately extracts more value from data ONTSeq already produces before adding new biological inference.
+The shipped items are presentation of existing normalized evidence only. They do not establish analytical or clinical validation.

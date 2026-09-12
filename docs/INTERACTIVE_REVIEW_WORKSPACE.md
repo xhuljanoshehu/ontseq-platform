@@ -4,6 +4,8 @@
 **Scope:** Research Use Only (RUO), reviewer-facing visualization and evidence navigation  
 **Non-goal:** this document does not promote any caller, threshold, fusion, CNV, ISCN or other result to clinical reportability.
 
+> **Implementation update, 2026-09-12:** The portable report now has a typed review-view layer, explicit module-state strip, target-coverage plot, read-length histogram, CNV genome plot and methylation heatmap. Those shipped static/offline surfaces implement part of Phase V1. The linked local evidence workspace, read-level browser and reviewer audit layer remain proposals.
+
 ## 1. Purpose
 
 The current portable `report.html` is deliberately conservative: it renders module status, a proposed ISCN string, aggregate QC metrics, normalized genomic events, warnings and provenance. That is a safe baseline, but it is not yet an evidence-review workspace.
