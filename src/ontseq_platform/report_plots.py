@@ -467,10 +467,13 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
     seen: set[tuple[str, int | None, str, str]] = set()
     for item in cells:
         counts = (item.valid_call_count, item.sites_at_minimum_coverage, item.sites_total)
-        if any(
-            not isinstance(value, int) or isinstance(value, bool) or value < 0
-            for value in counts
-        ) or item.sites_at_minimum_coverage > item.sites_total:
+        if (
+            any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in counts
+            )
+            or item.sites_at_minimum_coverage > item.sites_total
+        ):
             raise ValueError("A methylation heatmap cell is not numeric/valid")
         if item.start is not None and (
             not isinstance(item.start, int) or isinstance(item.start, bool) or item.start < 0
@@ -532,9 +535,7 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
         f'<stop offset="1" stop-color="{_rgb_hex(_METH_ONE)}"/>'
         "</linearGradient></defs>",
     ]
-    parts.append(
-        f'<rect x="{left:.1f}" y="10" width="120" height="8" fill="url(#meth-scale)"/>'
-    )
+    parts.append(f'<rect x="{left:.1f}" y="10" width="120" height="8" fill="url(#meth-scale)"/>')
     parts.append(_text(left, 8, "0%", anchor="start", size=9))
     parts.append(_text(left + 120, 8, "100%", anchor="end", size=9))
     parts.append(
@@ -545,21 +546,21 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
         y = top + cell_height * row_index
         parts.append(_text(left - 8, y + cell_height / 2 + 3, label, anchor="end", size=10))
         for column_index, column in enumerate(columns):
-            item = lookup.get((*column, label))
+            current = lookup.get((*column, label))
             x = left + slot * column_index + gap / 2
-            if item is None:
+            if current is None:
                 continue
-            region = html.escape(item.region_id)
-            code = html.escape(item.modification_label)
-            if item.fraction is None:
+            region = html.escape(current.region_id)
+            code = html.escape(current.modification_label)
+            if current.fraction is None:
                 tooltip = f"{region} · {code} · not measurable"
                 fill = "url(#meth-nocall)"
             else:
                 tooltip = (
-                    f"{region} · {code} · {item.fraction:.1%} · "
-                    f"{item.valid_call_count} valid calls"
+                    f"{region} · {code} · {current.fraction:.1%} · "
+                    f"{current.valid_call_count} valid calls"
                 )
-                fill = _methylation_fill(float(item.fraction))
+                fill = _methylation_fill(float(current.fraction))
             parts.append(
                 f'<rect x="{x:.2f}" y="{y + 2:.2f}" width="{cell_width:.2f}" '
                 f'height="{cell_height - 4:.2f}" fill="{fill}">'
