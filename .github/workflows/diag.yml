@@ -1,0 +1,40 @@
+name: One-shot lint and type diagnostic
+
+on:
+  push:
+    branches:
+      - feat/report-methylation-heatmap
+
+permissions:
+  contents: write
+
+jobs:
+  diag:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install package with dev tools
+        run: python -m pip install -e '.[dev,workflow]' pysam
+      - name: Capture lint and type-check output
+        shell: bash
+        run: |
+          {
+            echo '=== ruff check . ==='
+            ruff check . || true
+            echo '=== ruff format --check . ==='
+            ruff format --check . || true
+            echo '=== mypy src ==='
+            mypy src || true
+          } > .github/pr74-lint-report.txt 2>&1
+          rm -f .github/workflows/diag.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'ci: capture PR 74 lint/type diagnostic'
+          git push origin HEAD:${{ github.ref_name }}
+          exit 0
