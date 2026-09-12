@@ -10,20 +10,44 @@ import tempfile
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
+from unittest.mock import patch
 
 from ontseq_platform.align import AlignmentPolicy
 from ontseq_platform.basecall import BasecallPolicy, model_signature
 from ontseq_platform.execution import CommandResult
-from ontseq_platform.models import ReferenceLock, SampleManifest
+from ontseq_platform.methylation import MethylationPolicy
+from ontseq_platform.models import CuteSvPolicy, ReferenceLock, SampleManifest
 from ontseq_platform.pipeline.checks import Check, CheckStatus
 from ontseq_platform.pipeline.lock import LOCK_FILENAME
 from ontseq_platform.preflight import PreflightRequest, preflight
+from ontseq_platform.target_coverage import TargetCoveragePolicy
 
 ALIGNMENT_POLICY = AlignmentPolicy(
     profile_id="test",
     status="technical_defaults_only",
     expected_minimap2_version="2.28",
     expected_samtools_version="1.24",
+    note="test",
+)
+
+METHYLATION_POLICY = MethylationPolicy(
+    profile_id="test",
+    status="technical_defaults_only",
+    cpg_only=False,
+    combine_strands=False,
+    note="test",
+)
+
+CUTESV_POLICY = CuteSvPolicy(
+    profile_id="test",
+    status="technical_defaults_only",
+    note="test",
+)
+
+TARGET_COVERAGE_POLICY = TargetCoveragePolicy(
+    profile_id="test",
+    status="technical_defaults_only",
+    expected_version="0.3.14",
     note="test",
 )
 
@@ -42,6 +66,7 @@ DEFAULT_VERSIONS = {
     "cramino": "cramino 0.14.5",
     "sniffles": "Sniffles2, Version 2.8.0",
     "dorado": "dorado 0.9.0+abcdef",
+    "mosdepth": "mosdepth 0.3.14",
 }
 
 
@@ -87,14 +112,20 @@ class PreflightCase(unittest.TestCase):
         self.fai.write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
         self.fai_sha256 = hashlib.sha256(self.fai.read_bytes()).hexdigest()
 
-    def manifest(self, kind: str = "aligned_bam") -> SampleManifest:
+    def manifest(
+        self,
+        kind: str = "aligned_bam",
+        *,
+        assay: dict[str, object] | None = None,
+        modules: list[str] | None = None,
+    ) -> SampleManifest:
         payload: dict[str, object] = {
             "schema_version": "0.1.0",
             "sample_id": "SAMPLE_A",
             "run_id": "RUN_001",
             "input": {"kind": kind, "path": str(self.bam)},
-            "assay": {"mode": "lcwgs", "genome_build": "GRCh38", "reference_id": "REF_V1"},
-            "analysis": {"profile": "lcwgs", "modules": ["qc"]},
+            "assay": assay or {"mode": "lcwgs", "genome_build": "GRCh38", "reference_id": "REF_V1"},
+            "analysis": {"profile": "lcwgs", "modules": modules or ["qc"]},
         }
         if kind == "aligned_bam":
             payload["input"] = {"kind": kind, "path": str(self.bam), "index_path": str(self.bai)}
@@ -267,9 +298,50 @@ class ToolTests(PreflightCase):
     def test_a_missing_optional_tool_only_warns(self) -> None:
         """Sniffles serves the optional SV stage, so the run completes without it."""
         (self.bin / "sniffles").unlink()
-        check = self.results()["tool.sniffles"]
+        request = self.request(manifest=self.manifest(modules=["qc", "sv"]))
+        check = self.results(request)["tool.sniffles"]
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("NOT_RUN", check.detail)
+
+    def test_a_run_that_did_not_ask_for_sv_is_not_told_about_its_callers(self) -> None:
+        """A CNV-only run needs neither the SV binaries nor advice about them.
+
+        Reporting a missing sniffles to a run whose manifest never requested structural
+        variants trains an operator to ignore the tool section, which is the one section
+        that has to keep meaning something.
+        """
+        (self.bin / "sniffles").unlink()
+        # With a cuteSV policy supplied, which is the realistic case: the CLI resolves one
+        # from a repository default on essentially every invocation. Leaving it at None made
+        # this assertion vacuous — it passed while the caller was still being probed.
+        results = self.results(self.request(cutesv_policy=CUTESV_POLICY))
+        self.assertNotIn("tool.sniffles", results)
+        self.assertNotIn("tool.cutesv", results)
+        self.assertIs(results["sv.callers"].status, CheckStatus.SKIPPED)
+
+    def test_a_run_that_did_ask_for_sv_is_still_told_about_cutesv(self) -> None:
+        """The scope filter must not swallow the caller a run genuinely depends on."""
+        request = self.request(
+            manifest=self.manifest(modules=["qc", "sv"]), cutesv_policy=CUTESV_POLICY
+        )
+        self.assertIn("tool.cutesv", self.results(request))
+
+    def test_a_missing_modkit_fails_a_run_that_asked_for_methylation(self) -> None:
+        """A warning here would clear a run that cannot succeed.
+
+        Methylation is optional in the graph, so the tool served an optional stage and was
+        reported as a warning. But a run that requested the module probes modkit inside the
+        stage: the probe raises, the stage records FAILED, and ``summarize`` fails the run
+        on any FAILED stage. Preflight has to say so before the run, not after.
+        """
+        request = self.request(
+            manifest=self.manifest(modules=["qc", "methylation"]),
+            methylation_policy=METHYLATION_POLICY,
+        )
+        self.assertIs(self.results(request)["tool.modkit"].status, CheckStatus.FAILED)
+
+    def test_a_missing_modkit_is_not_news_to_a_run_that_did_not_ask(self) -> None:
+        self.assertNotIn("tool.modkit", self.results())
 
     def test_a_tool_whose_probe_fails_is_reported_as_unidentifiable(self) -> None:
         versions = {name: text for name, text in DEFAULT_VERSIONS.items() if name != "minimap2"}
@@ -400,14 +472,18 @@ class EnvelopeTests(PreflightCase):
         self.assertIs(check.status, CheckStatus.OK)
         self.assertFalse((self.root / "deep").exists())
 
-    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
     def test_an_output_directory_that_cannot_be_written_fails(self) -> None:
         blocked = self.root / "blocked"
         blocked.mkdir()
-        blocked.chmod(0o500)
-        self.addCleanup(blocked.chmod, 0o700)
         request = self.request(output_base=blocked / "runs")
-        self.assertIs(self.results(request)["output.writable"].status, CheckStatus.FAILED)
+        # A POSIX chmod bit does not deny writes on Windows ACLs (nor to root).
+        # Exercise the real failed-write boundary without changing host permissions.
+        with patch.object(Path, "write_text", side_effect=PermissionError("write denied")) as write:
+            check = self.results(request)["output.writable"]
+        self.assertIs(check.status, CheckStatus.FAILED)
+        self.assertIn("write denied", check.detail)
+        write.assert_called_once_with("", encoding="utf-8")
+        self.assertFalse((blocked / "runs").exists())
 
 
 class DiskTests(PreflightCase):
@@ -444,7 +520,7 @@ class AdapterTests(PreflightCase):
         check = self.results()["stages.not_implemented"]
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("cnv", check.detail)
-        self.assertIn("target_coverage", check.detail)
+        self.assertNotIn("target_coverage", check.detail)
         self.assertIn("not a negative biological finding", check.detail)
 
     def test_the_two_adapter_claims_never_name_the_same_stage(self) -> None:
@@ -472,6 +548,115 @@ class ReportingTests(PreflightCase):
             name for name, check in self.results().items() if check.status is CheckStatus.FAILED
         ]
         self.assertEqual(blocking, [])
+
+
+class TargetCoverageTests(PreflightCase):
+    """Adaptive sampling has preconditions the run fails closed on. Preflight must too.
+
+    ``ontseq run`` refuses an adaptive-sampling run without a target-coverage policy or a
+    readable target BED, and probes Mosdepth before the stage. All three refusals happen
+    after the envelope exists and the lock is taken, and a FAILED target-coverage stage
+    fails the whole run — so a preflight that stayed silent about them would clear a run
+    that could not succeed.
+    """
+
+    def adaptive_manifest(self, target_bed: Path | None) -> SampleManifest:
+        assay: dict[str, object] = {
+            "mode": "adaptive_sampling",
+            "genome_build": "GRCh38",
+            "reference_id": "REF_V1",
+            "target_bed": str(target_bed) if target_bed is not None else None,
+            "target_bed_version": "ROI_V1",
+        }
+        return self.manifest(assay=assay)
+
+    def target_bed(self, text: str = "chr1\t1000\t2000\tTARGET_A\n", *, name: str = "roi") -> Path:
+        """Write a target BED under its own name, so two in one test cannot overwrite each other."""
+        bed = self.root / f"{name}.bed"
+        bed.write_text(text, encoding="utf-8")
+        return bed
+
+    def adaptive_request(self, **overrides: object) -> PreflightRequest:
+        values: dict[str, object] = {"target_coverage_policy": TARGET_COVERAGE_POLICY}
+        values.update(overrides)
+        # Built only when the test did not supply one, so writing the default BED cannot
+        # overwrite a BED the test wrote for the manifest it passed in.
+        values.setdefault("manifest", self.adaptive_manifest(self.target_bed()))
+        return self.request(**values)
+
+    def test_a_complete_adaptive_run_passes_its_target_checks(self) -> None:
+        found = self.results(self.adaptive_request())
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.OK)
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.OK)
+        self.assertIs(found["tool.mosdepth"].status, CheckStatus.OK)
+
+    def test_the_bed_check_reports_what_was_actually_read(self) -> None:
+        bed = self.target_bed("chr1\t1000\t2000\tA\nchr2\t0\t500\tB\n", name="two")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIn("2 target(s)", found["target_coverage.bed"].detail)
+        self.assertIn("1500 bp", found["target_coverage.bed"].detail)
+
+    def test_a_missing_target_coverage_policy_blocks_the_run(self) -> None:
+        found = self.results(self.adaptive_request(target_coverage_policy=None))
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.FAILED)
+        self.assertTrue(found["target_coverage.policy"].remedy)
+
+    def test_an_absent_target_bed_blocks_the_run(self) -> None:
+        manifest = self.adaptive_manifest(self.root / "never-written.bed")
+        found = self.results(self.adaptive_request(manifest=manifest))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_an_unparseable_target_bed_blocks_the_run(self) -> None:
+        """The BED is parsed, not merely stat'ed: a truncated ROI fails the stage."""
+        bed = self.target_bed("chr1\t1000\n", name="truncated")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_a_target_bed_on_a_non_canonical_contig_blocks_the_run(self) -> None:
+        bed = self.target_bed("chrUn_GL000220v1\t100\t200\tA\n", name="noncanonical")
+        found = self.results(self.adaptive_request(manifest=self.adaptive_manifest(bed)))
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.FAILED)
+
+    def test_missing_mosdepth_blocks_an_adaptive_run_rather_than_warning(self) -> None:
+        """The stage is optional in the graph; for this assay its failure fails the run."""
+        request = self.adaptive_request(
+            executables={
+                name: str(self.bin / name) for name in DEFAULT_VERSIONS if name != "mosdepth"
+            }
+            | {"mosdepth": str(self.root / "absent" / "mosdepth")}
+        )
+        self.assertIs(self.results(request)["tool.mosdepth"].status, CheckStatus.FAILED)
+
+    def test_missing_mosdepth_only_warns_on_a_run_that_never_measures_targets(self) -> None:
+        """An lcWGS run records targets as out of scope, so it must not be blocked."""
+        request = self.request(
+            executables={
+                name: str(self.bin / name) for name in DEFAULT_VERSIONS if name != "mosdepth"
+            }
+            | {"mosdepth": str(self.root / "absent" / "mosdepth")}
+        )
+        self.assertIs(self.results(request)["tool.mosdepth"].status, CheckStatus.WARNING)
+
+    def test_the_target_checks_are_skipped_rather_than_passed_for_lcwgs(self) -> None:
+        """Not applicable and checked-and-fine are different claims."""
+        found = self.results()
+        self.assertIs(found["target_coverage.policy"].status, CheckStatus.SKIPPED)
+        self.assertIs(found["target_coverage.bed"].status, CheckStatus.SKIPPED)
+        self.assertIn("lcwgs", found["target_coverage.bed"].detail)
+
+    def test_the_mosdepth_version_lock_is_enforced_for_an_adaptive_run(self) -> None:
+        versions = dict(DEFAULT_VERSIONS) | {"mosdepth": "mosdepth 0.3.10"}
+        found = self.results(self.adaptive_request(), versions=versions)
+        self.assertIs(found["tool.mosdepth"].status, CheckStatus.FAILED)
+        self.assertIn("0.3.14", found["tool.mosdepth"].detail)
+
+    def test_the_mosdepth_version_lock_is_not_applied_to_an_lcwgs_run(self) -> None:
+        """An lcWGS run never invokes Mosdepth, so its lock must not refuse the run."""
+        versions = dict(DEFAULT_VERSIONS) | {"mosdepth": "mosdepth 0.3.10"}
+        request = self.request(target_coverage_policy=TARGET_COVERAGE_POLICY)
+        self.assertIs(
+            self.results(request, versions=versions)["tool.mosdepth"].status, CheckStatus.OK
+        )
 
 
 if __name__ == "__main__":

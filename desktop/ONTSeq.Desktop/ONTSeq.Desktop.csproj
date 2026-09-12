@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ONTSeq.Desktop</AssemblyName>
     <RootNamespace>ONTSeq.Desktop</RootNamespace>
-    <Version>0.2.1</Version>
+    <Version>0.8.1</Version>
     <ApplicationIcon />
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>

@@ -1,0 +1,529 @@
+{
+  "$defs": {
+    "MethylationMixtureLevelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence_interval_lower": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Interval Lower"
+        },
+        "confidence_interval_upper": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Interval Upper"
+        },
+        "confidence_level": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "estimated_source_a_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Source A Fraction"
+        },
+        "level_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Level Id",
+          "type": "string"
+        },
+        "marker_observations": {
+          "items": {
+            "$ref": "#/$defs/MethylationMixtureMarkerObservation"
+          },
+          "title": "Marker Observations",
+          "type": "array"
+        },
+        "markers_available": {
+          "minimum": 0,
+          "title": "Markers Available",
+          "type": "integer"
+        },
+        "markers_used": {
+          "minimum": 0,
+          "title": "Markers Used",
+          "type": "integer"
+        },
+        "model_fit_standardized_rmse": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Fit Standardized Rmse"
+        },
+        "no_call_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "No Call Reason"
+        },
+        "realized_source_a_read_group_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Realized Source A Read Group Fraction",
+          "type": "number"
+        },
+        "replicate": {
+          "minimum": 1,
+          "title": "Replicate",
+          "type": "integer"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "selection_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Sha256",
+          "type": "string"
+        },
+        "source_a_read_groups": {
+          "minimum": 0,
+          "title": "Source A Read Groups",
+          "type": "integer"
+        },
+        "source_b_read_groups": {
+          "minimum": 0,
+          "title": "Source B Read Groups",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/ModuleRunStatus"
+        },
+        "successful_uncertainty_draws": {
+          "minimum": 0,
+          "title": "Successful Uncertainty Draws",
+          "type": "integer"
+        },
+        "target_source_a_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Target Source A Fraction",
+          "type": "number"
+        },
+        "total_read_groups": {
+          "minimum": 1,
+          "title": "Total Read Groups",
+          "type": "integer"
+        },
+        "unconstrained_source_a_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unconstrained Source A Fraction"
+        },
+        "valid_mixture_calls": {
+          "minimum": 0,
+          "title": "Valid Mixture Calls",
+          "type": "integer"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "level_id",
+        "replicate",
+        "seed",
+        "target_source_a_fraction",
+        "source_a_read_groups",
+        "source_b_read_groups",
+        "total_read_groups",
+        "realized_source_a_read_group_fraction",
+        "selection_sha256",
+        "status",
+        "confidence_level",
+        "markers_available",
+        "markers_used",
+        "valid_mixture_calls",
+        "successful_uncertainty_draws"
+      ],
+      "title": "MethylationMixtureLevelResult",
+      "type": "object"
+    },
+    "MethylationMixtureMarkerObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguous_calls": {
+          "minimum": 0,
+          "title": "Ambiguous Calls",
+          "type": "integer"
+        },
+        "beta": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beta"
+        },
+        "marker_id": {
+          "minLength": 1,
+          "title": "Marker Id",
+          "type": "string"
+        },
+        "modified_calls": {
+          "minimum": 0,
+          "title": "Modified Calls",
+          "type": "integer"
+        },
+        "unmethylated_calls": {
+          "minimum": 0,
+          "title": "Unmethylated Calls",
+          "type": "integer"
+        },
+        "valid_calls": {
+          "minimum": 0,
+          "title": "Valid Calls",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "marker_id",
+        "modified_calls",
+        "unmethylated_calls",
+        "valid_calls",
+        "ambiguous_calls"
+      ],
+      "title": "MethylationMixtureMarkerObservation",
+      "type": "object"
+    },
+    "MethylationReferenceMarker": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "pattern": "^chr(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "delta_beta": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Delta Beta",
+          "type": "number"
+        },
+        "end": {
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "marker_id": {
+          "minLength": 1,
+          "title": "Marker Id",
+          "type": "string"
+        },
+        "motif_count": {
+          "minimum": 1,
+          "title": "Motif Count",
+          "type": "integer"
+        },
+        "sequence_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sequence Sha256",
+          "type": "string"
+        },
+        "source_a_ambiguous_calls": {
+          "minimum": 0,
+          "title": "Source A Ambiguous Calls",
+          "type": "integer"
+        },
+        "source_a_beta": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Source A Beta",
+          "type": "number"
+        },
+        "source_a_modified_calls": {
+          "minimum": 0,
+          "title": "Source A Modified Calls",
+          "type": "integer"
+        },
+        "source_a_total_read_groups": {
+          "minimum": 1,
+          "title": "Source A Total Read Groups",
+          "type": "integer"
+        },
+        "source_a_unmethylated_calls": {
+          "minimum": 0,
+          "title": "Source A Unmethylated Calls",
+          "type": "integer"
+        },
+        "source_a_valid_calls": {
+          "minimum": 1,
+          "title": "Source A Valid Calls",
+          "type": "integer"
+        },
+        "source_b_ambiguous_calls": {
+          "minimum": 0,
+          "title": "Source B Ambiguous Calls",
+          "type": "integer"
+        },
+        "source_b_beta": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Source B Beta",
+          "type": "number"
+        },
+        "source_b_modified_calls": {
+          "minimum": 0,
+          "title": "Source B Modified Calls",
+          "type": "integer"
+        },
+        "source_b_total_read_groups": {
+          "minimum": 1,
+          "title": "Source B Total Read Groups",
+          "type": "integer"
+        },
+        "source_b_unmethylated_calls": {
+          "minimum": 0,
+          "title": "Source B Unmethylated Calls",
+          "type": "integer"
+        },
+        "source_b_valid_calls": {
+          "minimum": 1,
+          "title": "Source B Valid Calls",
+          "type": "integer"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "strand": {
+          "enum": [
+            "+",
+            "-"
+          ],
+          "title": "Strand",
+          "type": "string"
+        }
+      },
+      "required": [
+        "marker_id",
+        "chromosome",
+        "strand",
+        "start",
+        "end",
+        "motif_count",
+        "sequence_sha256",
+        "source_a_modified_calls",
+        "source_a_unmethylated_calls",
+        "source_a_ambiguous_calls",
+        "source_a_valid_calls",
+        "source_a_total_read_groups",
+        "source_b_modified_calls",
+        "source_b_unmethylated_calls",
+        "source_b_ambiguous_calls",
+        "source_b_valid_calls",
+        "source_b_total_read_groups",
+        "source_a_beta",
+        "source_b_beta",
+        "delta_beta"
+      ],
+      "title": "MethylationReferenceMarker",
+      "type": "object"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "ValidationLevelEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "read_group_budget": {
+          "minimum": 2,
+          "title": "Read Group Budget",
+          "type": "integer"
+        },
+        "replicate_seed": {
+          "minimum": 0,
+          "title": "Replicate Seed",
+          "type": "integer"
+        },
+        "result": {
+          "$ref": "#/$defs/MethylationMixtureLevelResult"
+        }
+      },
+      "required": [
+        "read_group_budget",
+        "replicate_seed",
+        "result"
+      ],
+      "title": "ValidationLevelEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "calibration_selection_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Calibration Selection Sha256",
+      "type": "string"
+    },
+    "code_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Code Sha256",
+      "type": "string"
+    },
+    "experiment_completed_at": {
+      "format": "date-time",
+      "title": "Experiment Completed At",
+      "type": "string"
+    },
+    "experiment_started_at": {
+      "format": "date-time",
+      "title": "Experiment Started At",
+      "type": "string"
+    },
+    "levels": {
+      "items": {
+        "$ref": "#/$defs/ValidationLevelEvidence"
+      },
+      "title": "Levels",
+      "type": "array"
+    },
+    "observed_input_sha256": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "calibration_a",
+          "calibration_b",
+          "test_a",
+          "test_b"
+        ]
+      },
+      "title": "Observed Input Sha256",
+      "type": "object"
+    },
+    "read_group_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "enum": [
+          "calibration_a",
+          "calibration_b",
+          "test_a",
+          "test_b"
+        ]
+      },
+      "title": "Read Group Counts",
+      "type": "object"
+    },
+    "reference_marker_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Reference Marker Sha256",
+      "type": "string"
+    },
+    "reference_markers": {
+      "items": {
+        "$ref": "#/$defs/MethylationReferenceMarker"
+      },
+      "title": "Reference Markers",
+      "type": "array"
+    },
+    "registration_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Registration Sha256",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    },
+    "software_version": {
+      "minLength": 1,
+      "title": "Software Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "registration_sha256",
+    "code_sha256",
+    "software_version",
+    "experiment_started_at",
+    "experiment_completed_at",
+    "observed_input_sha256",
+    "read_group_counts",
+    "reference_markers",
+    "reference_marker_sha256",
+    "calibration_selection_sha256",
+    "levels"
+  ],
+  "title": "MethylationValidationEvidence",
+  "type": "object"
+}

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import gzip
+import math
 import re
 import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -17,8 +19,10 @@ from .models import (
     GenomeBuild,
     InputKind,
     ModuleRunStatus,
+    PipelineResult,
     SampleManifest,
     StrictModel,
+    TargetBedRole,
     ToolRecord,
     Verdict,
 )
@@ -52,7 +56,7 @@ class TargetCoverageRegion(StrictModel):
     start: int = Field(ge=0)
     end: int = Field(gt=0)
     region_id: str = Field(min_length=1)
-    mean_depth: float = Field(ge=0)
+    mean_depth: float = Field(ge=0, allow_inf_nan=False)
     bases_at_threshold: dict[str, int]
     fraction_at_threshold: dict[str, float]
 
@@ -66,6 +70,18 @@ class TargetCoverageRegion(StrictModel):
         for key, bases in self.bases_at_threshold.items():
             if bases < 0 or bases > length:
                 raise ValueError(f"Target coverage count {key!r} is outside the region length")
+        labels = list(self.bases_at_threshold)
+        if any(re.fullmatch(r"[1-9][0-9]*x", label) is None for label in labels):
+            raise ValueError("Target coverage threshold labels must be positive integer depths")
+        ordered = sorted(labels, key=lambda label: int(label[:-1]))
+        counts = [self.bases_at_threshold[label] for label in ordered]
+        if any(left < right for left, right in zip(counts, counts[1:], strict=False)):
+            raise ValueError("Target coverage counts must be non-increasing with depth")
+        for key, bases in self.bases_at_threshold.items():
+            if not math.isclose(
+                self.fraction_at_threshold[key], bases / length, rel_tol=1e-9, abs_tol=1e-12
+            ):
+                raise ValueError("Target coverage fraction disagrees with its base count")
         for fraction in self.fraction_at_threshold.values():
             if not 0 <= fraction <= 1:
                 raise ValueError("Target coverage fractions must be between 0 and 1")
@@ -77,7 +93,7 @@ class TargetCoverageReport(StrictModel):
     sample_id: str
     genome_build: GenomeBuild
     target_bed_version: str = Field(min_length=1)
-    target_bed_role: Literal["analysis_roi_unbuffered"] = "analysis_roi_unbuffered"
+    target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED
     status: ModuleRunStatus
     policy: TargetCoveragePolicy
     summary_metrics: dict[str, float | int]
@@ -103,7 +119,53 @@ class TargetCoverageReport(StrictModel):
         interval_bases = sum(region.end - region.start for region in self.regions)
         if self.summary_metrics.get("interval_bases") != interval_bases:
             raise ValueError("Target coverage interval_bases is inconsistent")
+        # Old reports may omit optional summaries. Validate every supplied value but do
+        # not fabricate a measurement for an absent key.
+        expected_summaries = {
+            "interval_weighted_mean_depth": sum(
+                r.mean_depth * (r.end - r.start) for r in self.regions
+            )
+            / interval_bases,
+            "minimum_region_mean_depth": min(r.mean_depth for r in self.regions),
+            "median_region_mean_depth": statistics.median(r.mean_depth for r in self.regions),
+            "maximum_region_mean_depth": max(r.mean_depth for r in self.regions),
+            **{
+                f"interval_bases_at_{key}_fraction": sum(
+                    r.bases_at_threshold[key] for r in self.regions
+                )
+                / interval_bases
+                for key in expected_keys
+            },
+        }
+        for key, value in self.summary_metrics.items():
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Target coverage summary must be finite and nonnegative")
+            if key in expected_summaries and not math.isclose(
+                value, expected_summaries[key], rel_tol=1e-9, abs_tol=1e-12
+            ):
+                raise ValueError(
+                    f"Target coverage summary {key!r} disagrees with region measurements"
+                )
+        keys = [(r.chromosome.removeprefix("chr"), r.start, r.end) for r in self.regions]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Target coverage report contains duplicate genomic intervals")
         return self
+
+
+def validate_report_coverage(
+    result: PipelineResult,
+    target: TargetCoverageReport | None,
+    selection: TargetCoverageReport | None,
+) -> None:
+    """Both export surfaces must reject a sidecar belonging to a different sample/build."""
+    for report in (target, selection):
+        if report is None:
+            continue
+        if report.sample_id != result.manifest.sample_id:
+            raise ValueError("Coverage sidecar and result refer to different samples")
+        if report.genome_build != result.manifest.assay.genome_build:
+            raise ValueError("Coverage sidecar and result use different genome builds")
+        TargetCoverageReport.model_validate(report.model_dump())
 
 
 @dataclass(frozen=True)
@@ -147,8 +209,8 @@ def _parse_float(raw: str, *, field: str) -> float:
         value = float(raw)
     except ValueError as exc:
         raise ValueError(f"Invalid numeric value in {field}") from exc
-    if value < 0:
-        raise ValueError(f"Negative value in {field}")
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"Nonfinite or negative value in {field}")
     return value
 
 
@@ -305,6 +367,61 @@ def _overlap_count(regions: list[_BedRegion]) -> int:
     return count
 
 
+#: What the numbers mean depends entirely on which kind of BED produced them, so the
+#: distinction is carried into the report rather than left to the reader.
+_ROLE_LIMITATION: dict[TargetBedRole, str] = {
+    TargetBedRole.ANALYSIS_ROI_UNBUFFERED: (
+        "The target BED is declared as an unbuffered analysis ROI. The pipeline cannot verify "
+        "that claim; a BED that in fact carries Adaptive Sampling selection buffers would "
+        "report diluted per-target means under this label."
+    ),
+    TargetBedRole.SELECTION_PANEL_BUFFERED: (
+        "The target BED is declared as a buffered Adaptive Sampling selection panel. Per-target "
+        "means therefore include flanking sequence and describe enrichment behaviour, not "
+        "observation of the analysis region. They must not be read as ROI adequacy."
+    ),
+}
+
+
+def _verify_panel_contract(target_bed: Path, declared_role: TargetBedRole) -> list[str]:
+    """Check a target BED against the lock beside it, and report what it does not establish.
+
+    The role limitations above concede that the pipeline cannot verify a declared role. When a
+    lock exists it can: the lock records the role the design was built as, and a mismatch means
+    per-target means would be read as something they are not. That is refused rather than
+    warned, because the resulting number looks entirely plausible.
+
+    A design with no lock is not refused. Synthetic fixtures legitimately have none, and
+    refusing them would make the smoke path unrunnable. It is stated in the report instead.
+
+    The import is function-local on purpose: ``ontseq_platform.pipeline`` reaches the runner,
+    which imports this module, so a module-level import would close a cycle.
+    """
+    from .pipeline.panel_lock import (
+        PanelLockError,
+        check_declared_role,
+        load_panel_lock,
+        panel_usage_warnings,
+        target_labels,
+        verify_panel_bed,
+    )
+
+    lock_path = target_bed.with_suffix(".lock.yaml")
+    if not lock_path.is_file():
+        return [
+            f"{target_bed.name} carries no panel lock, so its provenance, buffering and "
+            "confirmation status are unrecorded. Per-target depth from this run cannot be "
+            "traced to a described design."
+        ]
+    try:
+        lock = load_panel_lock(lock_path)
+        verify_panel_bed(lock, target_bed)
+        check_declared_role(lock, declared_role.value)
+        return list(panel_usage_warnings(lock, labels=target_labels(target_bed)))
+    except PanelLockError as error:
+        raise ValueError(str(error)) from error
+
+
 def normalize_target_coverage(
     *,
     sample_id: str,
@@ -315,6 +432,8 @@ def normalize_target_coverage(
     thresholds_path: Path,
     policy: TargetCoveragePolicy,
     tool: ToolRecord,
+    target_bed_role: TargetBedRole = TargetBedRole.ANALYSIS_ROI_UNBUFFERED,
+    panel_warnings: Sequence[str] = (),
 ) -> TargetCoverageReport:
     if tool.version != policy.expected_version:
         raise ValueError(
@@ -365,7 +484,7 @@ def normalize_target_coverage(
 
     overlap_count = _overlap_count(bed_regions)
     summary_metrics["overlapping_interval_count"] = overlap_count
-    warnings = [policy.note]
+    warnings = [policy.note, *panel_warnings]
     if overlap_count:
         warnings.append(
             "Target BED intervals overlap; interval-weighted summaries count each BED interval "
@@ -375,6 +494,7 @@ def normalize_target_coverage(
         sample_id=sample_id,
         genome_build=genome_build,
         target_bed_version=target_bed_version,
+        target_bed_role=target_bed_role,
         status=ModuleRunStatus.COMPLETED,
         policy=policy,
         summary_metrics=summary_metrics,
@@ -386,8 +506,7 @@ def normalize_target_coverage(
         tool=tool,
         warnings=warnings,
         limitations=[
-            "The target BED is interpreted as an unbuffered analysis ROI BED. The pipeline cannot "
-            "infer whether a supplied BED contains Adaptive Sampling selection buffers.",
+            _ROLE_LIMITATION[target_bed_role],
             "Coverage thresholds are descriptive technical bins and are not validated adequacy or "
             "reportability thresholds.",
             "Off-target enrichment and CNV inference are outside this adapter.",
@@ -398,7 +517,13 @@ def normalize_target_coverage(
     )
 
 
-def _mosdepth_version(text: str) -> str:
+def mosdepth_version(text: str) -> str:
+    """Parse Mosdepth's ``--version`` output.
+
+    Public so preflight probes the binary with the same parser the stage uses. A preflight
+    that reads a version differently from the adapter can clear a run the adapter then
+    refuses, which is the one failure mode a preflight must not have.
+    """
     match = _VERSION.search(text)
     if match:
         return match.group(1)
@@ -435,6 +560,7 @@ def run_target_coverage(
 
     target_bed = Path(manifest.assay.target_bed)
     load_target_bed(target_bed)
+    panel_warnings = _verify_panel_contract(target_bed, manifest.assay.target_bed_role)
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = output_dir / f"{manifest.sample_id}.target-coverage"
     regions_path = Path(f"{prefix}.regions.bed.gz")
@@ -455,7 +581,7 @@ def run_target_coverage(
     version_result = command_runner.run([mosdepth, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
         raise ValueError("Mosdepth version probe returned a non-zero exit code")
-    version = _mosdepth_version(f"{version_result.stdout}\n{version_result.stderr}")
+    version = mosdepth_version(f"{version_result.stdout}\n{version_result.stderr}")
     if version != policy.expected_version:
         raise ValueError(
             f"Mosdepth version {version!r} does not match policy lock {policy.expected_version!r}"
@@ -467,7 +593,7 @@ def run_target_coverage(
         "thresholds": policy.thresholds,
         "mapq": policy.mapq,
         "exclude_flags": policy.exclude_flags,
-        "target_bed_role": "analysis_roi_unbuffered",
+        "target_bed_role": manifest.assay.target_bed_role.value,
         "expected_version": policy.expected_version,
     }
     argv = [
@@ -492,10 +618,12 @@ def run_target_coverage(
     return normalize_target_coverage(
         sample_id=manifest.sample_id,
         genome_build=manifest.assay.genome_build,
+        target_bed_role=manifest.assay.target_bed_role,
         target_bed=target_bed,
         target_bed_version=manifest.assay.target_bed_version,
         regions_path=regions_path,
         thresholds_path=thresholds_path,
         policy=policy,
+        panel_warnings=panel_warnings,
         tool=ToolRecord(name="mosdepth", version=version, parameters=parameters),
     )

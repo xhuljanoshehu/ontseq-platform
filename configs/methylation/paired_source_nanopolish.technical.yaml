@@ -1,0 +1,49 @@
+schema_version: 0.1.0
+profile_id: paired-source-nanopolish-technical-v1
+status: technical_defaults_only
+log_likelihood_ratio_threshold: 2.5
+source_a_fractions: [0.0, 0.05, 0.1, 0.2, 0.5, 1.0]
+replicates: 3
+seed: 20260904
+calibration_read_group_fraction: 0.25
+total_mixture_read_groups: null
+minimum_reference_valid_calls: 5
+minimum_mixture_valid_calls: 3
+minimum_absolute_delta_beta: 0.2
+minimum_markers: 20
+maximum_markers: 2000
+uncertainty_draws: 500
+confidence_level: 0.95
+minimum_successful_uncertainty_fraction: 0.8
+maximum_confidence_interval_width: 0.5
+maximum_standardized_model_fit_rmse: 3.0
+maximum_extrapolation: 0.1
+maximum_input_bytes_per_source: 100000000
+maximum_rows_per_source: 2000000
+minimum_quantifiable_fraction_for_recovery: 0.8
+maximum_absolute_mean_bias: 0.1
+maximum_mean_absolute_error: 0.15
+maximum_root_mean_squared_error: 0.2
+minimum_confidence_interval_coverage_fraction: 0.8
+note: >-
+  Technical paired-source defaults only. The reported value is calibrated to the fraction of
+  held-out read groups drawn from source A and must not be interpreted as tumour purity, blast
+  fraction, cell fraction or DNA-mass fraction. Thresholds and no-call gates are engineering
+  starting points without analytical or clinical validation. Calibration and mixture pools are
+  disjoint within each input but still come from the same two biological sources; seeded
+  replicates are not independent specimens. total_mixture_read_groups is derived here so the
+  profile can execute on differently sized inputs; pin it before comparing separate experiments.
+  The point estimate fits methylated and unmethylated call rates per total read group. Its
+  conditional Dirichlet interval holds calibration rates fixed and varies the fitted mixture's
+  methylated, unmethylated, ambiguous and missing states; it therefore omits calibration-source
+  uncertainty and biological variation. The LLR threshold is
+  applied per motif (threshold times num_motifs), and the fit-RMSE gate is variance-standardized,
+  dimensionless and unvalidated. All reports are sensitive derived genomic outputs. Provide the
+  exact reference FASTA checksum and declared caller, platform, flow-cell, library-kit and
+  basecaller provenance through the source metadata sidecars; unavailable fields remain unknown
+  and trigger reviewer warnings. Preserve complete commands and additional protocol context in
+  the controlled run record. The parser enforces policy byte/row safety caps but retains accepted
+  canonical calls in RAM, so a SMALL public-data smoke is only a technical integration check and
+  establishes neither purity/LoD nor production-scale memory suitability. Series-level recovery
+  PASS/FAIL/NOT_EVALUABLE uses engineering-only bias, MAE, RMSE, interval-coverage and
+  quantifiable-grid thresholds; it is not an analytical or clinical validation verdict.

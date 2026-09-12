@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from .iscn import build_iscn_proposal
+from . import __version__
+from .iscn import build_iscn_proposal, iscn_module_outcome
 from .models import (
     AnalysisModule,
     AnalysisSpec,
@@ -12,12 +13,15 @@ from .models import (
     GenomicEvent,
     InputKind,
     InputSpec,
+    ISCNResourceProvenance,
     Locus,
     ModuleOutcome,
     ModuleRunStatus,
     PipelineResult,
     Provenance,
     QCMetrics,
+    ReferenceDictionaryContract,
+    ResolvedResourceContext,
     SampleManifest,
     ToolRecord,
     Verdict,
@@ -58,6 +62,7 @@ def build_demo_result() -> PipelineResult:
             event_type=EventType.CHROMOSOME_GAIN,
             primary=Locus(chromosome="chr8", start=0, end=145_138_636),
             copy_number=3,
+            whole_chromosome_span_confirmed=True,
             confidence="moderate",
             reportable=True,
             evidence=[
@@ -132,7 +137,47 @@ def build_demo_result() -> PipelineResult:
             notes=["Illustrative fusion only; coordinates are synthetic."],
         ),
     ]
-    proposal = build_iscn_proposal(events, chromosome_count=46, sex_chromosomes="XX")
+    proposal = build_iscn_proposal(
+        events,
+        genome_build=manifest.assay.genome_build,
+        resource_provenance=ISCNResourceProvenance(
+            genome_build=manifest.assay.genome_build,
+            reference_dictionary_contract=ReferenceDictionaryContract.EXACT_FULL,
+            reference_bundle_id="SYNTHETIC_GRCH38_DEMO",
+            reference_bundle_version="synthetic-v1",
+            reference_lock_sha256="0" * 64,
+            annotation_cache_sha256="2" * 64,
+            cytoband_release="synthetic-not-for-analysis",
+            cytoband_sha256="1" * 64,
+        ),
+        policy_parameters={
+            "synthetic_demo": True,
+            "exact_full_chromosome_span_required_for_iscn": True,
+        },
+        technical_assumptions=["Synthetic cytobands are illustrative and not analytical data."],
+        cnv_source_event_ids={"CNV-001", "CNV-002"},
+    )
+    resource_context = ResolvedResourceContext(
+        profile_id=manifest.analysis.profile,
+        profile_version="synthetic-v1",
+        genome_build=manifest.assay.genome_build,
+        reference_bundle_id="SYNTHETIC_GRCH38_DEMO",
+        reference_bundle_version="synthetic-v1",
+        knowledge_bundle_id="SYNTHETIC_HEMATOLOGY_DEMO",
+        knowledge_bundle_version="synthetic-v1",
+        resource_root="/synthetic-resources",
+        resource_paths={
+            "reference.reference_lock": "/synthetic-resources/reference-lock.json",
+            "reference.annotation_cache": "/synthetic-resources/annotation.sqlite",
+            "reference.cytobands": "/synthetic-resources/cytobands.tsv",
+        },
+        resource_checksums={
+            "reference.reference_lock": "0" * 64,
+            "reference.annotation_cache": "2" * 64,
+            "reference.cytobands": "1" * 64,
+        },
+        resource_releases={"reference.cytobands": "synthetic-not-for-analysis"},
+    )
     return PipelineResult(
         manifest=manifest,
         qc=QCMetrics(
@@ -151,7 +196,7 @@ def build_demo_result() -> PipelineResult:
         events=events,
         iscn=proposal,
         provenance=Provenance(
-            pipeline_version="0.3.0",
+            pipeline_version=__version__,
             git_commit="UNCOMMITTED-DEMO",
             tools=[
                 ToolRecord(name="Cramino", version="demo"),
@@ -166,8 +211,11 @@ def build_demo_result() -> PipelineResult:
             ],
             reference_checksums={"reference": "synthetic-not-a-real-checksum"},
         ),
+        reference_context=resource_context,
         modules=[
-            ModuleOutcome(
+            iscn_module_outcome(proposal)
+            if module == AnalysisModule.ISCN
+            else ModuleOutcome(
                 module=module,
                 status=ModuleRunStatus.COMPLETED,
                 reason="Synthetic demonstration only; no scientific tool was executed",

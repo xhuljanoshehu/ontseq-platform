@@ -1,0 +1,40 @@
+{
+  "catalogue_version": "acquired_public_methylation_sources.v1",
+  "scope": "Public source metadata and actual file SHA-256 only; no read identifiers, measurements or clinical reports",
+  "dataset": "GSE218679",
+  "acquired_at": "2026-09-05T13:45:47.774455+00:00",
+  "acquisition_script_sha256": "47b0ae54d268b5185ca1a6444a4badff34a8b1971ba1aa860e3a7bdb6f183ea9",
+  "provenance_source": "configs/methylation/additional_data_candidates.v1.json",
+  "biological_validation": "NOT_ESTABLISHED",
+  "reference_fasta_sha256": null,
+  "pore_chemistry": null,
+  "guppy_model": null,
+  "objects": [
+    {
+      "role": "source_a",
+      "accession": "GSM6754749",
+      "filename": "GSM6754749_135_Nanopolish.tsv.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM6754nnn/GSM6754749/suppl/GSM6754749_135_Nanopolish.tsv.gz",
+      "size_bytes": 87638,
+      "sha256": "7b8b2fd8e1791b9b54a410aa4b221dd012b78fedc54b811ca3f95d25e0e9617c",
+      "retrieved_at": "2026-09-05T13:45:48.589360+00:00",
+      "last_modified": "Wed, 23 Nov 2022 19:59:00 GMT",
+      "content_type": "application/x-gzip",
+      "https_default_certificate_validation": true,
+      "redirects_followed": false
+    },
+    {
+      "role": "source_b",
+      "accession": "GSM6754755",
+      "filename": "GSM6754755_barcode01_Nanopolish.tsv.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM6754nnn/GSM6754755/suppl/GSM6754755_barcode01_Nanopolish.tsv.gz",
+      "size_bytes": 120883,
+      "sha256": "b18dd4ac73fa9d4640986d0680cd766fc89c547351c1be36017f260c91383737",
+      "retrieved_at": "2026-09-05T13:45:49.174439+00:00",
+      "last_modified": "Wed, 23 Nov 2022 19:59:00 GMT",
+      "content_type": "application/x-gzip",
+      "https_default_certificate_validation": true,
+      "redirects_followed": false
+    }
+  ]
+}

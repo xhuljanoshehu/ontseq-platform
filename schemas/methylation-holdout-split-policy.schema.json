@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "algorithm": {
+      "const": "sorted_read_identifiers_seeded_shuffle_v1",
+      "default": "sorted_read_identifiers_seeded_shuffle_v1",
+      "title": "Algorithm",
+      "type": "string"
+    },
+    "calibration_read_group_fraction": {
+      "exclusiveMaximum": 1,
+      "exclusiveMinimum": 0,
+      "title": "Calibration Read Group Fraction",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_a_split_seed": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Source A Split Seed",
+      "type": "integer"
+    },
+    "source_b_split_seed": {
+      "maximum": 2147483647,
+      "minimum": 0,
+      "title": "Source B Split Seed",
+      "type": "integer"
+    },
+    "split_unit": {
+      "const": "whole_read_group",
+      "default": "whole_read_group",
+      "title": "Split Unit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "calibration_read_group_fraction",
+    "source_a_split_seed",
+    "source_b_split_seed"
+  ],
+  "title": "PairedHoldoutSplitPolicy",
+  "type": "object"
+}

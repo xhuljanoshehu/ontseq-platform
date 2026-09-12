@@ -1,0 +1,351 @@
+{
+  "$defs": {
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "ModbamAdapterPolicy": {
+      "additionalProperties": false,
+      "description": "Technical defaults, never validated assay thresholds.",
+      "properties": {
+        "implicit_call_handling": {
+          "const": "ambiguous",
+          "default": "ambiguous",
+          "title": "Implicit Call Handling",
+          "type": "string"
+        },
+        "maximum_bases_per_read": {
+          "default": 2000000,
+          "minimum": 1,
+          "title": "Maximum Bases Per Read",
+          "type": "integer"
+        },
+        "maximum_reference_bytes": {
+          "default": 5000000000,
+          "minimum": 1,
+          "title": "Maximum Reference Bytes",
+          "type": "integer"
+        },
+        "minimum_class_probability": {
+          "default": 0.8,
+          "exclusiveMinimum": 0.5,
+          "maximum": 1,
+          "title": "Minimum Class Probability",
+          "type": "number"
+        },
+        "other_modification_handling": {
+          "const": "ambiguous",
+          "default": "ambiguous",
+          "title": "Other Modification Handling",
+          "type": "string"
+        },
+        "profile_id": {
+          "default": "dorado-explicit-cpg-v1",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "const": "technical_defaults_only",
+          "default": "technical_defaults_only",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "ModbamAdapterPolicy",
+      "type": "object"
+    },
+    "ModbamSourceMetadata": {
+      "additionalProperties": false,
+      "description": "Declared upstream provenance; a declaration is not biological validation.",
+      "properties": {
+        "basecaller_model": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:@+(),\\-]{0,799}$",
+          "title": "Basecaller Model",
+          "type": "string"
+        },
+        "basecaller_name": {
+          "const": "dorado",
+          "default": "dorado",
+          "title": "Basecaller Name",
+          "type": "string"
+        },
+        "basecaller_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Basecaller Version",
+          "type": "string"
+        },
+        "caller_name": {
+          "const": "dorado",
+          "default": "dorado",
+          "title": "Caller Name",
+          "type": "string"
+        },
+        "caller_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "cytosine_modifications": {
+          "enum": [
+            "5mC",
+            "5mC_5hmC"
+          ],
+          "title": "Cytosine Modifications",
+          "type": "string"
+        },
+        "flow_cell_product_code": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Flow Cell Product Code",
+          "type": "string"
+        },
+        "library_kit": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Library Kit",
+          "type": "string"
+        },
+        "modification_context": {
+          "const": "CpG_5mC_vs_unmodified_C",
+          "default": "CpG_5mC_vs_unmodified_C",
+          "title": "Modification Context",
+          "type": "string"
+        },
+        "modification_model": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:@+(),\\-]{0,799}$",
+          "title": "Modification Model",
+          "type": "string"
+        },
+        "modkit_version": {
+          "anyOf": [
+            {
+              "const": "0.6.1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modkit Version"
+        },
+        "probability_transform": {
+          "const": "none",
+          "default": "none",
+          "title": "Probability Transform",
+          "type": "string"
+        },
+        "reference_genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "reference_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequencing_platform": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:+()\\-]{0,199}$",
+          "title": "Sequencing Platform",
+          "type": "string"
+        },
+        "source_modbam_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Modbam Sha256"
+        }
+      },
+      "required": [
+        "caller_version",
+        "reference_id",
+        "reference_genome_build",
+        "reference_sha256",
+        "sequencing_platform",
+        "flow_cell_product_code",
+        "library_kit",
+        "basecaller_version",
+        "basecaller_model",
+        "modification_model",
+        "cytosine_modifications"
+      ],
+      "title": "ModbamSourceMetadata",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_policy": {
+      "$ref": "#/$defs/ModbamAdapterPolicy"
+    },
+    "ambiguous_call_rows": {
+      "minimum": 0,
+      "title": "Ambiguous Call Rows",
+      "type": "integer"
+    },
+    "canonical_call_rows": {
+      "minimum": 0,
+      "title": "Canonical Call Rows",
+      "type": "integer"
+    },
+    "chromosome_normalization": {
+      "const": "canonical_chr_prefix",
+      "default": "canonical_chr_prefix",
+      "title": "Chromosome Normalization",
+      "type": "string"
+    },
+    "coordinate_system": {
+      "const": "reference_modified_base_0based_point_stranded",
+      "default": "reference_modified_base_0based_point_stranded",
+      "title": "Coordinate System",
+      "type": "string"
+    },
+    "excluded_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Excluded Counts",
+      "type": "object"
+    },
+    "fingerprint": {
+      "$ref": "#/$defs/FileFingerprint"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "header_verified_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Header Verified Fields",
+      "type": "array"
+    },
+    "informative_call_rows": {
+      "minimum": 0,
+      "title": "Informative Call Rows",
+      "type": "integer"
+    },
+    "input_format": {
+      "enum": [
+        "modbam_mm_ml",
+        "sam_mm_ml",
+        "modkit_extract_full_tsv"
+      ],
+      "title": "Input Format",
+      "type": "string"
+    },
+    "parser_name": {
+      "title": "Parser Name",
+      "type": "string"
+    },
+    "parser_version": {
+      "title": "Parser Version",
+      "type": "string"
+    },
+    "provenance_verification": {
+      "const": "declared_with_available_header_cross_checks",
+      "default": "declared_with_available_header_cross_checks",
+      "title": "Provenance Verification",
+      "type": "string"
+    },
+    "read_group_count": {
+      "minimum": 1,
+      "title": "Read Group Count",
+      "type": "integer"
+    },
+    "reference_fingerprint": {
+      "$ref": "#/$defs/FileFingerprint"
+    },
+    "rows_total": {
+      "minimum": 0,
+      "title": "Rows Total",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "upstream": {
+      "$ref": "#/$defs/ModbamSourceMetadata"
+    }
+  },
+  "required": [
+    "source_id",
+    "genome_build",
+    "input_format",
+    "upstream",
+    "adapter_policy",
+    "fingerprint",
+    "reference_fingerprint",
+    "parser_name",
+    "parser_version",
+    "rows_total",
+    "canonical_call_rows",
+    "informative_call_rows",
+    "ambiguous_call_rows",
+    "read_group_count"
+  ],
+  "title": "ModbamSourceSummary",
+  "type": "object"
+}

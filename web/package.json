@@ -1,0 +1,21 @@
+{
+  "name": "ontseq-live-workspace",
+  "version": "0.7.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node ../scripts/build_live_workspace.mjs",
+    "check:build": "node ../scripts/build_live_workspace.mjs --check",
+    "test": "node --test tests/live-workspace.test.mjs tests/build-contract.test.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

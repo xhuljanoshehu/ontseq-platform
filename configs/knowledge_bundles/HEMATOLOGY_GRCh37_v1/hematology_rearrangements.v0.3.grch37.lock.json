@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1.0",
+  "resource_id": "ontseq-hematology-rearrangements-grch37",
+  "release": "0.3.0-grch37-review1",
+  "sha256": "12182860d7bae14034dd338a363d39fcce7622753b747504cdf3e4a998df39cd",
+  "source_ids": ["WHO5-2022", "ICC-2022", "BOREL-2012", "CIVIC-2026-08-29", "DO-2026-07-31"],
+  "note": "Gene-symbol-only adaptation of HEMATOLOGY_v3 (source SHA256 e283161a828e5c07f0351abb4c1d84fd955cc6cc5d15610db4e5c7ec4eff36dc): 38 patterns and 74 source-attributed pathology associations. Original selection was GRCh38 panel scoped; there is no GRCh37 target design or coverage assertion. No coordinates were transferred. Native GENCODE19 gene overlap is required. Research review only, not diagnosis, prognosis, fusion confirmation or reportability."
+}

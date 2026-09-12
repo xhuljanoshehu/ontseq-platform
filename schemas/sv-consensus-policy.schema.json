@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "maximum_breakpoint_distance_bp": {
+      "default": 500,
+      "minimum": 0,
+      "title": "Maximum Breakpoint Distance Bp",
+      "type": "integer"
+    },
+    "maximum_length_ratio_difference": {
+      "default": 0.35,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Length Ratio Difference",
+      "type": "number"
+    },
+    "merge_within_caller": {
+      "default": true,
+      "title": "Merge Within Caller",
+      "type": "boolean"
+    },
+    "minimum_reciprocal_overlap": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Minimum Reciprocal Overlap",
+      "type": "number"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "require_orientation_when_available": {
+      "default": true,
+      "title": "Require Orientation When Available",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "SvConsensusPolicy",
+  "type": "object"
+}

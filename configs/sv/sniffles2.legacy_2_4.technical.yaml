@@ -1,0 +1,22 @@
+schema_version: 0.1.0
+profile_id: sniffles2-legacy-2-4-comparison-v1
+status: technical_defaults_only
+expected_version: 2.4.0
+mode: germline
+min_support: 5
+min_sv_length: 50
+mapq: 20
+pass_only: true
+minimum_quality: null
+require_precise: false
+allowed_sv_types:
+  - deletion
+  - duplication
+  - inversion
+  - insertion
+  - translocation
+note: >-
+  Identical thresholds to the conservative profile, pinned to Sniffles 2.4.0 so that a run
+  can reproduce the structural-variant component of the historical pipeline for comparison.
+  The version difference is the point of this file; the thresholds are deliberately not
+  varied at the same time, because two changes at once explain nothing.

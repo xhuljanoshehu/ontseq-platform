@@ -16,7 +16,7 @@ class ReferenceLockTests(unittest.TestCase):
         content = "chr1\t1000\t0\t80\t81\nchr2\t2000\t1013\t80\t81\n"
         with tempfile.TemporaryDirectory() as temporary:
             fai = Path(temporary) / "synthetic.fa.fai"
-            fai.write_text(content, encoding="utf-8")
+            fai.write_bytes(content.encode("utf-8"))
 
             lock = reference_lock_from_fai(
                 fai,

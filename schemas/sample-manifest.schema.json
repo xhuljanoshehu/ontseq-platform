@@ -97,6 +97,10 @@
           "default": null,
           "title": "Target Bed"
         },
+        "target_bed_role": {
+          "$ref": "#/$defs/TargetBedRole",
+          "default": "analysis_roi_unbuffered"
+        },
         "target_bed_version": {
           "anyOf": [
             {
@@ -200,6 +204,15 @@
       },
       "title": "PrivacySpec",
       "type": "object"
+    },
+    "TargetBedRole": {
+      "description": "What a target BED actually is. The two are not interchangeable.\n\nThe BED a sequencer selects on usually carries flanks so that a read starting outside a\ngene is still enriched. Coverage computed over that buffered design answers \"was the\nenrichment working\"; it does not answer \"was the analysis region observed\", because the\nflanks dilute the per-target mean. Reporting one as the other overstates or understates\nadequacy depending on the flank size, so the manifest has to say which one it points at.",
+      "enum": [
+        "analysis_roi_unbuffered",
+        "selection_panel_buffered"
+      ],
+      "title": "TargetBedRole",
+      "type": "string"
     }
   },
   "additionalProperties": false,

@@ -35,6 +35,7 @@ class StageId(StrEnum):
     TARGET_COVERAGE = "target_coverage"
     CNV = "cnv"
     SV = "sv"
+    METHYLATION = "methylation"
     ASSEMBLE = "assemble"
     REPORT = "report"
     RELEASE = "release"
@@ -106,8 +107,10 @@ class StageSpec:
     not_applicable_reason: str = ""
 
 
-_ALL_KINDS = frozenset(InputKindName)
-_FROM_UNALIGNED = frozenset({InputKindName.POD5, InputKindName.UNALIGNED_BAM})
+_ALL_KINDS: frozenset[InputKindName] = frozenset(InputKindName)
+_FROM_UNALIGNED: frozenset[InputKindName] = frozenset(
+    {InputKindName.POD5, InputKindName.UNALIGNED_BAM}
+)
 
 STAGE_SPECS: tuple[StageSpec, ...] = (
     StageSpec(
@@ -158,11 +161,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         title="Adaptive-sampling target coverage",
         depends_on=(StageId.INTAKE,),
         applicable_for=_ALL_KINDS,
-        verification=VerificationStatus.NOT_IMPLEMENTED,
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose=(
-            "Per-target depth for adaptive sampling. The adapter is developed separately "
-            "in the target-coverage work stream and plugs in here."
+            "Per-target depth over the locked target design. Runs only for "
+            "assay.mode=adaptive_sampling; for any other mode the stage records that it "
+            "does not apply, which is a scope statement rather than a coverage result."
         ),
     ),
     StageSpec(
@@ -184,7 +188,30 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         applicable_for=_ALL_KINDS,
         verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
-        purpose="Conservative, non-reportable candidate SV evidence.",
+        purpose=(
+            "Conservative, non-reportable candidate SV evidence. Runs only when the "
+            "manifest requests the structural-variant module; for any other run the stage "
+            "records that it was not asked for, which is a scope statement rather than a "
+            "negative structural-variant result."
+        ),
+    ),
+    StageSpec(
+        stage=StageId.METHYLATION,
+        title="modkit modified-base pileup",
+        depends_on=(StageId.INTAKE,),
+        applicable_for=_ALL_KINDS,
+        # CI executes this stage against the real pinned modkit 0.6.4 binary on synthetic
+        # MM/ML fixtures (see ``test_modkit_real_tool`` and the local-real-tool-smoke job),
+        # asserting a 75% modified region, a measured zero, low-depth/empty targets and
+        # the missing-tag refusal. That job is what earns the claim below; it is tool
+        # interoperability, not analytical recovery.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
+        required=False,
+        purpose=(
+            "Aggregate modified-base calls that alignment already carries into per-region "
+            "fractions. Runs only when the manifest requests the methylation module; a BAM "
+            "without MM/ML tags fails the stage rather than producing an empty pileup."
+        ),
     ),
     StageSpec(
         stage=StageId.ASSEMBLE,

@@ -1,0 +1,10 @@
+{
+  "schema_version": "0.1.0",
+  "profile_id": "dorado-explicit-cpg-v1",
+  "status": "technical_defaults_only",
+  "minimum_class_probability": 0.8,
+  "implicit_call_handling": "ambiguous",
+  "other_modification_handling": "ambiguous",
+  "maximum_bases_per_read": 2000000,
+  "maximum_reference_bytes": 5000000000
+}

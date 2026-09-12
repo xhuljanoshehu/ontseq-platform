@@ -1,0 +1,157 @@
+schema_version: 1.0.0
+bundle_type: reference
+bundle_id: GRCh37_GENCODE19_v1
+version: v1
+genome_build: GRCh37
+description: >-
+  Native GENCODE19 GRCh37.p13 publisher full assembly, including reference chromosomes,
+  scaffolds, patches and haplotypes; not a primary-only or hg19 reference replacement.
+  Exact-full BAM dictionary required. Native GENCODE19 GTF and hg19 nuclear cytobands/context.
+  No MANE, liftover or GRCh38 coordinates. UCSC context and blacklist derivatives are restricted
+  to chr1-22/X/Y because UCSC hg19 mitochondrial sequence differs; no patch context inference.
+reference_lock_resource_id: reference_lock
+fasta_resource_id: genome_fasta
+fai_resource_id: fasta_index
+annotation_cache_resource_id: annotation_cache
+resources:
+  - resource_id: grch37_full_assembly_fasta_gz
+    role: genome_fasta_archive
+    path: sources/GRCh37.p13.genome.fa.gz
+    sha256: a37049f50cd181ffd057e8edde5f8d5a39afd3fed89ef17eb423323507ae2dd6
+    size_bytes: 804605548
+    source_url: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/GRCh37.p13.genome.fa.gz
+    release: GRCh37.p13 / GENCODE 19 full assembly
+    source_date: 2013-12-04
+    description: Original publisher gzip; downloaded and SHA256 verified 2026-09-02.
+  - resource_id: gencode_v19_all_gtf
+    role: gencode_gtf
+    path: sources/gencode.v19.chr_patch_hapl_scaff.annotation.gtf.gz
+    sha256: 4dcebcb2d08db7d3a5327c7f45cf885c184a4f9902bd0d6fb05a55e87f5b8cb0
+    size_bytes: 40038295
+    source_url: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/gencode.v19.chr_patch_hapl_scaff.annotation.gtf.gz
+    release: GENCODE 19
+    source_date: 2026-09-02
+    coordinate_system: one_based_inclusive
+    description: >-
+      Original native GRCh37.p13 comprehensive ALL-regions GTF, not a lifted-back GRCh38
+      annotation. GENCODE19 has no native MANE ranking; publisher transcript tags are retained.
+  - resource_id: ucsc_hg19_cytobands
+    role: cytobands
+    path: sources/ucsc.hg19.cytoBand.txt.gz
+    sha256: f9b82309b2bca1eb9d91a5cb2c6aa0528351158e6e20b51d82cca36d01735cba
+    size_bytes: 6609
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz
+    release: UCSC hg19 cytobands snapshot 2026-09-02
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+  - resource_id: encode_hg19_blacklist_archive
+    role: blacklist_archive
+    path: sources/ENCFF001TDO.bed.gz
+    sha256: 0353007f4f8b12ac8cf482014e2898bc7b69ea72b4b19ee761b17182a38a1299
+    size_bytes: 4731
+    source_url: https://www.encodeproject.org/files/ENCFF001TDO/@@download/ENCFF001TDO.bed.gz
+    release: ENCODE ENCFF001TDO hg19 exclusion regions
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+    description: >-
+      Retained original ENCODE bytes. The generated nuclear-only derivative excludes chrM;
+      short-read signal-artifact context is not an ONT-specific validated filter.
+  - resource_id: ucsc_hg19_repeatmasker_table
+    role: repeatmasker_table
+    path: sources/ucsc.hg19.rmsk.txt.gz
+    sha256: af22a795f18a4b7d8dbe9c065f8a83f53271cbff1e04bc519ab31a5159a74416
+    size_bytes: 148359433
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/rmsk.txt.gz
+    release: UCSC hg19 RepeatMasker snapshot 2026-09-02
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+  - resource_id: ucsc_hg19_simple_repeats_table
+    role: simple_repeats_table
+    path: sources/ucsc.hg19.simpleRepeat.txt.gz
+    sha256: a37171541f5cbfdbf1bb6565c612a8fb4abe850c78b826cb902914188aef7853
+    size_bytes: 28196239
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/simpleRepeat.txt.gz
+    release: UCSC hg19 simple repeats snapshot 2026-09-02
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+  - resource_id: ucsc_hg19_segmental_duplications_table
+    role: segmental_duplication_table
+    path: sources/ucsc.hg19.genomicSuperDups.txt.gz
+    sha256: 832689d7379f4b63266f450da949e10df48547a9561699b7ea33ca669d01b88e
+    size_bytes: 3002024
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/genomicSuperDups.txt.gz
+    release: UCSC hg19 genomicSuperDups snapshot 2026-09-02
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+  - resource_id: hoffman_umap_hg19_k100
+    role: mappability
+    path: sources/hg19.k100.umap.bed.gz
+    sha256: 94ada4a896ee428314e730b606614dc06b0f814020d4b5629e609b23a7c5d57c
+    size_bytes: 1445510
+    source_url: https://bismap.hoffmanlab.org/raw/hg19/k100.umap.bed.gz
+    release: Hoffman Lab Umap k100 native hg19 corrected BED snapshot 2026-09-02
+    source_date: 2026-09-02
+    coordinate_system: zero_based_half_open
+    description: >-
+      Nuclear-only, unconverted-genome single-read unique 100-mer mappability context.
+      Not a nanopore read-length model; omitted zero-value regions are not negative evidence.
+  - resource_id: genome_fasta
+    role: genome_fasta
+    path: genome.fa
+    release: GRCh37.p13
+    generated: true
+    derived_from: [grch37_full_assembly_fasta_gz]
+  - resource_id: fasta_index
+    role: fasta_index
+    path: genome.fa.fai
+    release: GRCh37.p13
+    generated: true
+    derived_from: [genome_fasta]
+  - resource_id: reference_lock
+    role: reference_lock
+    path: reference.lock.json
+    release: GRCh37.p13
+    generated: true
+    derived_from: [fasta_index]
+  - resource_id: chromosome_sizes
+    role: chromosome_sizes
+    path: chromosome-sizes.tsv
+    release: GRCh37.p13
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [fasta_index]
+  - resource_id: annotation_cache
+    role: annotation_cache
+    path: annotation.sqlite
+    release: GENCODE 19 / native GRCh37.p13 / UCSC hg19
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [gencode_v19_all_gtf, ucsc_hg19_cytobands]
+  - resource_id: blacklist_bed
+    role: blacklist
+    path: context/blacklist.nuclear.bed
+    release: ENCODE ENCFF001TDO nuclear chromosomes only
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [encode_hg19_blacklist_archive]
+  - resource_id: repeatmasker_bed
+    role: repeatmasker
+    path: context/repeatmasker.nuclear.bed
+    release: UCSC hg19 RepeatMasker nuclear chromosomes only
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg19_repeatmasker_table]
+  - resource_id: simple_repeats_bed
+    role: simple_repeats
+    path: context/simple-repeats.nuclear.bed
+    release: UCSC hg19 simple repeats nuclear chromosomes only
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg19_simple_repeats_table]
+  - resource_id: segmental_duplications_bed
+    role: segmental_duplication
+    path: context/segmental-duplications.nuclear.bed
+    release: UCSC hg19 genomicSuperDups nuclear chromosomes only
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg19_segmental_duplications_table]

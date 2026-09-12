@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .models import (
@@ -57,15 +58,29 @@ def _maximum_cardinality_matches(
 
     matched_by_query: dict[int, CandidateMatch] = {}
 
-    def augment(truth_index: int, visited_queries: set[int]) -> bool:
-        for candidate in adjacency.get(truth_index, []):
+    def augment(truth_index: int) -> bool:
+        # An explicit DFS stack preserves the original preference order without
+        # limiting an ambiguous call set to Python's recursion depth.
+        visited_queries: set[int] = set()
+        stack: list[tuple[Iterator[CandidateMatch], CandidateMatch | None]] = [
+            (iter(adjacency.get(truth_index, [])), None)
+        ]
+        while stack:
+            candidate = next(stack[-1][0], None)
+            if candidate is None:
+                stack.pop()
+                continue
             if candidate.query_index in visited_queries:
                 continue
             visited_queries.add(candidate.query_index)
             incumbent = matched_by_query.get(candidate.query_index)
-            if incumbent is None or augment(incumbent.truth_index, visited_queries):
+            if incumbent is None:
                 matched_by_query[candidate.query_index] = candidate
+                for _, incoming in reversed(stack[1:]):
+                    if incoming is not None:
+                        matched_by_query[incoming.query_index] = incoming
                 return True
+            stack.append((iter(adjacency.get(incumbent.truth_index, [])), candidate))
         return False
 
     truth_order = sorted(
@@ -76,7 +91,7 @@ def _maximum_cardinality_matches(
         ),
     )
     for truth_index in truth_order:
-        augment(truth_index, set())
+        augment(truth_index)
     return sorted(
         matched_by_query.values(),
         key=lambda item: (item.match.truth_event_id, item.match.query_event_id),

@@ -196,6 +196,208 @@ class SnifflesAdapterTests(unittest.TestCase):
         self.assertNotIn("N]chr2:5000]", serialized)
         self.assertTrue(all(not event.reportable for event in report.events))
 
+    def test_all_four_breakend_forms_resolve_without_persisting_alt_or_form(self) -> None:
+        alternates = (
+            "AC[chr2:5000[",
+            "GT]chr2:5001]",
+            "[chr2:5002[CA",
+            "]chr2:5003]TG",
+        )
+        vcf = VCF_HEADER + "".join(
+            _record(
+                "chr1",
+                str(1000 + index),
+                f"PRIVATE_{index}",
+                "N",
+                alternate,
+                "45",
+                "PASS",
+                "PRECISE;SVTYPE=BND;SUPPORT=7",
+                "GT:DR:DV",
+                "0/1:13:7",
+            )
+            for index, alternate in enumerate(alternates)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        self.assertEqual(report.accepted_record_count, 4)
+        self.assertEqual(
+            [event.secondary.start if event.secondary else None for event in report.events],
+            [4999, 5000, 5001, 5002],
+        )
+        serialized = report.model_dump_json()
+        for alternate in alternates:
+            self.assertNotIn(alternate, serialized)
+        self.assertNotIn("PRIVATE_", serialized)
+        self.assertNotIn("breakend_alt_form", serialized)
+        self.assertNotIn("local_then_", serialized)
+
+    def test_symbolic_breakend_keeps_chr2_end_fallback_without_inventing_alt_form(self) -> None:
+        vcf = VCF_HEADER + _record(
+            "chr1",
+            "1000",
+            ".",
+            "N",
+            "<BND>",
+            "45",
+            "PASS",
+            "PRECISE;SVTYPE=BND;CHR2=chr2;END=5000;SUPPORT=7",
+            "GT:DR:DV",
+            "0/1:13:7",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        event = report.events[0]
+        self.assertEqual(event.secondary.chromosome if event.secondary else None, "chr2")
+        self.assertEqual(event.secondary.start if event.secondary else None, 4999)
+        self.assertNotIn("breakend_alt_form", report.model_dump_json())
+
+    def test_bracket_breakend_info_mate_must_agree_with_alt(self) -> None:
+        info_values = (
+            "PRECISE;SVTYPE=BND;CHR2=2;END=05000;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=chr3;END=5000;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=chr2;END=5001;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=chr2;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=2;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=chr3;SUPPORT=7",
+            "PRECISE;SVTYPE=BND;CHR2=chr2,chr3;SUPPORT=7",
+        )
+        vcf = VCF_HEADER + "".join(
+            _record(
+                "chr1",
+                str(1000 + index),
+                ".",
+                "N",
+                "N[chr2:5000[",
+                "45",
+                "PASS",
+                info,
+                "GT:DR:DV",
+                "0/1:13:7",
+            )
+            for index, info in enumerate(info_values)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        self.assertEqual(report.accepted_record_count, 3)
+        self.assertEqual(
+            report.rejection_counts,
+            {"conflicting_breakend_mate": 3, "malformed_breakend_mate": 1},
+        )
+
+    def test_chr2_end_fallback_rejects_other_non_bracket_alts(self) -> None:
+        vcf = VCF_HEADER + "".join(
+            _record(
+                "chr1",
+                str(1000 + index),
+                ".",
+                "N",
+                alternate,
+                "45",
+                "PASS",
+                "PRECISE;SVTYPE=BND;CHR2=chr2;END=5000;SUPPORT=7",
+                "GT:DR:DV",
+                "0/1:13:7",
+            )
+            for index, alternate in enumerate((".", "N", "<DEL>"))
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertEqual(report.rejection_counts, {"unsupported_breakend_alt": 3})
+
+    def test_malformed_bracketed_breakend_is_rejected_instead_of_partially_matched(self) -> None:
+        vcf = VCF_HEADER + _record(
+            "chr1",
+            "1000",
+            ".",
+            "N",
+            "N[chr2:5000[N",
+            "45",
+            "PASS",
+            "PRECISE;SVTYPE=BND;SUPPORT=7",
+            "GT:DR:DV",
+            "0/1:13:7",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertEqual(report.rejection_counts, {"malformed_breakend_alt": 1})
+
+    def test_extreme_breakend_position_is_counted_not_raised(self) -> None:
+        alternate = f"N[chr2:{'9' * 4301}["
+        vcf = VCF_HEADER + _record(
+            "chr1",
+            "1000",
+            ".",
+            "N",
+            alternate,
+            "45",
+            "PASS",
+            "PRECISE;SVTYPE=BND;SUPPORT=7",
+            "GT:DR:DV",
+            "0/1:13:7",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calls.vcf"
+            path.write_text(vcf, encoding="utf-8")
+            report = normalize_sniffles_vcf(
+                path,
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                policy=_policy(),
+                tool=ToolRecord(name="Sniffles2", version="2.8.0"),
+            )
+
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertEqual(report.rejection_counts, {"malformed_breakend_alt": 1})
+        self.assertNotIn(alternate, report.model_dump_json())
+
     def test_no_accepted_calls_is_no_call_not_negative(self) -> None:
         vcf = VCF_HEADER + _record(
             "chr1",

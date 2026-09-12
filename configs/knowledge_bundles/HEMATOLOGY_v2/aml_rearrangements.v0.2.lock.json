@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1.0",
+  "resource_id": "ontseq-hematology-rearrangements",
+  "release": "0.2.0",
+  "sha256": "36862c3239a155e81ea4580e71cc6976f3cecdf827e9f02feb44f531a0b9c035",
+  "source_ids": ["WHO5-2022", "ICC-2022", "BOREL-2012"],
+  "note": "Local hematology review-prioritization patterns only. Matching is gene-pair order independent. No record is a diagnostic rule, validated fusion assertion, prognostic claim, or reportability criterion."
+}

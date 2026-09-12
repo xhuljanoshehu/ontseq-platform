@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
+import re
+import shutil
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import overload
 
 from pydantic import ValidationError
 
@@ -13,19 +18,36 @@ from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
 from .execution import ToolExecutionError
 from .io import load_model
+from .methylation import MethylationPolicy
 from .model_lock import ModelLockError
 from .model_lock import exit_code as model_lock_exit_code
 from .model_lock import fingerprint as model_fingerprint
 from .model_lock import render as render_model_lock
-from .models import InputKind, QCPolicy, ReferenceLock, SampleManifest, SnifflesPolicy
+from .models import (
+    AmlKnowledgeLock,
+    CuteSvPolicy,
+    InputKind,
+    IntervalResourceLock,
+    QCPolicy,
+    ReferenceLock,
+    SampleManifest,
+    SnifflesPolicy,
+    SvConsensusPolicy,
+    SvEvidencePolicy,
+)
 from .pipeline.checks import exit_code as check_exit_code
 from .pipeline.checks import render_json as render_checks_json
 from .pipeline.checks import render_text as render_checks_text
+from .pipeline.components import RunComponents
 from .pipeline.lock import RunAlreadyRunning
 from .pipeline.review import Decision, ReviewError
 from .pipeline.review import exit_code as review_exit_code
 from .pipeline.runner import EnvelopeAlreadyReviewed, RunConfiguration, run_pipeline
+from .pipeline.stages import StageId
 from .preflight import PreflightRequest, preflight
+from .profile_analysis import AnalyzeSettings, build_profile_run_configuration, configuration_root
+from .resource_bootstrap import GRCH37_PROFILE_IDS, PROFILE_IDS
+from .resource_commands import add_references_parser, handle_references_command
 from .review import inspect as inspect_review
 from .review import record as record_review
 from .review import render_json as render_review_json
@@ -35,15 +57,80 @@ from .status import exit_code as status_exit_code
 from .status import render_json as render_status_json
 from .status import render_ledger, scan
 from .status import render_text as render_status_text
+from .target_coverage import TargetCoveragePolicy
 from .watchfolder import PassResult, WatchConfigurationError, WatchSettings, watch
 
 RUNTIME_COMMANDS = frozenset(
-    {"run", "preflight", "model-lock", "serve", "review", "status", "watch", "align-fixture"}
+    {
+        "run",
+        "analyze",
+        "references",
+        "preflight",
+        "model-lock",
+        "serve",
+        "review",
+        "status",
+        "watch",
+        "align-fixture",
+        "doctor",
+    }
 )
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+SELECTABLE_STAGES = (
+    StageId.BASECALL,
+    StageId.ALIGN,
+    StageId.QC,
+    StageId.TARGET_COVERAGE,
+    StageId.CNV,
+    StageId.SV,
+    StageId.METHYLATION,
+)
+
+
+_INSTANCE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _instance_id(value: str) -> str:
+    """Accept only the unambiguous nonce format emitted by the Desktop."""
+
+    if not _INSTANCE_ID_PATTERN.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "instance ID must be exactly 32 lowercase hexadecimal characters"
+        )
+    return value
+
+
+@overload
+def _selected_policy(selection: RunComponents | None, stage: StageId, fallback: Path) -> Path: ...
+
+
+@overload
+def _selected_policy(
+    selection: RunComponents | None, stage: StageId, fallback: None
+) -> Path | None: ...
+
+
+def _selected_policy(
+    selection: RunComponents | None, stage: StageId, fallback: Path | None
+) -> Path | None:
+    """A selection may name the policy file, so one document configures the whole run."""
+    choice = selection.choice_for(stage) if selection is not None else None
+    if choice is not None and choice.policy:
+        return Path(choice.policy)
+    return fallback
+
+
+def _shipped_config(relative_path: str) -> Path:
+    """Return one release-owned config path without consulting the process cwd."""
+
+    return configuration_root() / relative_path
+
+
+def _shipped_asset(relative_path: str) -> Path:
+    """Return a non-config asset beside the canonical installed/source config tree."""
+
+    return configuration_root().parent / relative_path
 
 
 def _alignment_policy(path: Path) -> AlignmentPolicy | None:
@@ -58,30 +145,157 @@ def _sniffles_policy(path: Path) -> SnifflesPolicy | None:
     return load_model(path, SnifflesPolicy) if path.is_file() else None
 
 
+def _cutesv_policy(path: Path | None) -> CuteSvPolicy | None:
+    return load_model(path, CuteSvPolicy) if path is not None and path.is_file() else None
+
+
+def _cutesv_policy_for_run(
+    path: Path | None,
+    reference_fasta: Path | None,
+) -> CuteSvPolicy | None:
+    """Enable the optional second SV caller only when its required FASTA is present.
+
+    The advanced ``ontseq run`` command predates profile-managed references. Its default
+    policy path must not turn an aligned-BAM CNV-only run into a failed cuteSV invocation
+    when the operator did not provide ``--reference-fasta``. Profile runs always resolve
+    and validate the FASTA before constructing their configuration, so they continue to
+    run the pinned Sniffles+cuteSV lane.
+    """
+
+    if reference_fasta is None:
+        return None
+    return _cutesv_policy(path)
+
+
+def _sv_consensus_policy(path: Path | None) -> SvConsensusPolicy | None:
+    return load_model(path, SvConsensusPolicy) if path is not None and path.is_file() else None
+
+
+def _sv_evidence_policy(path: Path | None) -> SvEvidencePolicy | None:
+    return load_model(path, SvEvidencePolicy) if path is not None and path.is_file() else None
+
+
+def _interval_resource(
+    path: Path | None, lock_path: Path | None
+) -> tuple[Path, IntervalResourceLock] | None:
+    if path is None and lock_path is None:
+        return None
+    if path is None or lock_path is None:
+        raise SystemExit("an interval resource requires both data and lock paths")
+    return path, load_model(lock_path, IntervalResourceLock)
+
+
+def _interval_resources(
+    pairs: Sequence[Sequence[Path]],
+) -> tuple[tuple[Path, IntervalResourceLock], ...]:
+    resources: list[tuple[Path, IntervalResourceLock]] = []
+    for pair in pairs:
+        if len(pair) != 2:
+            raise SystemExit("each interval resource requires DATA and LOCK")
+        resolved = _interval_resource(pair[0], pair[1])
+        assert resolved is not None
+        resources.append(resolved)
+    return tuple(resources)
+
+
+def _aml_knowledge(
+    path: Path | None, lock_path: Path | None
+) -> tuple[Path, AmlKnowledgeLock] | None:
+    if path is None and lock_path is None:
+        return None
+    if path is None or lock_path is None:
+        raise SystemExit("AML knowledge requires both resource and lock paths")
+    return path, load_model(lock_path, AmlKnowledgeLock)
+
+
+def _target_coverage_policy(path: Path) -> TargetCoveragePolicy | None:
+    return load_model(path, TargetCoveragePolicy) if path.is_file() else None
+
+
+def _methylation_policy(path: Path) -> MethylationPolicy | None:
+    return load_model(path, MethylationPolicy) if path.is_file() else None
+
+
+def _resolve_component_policies(selection: RunComponents, source: Path) -> RunComponents:
+    """Resolve selection policy paths against the selection's packaged/repository root.
+
+    Component documents deliberately use repository-root-relative paths such as
+    ``configs/qc/...``. A packed Desktop runtime may be launched from any Windows working
+    directory, so leaving those paths relative would make the selected policy depend on the
+    operator's current directory. ``configs/components/default.yaml`` lives two directory
+    levels below the root both in the repository and in ``share/ontseq`` after packaging.
+    """
+    root = source.resolve().parents[2]
+    updated = dict(selection.components)
+    for stage, choice in selection.components.items():
+        if not choice.policy:
+            continue
+        policy = Path(choice.policy)
+        if policy.is_absolute():
+            continue
+        updated[stage] = choice.model_copy(update={"policy": str((root / policy).resolve())})
+    return selection.model_copy(update={"components": updated})
+
+
+def _components(args: argparse.Namespace) -> RunComponents | None:
+    """Resolve the component selection for this run, if the operator asked for one.
+
+    ``--without`` is applied on top of the file rather than instead of it, so switching a
+    stage off for one run does not require editing, copying or forking a selection.
+    """
+    selection: RunComponents | None = None
+    path: Path | None = getattr(args, "components", None)
+    if path is not None:
+        if not path.is_file():
+            raise SystemExit(f"component selection not found: {path}")
+        selection = _resolve_component_policies(load_model(path, RunComponents), path)
+    without = [StageId(name) for name in getattr(args, "without", []) or []]
+    if without:
+        base = selection or RunComponents(
+            selection_id="command-line-only",
+            status="technical_defaults_only",
+            note="Created implicitly by --without; no versions are pinned.",
+        )
+        selection = base.without(*without)
+    return selection
+
+
 def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
-    root = _repo_root()
     parser.add_argument(
         "--cnv-policy",
         type=Path,
-        default=root / "configs/cnv/qdnaseq_ace.technical.yaml",
+        default=_shipped_config("cnv/qdnaseq_ace.technical.yaml"),
     )
     parser.add_argument("--qdnaseq-rscript", default="Rscript")
     parser.add_argument(
         "--qdnaseq-script",
         type=Path,
-        default=root / "scripts/run_qdnaseq_ace.R",
+        default=_shipped_asset("scripts/run_qdnaseq_ace.R"),
     )
 
 
-def _register_cnv(args: argparse.Namespace) -> None:
+def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
+    """Install the QDNAseq/ACE lane unless this run deselected it.
+
+    The lane still arrives by registration rather than as a first-class member of the
+    graph, which remains the outstanding architectural debt. Gating it on the selection at
+    least means a run that switched CNV off does not silently get it anyway.
+    """
     from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
+
+    choice = selection.choice_for(StageId.CNV) if selection is not None else None
+    if choice is not None and not choice.enabled:
+        return
+    if choice is not None and choice.policy:
+        args.cnv_policy = Path(choice.policy)
 
     if args.cnv_policy.is_file():
         policy = load_model(args.cnv_policy, QDNAseqPolicy)
     else:
         policy = QDNAseqPolicy(
             profile_id="qdnaseq-ace-multibin-v1",
+            cytoband_affected_fraction=0.66,
             note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
         )
     register_qdnaseq_extension(
@@ -97,30 +311,98 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--reference-lock", type=Path, required=True)
     if include_qc:
-        parser.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+        parser.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     parser.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
+    )
+    parser.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
+    )
+    parser.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    parser.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
+    )
+    parser.add_argument("--gene-annotation", type=Path)
+    parser.add_argument("--gene-annotation-lock", type=Path)
+    parser.add_argument("--cytoband-annotation", type=Path)
+    parser.add_argument("--cytoband-annotation-lock", type=Path)
+    parser.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    parser.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
+    )
+    parser.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    parser.add_argument(
+        "--sv-minimum-mean-depth",
+        type=float,
+        default=10.0,
+        help="Unvalidated technical depth floor used only for observability labels",
     )
     parser.add_argument(
         "--alignment-policy",
         type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+        default=_shipped_config("alignment/minimap2.ont.technical.yaml"),
     )
     parser.add_argument(
         "--basecall-policy",
         type=Path,
-        default=Path("configs/basecalling/dorado.technical.yaml"),
+        default=_shipped_config("basecalling/dorado.technical.yaml"),
     )
     parser.add_argument("--reference-fasta", type=Path)
     parser.add_argument("--pod5-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
     parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
+    )
+    parser.add_argument(
+        "--methylation-policy",
+        type=Path,
+        default=_shipped_config("methylation/modkit.technical.yaml"),
+    )
+    parser.add_argument(
+        "--components",
+        type=Path,
+        help="Component selection for this run: which provider and version runs each stage",
+    )
+    parser.add_argument(
+        "--without",
+        action="append",
+        choices=sorted(item.value for item in SELECTABLE_STAGES),
+        default=[],
+        help="Switch a stage off for this run; repeatable",
+    )
     parser.add_argument("--samtools", default="samtools")
     parser.add_argument("--cramino", default="cramino")
     parser.add_argument("--sniffles", default="sniffles")
+    parser.add_argument("--cutesv", default="cuteSV")
     parser.add_argument("--minimap2", default="minimap2")
+    parser.add_argument("--mosdepth", default="mosdepth")
+    parser.add_argument("--modkit", default="modkit")
     parser.add_argument("--dorado", default="dorado")
 
 
@@ -137,9 +419,46 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--threads", type=int, default=4)
     run.add_argument("--git-commit", default="UNKNOWN")
     run.add_argument("--force", action="store_true")
+    run.add_argument("--json", action="store_true", dest="as_json")
+    run.add_argument("--json-output", type=Path, help="write run report JSON to file")
+
+    analyze = sub.add_parser(
+        "analyze", help="Analyze one indexed GRCh37 or GRCh38 BAM using an installed profile"
+    )
+    analyze.add_argument("bam", type=Path)
+    analyze.add_argument(
+        "--profile",
+        required=True,
+        choices=(*PROFILE_IDS, *GRCH37_PROFILE_IDS),
+    )
+    analyze.add_argument("--resource-root", type=Path)
+    analyze.add_argument("--config-root", type=Path)
+    analyze.add_argument("--output-dir", type=Path, default=Path("results/runs"))
+    analyze.add_argument("--sample-id")
+    analyze.add_argument("--run-id")
+    analyze.add_argument("--threads", type=int, default=4)
+    analyze.add_argument("--git-commit", default="UNKNOWN")
+    analyze.add_argument("--force", action="store_true")
+    analyze.add_argument(
+        "--include-methylation",
+        action="store_true",
+        help="Explicitly include the optional research methylation assessment from BAM MM/ML tags",
+    )
+    analyze.add_argument("--samtools", default="samtools")
+    analyze.add_argument("--cramino", default="cramino")
+    analyze.add_argument("--sniffles", default="sniffles")
+    analyze.add_argument("--cutesv", default="cuteSV")
+    analyze.add_argument("--minimap2", default="minimap2")
+    analyze.add_argument("--mosdepth", default="mosdepth")
+    analyze.add_argument("--modkit", default="modkit")
+    analyze.add_argument("--dorado", default="dorado")
+    _add_cnv_options(analyze)
+
+    add_references_parser(sub)
 
     pf = sub.add_parser("preflight", help="Check run preconditions without creating output")
     _add_execution_options(pf, include_qc=False)
+    _add_cnv_options(pf)
     pf.add_argument("--require-free-gb", type=float)
     pf.add_argument("--verbose", action="store_true")
     pf.add_argument("--json", action="store_true", dest="as_json")
@@ -150,17 +469,84 @@ def _parser() -> argparse.ArgumentParser:
     lock.add_argument("--json", action="store_true", dest="as_json")
 
     srv = sub.add_parser("serve", help="Run the loopback-only local operator service")
-    srv.add_argument("--reference-lock", type=Path, required=True)
+    srv.add_argument("--reference-lock", type=Path)
+    srv.add_argument(
+        "--resource-root",
+        type=Path,
+        help="Manifested GRCh37/GRCh38 resource root used by profile-based Desktop runs",
+    )
     srv.add_argument("--allow-root", type=Path, action="append", required=True, dest="allow_roots")
     srv.add_argument("--output-dir", type=Path, default=Path("results/runs"))
-    srv.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    srv.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     srv.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
+    )
+    srv.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
+    )
+    srv.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    srv.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
+    )
+    srv.add_argument("--reference-fasta", type=Path)
+    srv.add_argument("--gene-annotation", type=Path)
+    srv.add_argument("--gene-annotation-lock", type=Path)
+    srv.add_argument("--cytoband-annotation", type=Path)
+    srv.add_argument("--cytoband-annotation-lock", type=Path)
+    srv.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    srv.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
+    )
+    srv.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    srv.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
+    srv.add_argument("--cutesv", default="cuteSV")
+    srv.add_argument("--modkit", default="modkit")
+    srv.add_argument("--samtools", default="samtools")
+    srv.add_argument(
+        "--methylation-policy",
+        type=Path,
+        help="Override the assay-specific methylation policy used only after explicit opt-in",
+    )
+    srv.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
+    )
+    srv.add_argument(
+        "--components",
+        type=Path,
+        help="Component selection applied to every run started by this local service",
     )
     _add_cnv_options(srv)
     srv.add_argument("--port", type=int, default=8765)
+    srv.add_argument(
+        "--instance-id",
+        type=_instance_id,
+        help="Per-launch Desktop nonce returned by /api/config",
+    )
     srv.add_argument("--threads", type=int, default=4)
     srv.add_argument("--no-browser", action="store_true")
 
@@ -189,19 +575,63 @@ def _parser() -> argparse.ArgumentParser:
     watcher.add_argument("--manifest-template", type=Path, required=True)
     watcher.add_argument("--reference-lock", type=Path, required=True)
     watcher.add_argument("--input-kind", required=True, choices=[item.value for item in InputKind])
-    watcher.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    watcher.add_argument("--qc-policy", type=Path, default=_shipped_config("qc/defaults.yaml"))
     watcher.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=_shipped_config("sv/sniffles2.conservative.technical.yaml"),
     )
+    watcher.add_argument(
+        "--cutesv-policy",
+        type=Path,
+        default=_shipped_config("sv/cutesv.conservative.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--sv-consensus-policy",
+        type=Path,
+        default=_shipped_config("sv/sniffles2_cutesv.consensus.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--sv-evidence-policy",
+        type=Path,
+        default=_shipped_config("sv/evidence-priority.technical.yaml"),
+    )
+    watcher.add_argument(
+        "--target-coverage-policy",
+        type=Path,
+        default=_shipped_config("qc/adaptive_target_coverage.technical.yaml"),
+    )
+    watcher.add_argument("--gene-annotation", type=Path)
+    watcher.add_argument("--gene-annotation-lock", type=Path)
+    watcher.add_argument("--cytoband-annotation", type=Path)
+    watcher.add_argument("--cytoband-annotation-lock", type=Path)
+    watcher.add_argument(
+        "--sv-context-resource",
+        type=Path,
+        nargs=2,
+        action="append",
+        metavar=("DATA", "LOCK"),
+        default=[],
+    )
+    watcher.add_argument(
+        "--aml-knowledge",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.json"),
+    )
+    watcher.add_argument(
+        "--aml-knowledge-lock",
+        type=Path,
+        default=_shipped_config("knowledge/aml_rearrangements.v0.1.lock.json"),
+    )
+    watcher.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
     watcher.add_argument(
         "--alignment-policy",
         type=Path,
-        default=Path("configs/alignment/minimap2.ont.technical.yaml"),
+        default=_shipped_config("alignment/minimap2.ont.technical.yaml"),
     )
     _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)
+    watcher.add_argument("--cutesv", default="cuteSV")
     watcher.add_argument("--ready-marker")
     watcher.add_argument("--pod5-subdir")
     watcher.add_argument("--quiet-seconds", type=float, default=300.0)
@@ -215,6 +645,12 @@ def _parser() -> argparse.ArgumentParser:
     fixture = sub.add_parser("align-fixture", help="Generate a synthetic real-alignment fixture")
     fixture.add_argument("--output-dir", type=Path, default=Path("results/align-fixture"))
     fixture.add_argument("--samtools", default="samtools")
+
+    doctor = sub.add_parser("doctor", help="Run a quick local runtime health check")
+    doctor.add_argument("--json", action="store_true", dest="as_json")
+    doctor.add_argument("--strict", action="store_true")
+    doctor.add_argument("--output-dir", type=Path, help="check writable output directory")
+
     return parser
 
 
@@ -223,7 +659,10 @@ def _executables(args: argparse.Namespace) -> dict[str, str]:
         "samtools": args.samtools,
         "cramino": args.cramino,
         "sniffles": args.sniffles,
+        "cutesv": args.cutesv,
         "minimap2": args.minimap2,
+        "mosdepth": getattr(args, "mosdepth", "mosdepth"),
+        "modkit": getattr(args, "modkit", "modkit"),
         "dorado": args.dorado,
     }
 
@@ -235,28 +674,165 @@ def _print_pass(result: PassResult) -> None:
         print(f"  {name:<28} {'skipped':<10} {reason}")
 
 
+def _render_json(payload: Mapping[str, object]) -> str:
+    return json.dumps(payload, indent=2)
+
+
+def _doctor_checks(
+    strict: bool = False, output_root: Path | None = None
+) -> tuple[dict[str, object], int]:
+    required_tools = (
+        ("samtools", "samtools", True),
+        ("cramino", "cramino", True),
+        ("sniffles", "sniffles", True),
+        ("minimap2", "minimap2", False),
+        ("mosdepth", "mosdepth", False),
+        ("modkit", "modkit", False),
+        ("dorado", "dorado", False),
+        ("Rscript", "Rscript", False),
+        ("cuteSV", "cuteSV", False),
+    )
+    checks: list[dict[str, object]] = []
+    status_code = 0
+
+    python_path = Path(sys.executable)
+    python_ok = python_path.is_file()
+    checks.append(
+        {
+            "check": "python",
+            "status": "pass" if python_ok else "fail",
+            "detail": str(python_path),
+            "note": f"python {platform.python_version()} ({platform.python_implementation()})",
+        }
+    )
+    if not python_ok:
+        status_code = max(status_code, 2)
+
+    project_root = configuration_root().parent
+    checks.append(
+        {
+            "check": "project-root",
+            "status": "pass",
+            "detail": str(project_root),
+            "note": "runtime asset root resolved from the installed configuration tree",
+        }
+    )
+
+    pyproject = project_root / "pyproject.toml"
+    checks.append(
+        {
+            "check": "pyproject",
+            "status": "pass" if pyproject.is_file() else "warn",
+            "detail": str(pyproject),
+            "note": "manifest required for packaging/runtime checks",
+        }
+    )
+    if not pyproject.is_file():
+        status_code = max(status_code, 1)
+
+    git_check = shutil.which("git") is not None
+    checks.append(
+        {
+            "check": "git-client",
+            "status": "pass" if git_check else "warn",
+            "detail": "found" if git_check else "not in PATH",
+            "note": "optional: useful for version and provenance tracking",
+        }
+    )
+    for _check_name, executable, required in required_tools:
+        found = shutil.which(executable)
+        if found is None:
+            result = "fail" if strict and required else ("warn" if required else "info")
+            if strict and required:
+                status_code = max(status_code, 1)
+        else:
+            result = "pass"
+        checks.append(
+            {
+                "check": executable,
+                "status": result,
+                "detail": found if found is not None else "missing",
+                "note": f"{'required' if required else 'optional'} runtime dependency",
+            }
+        )
+
+    if output_root is not None:
+        try:
+            output_root.mkdir(parents=True, exist_ok=True)
+            test_file = output_root / ".ontseq-doctor-write-test"
+            test_file.write_text("ok\n", encoding="utf-8")
+            test_file.unlink()
+            writable = True
+            message = "writable"
+        except OSError as exc:
+            writable = False
+            message = str(exc)
+            status_code = max(status_code, 1)
+        checks.append(
+            {
+                "check": "output-dir-write",
+                "status": "pass" if writable else "fail",
+                "detail": message,
+                "note": f"test write into {output_root}",
+            }
+        )
+
+    return {
+        "status": "ok" if status_code == 0 else "needs_attention",
+        "strict": strict,
+        "python": str(python_path),
+        "checks": checks,
+    }, status_code
+
+
+def _print_doctor(result: dict[str, object]) -> None:
+    print(f"ONTSeq doctor: {result.get('status')}")
+    checks = result.get("checks", [])
+    if not isinstance(checks, list):
+        return
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status"))
+        check = str(item.get("check"))
+        detail = item.get("detail")
+        note = item.get("note")
+        print(f"{status:>6}  {check:<18} {detail}  ({note})")
+
+
 def main() -> None:
     args = _parser().parse_args()
-    if args.command in {"run", "serve", "watch"}:
-        _register_cnv(args)
+    # Preflight resolves the selection too. Its whole value is that it agrees with the
+    # run: checking the default policies while `ontseq run` would use the ones a component
+    # selection names is how a preflight clears a run that then fails on what it checked.
+    selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
+    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:
+        _register_cnv(args, selection)
     try:
-        if args.command == "run":
-            config = RunConfiguration(
-                manifest=load_model(args.manifest, SampleManifest),
-                reference_lock=load_model(args.reference_lock, ReferenceLock),
-                output_base=args.output_dir,
-                run_id=args.run_id,
-                pipeline_version=__version__,
-                git_commit=args.git_commit,
-                qc_policy=load_model(args.qc_policy, QCPolicy),
-                sniffles_policy=_sniffles_policy(args.sniffles_policy),
-                alignment_policy=_alignment_policy(args.alignment_policy),
-                basecall_policy=_basecall_policy(args.basecall_policy),
-                reference_fasta=args.reference_fasta,
-                pod5_directory=args.pod5_dir,
-                threads=args.threads,
-                executables=_executables(args),
-                force=args.force,
+        if handle_references_command(args):
+            return
+
+        if args.command == "analyze":
+            config = build_profile_run_configuration(
+                AnalyzeSettings(
+                    bam=args.bam,
+                    profile_id=args.profile,
+                    resource_root=args.resource_root,
+                    output_dir=args.output_dir,
+                    configuration_root=args.config_root,
+                    sample_id=args.sample_id,
+                    run_id=args.run_id,
+                    pipeline_version=__version__,
+                    git_commit=args.git_commit,
+                    threads=args.threads,
+                    force=args.force,
+                    include_methylation=args.include_methylation,
+                    executables=_executables(args),
+                )
+            )
+            print(
+                f"profile: {args.profile}; detected build: "
+                f"{config.manifest.assay.genome_build.value}"
             )
             run_report, release = run_pipeline(config)
             for stage in run_report.stages:
@@ -272,6 +848,91 @@ def main() -> None:
             if not run_report.passed:
                 raise SystemExit(2)
 
+        elif args.command == "run":
+            config = RunConfiguration(
+                manifest=load_model(args.manifest, SampleManifest),
+                reference_lock=load_model(args.reference_lock, ReferenceLock),
+                output_base=args.output_dir,
+                run_id=args.run_id,
+                pipeline_version=__version__,
+                git_commit=args.git_commit,
+                qc_policy=load_model(args.qc_policy, QCPolicy),
+                sniffles_policy=_sniffles_policy(
+                    _selected_policy(selection, StageId.SV, args.sniffles_policy)
+                ),
+                cutesv_policy=_cutesv_policy_for_run(
+                    args.cutesv_policy,
+                    args.reference_fasta,
+                ),
+                sv_consensus_policy=_sv_consensus_policy(args.sv_consensus_policy),
+                sv_evidence_policy=_sv_evidence_policy(args.sv_evidence_policy),
+                gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
+                cytoband_annotation=_interval_resource(
+                    args.cytoband_annotation, args.cytoband_annotation_lock
+                ),
+                sv_context_resources=_interval_resources(args.sv_context_resource),
+                aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                sv_minimum_mean_depth=args.sv_minimum_mean_depth,
+                target_coverage_policy=_target_coverage_policy(
+                    _selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
+                ),
+                alignment_policy=_alignment_policy(
+                    _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
+                ),
+                basecall_policy=_basecall_policy(
+                    _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
+                ),
+                components=selection,
+                reference_fasta=args.reference_fasta,
+                pod5_directory=args.pod5_dir,
+                threads=args.threads,
+                executables=_executables(args),
+                force=args.force,
+            )
+            if selection is not None:
+                print(f"component selection: {selection.selection_id}")
+                for line in selection.summary():
+                    print(f"  {line}")
+            run_report, release = run_pipeline(config)
+            for stage in run_report.stages:
+                marker = "resumed" if stage.resumed else stage.status.value
+                duration = (
+                    "" if stage.duration_seconds is None else f"{stage.duration_seconds:6.1f}s"
+                )
+                print(f"  {stage.stage.value:<16} {marker:<10} {duration:>8} {stage.reason}")
+            outcome = "PASS" if run_report.passed else "FAIL"
+            print(f"verdict: {outcome} - {run_report.verdict_reason}")
+            if run_report.unverified_stages:
+                names = ", ".join(item.value for item in run_report.unverified_stages)
+                print(f"UNVERIFIED ADAPTERS COMPLETED: {names}")
+            if release is not None:
+                print(f"release bundle: {len(release.artifacts)} artifact(s), unsigned")
+            if args.as_json:
+                payload = {
+                    "status": "PASS" if run_report.passed else "FAIL",
+                    "run_report": run_report.model_dump(mode="json"),
+                    "release": release.model_dump(mode="json") if release is not None else None,
+                    "duration_seconds": (
+                        (run_report.finished_at - run_report.started_at).total_seconds()
+                    ),
+                }
+                json_payload = _render_json(payload)
+                if args.json_output is not None:
+                    args.json_output.parent.mkdir(parents=True, exist_ok=True)
+                    args.json_output.write_text(json_payload + "\n", encoding="utf-8")
+                    print(f"run report written to: {args.json_output}")
+                else:
+                    print(json_payload)
+            if not run_report.passed:
+                raise SystemExit(2)
+            if args.json_output is not None and args.as_json:
+                raise SystemExit(0)
+
         elif args.command == "preflight":
             request = PreflightRequest(
                 manifest=load_model(args.manifest, SampleManifest),
@@ -281,9 +942,27 @@ def main() -> None:
                 executables=_executables(args),
                 reference_fasta=args.reference_fasta,
                 pod5_directory=args.pod5_dir,
-                alignment_policy=_alignment_policy(args.alignment_policy),
-                basecall_policy=_basecall_policy(args.basecall_policy),
-                sniffles_policy=_sniffles_policy(args.sniffles_policy),
+                alignment_policy=_alignment_policy(
+                    _selected_policy(selection, StageId.ALIGN, args.alignment_policy)
+                ),
+                basecall_policy=_basecall_policy(
+                    _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
+                ),
+                sniffles_policy=_sniffles_policy(
+                    _selected_policy(selection, StageId.SV, args.sniffles_policy)
+                ),
+                cutesv_policy=_cutesv_policy_for_run(
+                    args.cutesv_policy,
+                    args.reference_fasta,
+                ),
+                target_coverage_policy=_target_coverage_policy(
+                    _selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    )
+                ),
+                methylation_policy=_methylation_policy(
+                    _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
+                ),
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)
@@ -315,15 +994,46 @@ def main() -> None:
             raise SystemExit(model_lock_exit_code(model))
 
         elif args.command == "serve":
+            if args.reference_lock is None and args.resource_root is None:
+                raise ValueError("serve requires --resource-root or legacy --reference-lock")
             serve(
                 ServiceConfig(
                     reference_lock=args.reference_lock,
                     output_dir=args.output_dir,
                     allowed_roots=list(args.allow_roots),
                     qc_policy=args.qc_policy,
-                    sniffles_policy=args.sniffles_policy,
+                    sniffles_policy=_selected_policy(selection, StageId.SV, args.sniffles_policy),
+                    target_coverage_policy=_selected_policy(
+                        selection, StageId.TARGET_COVERAGE, args.target_coverage_policy
+                    ),
+                    methylation_policy=_selected_policy(
+                        selection, StageId.METHYLATION, args.methylation_policy
+                    ),
+                    components=selection,
+                    cutesv_policy=args.cutesv_policy,
+                    sv_consensus_policy=args.sv_consensus_policy,
+                    sv_evidence_policy=args.sv_evidence_policy,
+                    reference_fasta=args.reference_fasta,
+                    gene_annotation=_interval_resource(
+                        args.gene_annotation, args.gene_annotation_lock
+                    ),
+                    cytoband_annotation=_interval_resource(
+                        args.cytoband_annotation, args.cytoband_annotation_lock
+                    ),
+                    sv_context_resources=_interval_resources(args.sv_context_resource),
+                    aml_knowledge=(
+                        _aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock)
+                        if args.reference_lock is not None
+                        else None
+                    ),
+                    sv_minimum_mean_depth=args.sv_minimum_mean_depth,
+                    cutesv_executable=args.cutesv,
+                    modkit_executable=args.modkit,
+                    samtools_executable=args.samtools,
                     port=args.port,
                     threads=args.threads,
+                    resource_root=args.resource_root,
+                    instance_id=args.instance_id,
                 ),
                 open_browser=not args.no_browser,
             )
@@ -374,6 +1084,17 @@ def main() -> None:
                 qc_policy=args.qc_policy,
                 input_kind=InputKind(args.input_kind),
                 sniffles_policy=args.sniffles_policy,
+                cutesv_policy=args.cutesv_policy,
+                sv_consensus_policy=args.sv_consensus_policy,
+                sv_evidence_policy=args.sv_evidence_policy,
+                target_coverage_policy=args.target_coverage_policy,
+                gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
+                cytoband_annotation=_interval_resource(
+                    args.cytoband_annotation, args.cytoband_annotation_lock
+                ),
+                sv_context_resources=_interval_resources(args.sv_context_resource),
+                aml_knowledge=_aml_knowledge(args.aml_knowledge, args.aml_knowledge_lock),
+                sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                 alignment_policy=args.alignment_policy,
                 reference_fasta=args.reference_fasta,
                 run_id_prefix=args.run_id_prefix,
@@ -383,6 +1104,7 @@ def main() -> None:
                 threads=args.threads,
                 git_commit=args.git_commit,
                 retry_failed=args.retry_failed,
+                executables={"cutesv": args.cutesv},
             )
             passes = watch(
                 settings,
@@ -403,6 +1125,17 @@ def main() -> None:
                 fixture.reference_lock,
             ):
                 print(path)
+        elif args.command == "doctor":
+            result, status_code = _doctor_checks(
+                strict=args.strict,
+                output_root=args.output_dir,
+            )
+            if args.as_json:
+                print(_render_json(result))
+            else:
+                _print_doctor(result)
+            if status_code:
+                raise SystemExit(status_code)
 
     except WatchConfigurationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -419,5 +1152,12 @@ def main() -> None:
     except RunAlreadyRunning as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(4) from exc
-    except (OSError, ValueError, ValidationError, ToolExecutionError) as exc:
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        ValidationError,
+        ToolExecutionError,
+    ) as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

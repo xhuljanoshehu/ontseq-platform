@@ -1,0 +1,11 @@
+schema_version: 0.1.0
+profile_id: sniffles2-cutesv-consensus-technical-v1
+status: technical_defaults_only
+maximum_breakpoint_distance_bp: 500
+minimum_reciprocal_overlap: 0.5
+maximum_length_ratio_difference: 0.35
+require_orientation_when_available: true
+merge_within_caller: true
+note: >-
+  Breakpoint matching parameters are transparent engineering defaults only. Concordance
+  between Sniffles2 and cuteSV is technical evidence, not independent truth or validation.

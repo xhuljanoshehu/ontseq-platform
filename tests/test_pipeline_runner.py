@@ -35,7 +35,12 @@ from ontseq_platform.pipeline.lock import LOCK_FILENAME, RunAlreadyRunning, run_
 from ontseq_platform.pipeline.runner import (
     ALIGNED_BAI,
     ALIGNED_BAM,
+    CUTESV_REPORT,
+    CUTESV_VCF,
     IMPLEMENTATIONS,
+    SV_CONSENSUS_REPORT,
+    SV_REPORT,
+    SV_VCF,
     RunConfiguration,
     RunContext,
     StageFailure,
@@ -178,7 +183,10 @@ class HappyPathTests(RunnerCase):
     def test_every_planned_stage_is_recorded(self) -> None:
         report, bundle = self._run()
         recorded = {record.stage for record in report.stages}
-        self.assertEqual(recorded, set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV})
+        self.assertEqual(
+            recorded,
+            set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION},
+        )
         self.assertTrue(report.passed)
         self.assertIsNotNone(bundle)
 
@@ -190,10 +198,11 @@ class HappyPathTests(RunnerCase):
 
     def test_unwired_stages_are_not_run_and_say_why(self) -> None:
         report, _ = self._run()
-        record = report.record_for(StageId.CNV)
-        self.assertIsNotNone(record)
-        self.assertEqual(record.status, ModuleRunStatus.NOT_RUN)
-        self.assertIn("No adapter is wired in", record.reason)
+        for stage in (StageId.CNV, StageId.METHYLATION):
+            record = report.record_for(stage)
+            self.assertIsNotNone(record)
+            self.assertEqual(record.status, ModuleRunStatus.NOT_RUN)
+            self.assertIn("No adapter is wired in", record.reason)
 
     def test_the_run_report_is_checksummed_into_its_own_bundle(self) -> None:
         _, bundle = self._run()
@@ -451,7 +460,8 @@ class AlignSettleTests(unittest.TestCase):
     def test_the_manifest_is_repointed_at_the_aligned_bam(self) -> None:
         self.settle(self.context, self.outputs)
         self.assertEqual(self.context.manifest.input.kind, InputKind.ALIGNED_BAM)
-        self.assertTrue(self.context.manifest.input.path.endswith("alignment/FAKE_RUNNER_001.bam"))
+        aligned_path = Path(self.context.manifest.input.path)
+        self.assertEqual(aligned_path.parts[-2:], ("alignment", "FAKE_RUNNER_001.bam"))
         self.assertEqual(
             self.context.manifest.input.index_path, f"{self.context.manifest.input.path}.bai"
         )
@@ -469,5 +479,113 @@ class AlignSettleTests(unittest.TestCase):
             self.settle(self.context, [])
 
 
+class SvRerunCleanupTests(unittest.TestCase):
+    """A failed SV re-run must not expose caller evidence from a previous run."""
+
+    def test_sv_execute_removes_all_owned_outputs_before_later_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            envelope = RunEnvelope.create(base, run_id="R1", sample_id="FAKE_RUNNER_001")
+            config = RunConfiguration(
+                manifest=_manifest(),
+                reference_lock=_reference_lock(),
+                output_base=base,
+                run_id="R1",
+                pipeline_version="0.0.0-test",
+                git_commit="0" * 40,
+                qc_policy=QCPolicy(status="technical_defaults_only", note="test"),
+            )
+            context = RunContext(
+                config=config,
+                envelope=envelope,
+                runner=_NullRunner(),
+                manifest=_manifest(),
+            )
+            owned_templates = (
+                SV_VCF,
+                SV_REPORT,
+                CUTESV_VCF,
+                CUTESV_REPORT,
+                SV_CONSENSUS_REPORT,
+            )
+            for template in owned_templates:
+                envelope.atomic_write_text(context.path(template), "stale\n")
+
+            # There is deliberately no intake report.  The resulting failure proves the
+            # cleanup occurs before any caller, parser, or consensus work can fail.
+            with self.assertRaises(FileNotFoundError):
+                IMPLEMENTATIONS[StageId.SV].execute(
+                    context,
+                    StagePlan(parameters={}, tool_versions={}),
+                )
+
+            for template in owned_templates:
+                self.assertFalse(envelope.path(context.path(template)).exists(), template)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnexpectedFailureTests(RunnerCase):
+    """A programming error must be a persisted failure, not a vanished stage."""
+
+    def test_unexpected_execute_exception_is_recorded_and_blocks_release(self) -> None:
+        with mock.patch.object(
+            self.stages[StageId.REPORT], "execute", side_effect=TypeError("signature mismatch")
+        ):
+            report, bundle = self._run()
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        failed = report.record_for(StageId.REPORT)
+        self.assertEqual(failed.status, ModuleRunStatus.FAILED)
+        self.assertIn("signature mismatch", failed.reason)
+        self.assertIn('"FAILED"', (self._envelope_root() / "provenance/run.json").read_text())
+        self.assertFalse((self._envelope_root() / LOCK_FILENAME).exists())
+
+    def test_unexpected_planning_exception_is_recorded(self) -> None:
+        with mock.patch.object(
+            self.stages[StageId.REPORT], "plan", side_effect=RuntimeError("planning bug")
+        ):
+            report, bundle = self._run()
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        self.assertEqual(report.record_for(StageId.REPORT).status, ModuleRunStatus.FAILED)
+
+    def test_unexpected_settle_exception_is_recorded_after_execution_and_resume(self) -> None:
+        for resumed in (False, True):
+            with self.subTest(resumed=resumed):
+                if resumed:
+                    self._run(force=True)
+                stage = self.stages[StageId.REPORT]
+
+                def fail_settle(ctx, outputs):
+                    raise KeyError("settle bug")
+
+                implementation = StageImplementation(stage.plan, stage.execute, fail_settle)
+                with mock.patch.object(stage, "implementation", return_value=implementation):
+                    report, bundle = self._run(force=not resumed)
+                self.assertFalse(report.passed)
+                self.assertIsNone(bundle)
+                self.assertEqual(report.record_for(StageId.REPORT).status, ModuleRunStatus.FAILED)
+
+    def test_keyboard_interrupt_is_not_swallowed(self) -> None:
+        with (
+            mock.patch.object(
+                self.stages[StageId.REPORT], "execute", side_effect=KeyboardInterrupt
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self._run()
+        self.assertFalse((self._envelope_root() / LOCK_FILENAME).exists())
+
+    def test_failed_rerun_cannot_leave_an_old_release_manifest(self) -> None:
+        _, bundle = self._run()
+        self.assertIsNotNone(bundle)
+        self.assertTrue((self._envelope_root() / "release/release.json").is_file())
+        self.stages[StageId.QC].fail = True
+        report, bundle = self._run(force=True)
+        self.assertFalse(report.passed)
+        self.assertIsNone(bundle)
+        self.assertFalse((self._envelope_root() / "release/release.json").exists())
+        self.assertFalse((self._envelope_root() / "release/checksums.sha256").exists())

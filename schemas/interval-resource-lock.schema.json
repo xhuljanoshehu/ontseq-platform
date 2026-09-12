@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Version and checksum lock for a build-specific interval annotation resource.",
+  "properties": {
+    "columns": {
+      "const": "chrom_start_end_label",
+      "default": "chrom_start_end_label",
+      "title": "Columns",
+      "type": "string"
+    },
+    "coordinate_system": {
+      "const": "zero_based_half_open",
+      "default": "zero_based_half_open",
+      "title": "Coordinate System",
+      "type": "string"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "note": {
+      "default": "",
+      "title": "Note",
+      "type": "string"
+    },
+    "release": {
+      "minLength": 1,
+      "title": "Release",
+      "type": "string"
+    },
+    "resource_id": {
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_type": {
+      "enum": [
+        "genes",
+        "cytobands",
+        "repeatmasker",
+        "tandem_repeat",
+        "segmental_duplication",
+        "blacklist",
+        "mappability",
+        "centromere",
+        "telomere"
+      ],
+      "title": "Resource Type",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "source_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Sha256"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_type",
+    "source",
+    "release",
+    "genome_build",
+    "sha256"
+  ],
+  "title": "IntervalResourceLock",
+  "type": "object"
+}

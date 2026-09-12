@@ -23,6 +23,7 @@ sequences them.
 
 from __future__ import annotations
 
+import shutil
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -30,29 +31,70 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
+from ..aml_rearrangements import prioritize_aml_rearrangements
 from ..bam_intake import AlignedBamInspector
 from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
-from ..execution import StreamingCommandRunner, SubprocessRunner, ToolExecutionError
+from ..breakpoint_annotation import (
+    ContextInterval,
+    ContextIntervalIndex,
+    ContextIntervalQuery,
+    PathBackedContextIntervalIndex,
+    annotate_events_from_cache,
+)
+from ..cutesv import run_cutesv
+from ..execution import StreamingCommandRunner, SubprocessRunner
+from ..iscn import ISCN_RULE_PROFILE
+from ..methylation import (
+    REGION_ASSIGNMENT_METHOD,
+    MethylationPolicy,
+    MethylationRegionSource,
+    MethylationReport,
+    run_methylation,
+)
 from ..models import (
     AlignedBamIntakeReport,
+    AmlKnowledgeLock,
+    AnalysisModule,
+    AssayMode,
+    CheckStatus,
     CraminoQCReport,
+    CuteSvCallReport,
+    CuteSvPolicy,
+    GenomicEvent,
     InputKind,
     InputSpec,
+    IntervalResourceLock,
+    ISCNSelectionPolicy,
     ModuleRunStatus,
     QCPolicy,
     ReferenceLock,
+    ResolvedResourceContext,
     SampleManifest,
     SnifflesCallReport,
     SnifflesPolicy,
+    SvConsensusPolicy,
+    SvConsensusReport,
+    SvEvidencePolicy,
+    TargetBedRole,
     ToolRecord,
+    ValidationCheck,
     Verdict,
 )
 from ..mvp import assemble_aligned_bam_mvp
-from ..qc import run_cramino_qc
+from ..qc import read_length_histogram_from_tsv, run_cramino_qc
+from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
+from ..report_plots import ReadLengthBin
 from ..sniffles import run_sniffles
+from ..sv_annotation import annotate_sv_events, load_interval_resource
+from ..sv_consensus import build_consensus_report
+from ..sv_evidence import prioritize_sv_events
+from ..sv_observability import apply_sv_observability
+from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
 from ..workbook import render_workbook
+from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
+from .input_digest import RunInputDigestCache
 from .lock import run_lock
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
 from .review import current_state as review_state
@@ -76,8 +118,19 @@ ALIGNED_BAI = "alignment/{sample}.bam.bai"
 ALIGN_REPORT = "provenance/alignment.json"
 INTAKE_REPORT = "manifest/intake.json"
 QC_REPORT = "qc/cramino.json"
+QC_READ_LENGTH_HISTOGRAM = "qc/read_length_histogram.tsv"
+TARGET_COVERAGE_REPORT = "qc/target-coverage.json"
+TARGET_COVERAGE_DIR = "qc/target-coverage"
+SELECTION_COVERAGE_REPORT = "qc/selection-coverage.json"
+SELECTION_COVERAGE_DIR = "qc/selection-coverage"
+COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
+CUTESV_VCF = "evidence/sv/{sample}.cutesv.vcf"
+CUTESV_REPORT = "evidence/sv/{sample}.cutesv.json"
+SV_CONSENSUS_REPORT = "evidence/sv/{sample}.consensus.json"
+METHYLATION_DIR = "evidence/methylation"
+METHYLATION_REPORT = "evidence/methylation/{sample}.methylation.json"
 RESULT_JSON = "normalized/{sample}.result.json"
 REPORT_HTML = "reports/{sample}.report.html"
 REPORT_XLSX = "reports/{sample}.results.xlsx"
@@ -109,6 +162,19 @@ class RunConfiguration:
     git_commit: str
     qc_policy: QCPolicy
     sniffles_policy: SnifflesPolicy | None = None
+    cutesv_policy: CuteSvPolicy | None = None
+    sv_consensus_policy: SvConsensusPolicy | None = None
+    sv_evidence_policy: SvEvidencePolicy | None = None
+    gene_annotation: tuple[Path, IntervalResourceLock] | None = None
+    cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
+    sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
+    aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
+    sv_minimum_mean_depth: float = 10.0
+    target_coverage_policy: TargetCoveragePolicy | None = None
+    methylation_policy: MethylationPolicy | None = None
+    #: Which component runs each stage, and at which version. ``None`` keeps the built-in
+    #: defaults and pins nothing, which is what every run did before selection existed.
+    components: RunComponents | None = None
     alignment_policy: AlignmentPolicy | None = None
     basecall_policy: BasecallPolicy | None = None
     reference_fasta: Path | None = None
@@ -119,12 +185,19 @@ class RunConfiguration:
             "samtools": "samtools",
             "cramino": "cramino",
             "sniffles": "sniffles",
+            "cutesv": "cuteSV",
             "minimap2": "minimap2",
+            "mosdepth": "mosdepth",
+            "modkit": "modkit",
             "dorado": "dorado",
         }
     )
     #: Ignore any previous run state and execute every stage again.
     force: bool = False
+    resource_context: ResolvedResourceContext | None = None
+    annotation_cache: Path | None = None
+    selection_target_bed: Path | None = None
+    context_resource_paths: Mapping[str, Path] = field(default_factory=dict)
 
     def executable(self, name: str) -> str:
         return self.executables.get(name, name)
@@ -141,6 +214,22 @@ class RunContext:
     #: pipeline just produced, so downstream adapters need no special casing.
     manifest: SampleManifest
     artifacts: dict[StageId, list[Artifact]] = field(default_factory=dict)
+    input_digests: RunInputDigestCache = field(default_factory=RunInputDigestCache, repr=False)
+
+    def fingerprint_external_input(
+        self, path: Path, *, label: str | None = None
+    ) -> tuple[str, str]:
+        if not path.is_file():
+            raise StageFailure("required external input is missing")
+        try:
+            digest, stable = self.input_digests.digest(path)
+        except OSError as exc:
+            raise StageFailure("required external input could not be fingerprinted") from exc
+        if not stable:
+            raise StageFailure(
+                f"{label or 'required external input'} changed while it was being fingerprinted"
+            )
+        return (label or path.name, digest)
 
     @property
     def sample_id(self) -> str:
@@ -151,7 +240,13 @@ class RunContext:
 
     def upstream(self, stage: StageId, input_kind: InputKindName) -> list[Artifact]:
         collected: list[Artifact] = []
-        for dependency in SPEC_BY_STAGE[stage].depends_on:
+        dependencies = list(SPEC_BY_STAGE[stage].depends_on)
+        if stage is StageId.ASSEMBLE:
+            # Optional evidence affects the assembled result even though a missing lane
+            # must not block assembly. Track current outputs in the resume signature;
+            # checking old files on disk would retain an earlier opt-in after deselection.
+            dependencies.extend((StageId.CNV, StageId.SV, StageId.METHYLATION))
+        for dependency in dependencies:
             collected.extend(self.artifacts.get(dependency, []))
         return collected
 
@@ -205,11 +300,34 @@ def _probe(
     return match.group(1)
 
 
-def _external_fingerprint(path: Path) -> tuple[str, str]:
-    """Fingerprint an input from outside the envelope by name and content."""
+def _module_requested(ctx: RunContext, module: AnalysisModule) -> bool:
+    """Whether the manifest asked for this analysis at all.
+
+    The manifest is the run's scope contract. A stage that runs anyway produces evidence
+    nobody asked for, and — worse — can fail a run over a tool the operator had no reason
+    to configure, which is exactly how a CNV-only run came to die on a missing cuteSV
+    reference. Two vocabularies are deliberate and distinct: a stage gated on the assay
+    records ``applicable``, a stage gated on the requested analysis records ``requested``.
+    """
+    return module in ctx.manifest.analysis.modules
+
+
+def _stable_digest(path: Path) -> tuple[str, bool]:
+    """Hash a regular file and report whether its size/mtime stayed fixed while reading."""
     if not path.is_file():
-        raise StageFailure(f"required input is missing: {path.name}")
-    return (path.name, sha256_file(path))
+        raise StageFailure("required external input is missing")
+    before = path.stat()
+    digest = sha256_file(path)
+    after = path.stat()
+    stable = (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns)
+    return digest, stable
+
+
+def _external_fingerprint(
+    ctx: RunContext, path: Path, *, label: str | None = None
+) -> tuple[str, str]:
+    """Fingerprint a plan input through this run's stable-digest cache."""
+    return ctx.fingerprint_external_input(path, label=label)
 
 
 # --------------------------------------------------------------------------------------
@@ -296,7 +414,7 @@ def _align_plan(ctx: RunContext) -> StagePlan:
         raise StageFailure("an unaligned input requires an alignment policy")
     if ctx.config.reference_fasta is None:
         raise StageFailure("alignment requires --reference-fasta")
-    reference = _external_fingerprint(ctx.config.reference_fasta)
+    reference = _external_fingerprint(ctx, ctx.config.reference_fasta)
     minimap2 = ctx.config.executable("minimap2")
     samtools = ctx.config.executable("samtools")
     return StagePlan(
@@ -311,7 +429,7 @@ def _align_plan(ctx: RunContext) -> StagePlan:
             "minimap2": _probe(ctx.runner, minimap2, [minimap2, "--version"], tool="minimap2"),
             "samtools": _probe(ctx.runner, samtools, [samtools, "--version"], tool="samtools"),
         },
-        external_inputs=(reference, _external_fingerprint(Path(ctx.manifest.input.path))),
+        external_inputs=(reference, _external_fingerprint(ctx, Path(ctx.manifest.input.path))),
     )
 
 
@@ -341,7 +459,7 @@ def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     report = run_alignment(
         AlignmentInputs(
             unaligned_bam=Path(ctx.manifest.input.path),
-            reference_fasta=ctx.config.reference_fasta,
+            reference_fasta=Path(ctx.config.reference_fasta),
         ),
         policy,
         sample_id=ctx.sample_id,
@@ -369,26 +487,98 @@ def _align_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 def _intake_plan(ctx: RunContext) -> StagePlan:
     samtools = ctx.config.executable("samtools")
+    reference = ctx.config.reference_lock
+    index_path = ctx.manifest.input.index_path
+    if index_path is None:
+        raise StageFailure("aligned-BAM intake requires a BAM index")
     return StagePlan(
-        parameters={"reference_id": ctx.config.reference_lock.reference_id},
+        parameters={
+            "manifest_reference_id": ctx.manifest.assay.reference_id,
+            "manifest_genome_build": ctx.manifest.assay.genome_build.value,
+            "manifest_input_sha256": ctx.manifest.input.sha256,
+            "bam_extension": Path(ctx.manifest.input.path).suffix.lower(),
+            "reference_id": reference.reference_id,
+            "reference_genome_build": reference.genome_build.value,
+            "reference_source_fai_sha256": reference.source_fai_sha256,
+            "reference_dictionary_sha256": contig_signature(
+                (item.name, item.length) for item in reference.contigs
+            ),
+            "reference_allow_extra_contigs": reference.allow_extra_contigs,
+            "reference_lock_sha256": reference_lock_signature(reference),
+        },
         tool_versions={
             "samtools": _probe(ctx.runner, samtools, [samtools, "--version"], tool="samtools")
         },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        external_inputs=(
+            _external_fingerprint(ctx, Path(ctx.manifest.input.path), label="aligned_bam"),
+            _external_fingerprint(ctx, Path(index_path), label="bam_index"),
+        ),
     )
 
 
 def _intake_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     report = AlignedBamInspector(
         runner=ctx.runner, samtools=ctx.config.executable("samtools")
-    ).inspect(ctx.manifest, ctx.config.reference_lock, include_checksums=True)
+    ).inspect(ctx.manifest, ctx.config.reference_lock, include_checksums=False)
+
+    planned = dict(plan.external_inputs)
+
+    def final_digest(path: Path) -> tuple[str | None, bool]:
+        try:
+            digest, stable = _stable_digest(path)
+        except (OSError, StageFailure):
+            return None, False
+        return digest, stable
+
+    index_path = ctx.manifest.input.index_path
+    assert index_path is not None
+    bam_digest, bam_stable = final_digest(Path(ctx.manifest.input.path))
+    index_digest, index_stable = final_digest(Path(index_path))
+    bam_matches_plan = bam_stable and bam_digest == planned.get("aligned_bam")
+    index_matches_plan = index_stable and index_digest == planned.get("bam_index")
+    inputs_stable = bam_matches_plan and index_matches_plan
+
+    input_fingerprint = report.input_fingerprint
+    if input_fingerprint is not None and bam_digest is not None:
+        input_fingerprint = input_fingerprint.model_copy(update={"sha256": bam_digest})
+    index_fingerprint = report.index_fingerprint
+    if index_fingerprint is not None and index_digest is not None:
+        index_fingerprint = index_fingerprint.model_copy(update={"sha256": index_digest})
+    stability_check = ValidationCheck(
+        name="input_stability",
+        status=CheckStatus.PASS if inputs_stable else CheckStatus.FAIL,
+        message=(
+            "BAM and index stayed identical to the planned inputs"
+            if inputs_stable
+            else "BAM or index changed between intake planning and verification"
+        ),
+        details={
+            "bam_matches_plan": bam_matches_plan,
+            "index_matches_plan": index_matches_plan,
+        },
+    )
+    report = report.model_copy(
+        update={
+            "input_fingerprint": input_fingerprint,
+            "index_fingerprint": index_fingerprint,
+            "checks": [*report.checks, stability_check],
+            "verdict": report.verdict if inputs_stable else Verdict.FAIL,
+        }
+    )
     artifact = ctx.envelope.atomic_write_text(
         INTAKE_REPORT, report.model_dump_json(indent=2) + "\n"
     )
     if report.verdict == Verdict.FAIL:
-        failed = [item.name for item in report.checks if item.status.value == "FAIL"]
-        raise StageFailure(
-            "aligned-BAM intake gate failed: " + ", ".join(failed or ["unspecified check"])
+        failed = [item for item in report.checks if item.status.value == "FAIL"]
+        detail = "; ".join(f"{item.name}: {item.message}" for item in failed) or "unspecified check"
+        return StageResult(
+            status=ModuleRunStatus.FAILED,
+            reason=(f"Aligned-BAM intake failed: {detail}. Full details: {INTAKE_REPORT}"),
+            tools=[report.tool] if report.tool else [],
+            limitations=[
+                *report.limitations,
+                f"Failure diagnostic: {INTAKE_REPORT} sha256:{artifact.sha256}",
+            ],
         )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
@@ -406,7 +596,7 @@ def _qc_plan(ctx: RunContext) -> StagePlan:
         tool_versions={
             "cramino": _probe(ctx.runner, cramino, [cramino, "--version"], tool="cramino")
         },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        external_inputs=(_external_fingerprint(ctx, Path(ctx.manifest.input.path)),),
     )
 
 
@@ -417,88 +607,591 @@ def _qc_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         runner=ctx.runner,
         cramino=ctx.config.executable("cramino"),
         threads=ctx.config.threads,
+        histogram_output=ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM),
     )
     artifact = ctx.envelope.atomic_write_text(QC_REPORT, report.model_dump_json(indent=2) + "\n")
     if report.qc.verdict == Verdict.FAIL:
         raise StageFailure(
             "QC gate failed: " + ", ".join(report.qc.failed_gates or ["unspecified gate"])
         )
+    outputs = [artifact]
+    if ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM).is_file():
+        outputs.append(ctx.envelope.fingerprint(QC_READ_LENGTH_HISTOGRAM))
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason=f"Descriptive read QC returned {report.qc.verdict.value}.",
-        outputs=[artifact],
+        outputs=outputs,
         tools=[report.tool],
         warnings=report.qc.warnings,
         limitations=report.limitations,
     )
 
 
-def _sv_plan(ctx: RunContext) -> StagePlan:
-    policy = ctx.config.sniffles_policy
+def _target_coverage_plan(ctx: RunContext) -> StagePlan:
+    """Plan per-target depth, or record that this assay has no targets to speak of."""
+    if ctx.manifest.assay.mode != AssayMode.ADAPTIVE_SAMPLING:
+        # Probing Mosdepth here would make an lcWGS run depend on a tool it never uses.
+        return StagePlan(parameters={"applicable": False}, tool_versions={})
+    policy = ctx.config.target_coverage_policy
     if policy is None:
-        raise StageFailure("structural-variant calling requires a Sniffles policy")
-    sniffles = ctx.config.executable("sniffles")
+        raise StageFailure(
+            "adaptive sampling was selected but no target-coverage policy was supplied. "
+            "Refusing to continue: a run whose enrichment was never measured must not "
+            "produce a report that looks complete"
+        )
+    target_bed = ctx.manifest.assay.target_bed
+    if not target_bed:
+        raise StageFailure("adaptive sampling requires assay.target_bed")
+    mosdepth = ctx.config.executable("mosdepth")
+    external_inputs = [
+        _external_fingerprint(ctx, Path(target_bed)),
+        _external_fingerprint(ctx, Path(ctx.manifest.input.path)),
+    ]
+    if ctx.config.selection_target_bed is not None:
+        external_inputs.append(
+            _external_fingerprint(
+                ctx,
+                ctx.config.selection_target_bed,
+                label="selection_panel_buffered",
+            )
+        )
     return StagePlan(
         parameters={
+            "applicable": True,
             "profile": policy.profile_id,
-            "min_support": policy.min_support,
-            "min_sv_length": policy.min_sv_length,
+            "thresholds": list(policy.thresholds),
             "mapq": policy.mapq,
+            "exclude_flags": policy.exclude_flags,
+            "target_bed_version": ctx.manifest.assay.target_bed_version,
+            "target_bed_role": ctx.manifest.assay.target_bed_role.value,
             "threads": ctx.config.threads,
         },
         tool_versions={
-            "sniffles": _probe(ctx.runner, sniffles, [sniffles, "--version"], tool="sniffles")
+            "mosdepth": _probe(ctx.runner, mosdepth, [mosdepth, "--version"], tool="mosdepth")
         },
-        external_inputs=(_external_fingerprint(Path(ctx.manifest.input.path)),),
+        external_inputs=tuple(external_inputs),
     )
 
 
-def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    policy = ctx.config.sniffles_policy
+def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("applicable") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Assay mode is {ctx.manifest.assay.mode.value}; per-target coverage does not "
+                "apply. This is a scope statement, not a coverage finding."
+            ),
+        )
+    policy = ctx.config.target_coverage_policy
     assert policy is not None
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
-    vcf_path = ctx.envelope.path(ctx.path(SV_VCF))
-    vcf_path.unlink(missing_ok=True)
-    report = run_sniffles(
+    output_dir = ctx.envelope.path(TARGET_COVERAGE_DIR)
+    if output_dir.exists():
+        # The adapter refuses to overwrite its own outputs, which is right for a bare
+        # invocation. Inside an envelope the stage owns this directory, so a re-run clears
+        # it rather than inheriting half a previous attempt.
+        shutil.rmtree(output_dir)
+    report = run_target_coverage(
         ctx.manifest,
         intake,
         policy,
-        output_vcf=vcf_path,
+        output_dir=output_dir,
         runner=ctx.runner,
-        sniffles=ctx.config.executable("sniffles"),
+        mosdepth=ctx.config.executable("mosdepth"),
         threads=ctx.config.threads,
     )
-    outputs = [
-        ctx.envelope.fingerprint(ctx.path(SV_VCF)),
-        ctx.envelope.atomic_write_text(
-            ctx.path(SV_REPORT), report.model_dump_json(indent=2) + "\n"
+    artifact = ctx.envelope.atomic_write_text(
+        TARGET_COVERAGE_REPORT, report.model_dump_json(indent=2) + "\n"
+    )
+    outputs = [artifact]
+    warnings = list(report.warnings)
+    limitations = list(report.limitations)
+    selection_summary = ""
+    if ctx.config.selection_target_bed is not None:
+        selection_dir = ctx.envelope.path(SELECTION_COVERAGE_DIR)
+        if selection_dir.exists():
+            shutil.rmtree(selection_dir)
+        selection_assay = ctx.manifest.assay.model_copy(
+            update={
+                "target_bed": str(ctx.config.selection_target_bed),
+                "target_bed_role": TargetBedRole.SELECTION_PANEL_BUFFERED,
+            }
+        )
+        selection_manifest = ctx.manifest.model_copy(update={"assay": selection_assay})
+        selection_report = run_target_coverage(
+            selection_manifest,
+            intake,
+            policy,
+            output_dir=selection_dir,
+            runner=ctx.runner,
+            mosdepth=ctx.config.executable("mosdepth"),
+            threads=ctx.config.threads,
+        )
+        outputs.append(
+            ctx.envelope.atomic_write_text(
+                SELECTION_COVERAGE_REPORT,
+                selection_report.model_dump_json(indent=2) + "\n",
+            )
+        )
+        warnings.extend(selection_report.warnings)
+        limitations.extend(selection_report.limitations)
+        selection_weighted = selection_report.summary_metrics.get(
+            "interval_weighted_mean_depth", 0.0
+        )
+        selection_summary = (
+            f" Buffered selection coverage was measured separately at "
+            f"{float(selection_weighted):.1f}x."
+        )
+    weighted = report.summary_metrics.get("interval_weighted_mean_depth", 0.0)
+    minimum = report.summary_metrics.get("minimum_region_mean_depth", 0.0)
+    return StageResult(
+        status=report.status,
+        reason=(
+            f"Measured {len(report.regions)} target(s) at {float(weighted):.1f}x "
+            f"interval-weighted mean depth; the least-covered target reached "
+            f"{float(minimum):.1f}x.{selection_summary}"
         ),
+        outputs=outputs,
+        tools=[report.tool],
+        warnings=warnings,
+        limitations=limitations,
+    )
+
+
+def _breakpoint_context_resources(
+    resources: Sequence[tuple[Path, IntervalResourceLock]],
+) -> dict[str, ContextIntervalQuery]:
+    contexts: dict[str, ContextIntervalQuery] = {}
+    for path, lock in resources:
+        loaded = load_interval_resource(path, lock)
+        contexts[lock.resource_type] = ContextIntervalIndex(
+            ContextInterval(
+                chromosome=interval.chromosome,
+                start=interval.start,
+                end=interval.end,
+                label=interval.label,
+            )
+            for chromosome in sorted(loaded)
+            for interval in loaded[chromosome]
+        )
+    return contexts
+
+
+def _bundle_breakpoint_context_resources(
+    resources: Mapping[str, Path],
+) -> dict[str, ContextIntervalQuery]:
+    """Index verified bundle BEDs without retaining every GRCh38 row as an object."""
+
+    contexts: dict[str, ContextIntervalQuery] = {}
+    for resource_type, path in sorted(resources.items()):
+        contexts[resource_type] = PathBackedContextIntervalIndex(
+            path,
+            resource_type=resource_type,
+        )
+    return contexts
+
+
+def _sv_plan(ctx: RunContext) -> StagePlan:
+    if not _module_requested(ctx, AnalysisModule.SV):
+        # Probing sniffles and cuteSV here would make a CNV-only run depend on callers it
+        # never invokes, and a missing cuteSV reference would fail a run that asked for no
+        # structural variants at all.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
+    sniffles_policy = ctx.config.sniffles_policy
+    cute_policy = ctx.config.cutesv_policy
+    if sniffles_policy is None and cute_policy is None:
+        # Requested and unconfigurable is a real error: the run asked for SV evidence and
+        # cannot produce any. That still fails closed.
+        raise StageFailure("structural-variant calling requires Sniffles2 and/or cuteSV policy")
+    parameters: dict[str, object] = {
+        "threads": ctx.config.threads,
+        "sv_minimum_mean_depth": ctx.config.sv_minimum_mean_depth,
+    }
+    tool_versions: dict[str, str] = {}
+    if sniffles_policy is not None:
+        sniffles = ctx.config.executable("sniffles")
+        parameters.update(
+            {
+                "sniffles_policy": sniffles_policy.model_dump(mode="json"),
+            }
+        )
+        tool_versions["sniffles"] = _probe(
+            ctx.runner, sniffles, [sniffles, "--version"], tool="sniffles"
+        )
+    if ctx.config.sv_evidence_policy is not None:
+        evidence_policy = ctx.config.sv_evidence_policy
+        parameters["sv_evidence_policy"] = evidence_policy.model_dump(mode="json")
+    external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
+    if cute_policy is not None:
+        if ctx.config.reference_fasta is None:
+            raise StageFailure("cuteSV requires --reference-fasta")
+        consensus = ctx.config.sv_consensus_policy
+        if consensus is None:
+            raise StageFailure("cuteSV requires an explicit SV consensus policy")
+        cutesv = ctx.config.executable("cutesv")
+        probe = _probe(ctx.runner, cutesv, [cutesv, "--version"], tool="cuteSV")
+        tool_versions["cutesv"] = probe
+        parameters.update(
+            {
+                "cutesv_policy": cute_policy.model_dump(mode="json"),
+                "sv_consensus_policy": consensus.model_dump(mode="json"),
+            }
+        )
+        external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
+    annotation_resources = [
+        item
+        for item in [ctx.config.gene_annotation, ctx.config.cytoband_annotation]
+        if item is not None
     ]
+    annotation_resources.extend(ctx.config.sv_context_resources)
+    for path, resource_lock in annotation_resources:
+        external_inputs.append(_external_fingerprint(ctx, path, label=resource_lock.resource_id))
+        parameters[f"resource_lock:{resource_lock.resource_id}"] = resource_lock.model_dump(
+            mode="json"
+        )
+    if ctx.config.annotation_cache is not None:
+        external_inputs.append(
+            _external_fingerprint(ctx, ctx.config.annotation_cache, label="annotation_cache")
+        )
+        parameters["annotation_cache"] = "GRCh38 compiled SQLite"
+    for resource_type, path in sorted(ctx.config.context_resource_paths.items()):
+        external_inputs.append(_external_fingerprint(ctx, path, label=resource_type))
+        parameters[f"context_bundle:{resource_type}"] = str(path)
+    if ctx.config.aml_knowledge is not None:
+        knowledge_path, knowledge_lock = ctx.config.aml_knowledge
+        external_inputs.append(
+            _external_fingerprint(ctx, knowledge_path, label=knowledge_lock.resource_id)
+        )
+        parameters[f"knowledge_lock:{knowledge_lock.resource_id}"] = knowledge_lock.model_dump(
+            mode="json"
+        )
+    return StagePlan(
+        parameters=parameters,
+        tool_versions=tool_versions,
+        external_inputs=tuple(external_inputs),
+    )
+
+
+def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the structural-variant module. This is a "
+                "scope statement, not a finding about the sample's structural variants."
+            ),
+        )
+    # A stage re-execution owns these paths.  Remove every prior caller and consensus
+    # artifact before doing any work so a failed/forced run cannot leave ASSEMBLE with
+    # evidence from an earlier successful invocation (including a now-disabled caller).
+    for template in (
+        SV_VCF,
+        SV_REPORT,
+        CUTESV_VCF,
+        CUTESV_REPORT,
+        SV_CONSENSUS_REPORT,
+    ):
+        ctx.envelope.path(ctx.path(template)).unlink(missing_ok=True)
+
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    all_events: list[GenomicEvent] = []
+    outputs: list[Artifact] = []
+    tools: list[ToolRecord] = []
+    warnings: list[str] = []
+    limitations: list[str] = []
+    if ctx.config.sniffles_policy is not None:
+        vcf_path = ctx.envelope.path(ctx.path(SV_VCF))
+        report = run_sniffles(
+            ctx.manifest,
+            intake,
+            ctx.config.sniffles_policy,
+            output_vcf=vcf_path,
+            runner=ctx.runner,
+            sniffles=ctx.config.executable("sniffles"),
+            threads=ctx.config.threads,
+        )
+        all_events.extend(report.events)
+        outputs.extend(
+            [
+                ctx.envelope.fingerprint(ctx.path(SV_VCF)),
+                ctx.envelope.atomic_write_text(
+                    ctx.path(SV_REPORT), report.model_dump_json(indent=2) + "\n"
+                ),
+            ]
+        )
+        tools.append(report.tool)
+        warnings.extend(report.warnings)
+        limitations.extend(report.limitations)
+    if ctx.config.cutesv_policy is not None:
+        assert ctx.config.reference_fasta is not None
+        assert ctx.config.sv_consensus_policy is not None
+        cutesv_vcf = ctx.envelope.path(ctx.path(CUTESV_VCF))
+        cute_report = run_cutesv(
+            ctx.manifest,
+            intake,
+            ctx.config.cutesv_policy,
+            reference_fasta=ctx.config.reference_fasta,
+            output_vcf=cutesv_vcf,
+            runner=ctx.runner,
+            cutesv=ctx.config.executable("cutesv"),
+            threads=ctx.config.threads,
+        )
+        all_events.extend(cute_report.events)
+        outputs.extend(
+            [
+                ctx.envelope.fingerprint(ctx.path(CUTESV_VCF)),
+                ctx.envelope.atomic_write_text(
+                    ctx.path(CUTESV_REPORT), cute_report.model_dump_json(indent=2) + "\n"
+                ),
+            ]
+        )
+        tools.append(cute_report.tool)
+        warnings.extend(cute_report.warnings)
+        limitations.extend(cute_report.limitations)
+    consensus_policy = ctx.config.sv_consensus_policy or SvConsensusPolicy(
+        profile_id="sniffles-only-normalization-v1",
+        status="technical_defaults_only",
+        note="Single-caller normalization only; no independent caller consensus was available.",
+    )
+    consensus_report = build_consensus_report(
+        sample_id=ctx.manifest.sample_id,
+        genome_build=ctx.manifest.assay.genome_build,
+        events=all_events,
+        policy=consensus_policy,
+    )
+    consolidated = annotate_sv_events(
+        consensus_report.events,
+        genome_build=ctx.manifest.assay.genome_build,
+        gene_resource=ctx.config.gene_annotation,
+        cytoband_resource=ctx.config.cytoband_annotation,
+        context_resources=list(ctx.config.sv_context_resources),
+    )
+    if ctx.config.annotation_cache is not None:
+        context_resources = _breakpoint_context_resources(ctx.config.sv_context_resources)
+        context_resources.update(
+            _bundle_breakpoint_context_resources(ctx.config.context_resource_paths)
+        )
+        consolidated = annotate_events_from_cache(
+            consolidated,
+            ctx.config.annotation_cache,
+            expected_build=ctx.manifest.assay.genome_build.value,
+            context_resources=context_resources,
+        )
+    coverage_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
+    coverage_report = (
+        TargetCoverageReport.model_validate_json(coverage_path.read_text(encoding="utf-8"))
+        if coverage_path.is_file()
+        else None
+    )
+    consolidated = apply_sv_observability(
+        consolidated,
+        assay_mode=ctx.manifest.assay.mode,
+        coverage_report=coverage_report,
+        minimum_mean_depth=ctx.config.sv_minimum_mean_depth,
+    )
+    if ctx.config.aml_knowledge is not None:
+        resource_path, resource_lock = ctx.config.aml_knowledge
+        consolidated = prioritize_aml_rearrangements(
+            consolidated,
+            resource_path=resource_path,
+            lock=resource_lock,
+        )
+    consolidated = prioritize_sv_events(consolidated, ctx.config.sv_evidence_policy)
+    consensus_report = consensus_report.model_copy(update={"events": consolidated})
+    outputs.append(
+        ctx.envelope.atomic_write_text(
+            ctx.path(SV_CONSENSUS_REPORT), consensus_report.model_dump_json(indent=2) + "\n"
+        )
+    )
     reason = (
-        f"Normalized {report.accepted_record_count} candidate SV event(s) from "
-        f"{report.raw_record_count} record(s)."
-        if report.status == ModuleRunStatus.COMPLETED
+        f"Consolidated {consensus_report.input_event_count} normalized call(s) into "
+        f"{consensus_report.consolidated_event_count} candidate SV event(s)."
+        if consensus_report.status == ModuleRunStatus.COMPLETED
         else "No record passed the technical policy; this NO_CALL is not a biological negative."
     )
     return StageResult(
-        status=report.status,
+        status=consensus_report.status,
         reason=reason,
         outputs=outputs,
+        tools=tools,
+        warnings=warnings + consensus_report.warnings,
+        limitations=limitations + consensus_report.limitations,
+    )
+
+
+def _methylation_plan(ctx: RunContext) -> StagePlan:
+    """Plan the modified-base pileup, or record that this run never asked for one.
+
+    Unlike target coverage, applicability here is a property of the *requested analysis*
+    rather than of the assay mode: an lcWGS run and an Adaptive Sampling run can both
+    carry MM/ML tags, and neither should pay for a pileup it did not ask for.
+    """
+    if not _module_requested(ctx, AnalysisModule.METHYLATION):
+        # Probing modkit here would make every run depend on a tool most runs never use.
+        return StagePlan(parameters={"requested": False}, tool_versions={})
+    policy = ctx.config.methylation_policy
+    if policy is None:
+        raise StageFailure(
+            "the manifest requests the methylation module but no methylation policy was "
+            "supplied. Refusing to continue: an unparameterised pileup is not reproducible"
+        )
+    if ctx.config.reference_fasta is None:
+        raise StageFailure(
+            "modkit --modified-bases requires the locked reference FASTA for every methylation run"
+        )
+    modkit = ctx.config.executable("modkit")
+    external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
+    if ctx.config.reference_fasta is not None:
+        external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
+    if policy.region_source == MethylationRegionSource.TARGET_BED:
+        if not ctx.manifest.assay.target_bed:
+            raise StageFailure(
+                "the methylation policy aggregates over the target design but the manifest "
+                "declares no target BED"
+            )
+        external_inputs.append(_external_fingerprint(ctx, Path(ctx.manifest.assay.target_bed)))
+    return StagePlan(
+        parameters={
+            "requested": True,
+            "methylation_policy": policy.model_dump(mode="json"),
+            "ontseq_region_assignment": REGION_ASSIGNMENT_METHOD,
+            "threads": ctx.config.threads,
+        },
+        tool_versions={"modkit": _probe(ctx.runner, modkit, [modkit, "--version"], tool="modkit")},
+        external_inputs=tuple(external_inputs),
+    )
+
+
+def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    if plan.parameters.get("requested") is False:
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                "The manifest does not request the methylation module. This is a scope "
+                "statement, not a finding about the sample's methylation."
+            ),
+        )
+    policy = ctx.config.methylation_policy
+    assert policy is not None
+    intake = AlignedBamIntakeReport.model_validate_json(
+        ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
+    )
+    output_dir = ctx.envelope.path(METHYLATION_DIR)
+    if output_dir.exists():
+        # The adapter refuses to overwrite its own outputs, which is right for a bare
+        # invocation. Inside an envelope the stage owns this directory, so a re-run clears
+        # it rather than inheriting half a previous attempt.
+        shutil.rmtree(output_dir)
+    report = run_methylation(
+        ctx.manifest,
+        intake,
+        policy,
+        output_dir=output_dir,
+        reference_fasta=ctx.config.reference_fasta,
+        runner=ctx.runner,
+        modkit=ctx.config.executable("modkit"),
+        samtools=ctx.config.executable("samtools"),
+        threads=ctx.config.threads,
+    )
+    artifact = ctx.envelope.atomic_write_text(
+        ctx.path(METHYLATION_REPORT), report.model_dump_json(indent=2) + "\n"
+    )
+    measured = sum(item.sites_at_minimum_coverage for item in report.regions)
+    if report.status == ModuleRunStatus.COMPLETED:
+        reason = (
+            f"Aggregated {int(report.summary_metrics.get('site_count', 0))} modified-base "
+            f"site(s) into {len(report.regions)} region row(s); {measured} site "
+            "observation(s) met the coverage floor."
+        )
+    else:
+        reason = (
+            "No modified-base site reached the configured coverage floor; this NO_CALL "
+            "reports an unmeasurable sample, not unmethylated DNA."
+        )
+    return StageResult(
+        status=report.status,
+        reason=reason,
+        outputs=[artifact],
         tools=[report.tool],
         warnings=report.warnings,
         limitations=report.limitations,
     )
 
 
+def load_methylation_report(ctx: RunContext) -> MethylationReport | None:
+    """Read the methylation artifact of this run, if the stage produced one.
+
+    Public because the CNV extension replaces the assemble stage wholesale. Two copies of
+    this lookup would be two places for the lane to fall out of a result, and a missing
+    module outcome is indistinguishable from a module that was never requested.
+    """
+    if not _module_requested(ctx, AnalysisModule.METHYLATION):
+        return None
+    relative_path = ctx.path(METHYLATION_REPORT)
+    current = next(
+        (
+            artifact
+            for artifact in ctx.artifacts.get(StageId.METHYLATION, [])
+            if artifact.relative_path == relative_path
+        ),
+        None,
+    )
+    if current is None:
+        # A failed, skipped or deselected stage has no current output. Its previous
+        # file can still exist in a resumed envelope but cannot become fresh evidence.
+        return None
+    if ctx.envelope.verify([current]):
+        raise StageFailure("The current methylation artifact failed its checksum verification")
+    path = ctx.envelope.path(relative_path)
+    return MethylationReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 def _assemble_plan(ctx: RunContext) -> StagePlan:
+    resource_context = ctx.config.resource_context
+    reference_lock_sha256 = (
+        resource_context.resource_checksums.get("reference.reference_lock", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
+    cytoband_sha256 = (
+        resource_context.resource_checksums.get("reference.cytobands", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
+    annotation_cache_sha256 = (
+        resource_context.resource_checksums.get("reference.annotation_cache", "UNAVAILABLE")
+        if resource_context is not None
+        else "UNAVAILABLE"
+    )
+    external_inputs: list[tuple[str, str]] = []
+    if ctx.config.annotation_cache is not None and ctx.config.annotation_cache.is_file():
+        external_inputs.append(("iscn_annotation_cache", sha256_file(ctx.config.annotation_cache)))
+    if resource_context is not None:
+        for label, key in (
+            ("iscn_reference_lock", "reference.reference_lock"),
+            ("iscn_cytobands", "reference.cytobands"),
+        ):
+            raw_path = resource_context.resource_paths.get(key)
+            path = Path(raw_path) if raw_path is not None else None
+            if path is not None and path.is_file():
+                external_inputs.append((label, sha256_file(path)))
     return StagePlan(
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
+            "iscn_rule_profile": ISCN_RULE_PROFILE,
+            "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
+            "iscn_exact_full_chromosome_span_required": True,
+            "iscn_reference_lock_sha256": reference_lock_sha256,
+            "iscn_cytoband_sha256": cytoband_sha256,
+            "iscn_annotation_cache_sha256": annotation_cache_sha256,
         },
         tool_versions={},
+        external_inputs=tuple(external_inputs),
     )
 
 
@@ -515,6 +1208,30 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if sv_path.is_file()
         else None
     )
+    cutesv_path = ctx.envelope.path(ctx.path(CUTESV_REPORT))
+    cutesv = (
+        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
+        if cutesv_path.is_file()
+        else None
+    )
+    consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
+    consensus = (
+        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
+        if consensus_path.is_file()
+        else None
+    )
+    sidecars = []
+    histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
+    if histogram_path.is_file():
+        from ..sidecars import tabular_sidecar
+
+        sidecars.append(
+            tabular_sidecar(
+                artifact_id="read_length_histogram",
+                envelope_root=ctx.envelope.root,
+                relative_path=QC_READ_LENGTH_HISTOGRAM,
+            )
+        )
     result = assemble_aligned_bam_mvp(
         ctx.manifest,
         intake,
@@ -522,6 +1239,11 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         pipeline_version=ctx.config.pipeline_version,
         git_commit=ctx.config.git_commit,
         sniffles_report=sniffles,
+        cutesv_report=cutesv,
+        sv_consensus_report=consensus,
+        methylation_report=load_methylation_report(ctx),
+        reference_context=ctx.config.resource_context,
+        sidecars=sidecars,
     )
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
@@ -530,9 +1252,13 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         status=ModuleRunStatus.COMPLETED,
         reason="Module outcomes assembled into the validated result contract.",
         outputs=[artifact],
-        warnings=["Structural-variant evidence was omitted from the result."]
-        if sniffles is None
-        else [],
+        # "Omitted" must follow every SV artifact, not the Sniffles one: a cuteSV-only
+        # run produced consolidated events and must not be told they never happened.
+        warnings=(
+            ["Structural-variant evidence was omitted from the result."]
+            if sniffles is None and cutesv is None and consensus is None
+            else []
+        ),
     )
 
 
@@ -546,8 +1272,43 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    render_html(result, ctx.envelope.path(ctx.path(REPORT_HTML)))
-    render_workbook(result, ctx.envelope.path(ctx.path(REPORT_XLSX)))
+    target_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
+    selection_path = ctx.envelope.path(SELECTION_COVERAGE_REPORT)
+    target_coverage = (
+        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
+        if target_path.is_file()
+        else None
+    )
+    selection_coverage = (
+        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
+        if selection_path.is_file()
+        else None
+    )
+    histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
+    qc_histogram = (
+        [
+            ReadLengthBin(start=start, end=end, count=count, bases=bases)
+            for start, end, count, bases in read_length_histogram_from_tsv(
+                histogram_path.read_text(encoding="utf-8")
+            )
+        ]
+        if histogram_path.is_file()
+        else None
+    )
+    render_html(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_HTML)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+        qc_histogram=qc_histogram,
+        methylation_report=load_methylation_report(ctx),
+    )
+    render_workbook(
+        result,
+        ctx.envelope.path(ctx.path(REPORT_XLSX)),
+        target_coverage=target_coverage,
+        selection_coverage=selection_coverage,
+    )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
         reason="Reviewer artifacts rendered as HTML and Excel.",
@@ -576,7 +1337,9 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.ALIGN: StageImplementation(_align_plan, _align_execute, _align_settle),
     StageId.INTAKE: StageImplementation(_intake_plan, _intake_execute),
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
+    StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
+    StageId.METHYLATION: StageImplementation(_methylation_plan, _methylation_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
     StageId.RELEASE: StageImplementation(_release_plan, _release_execute),
@@ -750,12 +1513,33 @@ def _run_locked(
     run_warnings: list[str],
 ) -> tuple[RunReport, ReleaseBundle | None]:
     """Execute the run. Split out so the lock covers every write, including the first."""
+    # A release describes one completed attempt, not a mutable run directory. Invalidate
+    # its completion markers before any write; a failed/aborted retry must not expose
+    # an earlier successful bundle as the result of this attempt. Review history stays.
+    for release_path in (RELEASE_JSON, RELEASE_CHECKSUMS):
+        envelope.path(release_path).unlink(missing_ok=True)
     envelope.atomic_write_text(
         "manifest/sample.manifest.json", config.manifest.model_dump_json(indent=2) + "\n"
     )
     envelope.atomic_write_text(
         "manifest/reference.lock.json", config.reference_lock.model_dump_json(indent=2) + "\n"
     )
+    if config.resource_context is not None:
+        envelope.atomic_write_text(
+            "manifest/resource-context.json",
+            config.resource_context.model_dump_json(indent=2) + "\n",
+        )
+    if config.components is not None:
+        # Written before the first stage so that an interrupted run still records which
+        # components it was asked to use.
+        envelope.atomic_write_text(
+            COMPONENTS_REPORT, config.components.model_dump_json(indent=2) + "\n"
+        )
+        for stage in config.components.unpinned_stages():
+            run_warnings.append(
+                f"Component selection does not pin a version for {stage.value}; this run is "
+                "reproducible only against the toolchain that happened to be installed."
+            )
 
     previous = None if config.force else _load_previous(envelope)
     context = RunContext(
@@ -816,10 +1600,27 @@ def _execute_stage(
             reason=f"No adapter is wired in for this stage. {spec.purpose}",
         )
 
+    selection = context.config.components
+    choice = selection.choice_for(stage) if selection is not None else None
+    if selection is not None and choice is not None and not choice.enabled:
+        # Deselected before planning, so a switched-off stage never probes for a tool the
+        # operator deliberately did not install.
+        return StageRecord(
+            **base,
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"Deselected for this run by component selection {selection.selection_id!r}. "
+                "A stage that was switched off produced no evidence and is not a negative "
+                "finding."
+            ),
+        )
+
     started = datetime.now(UTC)
+    # Adapters are an extension boundary: persist ordinary programming errors as
+    # FAILED, too. BaseException (including KeyboardInterrupt/SystemExit) propagates.
     try:
         plan = implementation.plan(context)
-    except (StageFailure, ToolExecutionError, ValueError, OSError) as error:
+    except Exception as error:
         return StageRecord(
             **base,
             status=ModuleRunStatus.FAILED,
@@ -828,10 +1629,29 @@ def _execute_stage(
             finished_at=datetime.now(UTC),
         )
 
+    if choice is not None and plan.tool_versions:
+        # An empty probe set means the stage ran no external tool at all - target coverage
+        # on a non-adaptive assay, for instance. Enforcing a pinned version there would
+        # fail a run for not using a tool it correctly declined to use.
+        try:
+            choice.verify(plan.tool_versions, stage=stage)
+        except ComponentVersionMismatch as error:
+            return StageRecord(
+                **base,
+                status=ModuleRunStatus.FAILED,
+                reason=str(error),
+                started_at=started,
+                finished_at=datetime.now(UTC),
+            )
+
     signature = stage_signature(
         stage=stage.value,
         upstream=context.upstream(stage, kind),
-        parameters=plan.parameters,
+        parameters={
+            **plan.parameters,
+            "_runner_pipeline_version": context.config.pipeline_version,
+            "_runner_git_commit": context.config.git_commit,
+        },
         tool_versions=plan.tool_versions,
         external_inputs=plan.external_inputs,
     )
@@ -846,7 +1666,7 @@ def _execute_stage(
         if implementation.settle is not None:
             try:
                 implementation.settle(context, [item.to_artifact() for item in prior.outputs])
-            except (StageFailure, ValueError, OSError) as error:
+            except Exception as error:
                 # The artifacts verified, so this is a bug rather than stale state; fail
                 # the stage instead of letting a half-settled context reach the next one.
                 return StageRecord(
@@ -866,7 +1686,7 @@ def _execute_stage(
 
     try:
         result = implementation.execute(context, plan)
-    except (StageFailure, ToolExecutionError, ValueError, OSError) as error:
+    except Exception as error:
         return StageRecord(
             **base,
             status=ModuleRunStatus.FAILED,
@@ -883,7 +1703,7 @@ def _execute_stage(
     }:
         try:
             implementation.settle(context, result.outputs)
-        except (StageFailure, ValueError, OSError) as error:
+        except Exception as error:
             return StageRecord(
                 **base,
                 status=ModuleRunStatus.FAILED,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import math
 import os
 import re
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .breakends import BreakendParseError, resolve_breakend
 from .execution import CommandRunner, SubprocessRunner
 from .models import (
     AlignedBamIntakeReport,
@@ -30,7 +32,6 @@ from .models import (
 )
 from .reference import sha256_file
 
-_BND_MATE = re.compile(r"[\[\]]([^:\[\]]+):(\d+)[\[\]]")
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+(?:\.\d+)?)(?!\d)")
 _SV_TYPE_MAP = {
     "DEL": EventType.DELETION,
@@ -120,9 +121,12 @@ def _optional_float(value: str | bool | None, *, reason: str) -> float | None:
     if first is None:
         return None
     try:
-        return float(first)
+        number = float(first)
     except ValueError as exc:
         raise _RejectedRecord(reason) from exc
+    if not math.isfinite(number):
+        raise _RejectedRecord(reason)
+    return number
 
 
 def _optional_nonnegative_float(value: str | bool | None, *, reason: str) -> float | None:
@@ -143,7 +147,7 @@ def _coverage_context(value: str | bool | None) -> list[float]:
             number = float(item)
         except ValueError as exc:
             raise _RejectedRecord("malformed_coverage") from exc
-        if number < 0:
+        if not math.isfinite(number) or number < 0:
             raise _RejectedRecord("malformed_coverage")
         result.append(number)
     return result
@@ -193,7 +197,7 @@ def _quality(raw: str) -> float | None:
         value = float(raw)
     except ValueError as exc:
         raise _RejectedRecord("malformed_quality") from exc
-    if value < 0:
+    if not math.isfinite(value) or value < 0:
         raise _RejectedRecord("malformed_quality")
     return value
 
@@ -234,19 +238,20 @@ def _breakend_loci(
     alternate: str,
     info: dict[str, str | bool],
 ) -> tuple[Locus, Locus]:
-    mate = _BND_MATE.search(alternate)
-    if mate:
-        secondary_chromosome = mate.group(1)
-        secondary_position = int(mate.group(2))
-    else:
-        secondary_chromosome = _first_value(info.get("CHR2")) or ""
-        secondary_position = _integer(info.get("END"), reason="missing_breakend_mate")
+    try:
+        resolved = resolve_breakend(
+            alternate,
+            declared_chromosome=info.get("CHR2"),
+            declared_position=info.get("END"),
+        )
+    except BreakendParseError as exc:
+        raise _RejectedRecord(exc.reason) from exc
     try:
         primary = Locus(chromosome=chromosome, start=position - 1, end=position)
         secondary = Locus(
-            chromosome=secondary_chromosome,
-            start=secondary_position - 1,
-            end=secondary_position,
+            chromosome=resolved.mate_chromosome,
+            start=resolved.mate_position_0based,
+            end=resolved.mate_position_0based + 1,
         )
     except ValidationError as exc:
         raise _RejectedRecord("invalid_breakend_locus") from exc

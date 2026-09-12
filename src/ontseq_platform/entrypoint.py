@@ -1,14 +1,111 @@
+"""Dispatch to whichever CLI owns the requested command, and say that both exist.
+
+The commands are split across two parsers: ``runtime_cli`` owns execution and operations,
+``cli`` owns the scientific single-step adapters. Dispatching on the first argument keeps
+the execution core from importing the whole scientific surface, which is worth having.
+
+What it cost, before this module printed anything of its own, was discoverability: ``ontseq
+--help`` reached only one parser, so ``run``, ``preflight``, ``status``, ``watch``,
+``serve`` and ``review`` — the commands an operator needs first — were invisible unless you
+already knew to type them. So a bare invocation lists both groups and then hands over.
+"""
+
 from __future__ import annotations
 
 import sys
 
+from . import __version__
 from .runtime_cli import RUNTIME_COMMANDS
+
+_SCIENTIFIC_COMMANDS = (
+    ("demo", "Generate a synthetic JSON/HTML/Excel report"),
+    ("validate-manifest", "Validate a sample manifest against the schema"),
+    ("validate-result", "Validate a pipeline result against the schema"),
+    ("render", "Render HTML and Excel from an existing result JSON"),
+    ("reference-lock", "Create a versioned reference lock from a FASTA index"),
+    ("validate-reference", "Validate and summarize an existing reference lock"),
+    ("inspect-bam", "Run the aligned-BAM integrity and reference gate"),
+    ("qc-cramino", "Run Cramino and normalize descriptive BAM QC"),
+    ("qc-target-coverage", "Run Mosdepth over a target design"),
+    ("call-sniffles", "Run Sniffles2 and normalize candidate SV evidence"),
+    ("call-methylation", "Run modkit pileup and normalize modified-base fractions"),
+    ("local-smoke", "Exercise the real toolchain on generated synthetic alignments"),
+    ("system-smoke", "Full installed-system self-test including QDNAseq/ACE"),
+    ("benchmark", "Score a benchmark case"),
+    ("dilution-plan", "Lay out an in-silico tumour dilution series"),
+    ("dilution-mix", "Materialize the mixed BAMs of a planned dilution series"),
+    ("lod", "Derive a technical detection limit from a dilution series"),
+    (
+        "methylation-mixture",
+        "Mix two Nanopolish call tables and estimate a source-A methylation coefficient",
+    ),
+    ("assemble-aligned-mvp", "Assemble a result from existing adapter outputs"),
+    ("methylation-validation-plan", "Check a prospective matrix; NO_CALL until evidence exists"),
+    ("methylation-validation-fingerprint", "Catalogue local input SHA-256 values"),
+    ("methylation-validation-register", "Lock four biological sources, code and study matrix"),
+    ("methylation-validation-run", "Execute the registered independent read-group experiment"),
+    ("methylation-validation-evaluate", "Recompute independent recovery from structured evidence"),
+    ("methylation-holdout-plan", "Prepare a prospective two-source read-holdout design"),
+    ("methylation-holdout-fingerprint", "Catalogue the two local source inputs"),
+    (
+        "methylation-holdout-register",
+        "Lock two sources, read split, matrix and code before testing",
+    ),
+    ("methylation-holdout-run", "Measure recovery using held-out reads from two sources"),
+    ("methylation-holdout-evaluate", "Recompute scoped two-source holdout recovery"),
+)
+
+_RUNTIME_COMMANDS = (
+    ("analyze", "Analyze one indexed GRCh37 or GRCh38 BAM using an installed profile"),
+    ("references", "Install and validate manifest-locked GRCh37/GRCh38 resources"),
+    ("run", "Execute one sample into a resumable run envelope"),
+    ("preflight", "Check every run precondition without creating output"),
+    ("doctor", "Run a quick local runtime health check"),
+    ("status", "Summarize run envelopes"),
+    ("watch", "Process ready sample directories in a drop folder"),
+    ("serve", "Run the loopback-only local operator service"),
+    ("review", "Record or inspect review state"),
+    ("model-lock", "Fingerprint a downloaded Dorado model directory"),
+    ("align-fixture", "Generate a synthetic real-alignment fixture"),
+)
+
+
+def _overview() -> str:
+    lines = [
+        "usage: ontseq <command> [options]",
+        "",
+        "ONTSeq platform. Research use only; no output is a clinical result.",
+        "",
+        "Execution and operations:",
+    ]
+    lines += [f"  {name:<22}{summary}" for name, summary in _RUNTIME_COMMANDS]
+    lines += ["", "Single-step adapters and reporting:"]
+    lines += [f"  {name:<22}{summary}" for name, summary in _SCIENTIFIC_COMMANDS]
+    lines += [
+        "",
+        "Run 'ontseq <command> --help' for the options of one command.",
+        "Start with 'ontseq preflight' before any run against real data.",
+    ]
+    return "\n".join(lines)
+
+
+_EXECUTION_COMMANDS = frozenset({"run", "serve", "watch"})
 
 
 def main() -> None:
     """Dispatch execution commands without coupling the legacy/scientific CLI to runtime code."""
     command = sys.argv[1] if len(sys.argv) > 1 else None
+    if command in {"--version", "version"}:
+        print(__version__)
+        return
+    if command is None or command in {"-h", "--help", "help"}:
+        print(_overview())
+        return
     if command in RUNTIME_COMMANDS:
+        if command in _EXECUTION_COMMANDS:
+            from .runtime_extensions import register_builtin_runtime_extensions
+
+            register_builtin_runtime_extensions()
         from .runtime_cli import main as runtime_main
 
         runtime_main()

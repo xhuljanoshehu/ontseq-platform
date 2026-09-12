@@ -93,7 +93,9 @@ TOOLS_BY_STAGE: Mapping[StageId, tuple[str, ...]] = {
     StageId.ALIGN: ("minimap2", "samtools"),
     StageId.INTAKE: ("samtools",),
     StageId.QC: ("cramino",),
+    StageId.TARGET_COVERAGE: ("mosdepth",),
     StageId.SV: ("sniffles",),
+    StageId.METHYLATION: ("modkit",),
 }
 
 

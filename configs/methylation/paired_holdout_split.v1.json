@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1.0",
+  "algorithm": "sorted_read_identifiers_seeded_shuffle_v1",
+  "calibration_read_group_fraction": 0.25,
+  "source_a_split_seed": 110609051,
+  "source_b_split_seed": 210609051,
+  "split_unit": "whole_read_group"
+}

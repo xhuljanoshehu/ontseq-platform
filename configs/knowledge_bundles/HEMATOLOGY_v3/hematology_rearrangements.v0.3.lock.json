@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1.0",
+  "resource_id": "ontseq-hematology-rearrangements",
+  "release": "0.3.0",
+  "sha256": "e283161a828e5c07f0351abb4c1d84fd955cc6cc5d15610db4e5c7ec4eff36dc",
+  "source_ids": [
+    "WHO5-2022",
+    "ICC-2022",
+    "BOREL-2012",
+    "CIVIC-2026-08-29",
+    "DO-2026-07-31"
+  ],
+  "note": "Panel-scoped hematology review knowledge: 38 patterns and 74 source-attributed pathology associations. Matching is gene-pair order independent. No record is a diagnostic, prognostic, or reportability rule."
+}

@@ -171,8 +171,10 @@ class VerdictTests(unittest.TestCase):
         outcomes = {stage: StageOutcome.COMPLETED for stage in planned_stages(InputKindName.POD5)}
         verdict = summarize(InputKindName.POD5, outcomes)
         self.assertTrue(verdict.passed)
-        # Basecalling completed, but its adapter has never met a real Dorado binary.
-        self.assertIn(StageId.BASECALL, verdict.unverified_stages)
+        self.assertEqual(
+            {StageId.BASECALL, StageId.CNV},
+            set(verdict.unverified_stages),
+        )
 
     def test_aligned_run_does_not_report_basecalling_as_incomplete(self) -> None:
         verdict = summarize(InputKindName.ALIGNED_BAM, self._complete_aligned_run())
@@ -189,7 +191,7 @@ class VerificationTests(unittest.TestCase):
 
     def test_real_tool_stages_are_declared_as_such(self) -> None:
         """Verification is claimed only where CI actually runs the binary."""
-        for stage in (StageId.ALIGN, StageId.INTAKE, StageId.QC, StageId.SV):
+        for stage in (StageId.ALIGN, StageId.INTAKE, StageId.QC, StageId.SV, StageId.METHYLATION):
             self.assertEqual(
                 SPEC_BY_STAGE[stage].verification,
                 VerificationStatus.VERIFIED_WITH_REAL_TOOL,
@@ -203,9 +205,15 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn(StageId.ALIGN, stages)
 
     def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
-        """Below POD5 every wired adapter is exercised by CI; only stubs remain."""
+        """Below POD5, only adapters CI has never executed against the real tool remain.
+
+        Target coverage left this set when its adapter was wired into the runner, and
+        methylation left it when the real modkit 0.6.4 lane entered CI. CNV is still the
+        stage whose implementation arrives by registration rather than by being part of
+        the graph.
+        """
         specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
-        self.assertEqual({spec.stage for spec in specs}, {StageId.TARGET_COVERAGE, StageId.CNV})
+        self.assertEqual({spec.stage for spec in specs}, {StageId.CNV})
 
 
 if __name__ == "__main__":

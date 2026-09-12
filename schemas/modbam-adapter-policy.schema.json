@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "description": "Technical defaults, never validated assay thresholds.",
+  "properties": {
+    "implicit_call_handling": {
+      "const": "ambiguous",
+      "default": "ambiguous",
+      "title": "Implicit Call Handling",
+      "type": "string"
+    },
+    "maximum_bases_per_read": {
+      "default": 2000000,
+      "minimum": 1,
+      "title": "Maximum Bases Per Read",
+      "type": "integer"
+    },
+    "maximum_reference_bytes": {
+      "default": 5000000000,
+      "minimum": 1,
+      "title": "Maximum Reference Bytes",
+      "type": "integer"
+    },
+    "minimum_class_probability": {
+      "default": 0.8,
+      "exclusiveMinimum": 0.5,
+      "maximum": 1,
+      "title": "Minimum Class Probability",
+      "type": "number"
+    },
+    "other_modification_handling": {
+      "const": "ambiguous",
+      "default": "ambiguous",
+      "title": "Other Modification Handling",
+      "type": "string"
+    },
+    "profile_id": {
+      "default": "dorado-explicit-cpg-v1",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "technical_defaults_only",
+      "default": "technical_defaults_only",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "title": "ModbamAdapterPolicy",
+  "type": "object"
+}

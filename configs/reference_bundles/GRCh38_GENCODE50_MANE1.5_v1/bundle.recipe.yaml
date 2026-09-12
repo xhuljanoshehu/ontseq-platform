@@ -1,0 +1,152 @@
+schema_version: 1.0.0
+bundle_type: reference
+bundle_id: GRCh38_GENCODE50_MANE1.5_v1
+version: v1
+genome_build: GRCh38
+description: >-
+  GRCh38.p14 primary assembly with GENCODE 50, MANE 1.5, UCSC hg38 cytobands and
+  checksum-locked technical context resources. Source files are retained for provenance;
+  analyses consume the generated FASTA/index/lock, SQLite annotation cache and normalized BEDs.
+reference_lock_resource_id: reference_lock
+fasta_resource_id: genome_fasta
+fai_resource_id: fasta_index
+annotation_cache_resource_id: annotation_cache
+resources:
+  - resource_id: grch38_primary_assembly_fasta_gz
+    role: genome_fasta_archive
+    path: sources/GRCh38.primary_assembly.genome.fa.gz
+    sha256: b760d18dbb651dd14dfc290083371b3ef3bff122d43a9cefb13ca4ecf38f05ca
+    size_bytes: 845635028
+    source_url: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/GRCh38.primary_assembly.genome.fa.gz
+    release: GRCh38.p14 / GENCODE 50 primary assembly
+    source_date: 2026-06-09
+    description: Publisher gzip byte stream; GENCODE MD5 da1a11258be075cfa7af718162c894e7.
+  - resource_id: gencode_v50_primary_gtf
+    role: gencode_gtf
+    path: sources/gencode.v50.primary_assembly.annotation.gtf.gz
+    sha256: 89bbad69a8c89fee5fadec0a2f14a098752d27a4ef7f24e4de9bac681e1b18f4
+    size_bytes: 124650284
+    source_url: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/gencode.v50.primary_assembly.annotation.gtf.gz
+    release: GENCODE 50 comprehensive primary assembly
+    source_date: 2026-06-09
+    coordinate_system: one_based_inclusive
+    description: Publisher gzip byte stream; GENCODE MD5 289b91e5e95e8b0450d223246f10a12e.
+  - resource_id: mane_v1_5_ensembl_gff3
+    role: mane_gff3
+    path: sources/MANE.GRCh38.v1.5.ensembl_genomic.gff.gz
+    sha256: 69089bbc84d1d3c3ce31c2ed3f85b6c3169fb8836d092a082623c59a43fd22ef
+    size_bytes: 10349746
+    source_url: https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/release_1.5/MANE.GRCh38.v1.5.ensembl_genomic.gff.gz
+    release: MANE 1.5 Ensembl genomic
+    source_date: 2025-12-04
+    coordinate_system: one_based_inclusive
+  - resource_id: ucsc_hg38_cytobands
+    role: cytobands
+    path: sources/ucsc.hg38.cytoBand.txt.gz
+    sha256: e514e48b0a12a516fd5231b44241a20a282f290bdd6131cadcddc6276ee26082
+    size_bytes: 12118
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz
+    release: UCSC hg38 cytobands snapshot 2022-10-29
+    source_date: 2022-10-29
+    coordinate_system: zero_based_half_open
+  - resource_id: encode_grch38_blacklist
+    role: blacklist
+    path: sources/ENCFF356LFX.bed.gz
+    sha256: a9d086ce90ca67f933b29adfbff56ea768bbce2ec4b0d51e2d405e5a1d61bb56
+    size_bytes: 8211
+    source_url: https://www.encodeproject.org/files/ENCFF356LFX/@@download/ENCFF356LFX.bed.gz
+    release: ENCODE ENCFF356LFX GRCh38 blacklist
+    source_date: 2020-05-07
+    coordinate_system: zero_based_half_open
+  - resource_id: ucsc_hg38_repeatmasker_table
+    role: repeatmasker_table
+    path: sources/ucsc.hg38.rmsk.txt.gz
+    sha256: db60e6aa7ac175f8f5465cd01b48b550e67e1fb0fd828608d8343481867bb276
+    size_bytes: 155633856
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/rmsk.txt.gz
+    release: UCSC hg38 RepeatMasker snapshot 2022-10-19
+    source_date: 2022-10-19
+    coordinate_system: zero_based_half_open
+  - resource_id: ucsc_hg38_simple_repeats_table
+    role: simple_repeats_table
+    path: sources/ucsc.hg38.simpleRepeat.txt.gz
+    sha256: cd8a0d52fcdd254333572e1fd05ce9dea6a5b20396df188d917baae1967c4d3b
+    size_bytes: 29804554
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/simpleRepeat.txt.gz
+    release: UCSC hg38 simple repeats snapshot 2022-10-19
+    source_date: 2022-10-19
+    coordinate_system: zero_based_half_open
+  - resource_id: ucsc_hg38_segmental_duplications_table
+    role: segmental_duplication_table
+    path: sources/ucsc.hg38.genomicSuperDups.txt.gz
+    sha256: 3f4388ed3eb7462034e89c1f45314160bdb14558502092326063105c095061df
+    size_bytes: 4202400
+    source_url: https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/genomicSuperDups.txt.gz
+    release: UCSC hg38 genomicSuperDups snapshot 2014-10-19
+    source_date: 2014-10-19
+    coordinate_system: zero_based_half_open
+  - resource_id: hoffman_umap_hg38_k100
+    role: mappability
+    path: sources/hg38.k100.umap.bed.gz
+    sha256: 063c02b0d50334b43f358688b0573a2961480ddc697b13603674620a60b15fd0
+    size_bytes: 1870831
+    source_url: https://bismap.hoffmanlab.org/raw/hg38/k100.umap.bed.gz
+    release: Hoffman Lab Umap k100 native hg38 BED
+    source_date: 2020-02-25
+    coordinate_system: zero_based_half_open
+  - resource_id: genome_fasta
+    role: genome_fasta
+    path: genome.fa
+    release: GRCh38.p14
+    generated: true
+    derived_from: [grch38_primary_assembly_fasta_gz]
+  - resource_id: fasta_index
+    role: fasta_index
+    path: genome.fa.fai
+    release: GRCh38.p14
+    generated: true
+    derived_from: [genome_fasta]
+  - resource_id: reference_lock
+    role: reference_lock
+    path: reference.lock.json
+    release: GRCh38.p14
+    generated: true
+    derived_from: [fasta_index]
+  - resource_id: chromosome_sizes
+    role: chromosome_sizes
+    path: chromosome-sizes.tsv
+    release: GRCh38.p14
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [fasta_index]
+  - resource_id: annotation_cache
+    role: annotation_cache
+    path: annotation.sqlite
+    release: GENCODE 50 / MANE 1.5 / UCSC hg38
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from:
+      - gencode_v50_primary_gtf
+      - mane_v1_5_ensembl_gff3
+      - ucsc_hg38_cytobands
+  - resource_id: repeatmasker_bed
+    role: repeatmasker
+    path: context/repeatmasker.bed
+    release: UCSC hg38 RepeatMasker snapshot 2022-10-19
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg38_repeatmasker_table]
+  - resource_id: simple_repeats_bed
+    role: simple_repeats
+    path: context/simple-repeats.bed
+    release: UCSC hg38 simple repeats snapshot 2022-10-19
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg38_simple_repeats_table]
+  - resource_id: segmental_duplications_bed
+    role: segmental_duplication
+    path: context/segmental-duplications.bed
+    release: UCSC hg38 genomicSuperDups snapshot 2014-10-19
+    coordinate_system: zero_based_half_open
+    generated: true
+    derived_from: [ucsc_hg38_segmental_duplications_table]

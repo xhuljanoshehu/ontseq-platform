@@ -236,6 +236,17 @@ async function browse(path) {
     for (const item of listing.entries) {
       box.appendChild(entry(item.name, item.posix, item.directory, item, false));
     }
+    // An entry the service could not read is left out of the list on purpose. Saying so
+    // is the difference between "this directory holds no BAM" and "one is there and I
+    // could not see it" — the operator has to be able to tell those apart.
+    if (listing.unreadable_entries > 0) {
+      const skipped = document.createElement("div");
+      skipped.className = "path";
+      skipped.textContent = listing.unreadable_entries +
+        " Eintrag/Einträge nicht lesbar (defekter Link oder fehlende Berechtigung) " +
+        "und daher nicht aufgeführt.";
+      box.appendChild(skipped);
+    }
     box.classList.add("open");
   } catch (error) {
     notice(error.message, true);

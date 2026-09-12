@@ -1,0 +1,587 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from ontseq_platform.execution import CommandResult
+from ontseq_platform.methylation import (
+    MethylationPolicy,
+    MethylationRegionSource,
+    ModificationCode,
+    _bed_regions,
+    modkit_version,
+    normalize_methylation,
+    parse_bedmethyl,
+    run_methylation,
+)
+from ontseq_platform.models import (
+    AlignedBamIntakeReport,
+    AnalysisModule,
+    AnalysisSpec,
+    AssayMode,
+    AssaySpec,
+    GenomeBuild,
+    InputKind,
+    InputSpec,
+    ModuleRunStatus,
+    SampleManifest,
+    ToolRecord,
+    Verdict,
+)
+
+
+def _policy(**overrides: object) -> MethylationPolicy:
+    defaults: dict[str, object] = {
+        "profile_id": "synthetic",
+        "status": "technical_defaults_only",
+        "expected_version": "0.6.4",
+        "minimum_valid_coverage": 5,
+        "note": "Synthetic technical policy",
+    }
+    defaults.update(overrides)
+    return MethylationPolicy.model_validate(defaults)
+
+
+def _row(
+    chromosome: str,
+    start: int,
+    code: str,
+    valid: int,
+    modified: int,
+    *,
+    canonical: int | None = None,
+    other_mod: int = 0,
+    delete: int = 0,
+    fail: int = 0,
+    diff: int = 0,
+    nocall: int = 0,
+) -> str:
+    """One bedMethyl record. Columns 10-18 carry the count contract this adapter reads."""
+    canonical = valid - modified - other_mod if canonical is None else canonical
+    percent = (modified / valid * 100) if valid else 0.0
+    return "\t".join(
+        [
+            chromosome,
+            str(start),
+            str(start + 1),
+            code,
+            str(min(valid, 1000)),
+            "+",
+            str(start),
+            str(start + 1),
+            "255,0,0",
+            str(valid),
+            f"{percent:.2f}",
+            str(modified),
+            str(canonical),
+            str(other_mod),
+            str(delete),
+            str(fail),
+            str(diff),
+            str(nocall),
+        ]
+    )
+
+
+class ParsingTests(unittest.TestCase):
+    def test_reads_tab_separated_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(
+                "\n".join([_row("chr1", 100, "m", 20, 15), _row("chr1", 200, "m", 10, 2)]) + "\n",
+                encoding="utf-8",
+            )
+            sites, skipped = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertEqual(len(sites), 2)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(sites[0].valid_coverage, 20)
+        self.assertEqual(sites[0].modified_calls, 15)
+
+    def test_reads_the_space_delimited_layout_older_builds_emit(self) -> None:
+        """A file whose trailing count columns are space-separated is still a bedMethyl."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            fields = _row("chr1", 100, "m", 20, 15).split("\t")
+            path.write_text(
+                "\t".join(fields[:9]) + "\t" + " ".join(fields[9:]) + "\n", encoding="utf-8"
+            )
+            sites, _ = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0].valid_coverage, 20)
+
+    def test_refuses_a_modification_code_the_policy_does_not_list(self) -> None:
+        """Dropping an unexpected code would silently change what the fraction means."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(_row("chr1", 100, "h", 20, 15) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as raised:
+                parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertIn("policy does not list", str(raised.exception))
+
+    def test_non_canonical_contigs_are_counted_not_silently_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(
+                "\n".join(
+                    [_row("chr1", 100, "m", 20, 15), _row("chrUn_KI270302v1", 5, "m", 20, 15)]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            sites, skipped = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(skipped, 1)
+
+    def test_rejects_more_modified_calls_than_valid_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(_row("chr1", 100, "m", 5, 9) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+
+    def test_reads_the_count_columns_beyond_the_fraction(self) -> None:
+        """Canonical, other-mod, fail and nocall counts are evidence, not decoration."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(
+                _row("chr1", 100, "m", 20, 12, canonical=5, other_mod=3, fail=2, nocall=1) + "\n",
+                encoding="utf-8",
+            )
+            sites, _ = parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertEqual(sites[0].canonical_calls, 5)
+        self.assertEqual(sites[0].other_mod_calls, 3)
+        self.assertEqual(sites[0].fail_calls, 2)
+        self.assertEqual(sites[0].nocall_calls, 1)
+
+    def test_rejects_a_row_that_violates_the_bedmethyl_identity(self) -> None:
+        """N_valid must equal N_mod + N_canonical + N_other_mod; anything else is corrupt."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(_row("chr1", 100, "m", 20, 12, canonical=3) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as raised:
+                parse_bedmethyl(path, allowed_codes=[ModificationCode.FIVE_MC])
+        self.assertIn("identity", str(raised.exception))
+
+    def test_parses_the_version_banner(self) -> None:
+        self.assertEqual(modkit_version("mod_kit 0.6.4"), "0.6.4")
+
+
+class NormalizationTests(unittest.TestCase):
+    def _report(self, rows: list[str], **policy_overrides: object):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            return normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(**policy_overrides),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
+            )
+
+    def test_aggregates_per_chromosome_by_call_weight(self) -> None:
+        report = self._report(
+            [
+                _row("chr1", 100, "m", 20, 15),
+                _row("chr1", 200, "m", 10, 5),
+                _row("chr2", 300, "m", 8, 0),
+            ]
+        )
+        self.assertEqual(report.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual(report.region_source, MethylationRegionSource.CHROMOSOME)
+        self.assertEqual([item.region_id for item in report.regions], ["chr1", "chr2"])
+        chr1 = report.regions[0]
+        self.assertEqual(chr1.sites_at_minimum_coverage, 2)
+        self.assertEqual(chr1.valid_call_count, 30)
+        self.assertEqual(chr1.modified_call_count, 20)
+        self.assertEqual(chr1.canonical_call_count, 10)
+        self.assertAlmostEqual(chr1.mean_modified_fraction or 0.0, 20 / 30)
+        self.assertAlmostEqual(chr1.median_site_modified_fraction or 0.0, 0.625)
+        self.assertEqual(report.regions[1].mean_modified_fraction, 0.0)
+
+    def test_a_region_with_no_qualifying_site_reports_none_not_zero(self) -> None:
+        """An unmeasured region is not an unmethylated region."""
+        report = self._report([_row("chr1", 100, "m", 20, 15), _row("chr2", 300, "m", 2, 1)])
+        by_id = {item.region_id: item for item in report.regions}
+        self.assertEqual(by_id["chr2"].sites_total, 1)
+        self.assertEqual(by_id["chr2"].sites_at_minimum_coverage, 0)
+        self.assertIsNone(by_id["chr2"].mean_modified_fraction)
+        self.assertEqual(by_id["chr2"].valid_call_count, 0)
+
+    def test_a_pileup_below_the_coverage_floor_is_no_call(self) -> None:
+        report = self._report([_row("chr1", 100, "m", 2, 1)])
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+        self.assertTrue(
+            any("not say the DNA is" in warning for warning in report.warnings),
+            report.warnings,
+        )
+
+    def test_failed_and_nocall_counts_are_reported_separately_from_canonical(self) -> None:
+        """A call that failed its threshold is not a measured unmethylated call."""
+        report = self._report([_row("chr1", 100, "m", 20, 15, fail=3, nocall=2)])
+        region = report.regions[0]
+        self.assertEqual(region.canonical_call_count, 5)
+        self.assertEqual(region.fail_call_count, 3)
+        self.assertEqual(region.nocall_call_count, 2)
+        self.assertEqual(report.summary_metrics["fail_call_count"], 3)
+        self.assertEqual(report.summary_metrics["nocall_call_count"], 2)
+
+    def test_a_site_of_only_failed_calls_is_not_a_measured_zero(self) -> None:
+        report = self._report([_row("chr1", 100, "m", 0, 0, fail=4)])
+        self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
+
+    def test_a_version_mismatch_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            self._report([_row("chr1", 100, "m", 20, 15)], expected_version="0.5.0")
+
+    def test_the_report_carries_no_filesystem_paths(self) -> None:
+        """Reviewer artifacts name checksums, never the operator's directory layout."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bedmethyl"
+            path.write_text(_row("chr1", 100, "m", 20, 15) + "\n", encoding="utf-8")
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
+            )
+            self.assertNotIn(directory, report.model_dump_json())
+        self.assertIsNotNone(report.bedmethyl_fingerprint.sha256)
+
+
+class RegionAggregationTests(unittest.TestCase):
+    def test_same_name_intervals_keep_local_counts_and_missing_measurements(self) -> None:
+        """Repeated labels must not merge disjoint, overlapping or cross-chromosome targets."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bed = root / "targets.bed"
+            bed.write_text(
+                "chr1\t100\t200\tGENE\nchr1\t150\t250\tGENE\n"
+                "chr1\t300\t400\tGENE\nchr1\t500\t600\tGENE\n"
+                "chr2\t100\t200\tGENE\n",
+                encoding="utf-8",
+            )
+            path = root / "sample.bedmethyl"
+            path.write_text(
+                "\n".join(
+                    [
+                        _row("chr1", 125, "m", 10, 2),
+                        _row("chr1", 175, "m", 10, 8),
+                        _row("chr1", 350, "m", 20, 18),
+                        _row("chr2", 125, "m", 10, 1),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            tool = ToolRecord(name="modkit", version="0.6.4", parameters={"threads": 2})
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(region_source="target_bed"),
+                tool=tool,
+                regions=_bed_regions(bed),
+                target_bed=bed,
+            )
+        observed = {
+            (row.chromosome, row.start, row.end): (
+                row.sites_total,
+                row.valid_call_count,
+                row.modified_call_count,
+                row.mean_modified_fraction,
+            )
+            for row in report.regions
+        }
+        self.assertEqual(
+            observed,
+            {
+                ("chr1", 100, 200): (2, 20, 10, 0.5),
+                ("chr1", 150, 250): (1, 10, 8, 0.8),
+                ("chr1", 300, 400): (1, 20, 18, 0.9),
+                ("chr1", 500, 600): (0, 0, 0, None),
+                ("chr2", 100, 200): (1, 10, 1, 0.1),
+            },
+        )
+        self.assertEqual(
+            report.tool.parameters,
+            {"threads": 2, "ontseq_region_assignment": "interval-identity-v1"},
+        )
+        self.assertEqual(tool.parameters, {"threads": 2})
+        self.assertIsNotNone(report.target_bed_fingerprint)
+
+    def test_sites_are_counted_in_every_overlapping_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bed = root / "targets.bed"
+            bed.write_text("chr1\t100\t300\tA\nchr1\t200\t400\tB\n", encoding="utf-8")
+            path = root / "sample.bedmethyl"
+            path.write_text(
+                "\n".join(
+                    [
+                        _row("chr1", 150, "m", 10, 5),
+                        _row("chr1", 250, "m", 10, 10),
+                        _row("chr1", 350, "m", 10, 0),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(region_source="target_bed"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
+                regions=_bed_regions(bed),
+                target_bed=bed,
+            )
+        by_id = {item.region_id: item for item in report.regions}
+        self.assertEqual(by_id["A"].sites_at_minimum_coverage, 2)
+        self.assertEqual(by_id["B"].sites_at_minimum_coverage, 2)
+        self.assertAlmostEqual(by_id["A"].mean_modified_fraction or 0.0, 15 / 20)
+        self.assertAlmostEqual(by_id["B"].mean_modified_fraction or 0.0, 10 / 20)
+        self.assertIsNotNone(report.target_bed_fingerprint)
+
+    def test_a_site_outside_every_target_reaches_no_region(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bed = root / "targets.bed"
+            bed.write_text("chr1\t100\t200\tA\n", encoding="utf-8")
+            path = root / "sample.bedmethyl"
+            path.write_text(
+                "\n".join([_row("chr1", 150, "m", 10, 5), _row("chr2", 900, "m", 10, 5)]) + "\n",
+                encoding="utf-8",
+            )
+            report = normalize_methylation(
+                sample_id="SYNTHETIC_001",
+                genome_build=GenomeBuild.GRCH38,
+                bedmethyl_path=path,
+                policy=_policy(region_source="target_bed"),
+                tool=ToolRecord(name="modkit", version="0.6.4"),
+                regions=_bed_regions(bed),
+                target_bed=bed,
+            )
+        self.assertEqual(len(report.regions), 1)
+        self.assertEqual(report.regions[0].sites_total, 1)
+        self.assertEqual(report.summary_metrics["site_count"], 2)
+
+
+class _FakeRunner:
+    """Stand in for modkit and samtools, writing the pileup a real run would produce."""
+
+    def __init__(
+        self,
+        *,
+        version: str = "0.6.4",
+        tagged_reads: str = "1200",
+        independent_cytosine_groups: str = "0",
+        failed_processing: int = 0,
+    ) -> None:
+        self.version = version
+        self.tagged_reads = tagged_reads
+        self.independent_cytosine_groups = independent_cytosine_groups
+        self.failed_processing = failed_processing
+        self.commands: list[list[str]] = []
+        self.rows: list[str] = [_row("chr1", 100, "m", 20, 15)]
+
+    def run(self, argv, *, timeout_seconds: int = 300) -> CommandResult:
+        argv = [str(item) for item in argv]
+        self.commands.append(argv)
+        if argv[1:2] == ["--version"]:
+            return CommandResult(tuple(argv), 0, f"mod_kit {self.version}", "")
+        if "view" in argv:
+            count = (
+                self.independent_cytosine_groups
+                if any("C[+-]" in item for item in argv)
+                else self.tagged_reads
+            )
+            return CommandResult(tuple(argv), 0, count, "")
+        if "pileup" in argv:
+            Path(argv[3]).write_text("\n".join(self.rows) + "\n", encoding="utf-8")
+            if self.failed_processing:
+                log_path = Path(argv[argv.index("--log-filepath") + 1])
+                log_path.write_text(
+                    f"[ERROR] ~{self.failed_processing} failed processing\n",
+                    encoding="utf-8",
+                )
+            return CommandResult(tuple(argv), 0, "", "")
+        raise AssertionError(f"unexpected command: {argv}")
+
+
+class AdapterTests(unittest.TestCase):
+    """The stage boundary: what run_methylation refuses before modkit ever produces a file."""
+
+    def _fixture(self, root: Path) -> tuple[SampleManifest, AlignedBamIntakeReport]:
+        bam = root / "sample.bam"
+        bam.write_bytes(b"not a real bam")
+        (root / "sample.bam.bai").write_bytes(b"")
+        (root / "reference.fa").write_text(">chr1\nACGTCG\n", encoding="utf-8")
+        manifest = SampleManifest(
+            sample_id="SYNTHETIC_001",
+            run_id="RUN_001",
+            input=InputSpec(
+                kind=InputKind.ALIGNED_BAM, path=str(bam), index_path=str(bam) + ".bai"
+            ),
+            assay=AssaySpec(
+                mode=AssayMode.LOW_COVERAGE_WGS,
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="synthetic-grch38",
+            ),
+            analysis=AnalysisSpec(profile="synthetic", modules=[AnalysisModule.METHYLATION]),
+        )
+        intake = AlignedBamIntakeReport(
+            sample_id="SYNTHETIC_001",
+            reference_id="synthetic-grch38",
+            genome_build=GenomeBuild.GRCH38,
+            checks=[],
+            verdict=Verdict.PASS,
+        )
+        return manifest, intake
+
+    def test_a_bam_without_modified_base_tags_is_refused(self) -> None:
+        """An empty pileup would read as unmethylated DNA, so the run stops before one."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=_FakeRunner(tagged_reads="0"),
+                )
+        self.assertIn("no MM modified-base tags", str(raised.exception))
+
+    def test_a_version_outside_the_lock_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            with self.assertRaises(ValueError):
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=_FakeRunner(version="0.5.0"),
+                )
+
+    def test_methylation_without_a_reference_is_refused(self) -> None:
+        """modkit --modified-bases requires the reference, so the lane always needs it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest, intake, _policy(), output_dir=root / "out", runner=_FakeRunner()
+                )
+        self.assertIn("reference FASTA", str(raised.exception))
+
+    def test_modkit_064_refuses_independent_same_base_cytosine_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            runner = _FakeRunner(independent_cytosine_groups="2")
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=runner,
+                )
+        self.assertIn("independent cytosine MM groups", str(raised.exception))
+
+    def test_success_exit_with_failed_processing_is_refused_and_output_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            runner = _FakeRunner(failed_processing=3)
+            with self.assertRaises(ValueError) as raised:
+                run_methylation(
+                    manifest,
+                    intake,
+                    _policy(cpg_only=False, combine_strands=False),
+                    output_dir=root / "out",
+                    reference_fasta=root / "reference.fa",
+                    runner=runner,
+                )
+            output = root / "out" / "SYNTHETIC_001.modkit.bedmethyl"
+            self.assertFalse(output.exists())
+        self.assertIn("reported 3 failed record", str(raised.exception))
+
+    def test_a_completed_pileup_is_normalized_and_records_the_tag_count(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            runner = _FakeRunner()
+            report = run_methylation(
+                manifest,
+                intake,
+                _policy(cpg_only=False, combine_strands=False),
+                output_dir=root / "out",
+                reference_fasta=root / "reference.fa",
+                runner=runner,
+            )
+        self.assertEqual(report.status, ModuleRunStatus.COMPLETED)
+        self.assertEqual(report.reads_with_modified_base_tags, 1200)
+        self.assertEqual(report.tool.name, "modkit")
+        pileup = next(item for item in runner.commands if "pileup" in item)
+        self.assertIn("--modified-bases", pileup)
+        self.assertIn("5mC", pileup)
+        self.assertIn("--ref", pileup)
+        self.assertNotIn("--only-tabs", pileup)
+        self.assertNotIn("--ignore", pileup)
+        self.assertIn("--filter-threshold", pileup)
+
+    def test_an_unanswerable_tag_probe_warns_rather_than_blocking(self) -> None:
+        """Not knowing whether tags are present is a distinct answer from knowing there are none."""
+
+        class _NoFilterExpressions(_FakeRunner):
+            def run(self, argv, *, timeout_seconds: int = 300) -> CommandResult:
+                argv = [str(item) for item in argv]
+                if "view" in argv:
+                    self.commands.append(argv)
+                    if any("C[+-]" in item for item in argv):
+                        # The generic MM-tag-presence probe may be unavailable without
+                        # making the independent same-base-group corruption-risk check
+                        # unknowable. Those are deliberately separate safety questions.
+                        return CommandResult(tuple(argv), 0, "0", "")
+                    return CommandResult(tuple(argv), 1, "", "unrecognised option -e")
+                return super().run(argv, timeout_seconds=timeout_seconds)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, intake = self._fixture(root)
+            report = run_methylation(
+                manifest,
+                intake,
+                _policy(cpg_only=False, combine_strands=False),
+                output_dir=root / "out",
+                reference_fasta=root / "reference.fa",
+                runner=_NoFilterExpressions(),
+            )
+        self.assertIsNone(report.reads_with_modified_base_tags)
+        self.assertTrue(
+            any("was not verified" in warning for warning in report.warnings), report.warnings
+        )
+
+
+class PolicyTests(unittest.TestCase):
+    def test_duplicate_modification_codes_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _policy(modification_codes=["m", "m"])
+
+    def test_strand_folding_requires_a_cpg_restriction(self) -> None:
+        with self.assertRaises(ValueError):
+            _policy(cpg_only=False, combine_strands=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

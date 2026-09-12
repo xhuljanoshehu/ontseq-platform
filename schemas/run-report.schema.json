@@ -294,6 +294,7 @@
         "intake",
         "qc",
         "target_coverage",
+        "methylation",
         "cnv",
         "sv",
         "assemble",

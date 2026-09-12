@@ -11,12 +11,25 @@ ploidy_max: 4.5
 ploidy_step: 0.05
 minimum_segment_bins: 1
 whole_chromosome_fraction: 0.90
+whole_chromosome_span_basis: assessable_bin_extent
+cytoband_affected_fraction: 0.66
 timeout_seconds: 7200
-expected_qdnaseq_version: null
-expected_ace_version: null
+expected_qdnaseq_version: "1.42.0"
+expected_ace_version: "1.24.0"
 note: >-
   Experimental robust CNV profile. QDNAseq is run independently at 100, 500 and
   1000 kbp. ACE squaremodel searches purity and ploidy automatically; the 0.6
   low-cellularity penalty is carried forward from the Lea Evers ONTseq evaluation.
   Segment-level calls use 500 kbp as the primary view while chromosome-level
-  agreement is retained across all three resolutions.
+  agreement is retained across all three resolutions. This dual-build policy selects
+  QDNAseq.hg19 or QDNAseq.hg38 from the run's immutable reference context; the GRCh38 data
+  package is pinned to upstream commit cf7c07e39de0ac64a9c38cb030cba4626e2aae83.
+  Runtime package versions and hashes are recorded separately. The affected-cytoband
+  threshold is versioned in this policy rather than being an untracked engine default.
+  whole_chromosome_span_basis selects the evidence a +chr/-chr ISCN fragment requires.
+  QDNAseq itself drops telomeric, blacklisted and residual-filtered bins, so a real
+  whole-chromosome segment never reaches the raw contig ends and exact_contig is not
+  reachable through this lane. assessable_bin_extent instead requires the segment to cover
+  every assessable bin of that chromosome, measured from the exporter's own use flag. It is
+  a versioned technical basis, not a validated clinical criterion, and it does not change
+  the whole-chromosome classification fraction.

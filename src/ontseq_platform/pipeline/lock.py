@@ -98,6 +98,8 @@ def _process_is_alive(pid: int) -> bool:
     """
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _windows_process_is_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -107,6 +109,35 @@ def _process_is_alive(pid: int) -> bool:
     except OSError:
         return True
     return True
+
+
+def _windows_process_is_alive(pid: int) -> bool:
+    """Inspect process lifetime without sending a signal or requesting termination rights.
+
+    On Windows, os.kill(pid, 0) calls TerminateProcess rather than probing existence.
+    A zero-time wait on a SYNCHRONIZE-only handle distinguishes an exited process
+    from a live one, including a process whose exit code happens to be STILL_ACTIVE.
+    Inaccessible or ambiguous process state retains the lock conservatively.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    # ctypes exports these names only on Windows; resolve them at this FFI boundary.
+    kernel = vars(ctypes)["WinDLL"]("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only
+    if not handle:
+        # ERROR_INVALID_PARAMETER means a nonexistent PID.
+        return bool(vars(ctypes)["get_last_error"]() != 87)
+    try:
+        return bool(kernel.WaitForSingleObject(handle, 0) != 0)  # WAIT_OBJECT_0: exited
+    finally:
+        kernel.CloseHandle(handle)
 
 
 def read_holder(lock_path: Path) -> LockHolder | None:

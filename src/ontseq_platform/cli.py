@@ -6,16 +6,50 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import __version__
+from .aml_rearrangements import prioritize_aml_rearrangements
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
 from .demo import build_demo_result
-from .execution import ToolExecutionError
+from .dilution import (
+    DilutionPolicy,
+    DilutionSeriesPlan,
+    LodPolicy,
+    count_reads,
+    evaluate_lod,
+    execute_dilution_series,
+    plan_dilution_series,
+)
+from .execution import SubprocessRunner, ToolExecutionError
 from .io import load_model, write_json
+from .methylation import MethylationPolicy, run_methylation
+from .methylation_holdout_cli import COMMANDS as HOLDOUT_COMMANDS
+from .methylation_holdout_cli import add_subparsers as add_holdout_subparsers
+from .methylation_holdout_cli import run_command as run_holdout_command
+from .methylation_mixture import (
+    MethylationMixturePolicy,
+    NanopolishSourceMetadata,
+    render_methylation_mixture_csv,
+    render_methylation_mixture_html,
+    run_nanopolish_mixture_analysis,
+)
+from .methylation_validation_cli import (
+    COMMANDS as VALIDATION_COMMANDS,
+)
+from .methylation_validation_cli import (
+    add_subparsers as add_validation_subparsers,
+)
+from .methylation_validation_cli import (
+    run_command as run_validation_command,
+)
 from .models import (
     AlignedBamIntakeReport,
+    AmlKnowledgeLock,
+    AnalysisModule,
     BenchmarkCase,
+    BenchmarkReport,
     CraminoQCReport,
     GenomeBuild,
+    ModuleRunStatus,
     PipelineResult,
     QCPolicy,
     ReferenceLock,
@@ -25,24 +59,89 @@ from .models import (
     Verdict,
 )
 from .mvp import assemble_aligned_bam_mvp
+from .profile_analysis import configuration_root
 from .qc import run_cramino_qc
-from .reference import reference_lock_from_fai
+from .reference import reference_lock_from_fai, validate_canonical_reference
 from .report import render_html
 from .smoke import run_local_smoke
 from .sniffles import run_sniffles
-from .target_coverage import TargetCoveragePolicy, run_target_coverage
+from .target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
 from .workbook import render_workbook
 
 
-def _render(result: PipelineResult, output_dir: Path) -> list[Path]:
+def _render(
+    result: PipelineResult,
+    output_dir: Path,
+    *,
+    target_coverage: TargetCoverageReport | None = None,
+    selection_coverage: TargetCoverageReport | None = None,
+) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = result.manifest.sample_id
     outputs = [
         write_json(result, output_dir / f"{stem}.result.json"),
-        render_html(result, output_dir / f"{stem}.report.html"),
-        render_workbook(result, output_dir / f"{stem}.results.xlsx"),
+        render_html(
+            result,
+            output_dir / f"{stem}.report.html",
+            target_coverage=target_coverage,
+            selection_coverage=selection_coverage,
+        ),
+        render_workbook(
+            result,
+            output_dir / f"{stem}.results.xlsx",
+            target_coverage=target_coverage,
+            selection_coverage=selection_coverage,
+        ),
     ]
     return outputs
+
+
+def _apply_render_knowledge_overlay(
+    result: PipelineResult,
+    *,
+    resource_path: Path,
+    lock_path: Path,
+) -> PipelineResult:
+    """Re-evaluate locked knowledge matches without rerunning scientific callers.
+
+    The source result's bundle provenance is deliberately preserved. The emitted result records
+    that this is a report-only overlay rather than pretending the original run used the new bundle.
+    """
+    lock = load_model(lock_path, AmlKnowledgeLock)
+    events = prioritize_aml_rearrangements(
+        result.events,
+        resource_path=resource_path,
+        lock=lock,
+    )
+    fusion_evidence_count = sum(event.fusion_evidence is not None for event in events)
+    knowledge_match_count = sum(event.known_rearrangement is not None for event in events)
+    modules = [
+        outcome.model_copy(
+            update={
+                "status": ModuleRunStatus.COMPLETED,
+                "reason": (
+                    "Report-only locked knowledge reassessment completed: "
+                    f"{fusion_evidence_count} event(s) carried fusion evidence and "
+                    f"{knowledge_match_count} matched a hematology review pattern. "
+                    "Scientific callers were not rerun."
+                ),
+            }
+        )
+        if outcome.module == AnalysisModule.FUSION
+        else outcome
+        for outcome in result.modules
+    ]
+    warning = (
+        f"Report-only AML knowledge overlay {lock.resource_id} release {lock.release} was applied "
+        "after the original run. Caller outputs and original bundle provenance are unchanged."
+    )
+    return result.model_copy(
+        update={
+            "events": events,
+            "modules": modules,
+            "warnings": [*result.warnings, warning],
+        }
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -61,6 +160,16 @@ def _parser() -> argparse.ArgumentParser:
     render = subparsers.add_parser("render", help="Render HTML and Excel from a result JSON")
     render.add_argument("result", type=Path)
     render.add_argument("--output-dir", type=Path, required=True)
+    render.add_argument(
+        "--knowledge-resource",
+        type=Path,
+        help="Optional locked AML knowledge JSON for a report-only reassessment",
+    )
+    render.add_argument(
+        "--knowledge-lock",
+        type=Path,
+        help="Lock matching --knowledge-resource; both options are required together",
+    )
 
     reference_lock = subparsers.add_parser(
         "reference-lock", help="Create a versioned reference lock from a FASTA .fai index"
@@ -71,7 +180,21 @@ def _parser() -> argparse.ArgumentParser:
         "--genome-build", choices=[item.value for item in GenomeBuild], required=True
     )
     reference_lock.add_argument("--allow-extra-contigs", action="store_true")
+    reference_lock.add_argument(
+        "--require-canonical-assembly",
+        action="store_true",
+        help="Require complete canonical chromosomes 1-22, X and Y for the named build",
+    )
     reference_lock.add_argument("--output", type=Path, required=True)
+
+    validate_reference = subparsers.add_parser(
+        "validate-reference", help="Validate and summarize an existing reference lock"
+    )
+    validate_reference.add_argument("path", type=Path)
+    validate_reference.add_argument(
+        "--expected-genome-build", choices=[item.value for item in GenomeBuild]
+    )
+    validate_reference.add_argument("--require-canonical-assembly", action="store_true")
 
     inspect_bam = subparsers.add_parser(
         "inspect-bam", help="Run the aligned-BAM integrity and reference gate"
@@ -103,6 +226,24 @@ def _parser() -> argparse.ArgumentParser:
     target_coverage.add_argument("--output-dir", type=Path, required=True)
     target_coverage.add_argument("--output", type=Path, required=True)
 
+    call_methylation = subparsers.add_parser(
+        "call-methylation",
+        help="Run modkit pileup and normalize region-aggregated modified-base fractions",
+    )
+    call_methylation.add_argument("manifest", type=Path)
+    call_methylation.add_argument("--intake", type=Path, required=True)
+    call_methylation.add_argument("--policy", type=Path, required=True)
+    call_methylation.add_argument(
+        "--reference-fasta",
+        type=Path,
+        help="Required when the policy restricts the pileup to CpG sites",
+    )
+    call_methylation.add_argument("--modkit", default="modkit")
+    call_methylation.add_argument("--samtools", default="samtools")
+    call_methylation.add_argument("--threads", type=int, default=4)
+    call_methylation.add_argument("--output-dir", type=Path, required=True)
+    call_methylation.add_argument("--output", type=Path, required=True)
+
     call_sniffles = subparsers.add_parser(
         "call-sniffles", help="Run Sniffles2 and normalize conservative candidate SV evidence"
     )
@@ -119,11 +260,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Exercise samtools, Cramino and Sniffles2 with generated synthetic alignments",
     )
     local_smoke.add_argument("--output-dir", type=Path, default=Path("results/local-smoke"))
-    local_smoke.add_argument("--qc-policy", type=Path, default=Path("configs/qc/defaults.yaml"))
+    local_smoke.add_argument(
+        "--qc-policy", type=Path, default=configuration_root() / "qc" / "defaults.yaml"
+    )
     local_smoke.add_argument(
         "--sniffles-policy",
         type=Path,
-        default=Path("configs/sv/sniffles2.conservative.technical.yaml"),
+        default=configuration_root() / "sv" / "sniffles2.conservative.technical.yaml",
     )
     local_smoke.add_argument("--samtools", default="samtools")
     local_smoke.add_argument("--cramino", default="cramino")
@@ -156,6 +299,80 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("case", type=Path)
     benchmark.add_argument("--output", type=Path, required=True)
 
+    dilution_plan = subparsers.add_parser(
+        "dilution-plan",
+        help="Lay out an in-silico tumour dilution series from two source BAMs",
+    )
+    dilution_plan.add_argument("--policy", type=Path, required=True)
+    dilution_plan.add_argument("--series-id", required=True)
+    dilution_plan.add_argument("--tumor-bam", type=Path, required=True)
+    dilution_plan.add_argument("--normal-bam", type=Path, required=True)
+    dilution_plan.add_argument("--tumor-sample-id", required=True)
+    dilution_plan.add_argument("--normal-sample-id", required=True)
+    dilution_plan.add_argument(
+        "--genome-build", choices=[item.value for item in GenomeBuild], required=True
+    )
+    dilution_plan.add_argument("--samtools", default="samtools")
+    dilution_plan.add_argument("--threads", type=int, default=4)
+    dilution_plan.add_argument("--output", type=Path, required=True)
+
+    dilution_mix = subparsers.add_parser(
+        "dilution-mix", help="Materialize the mixed BAMs of a planned dilution series"
+    )
+    dilution_mix.add_argument("plan", type=Path)
+    dilution_mix.add_argument("--tumor-bam", type=Path, required=True)
+    dilution_mix.add_argument("--normal-bam", type=Path, required=True)
+    dilution_mix.add_argument("--samtools", default="samtools")
+    dilution_mix.add_argument("--threads", type=int, default=4)
+    dilution_mix.add_argument("--output-dir", type=Path, required=True)
+    dilution_mix.add_argument("--output", type=Path, required=True)
+
+    lod = subparsers.add_parser(
+        "lod",
+        help="Derive a technical detection limit from the benchmark reports of a series",
+    )
+    lod.add_argument("reports", type=Path, nargs="+")
+    lod.add_argument("--policy", type=Path, required=True)
+    lod.add_argument("--series-id", required=True)
+    lod.add_argument("--output", type=Path, required=True)
+
+    methylation_mixture = subparsers.add_parser(
+        "methylation-mixture",
+        help=(
+            "Mix two Nanopolish call tables in silico and estimate the source-A "
+            "methylation-signal coefficient"
+        ),
+    )
+    methylation_mixture.add_argument("--source-a-calls", type=Path, required=True)
+    methylation_mixture.add_argument("--source-b-calls", type=Path, required=True)
+    methylation_mixture.add_argument("--source-a-id", required=True)
+    methylation_mixture.add_argument("--source-b-id", required=True)
+    methylation_mixture.add_argument("--source-a-metadata", type=Path)
+    methylation_mixture.add_argument("--source-b-metadata", type=Path)
+    methylation_mixture.add_argument(
+        "--confirm-biologically-distinct-sources",
+        action="store_true",
+        required=True,
+        help=(
+            "Operator declaration that source A and source B come from biologically distinct "
+            "sources rather than technical replicates or file subsets"
+        ),
+    )
+    methylation_mixture.add_argument(
+        "--source-a-genome-build",
+        choices=[item.value for item in GenomeBuild],
+        required=True,
+    )
+    methylation_mixture.add_argument(
+        "--source-b-genome-build",
+        choices=[item.value for item in GenomeBuild],
+        required=True,
+    )
+    methylation_mixture.add_argument("--analysis-id", required=True)
+    methylation_mixture.add_argument("--git-commit", default="UNKNOWN")
+    methylation_mixture.add_argument("--policy", type=Path, required=True)
+    methylation_mixture.add_argument("--output-dir", type=Path, required=True)
+
     assemble = subparsers.add_parser(
         "assemble-aligned-mvp",
         help="Assemble intake, QC and optional candidate SV evidence into one result",
@@ -166,11 +383,19 @@ def _parser() -> argparse.ArgumentParser:
     assemble.add_argument("--sniffles", type=Path)
     assemble.add_argument("--git-commit", default="UNKNOWN")
     assemble.add_argument("--output", type=Path, required=True)
+    add_validation_subparsers(subparsers)
+    add_holdout_subparsers(subparsers)
     return parser
 
 
 def main() -> None:
     args = _parser().parse_args()
+    if args.command in VALIDATION_COMMANDS:
+        run_validation_command(args)
+        return
+    if args.command in HOLDOUT_COMMANDS:
+        run_holdout_command(args)
+        return
     try:
         if args.command == "demo":
             for path in _render(build_demo_result(), args.output_dir):
@@ -183,7 +408,33 @@ def main() -> None:
             print(f"VALID result: {result.manifest.sample_id}")
         elif args.command == "render":
             result = load_model(args.result, PipelineResult)
-            for path in _render(result, args.output_dir):
+            if (args.knowledge_resource is None) != (args.knowledge_lock is None):
+                raise ValueError(
+                    "--knowledge-resource and --knowledge-lock must be supplied together"
+                )
+            if args.knowledge_resource is not None and args.knowledge_lock is not None:
+                result = _apply_render_knowledge_overlay(
+                    result,
+                    resource_path=args.knowledge_resource,
+                    lock_path=args.knowledge_lock,
+                )
+            envelope_root = args.result.parent.parent
+            target_path = envelope_root / "qc" / "target-coverage.json"
+            selection_path = envelope_root / "qc" / "selection-coverage.json"
+            target_coverage = (
+                load_model(target_path, TargetCoverageReport) if target_path.is_file() else None
+            )
+            selection_coverage = (
+                load_model(selection_path, TargetCoverageReport)
+                if selection_path.is_file()
+                else None
+            )
+            for path in _render(
+                result,
+                args.output_dir,
+                target_coverage=target_coverage,
+                selection_coverage=selection_coverage,
+            ):
                 print(path)
         elif args.command == "reference-lock":
             lock = reference_lock_from_fai(
@@ -191,8 +442,28 @@ def main() -> None:
                 reference_id=args.reference_id,
                 genome_build=GenomeBuild(args.genome_build),
                 allow_extra_contigs=args.allow_extra_contigs,
+                require_canonical_assembly=args.require_canonical_assembly,
             )
             print(write_json(lock, args.output))
+        elif args.command == "validate-reference":
+            lock = load_model(args.path, ReferenceLock)
+            if args.expected_genome_build and lock.genome_build != GenomeBuild(
+                args.expected_genome_build
+            ):
+                raise ValueError(
+                    f"reference lock is {lock.genome_build.value}, not {args.expected_genome_build}"
+                )
+            naming_style = "not checked"
+            if args.require_canonical_assembly:
+                summary = validate_canonical_reference(
+                    ((item.name, item.length) for item in lock.contigs), lock.genome_build
+                )
+                naming_style = summary.naming_style
+            total_bases = sum(item.length for item in lock.contigs)
+            print(
+                f"{lock.genome_build.value} \u00b7 {len(lock.contigs)} contigs \u00b7 "
+                f"{total_bases} bp \u00b7 {lock.reference_id} \u00b7 {naming_style}"
+            )
         elif args.command == "inspect-bam":
             manifest = load_model(args.manifest, SampleManifest)
             lock = load_model(args.reference_lock, ReferenceLock)
@@ -227,6 +498,21 @@ def main() -> None:
                 threads=args.threads,
             )
             print(write_json(coverage_report, args.output))
+        elif args.command == "call-methylation":
+            manifest = load_model(args.manifest, SampleManifest)
+            intake = load_model(args.intake, AlignedBamIntakeReport)
+            methylation_policy = load_model(args.policy, MethylationPolicy)
+            methylation_report = run_methylation(
+                manifest,
+                intake,
+                methylation_policy,
+                output_dir=args.output_dir,
+                reference_fasta=args.reference_fasta,
+                modkit=args.modkit,
+                samtools=args.samtools,
+                threads=args.threads,
+            )
+            print(write_json(methylation_report, args.output))
         elif args.command == "call-sniffles":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)
@@ -279,6 +565,96 @@ def main() -> None:
         elif args.command == "benchmark":
             case = load_model(args.case, BenchmarkCase)
             print(write_json(benchmark_case(case), args.output))
+        elif args.command == "dilution-plan":
+            dilution_policy = load_model(args.policy, DilutionPolicy)
+            command_runner = SubprocessRunner()
+            plan = plan_dilution_series(
+                dilution_policy,
+                series_id=args.series_id,
+                tumor_sample_id=args.tumor_sample_id,
+                normal_sample_id=args.normal_sample_id,
+                genome_build=GenomeBuild(args.genome_build),
+                tumor_read_count=count_reads(
+                    args.tumor_bam,
+                    runner=command_runner,
+                    samtools=args.samtools,
+                    threads=args.threads,
+                ),
+                normal_read_count=count_reads(
+                    args.normal_bam,
+                    runner=command_runner,
+                    samtools=args.samtools,
+                    threads=args.threads,
+                ),
+            )
+            print(write_json(plan, args.output))
+            for warning in plan.warnings:
+                print(f"WARNING: {warning}")
+        elif args.command == "dilution-mix":
+            series_plan = load_model(args.plan, DilutionSeriesPlan)
+            series_report = execute_dilution_series(
+                series_plan,
+                tumor_bam=args.tumor_bam,
+                normal_bam=args.normal_bam,
+                output_dir=args.output_dir,
+                samtools=args.samtools,
+                threads=args.threads,
+            )
+            print(write_json(series_report, args.output))
+        elif args.command == "lod":
+            lod_policy = load_model(args.policy, LodPolicy)
+            lod_report = evaluate_lod(
+                [load_model(path, BenchmarkReport) for path in args.reports],
+                lod_policy,
+                series_id=args.series_id,
+            )
+            print(write_json(lod_report, args.output))
+            limit = lod_report.detection_limit_fraction
+            print(
+                f"detection limit: {limit if limit is not None else 'not established'} "
+                f"(bracketed: {lod_report.bracketed})"
+            )
+            for warning in lod_report.warnings:
+                print(f"WARNING: {warning}")
+        elif args.command == "methylation-mixture":
+            mixture_policy = load_model(args.policy, MethylationMixturePolicy)
+            source_a_metadata = (
+                load_model(args.source_a_metadata, NanopolishSourceMetadata)
+                if args.source_a_metadata is not None
+                else None
+            )
+            source_b_metadata = (
+                load_model(args.source_b_metadata, NanopolishSourceMetadata)
+                if args.source_b_metadata is not None
+                else None
+            )
+            mixture_report = run_nanopolish_mixture_analysis(
+                args.source_a_calls,
+                args.source_b_calls,
+                source_a_id=args.source_a_id,
+                source_b_id=args.source_b_id,
+                source_a_genome_build=GenomeBuild(args.source_a_genome_build),
+                source_b_genome_build=GenomeBuild(args.source_b_genome_build),
+                analysis_id=args.analysis_id,
+                policy=mixture_policy,
+                sources_declared_biologically_distinct=(args.confirm_biologically_distinct_sources),
+                source_a_metadata=source_a_metadata,
+                source_b_metadata=source_b_metadata,
+                software_version=__version__,
+                git_commit=args.git_commit,
+            )
+            output_stem = f"{mixture_report.analysis_id}.methylation-mixture"
+            outputs = [
+                write_json(mixture_report, args.output_dir / f"{output_stem}.json"),
+                render_methylation_mixture_csv(
+                    mixture_report, args.output_dir / f"{output_stem}.csv"
+                ),
+                render_methylation_mixture_html(
+                    mixture_report, args.output_dir / f"{output_stem}.html"
+                ),
+            ]
+            for path in outputs:
+                print(path)
         elif args.command == "assemble-aligned-mvp":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)

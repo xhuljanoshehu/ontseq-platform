@@ -6,11 +6,19 @@ This document describes how one sample is taken from raw input to a checksummed 
 bundle in a single command, and — just as important — what that command does *not* prove.
 
 ```
-ontseq run <manifest.json> --reference-lock <lock.json> --run-id <RUN> [--reference-fasta …]
+ontseq run <manifest.json> --reference-lock <lock.json> --reference-fasta <reference.fa> \
+  --run-id <RUN>
 ```
 
 The scope of automation ends where interpretation begins. The pipeline produces evidence
 and provenance; a human decides what any of it means.
+
+The standalone `ontseq methylation-mixture` command is deliberately outside this single-sample
+stage graph. It compares two Nanopolish call tables, reserves disjoint calibration pools and
+creates seeded held-out read-group mixtures. Its output is a methylation-based source-A mixture
+coefficient evaluated against the known read-group fraction, not tumour purity, cell fraction or
+DNA-mass fraction. See
+[`METHYLATION_MIXTURE.md`](METHYLATION_MIXTURE.md) for its contract and command line.
 
 ---
 
@@ -26,9 +34,10 @@ about without executing anything.
 | `align` | minimap2 + samtools | POD5, unaligned BAM | yes | verified with real tool |
 | `intake` | samtools | all | yes | verified with real tool |
 | `qc` | cramino | all | yes | verified with real tool |
-| `target_coverage` | — | all | no | not implemented |
+| `target_coverage` | mosdepth | all | no | verified with real tool |
 | `cnv` | — | all | no | not implemented |
-| `sv` | Sniffles2 | all | no | verified with real tool |
+| `sv` | Sniffles2 + cuteSV, consensus and annotations | all | no | adapters verified with synthetic contracts; real-tool CI |
+| `methylation` | modkit | all | no | **unverified adapter** |
 | `assemble` | — | all | yes | pure Python |
 | `report` | — | all | yes | pure Python |
 | `release` | — | all | yes | pure Python |
@@ -42,6 +51,28 @@ Which stages run follows from the manifest's declared `input.kind`, never from w
 happens to exist on disk. An aligned-BAM run does not "skip" basecalling; basecalling does
 not apply to it. This distinction is load-bearing: a stage that does not apply must not
 appear in the report as something that failed to happen.
+
+### Three ways a stage can be out of scope
+
+Applicability is not one question but three, and the run report keeps them apart because a
+reader tracing an absent result needs to know which one they are looking at.
+
+| Gate | Decided by | Records | Example |
+| --- | --- | --- | --- |
+| Input kind | `StageSpec.applicable_for` | absent from the plan entirely | `basecall` on an aligned-BAM run |
+| Assay | the manifest's `assay.mode` | `applicable: false` | `target_coverage` on an lcWGS run |
+| Requested analysis | the manifest's `analysis.modules` | `requested: false` | `sv` and `methylation` on a CNV-only run |
+
+The third gate is the manifest acting as the run's scope contract. A stage that runs
+anyway produces evidence nobody asked for and — the failure that motivated the gate — can
+kill a run over a tool the operator had no reason to configure: a manifest declaring
+`modules: [qc, cnv, report]` used to drive a structural-variant attempt regardless, so a
+CNV-only run died on a missing cuteSV reference FASTA.
+
+Skipping is never silent. Each of the three records a reason saying it is a scope
+statement rather than a negative result, and a stage that *was* requested but cannot be
+configured still fails closed: asking for SV evidence with no caller policy is an error,
+not a skip.
 
 ### Bridging skipped stages
 
@@ -148,7 +179,8 @@ Two lanes run against real binaries in the `local-real-tool-smoke` job, on synth
 that contains no genomic material of any kind.
 
 **Aligned-BAM lane.** A synthetic BAM is built with samtools, then taken through
-`intake → qc → sv → assemble → report → release` with real samtools, cramino and Sniffles2.
+`intake → qc → sv → assemble → report → release` with real samtools, cramino, Sniffles2 and
+cuteSV. CI requires both caller JSON artifacts and the consolidated consensus artifact.
 The release bundle's `checksums.sha256` is then verified independently with `sha256sum -c`,
 so the checksums are confirmed by a tool that shares no code with the one that wrote them.
 
@@ -164,8 +196,8 @@ alignment has a correct answer to find, and CI asserts on the result:
 - `MM` is still present on reverse-strand records specifically.
 
 Structural-variant detection is deliberately *not* asserted in this lane. Some fixture
-reads carry a 200 bp deletion so the aligner has a real gap to place, but whether Sniffles2
-calls it is the aligned-BAM lane's assertion. On the current fixture the SV stage records
+reads carry a 200 bp deletion so the aligner has a real gap to place, but whether either caller
+calls it is the aligned-BAM lane's assertion. On the current fixture the SV stage can record
 `NO_CALL`, which is a legitimate outcome and not a biological negative.
 
 That job is what earns `align` its `verified_with_real_tool` status. Before it existed the
@@ -198,19 +230,34 @@ and any run that completes a basecalling stage carries an explicit warning in it
 and release bundle. Treat POD5 runs as untested until someone executes one against a real
 GPU and a real model.
 
-**Modified-base tags are carried, not interpreted.** CI proves `MM`/`ML` survive alignment,
-including on reverse-strand records. It does not prove that a downstream methylation caller
-reads them correctly, because there is no methylation lane yet to read them.
+**The methylation lane has never met modkit.** There is now a lane that reads the `MM`/`ML`
+tags CI proves survive alignment (`docs/METHYLATION_LANE.md`), but no modkit binary exists in
+this repository's CI or development environment, so the adapter is marked `unverified_adapter`
+and a run completing that stage says so. Its bedMethyl parsing, region aggregation and refusals
+are unit tested against synthetic pileups; its behaviour on real modkit output is an assumption.
+What CI still does not prove is that a caller interprets modified-base tags on reverse-strand
+records correctly — that needs a real run, not a lane.
+
+**The paired-source Nanopolish experiment is technical and separate.** Its parser, exact-marker
+matching, seeded mixing, regression, uncertainty and no-call rules use synthetic contract tests.
+It does not validate Nanopolish upstream calling, prove the declared reference build or establish
+a biological tumour fraction. Public or institutional methylation tables remain outside Git.
 
 **No stage output has clinical meaning.** Tool versions are pinned for reproducibility.
 Thresholds are technical defaults. `qc` gates are `null` pending analytical validation. A
 `PASS` verdict means the software executed as designed; it is not evidence about a sample.
 
-**CNV and target coverage are not wired in.** Both are declared in the graph and both record
-`NOT_RUN` with the reason "No adapter is wired in for this stage." The CNV benchmarking
-subsystem (`docs/CNV_BENCHMARKING.md`) exists to choose a caller on evidence before one is
-wired in; target coverage is developed in the adaptive-sampling work stream and plugs into
-the same seam.
+**CNV is not wired in.** It is declared in the graph and records `NOT_RUN` with the reason
+"No adapter is wired in for this stage." The CNV benchmarking subsystem
+(`docs/CNV_BENCHMARKING.md`) exists to choose a caller on evidence before one is wired in.
+
+**Target coverage is wired in, and only an adaptive-sampling run measures anything.** The
+Mosdepth adapter runs in the canonical runner. For any other assay mode the stage records
+`NOT_RUN` with the reason that per-target coverage does not apply — a scope statement, not a
+coverage finding. An adaptive-sampling run without a target-coverage policy or a readable
+target BED fails closed rather than producing a report that looks complete. The stage is
+declared optional in the graph because an lcWGS run legitimately skips it; for an
+adaptive-sampling run it is not optional, and a `FAILED` target-coverage stage fails the run.
 
 **The release bundle is unsigned.** `signature_status` is the literal `"unsigned"`. It is a
 checksum manifest, not a chain of custody.
@@ -263,7 +310,8 @@ Three rules govern reclaiming:
 
 ```
 ontseq watch /drop --manifest-template assay.manifest.yaml \
-  --reference-lock GRCh38.lock.json --input-kind aligned_bam \
+  --reference-lock GRCh38.lock.json --reference-fasta GRCh38.fa \
+  --input-kind aligned_bam \
   --output-dir results/runs
 ```
 
@@ -420,7 +468,9 @@ What it checks: the declared input exists and has the shape its kind promises; t
 and the reference lock agree; the reference FASTA's `.fai` still hashes to the
 `source_fai_sha256` the lock recorded; every binary the *planned* stages will invoke is
 present, runnable and at its locked version; the Dorado model matches its lock and a
-modified-base model was requested; the envelope is free; the output location is writable.
+modified-base model was requested; for an adaptive-sampling run, that a target-coverage
+policy was supplied and that the declared target BED parses into usable regions; the
+envelope is free; the output location is writable.
 
 It also reports two things about the run's *scope*, kept deliberately apart. A stage on an
 `unverified_adapter` **will run**, on code nobody has executed against the real tool, and its
@@ -438,9 +488,17 @@ version strings are parsed by the adapters' own parsers rather than re-implement
 version lock is enforced only when a *planned* stage would enforce it — the alignment policy
 locks a samtools version, but an aligned-BAM run never aligns and never applies that lock.
 
-**A tool's absence is as fatal as its stage is required.** `sniffles` serves only the
-optional SV stage, so a machine without it gets a warning saying SV will record `NOT_RUN`,
-not a refusal. That is derived from `StageSpec.required`, not maintained by hand.
+**A tool's absence is as fatal as its stage is required — for this run.** `sniffles` serves
+only the optional SV stage, so a machine without it gets a warning saying SV will record
+`NOT_RUN`, not a refusal. That is derived from `StageSpec.required`, not maintained by hand.
+
+`required` is a property of the graph, though, and one stage needs more than the graph can
+say: target coverage is optional because an lcWGS run records it as out of scope, but an
+adaptive-sampling run neither skips it nor survives it failing. So preflight escalates a tool
+to blocking when any stage needing it is one *this particular run* cannot do without, and a
+missing Mosdepth is therefore a warning for lcWGS and a refusal for adaptive sampling. The
+Mosdepth version lock is applied on the same condition, so an lcWGS run is never refused over
+a tool it will not invoke.
 
 **Not knowing is a distinct answer.** Free disk space is *reported*, not judged, unless the
 caller states a requirement with `--require-free-gb`. There is no measured relationship in

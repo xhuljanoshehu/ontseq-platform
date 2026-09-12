@@ -1,0 +1,56 @@
+{
+  "additionalProperties": false,
+  "description": "Local plan only; callers must check version before execution.\n\nargv contains local paths and must not be included in public reports. The\nbuilder neither invokes modkit nor writes an output; use shell=False if a\nseparate authorized runner executes this plan.",
+  "properties": {
+    "argv": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Argv",
+      "type": "array"
+    },
+    "expected_version": {
+      "const": "0.6.1",
+      "title": "Expected Version",
+      "type": "string"
+    },
+    "probability_transform": {
+      "const": "none",
+      "default": "none",
+      "title": "Probability Transform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    },
+    "tool_name": {
+      "const": "modkit",
+      "default": "modkit",
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "version_check_argv": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Version Check Argv",
+      "type": "array"
+    }
+  },
+  "required": [
+    "expected_version",
+    "version_check_argv",
+    "argv"
+  ],
+  "title": "ModkitExtractCommand",
+  "type": "object"
+}

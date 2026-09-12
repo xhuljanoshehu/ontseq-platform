@@ -107,7 +107,7 @@ def _check(
 
 def _reference_check(
     header: ParsedBamHeader, reference_lock: ReferenceLock
-) -> tuple[CheckStatus, str, dict[str, int]]:
+) -> tuple[CheckStatus, str, dict[str, int | str | bool | None]]:
     observed = dict(header.contigs)
     expected = {item.name: item.length for item in reference_lock.contigs}
     missing = [name for name in expected if name not in observed]
@@ -115,22 +115,44 @@ def _reference_check(
         name for name, length in expected.items() if name in observed and observed[name] != length
     ]
     extras = [name for name in observed if name not in expected]
-    details = {
+    expected_present_order = [name for name in expected if name in observed]
+    observed_locked_order = [name for name in observed if name in expected]
+    order_mismatch = expected_present_order != observed_locked_order
+    details: dict[str, int | str | bool | None] = {
         "expected_contigs": len(expected),
         "observed_contigs": len(observed),
+        "expected_reference_bases": sum(expected.values()),
+        "observed_reference_bases": sum(observed.values()),
+        "expected_dictionary_sha256": contig_signature(expected.items()),
+        "observed_dictionary_sha256": contig_signature(observed.items()),
         "missing_contigs": len(missing),
         "length_mismatches": len(length_mismatches),
         "extra_contigs": len(extras),
+        "contig_order_mismatch": order_mismatch,
     }
-    failed = missing or length_mismatches or (extras and not reference_lock.allow_extra_contigs)
+    failed = (
+        missing
+        or length_mismatches
+        or order_mismatch
+        or (extras and not reference_lock.allow_extra_contigs)
+    )
     if failed:
+        order_detail = "; contig order differs" if order_mismatch else ""
         return (
             CheckStatus.FAIL,
-            "BAM sequence dictionary does not match the reference lock",
+            "Reference dictionary mismatch: "
+            f"expected {len(expected)}, observed {len(observed)}; "
+            f"{len(missing)} missing, {len(length_mismatches)} length mismatches, "
+            f"{len(extras)} extra contigs{order_detail}",
             details,
         )
     if extras:
-        return CheckStatus.WARN, "BAM has extra contigs permitted by the reference lock", details
+        return (
+            CheckStatus.WARN,
+            "Reference dictionary matched under the explicit extra-contig policy: "
+            f"{len(extras)} extra contigs permitted",
+            details,
+        )
     return CheckStatus.PASS, "BAM sequence dictionary matches the reference lock", details
 
 
@@ -268,7 +290,7 @@ class AlignedBamInspector:
         tool = ToolRecord(
             name="samtools",
             version=version,
-            parameters={"checks": ["quickcheck", "view -H", "idxstats"]},
+            parameters={"checks": ["quickcheck", "view -H", "idxstats -X"]},
         )
         _check(checks, "samtools_available", CheckStatus.PASS, "samtools is available")
 
@@ -370,7 +392,10 @@ class AlignedBamInspector:
                 reference_status, message, details = _reference_check(parsed_header, reference_lock)
                 _check(checks, "sequence_dictionary", reference_status, message, **details)
 
-        idxstats = self.runner.run([self.samtools, "idxstats", str(bam_path)], timeout_seconds=300)
+        idxstats = self.runner.run(
+            [self.samtools, "idxstats", "-X", str(bam_path), str(index_path)],
+            timeout_seconds=300,
+        )
         if idxstats.returncode == 0 and idxstats.stdout.strip():
             malformed_rows = 0
             rows = 0
@@ -400,7 +425,7 @@ class AlignedBamInspector:
                     checks,
                     "bam_index",
                     CheckStatus.PASS,
-                    "BAM index is readable and compatible with the BAM",
+                    "The declared BAM index is readable and compatible with the BAM",
                     rows=rows,
                 )
         else:
@@ -408,7 +433,7 @@ class AlignedBamInspector:
                 checks,
                 "bam_index",
                 CheckStatus.FAIL,
-                "samtools idxstats could not use the BAM index",
+                "samtools idxstats could not use the declared BAM index",
                 returncode=idxstats.returncode,
             )
 

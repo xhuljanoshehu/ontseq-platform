@@ -1,0 +1,18 @@
+schema_version: 1.0.0
+profile_id: AML_AS_111_GRCh37
+version: v1
+genome_build: GRCh37
+assay_mode: adaptive_sampling
+reference_bundle: GRCh37_GENCODE19_HG19_v2
+reference_dictionary_contract: exact_full
+knowledge_bundle: HEMATOLOGY_GRCh37_v1
+panel_bundle: AML_AS_111_GRCh37_v1
+adaptive_sampling: enabled
+description: >-
+  Research-only GRCh37.p13 Adaptive Sampling profile. Its selection BED is a controlled,
+  checksum-pinned build-time mapping of the exact normalized 111-target laboratory intent:
+  110/111 intervals mapped forward and 109/111 are reciprocal-exact; ACACA requires roundtrip
+  review and CT45A2 remains split/unmapped. Native GENCODE 19 resolves 108/111 analysis ROIs;
+  mapped IGH_REVIEW_REQUIRED and GPR128_REVIEW_REQUIRED intervals remain legacy selection-only,
+  without native gene IDs or gene-coverage claims. No mapping, build inference or cross-build
+  fallback occurs at runtime.

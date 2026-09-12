@@ -1,0 +1,486 @@
+{
+  "$defs": {
+    "DilutionLevelPlan": {
+      "additionalProperties": false,
+      "description": "One mixed BAM, fully specified before anything runs.",
+      "properties": {
+        "is_negative_control": {
+          "default": false,
+          "title": "Is Negative Control",
+          "type": "boolean"
+        },
+        "level_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Level Id",
+          "type": "string"
+        },
+        "nominal_tumor_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Nominal Tumor Fraction",
+          "type": "number"
+        },
+        "normal_reads_target": {
+          "minimum": 0,
+          "title": "Normal Reads Target",
+          "type": "integer"
+        },
+        "normal_subsample_argument": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normal Subsample Argument"
+        },
+        "normal_subsample_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Normal Subsample Fraction",
+          "type": "number"
+        },
+        "replicate": {
+          "minimum": 1,
+          "title": "Replicate",
+          "type": "integer"
+        },
+        "total_reads_target": {
+          "minimum": 0,
+          "title": "Total Reads Target",
+          "type": "integer"
+        },
+        "tumor_reads_target": {
+          "minimum": 0,
+          "title": "Tumor Reads Target",
+          "type": "integer"
+        },
+        "tumor_subsample_argument": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Subsample Argument"
+        },
+        "tumor_subsample_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Tumor Subsample Fraction",
+          "type": "number"
+        }
+      },
+      "required": [
+        "level_id",
+        "nominal_tumor_fraction",
+        "replicate",
+        "total_reads_target",
+        "tumor_reads_target",
+        "normal_reads_target",
+        "tumor_subsample_fraction",
+        "normal_subsample_fraction"
+      ],
+      "title": "DilutionLevelPlan",
+      "type": "object"
+    },
+    "DilutionLevelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "is_negative_control": {
+          "default": false,
+          "title": "Is Negative Control",
+          "type": "boolean"
+        },
+        "level_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Level Id",
+          "type": "string"
+        },
+        "mixed_bam_fingerprint": {
+          "$ref": "#/$defs/FileFingerprint"
+        },
+        "mixed_bam_relative_path": {
+          "minLength": 1,
+          "title": "Mixed Bam Relative Path",
+          "type": "string"
+        },
+        "nominal_tumor_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Nominal Tumor Fraction",
+          "type": "number"
+        },
+        "normal_reads_observed": {
+          "minimum": 0,
+          "title": "Normal Reads Observed",
+          "type": "integer"
+        },
+        "observed_tumor_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Tumor Fraction"
+        },
+        "replicate": {
+          "minimum": 1,
+          "title": "Replicate",
+          "type": "integer"
+        },
+        "total_reads_observed": {
+          "minimum": 0,
+          "title": "Total Reads Observed",
+          "type": "integer"
+        },
+        "tumor_reads_observed": {
+          "minimum": 0,
+          "title": "Tumor Reads Observed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level_id",
+        "nominal_tumor_fraction",
+        "replicate",
+        "tumor_reads_observed",
+        "normal_reads_observed",
+        "total_reads_observed",
+        "mixed_bam_relative_path",
+        "mixed_bam_fingerprint"
+      ],
+      "title": "DilutionLevelResult",
+      "type": "object"
+    },
+    "DilutionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_samtools_version": {
+          "default": "1.24",
+          "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$",
+          "title": "Expected Samtools Version",
+          "type": "string"
+        },
+        "include_normal_only_control": {
+          "default": true,
+          "title": "Include Normal Only Control",
+          "type": "boolean"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "observed_fraction_tolerance": {
+          "default": 0.02,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Observed Fraction Tolerance",
+          "type": "number"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "replicates": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Replicates",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "seed": {
+          "default": 42,
+          "maximum": 999999,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "technical_defaults_only",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total_read_target": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Read Target"
+        },
+        "tumor_fractions": {
+          "items": {
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Tumor Fractions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile_id",
+        "status",
+        "note"
+      ],
+      "title": "DilutionPolicy",
+      "type": "object"
+    },
+    "DilutionSeriesPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/DilutionLevelPlan"
+          },
+          "minItems": 1,
+          "title": "Levels",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "normal_read_count": {
+          "minimum": 1,
+          "title": "Normal Read Count",
+          "type": "integer"
+        },
+        "normal_sample_id": {
+          "minLength": 1,
+          "title": "Normal Sample Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/DilutionPolicy"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "series_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Series Id",
+          "type": "string"
+        },
+        "tumor_read_count": {
+          "minimum": 1,
+          "title": "Tumor Read Count",
+          "type": "integer"
+        },
+        "tumor_sample_id": {
+          "minLength": 1,
+          "title": "Tumor Sample Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "series_id",
+        "tumor_sample_id",
+        "normal_sample_id",
+        "genome_build",
+        "policy",
+        "tumor_read_count",
+        "normal_read_count",
+        "levels"
+      ],
+      "title": "DilutionSeriesPlan",
+      "type": "object"
+    },
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "levels": {
+      "items": {
+        "$ref": "#/$defs/DilutionLevelResult"
+      },
+      "minItems": 1,
+      "title": "Levels",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "plan": {
+      "$ref": "#/$defs/DilutionSeriesPlan"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "series_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Series Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ModuleRunStatus"
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolRecord"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "series_id",
+    "status",
+    "plan",
+    "levels",
+    "tool"
+  ],
+  "title": "DilutionSeriesReport",
+  "type": "object"
+}

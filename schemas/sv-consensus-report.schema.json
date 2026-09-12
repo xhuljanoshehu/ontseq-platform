@@ -1,0 +1,1219 @@
+{
+  "$defs": {
+    "BreakpointAnnotation": {
+      "additionalProperties": false,
+      "description": "One 0-based breakpoint with cytoband, transcript and technical context.",
+      "properties": {
+        "chromosome": {
+          "pattern": "^chr(?:[1-9]|1[0-9]|2[0-2]|X|Y|M)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "contexts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointContextAnnotation"
+          },
+          "title": "Contexts",
+          "type": "array"
+        },
+        "cytoband": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband"
+        },
+        "label": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "transcripts": {
+          "items": {
+            "$ref": "#/$defs/BreakpointTranscriptAnnotation"
+          },
+          "title": "Transcripts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "chromosome",
+        "position"
+      ],
+      "title": "BreakpointAnnotation",
+      "type": "object"
+    },
+    "BreakpointContextAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "resource_type": {
+          "minLength": 1,
+          "title": "Resource Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "resource_type",
+        "label"
+      ],
+      "title": "BreakpointContextAnnotation",
+      "type": "object"
+    },
+    "BreakpointTranscriptAnnotation": {
+      "additionalProperties": false,
+      "description": "Transcript-level context for one independently annotated SV breakpoint.",
+      "properties": {
+        "cds_phase": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cds Phase"
+        },
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene_id": {
+          "minLength": 1,
+          "title": "Gene Id",
+          "type": "string"
+        },
+        "gene_name": {
+          "minLength": 1,
+          "title": "Gene Name",
+          "type": "string"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred": {
+          "default": false,
+          "title": "Preferred",
+          "type": "boolean"
+        },
+        "rank_tier": {
+          "minimum": 1,
+          "title": "Rank Tier",
+          "type": "integer"
+        },
+        "region": {
+          "enum": [
+            "exon",
+            "intron",
+            "transcript"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "enum": [
+            "+",
+            "-"
+          ],
+          "title": "Strand",
+          "type": "string"
+        },
+        "transcript_id": {
+          "minLength": 1,
+          "title": "Transcript Id",
+          "type": "string"
+        },
+        "transcript_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transcript Name"
+        }
+      },
+      "required": [
+        "gene_id",
+        "gene_name",
+        "transcript_id",
+        "strand",
+        "rank_tier",
+        "region"
+      ],
+      "title": "BreakpointTranscriptAnnotation",
+      "type": "object"
+    },
+    "EventAnnotation": {
+      "additionalProperties": false,
+      "description": "A knowledge-base record attached to a finding \u2014 evidence, never a verdict.\n\nCarries the source's assertion verbatim together with the vocabulary it belongs to, so\nClinVar's germline *Pathogenic* cannot be read as a claim about a somatic finding. No\nfield here influences ``reportable`` or ``confidence``, and none may be added that does:\nthat decision needs somatic criteria this repository does not have.",
+      "properties": {
+        "assertion": {
+          "title": "Assertion",
+          "type": "string"
+        },
+        "assertion_vocabulary": {
+          "minLength": 1,
+          "title": "Assertion Vocabulary",
+          "type": "string"
+        },
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Caveats",
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genes",
+          "type": "array"
+        },
+        "match_type": {
+          "enum": [
+            "exact",
+            "record_within_finding",
+            "finding_within_record",
+            "overlap"
+          ],
+          "title": "Match Type",
+          "type": "string"
+        },
+        "reciprocal_overlap": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Reciprocal Overlap",
+          "type": "number"
+        },
+        "record_id": {
+          "minLength": 1,
+          "title": "Record Id",
+          "type": "string"
+        },
+        "record_origin": {
+          "enum": [
+            "germline",
+            "somatic",
+            "unknown"
+          ],
+          "title": "Record Origin",
+          "type": "string"
+        },
+        "record_type": {
+          "minLength": 1,
+          "title": "Record Type",
+          "type": "string"
+        },
+        "review_stars": {
+          "anyOf": [
+            {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Stars"
+        },
+        "review_status": {
+          "default": "",
+          "title": "Review Status",
+          "type": "string"
+        },
+        "scope_alignment": {
+          "enum": [
+            "aligned",
+            "mismatched",
+            "unknown"
+          ],
+          "title": "Scope Alignment",
+          "type": "string"
+        },
+        "scope_note": {
+          "title": "Scope Note",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_release": {
+          "minLength": 1,
+          "title": "Source Release",
+          "type": "string"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_release",
+        "source_sha256",
+        "record_id",
+        "record_type",
+        "assertion",
+        "assertion_vocabulary",
+        "record_origin",
+        "scope_alignment",
+        "scope_note",
+        "match_type",
+        "reciprocal_overlap"
+      ],
+      "title": "EventAnnotation",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "caller": {
+          "title": "Caller",
+          "type": "string"
+        },
+        "caller_version": {
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "coverage_context": {
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "title": "Coverage Context",
+          "type": "array"
+        },
+        "filters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Filters",
+          "type": "array"
+        },
+        "length_standard_deviation": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length Standard Deviation"
+        },
+        "local_coverage": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Coverage"
+        },
+        "mean_alignment_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean Alignment Nm"
+        },
+        "position_standard_deviation": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position Standard Deviation"
+        },
+        "precise": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precise"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality"
+        },
+        "support_reads": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Reads"
+        },
+        "supporting_read_strands": {
+          "anyOf": [
+            {
+              "pattern": "^[+-]{1,2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supporting Read Strands"
+        },
+        "variant_allele_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Allele Fraction"
+        }
+      },
+      "required": [
+        "caller",
+        "caller_version"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "FusionAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_status": {
+          "default": "unknown",
+          "enum": [
+            "in_frame",
+            "out_of_frame",
+            "unknown"
+          ],
+          "title": "Frame Status",
+          "type": "string"
+        },
+        "gene_a": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "gene_b": {
+          "$ref": "#/$defs/FusionPartnerAnnotation"
+        },
+        "orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "++",
+                "+-",
+                "-+",
+                "--"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orientation"
+        }
+      },
+      "required": [
+        "gene_a",
+        "gene_b"
+      ],
+      "title": "FusionAnnotation",
+      "type": "object"
+    },
+    "FusionPartnerAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "exon_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exon Number"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "intron_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intron Number"
+        },
+        "preferred_transcript": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preferred Transcript"
+        },
+        "region": {
+          "default": "unknown",
+          "enum": [
+            "exon",
+            "intron",
+            "transcript",
+            "unknown"
+          ],
+          "title": "Region",
+          "type": "string"
+        },
+        "strand": {
+          "anyOf": [
+            {
+              "enum": [
+                "+",
+                "-"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strand"
+        }
+      },
+      "title": "FusionPartnerAnnotation",
+      "type": "object"
+    },
+    "FusionSupportStatus": {
+      "enum": [
+        "not_assessed",
+        "fusion_candidate",
+        "fusion_supported",
+        "fusion_validated"
+      ],
+      "title": "FusionSupportStatus",
+      "type": "string"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "GenomicEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "aml_relevance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aml Relevance"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/EventAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "assessable_span_end": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Half-open end of that assessable region; a confirmed segment must cover it completely",
+          "title": "Assessable Span End"
+        },
+        "assessable_span_start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Zero-based start of the assessable region a whole-chromosome confirmation was measured against when the versioned CNV policy does not require an exact contig span",
+          "title": "Assessable Span Start"
+        },
+        "breakpoint_annotations": {
+          "items": {
+            "$ref": "#/$defs/BreakpointAnnotation"
+          },
+          "title": "Breakpoint Annotations",
+          "type": "array"
+        },
+        "breakpoint_distance_bp": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breakpoint Distance Bp"
+        },
+        "breakpoint_mean_depths": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Breakpoint Mean Depths",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "unclassified",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "unclassified"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "$ref": "#/$defs/EventType"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "fusion_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FusionAnnotation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fusion_status": {
+          "$ref": "#/$defs/FusionSupportStatus",
+          "default": "not_assessed"
+        },
+        "genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genes",
+          "type": "array"
+        },
+        "known_pathologies": {
+          "items": {
+            "$ref": "#/$defs/PathologyAssociation"
+          },
+          "title": "Known Pathologies",
+          "type": "array"
+        },
+        "known_rearrangement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Known Rearrangement"
+        },
+        "length_bp": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length Bp"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "observability": {
+          "$ref": "#/$defs/SvObservability",
+          "default": "NOT_APPLICABLE"
+        },
+        "observability_target_role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetBedRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "primary": {
+          "$ref": "#/$defs/Locus"
+        },
+        "reportable": {
+          "default": false,
+          "title": "Reportable",
+          "type": "boolean"
+        },
+        "secondary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Event Ids",
+          "type": "array"
+        },
+        "technical_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Technical Flags",
+          "type": "array"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/SvValidationStatus",
+          "default": "detected"
+        },
+        "whole_chromosome_span_confirmed": {
+          "default": false,
+          "description": "True only when the source CNV span covers the whole chromosome under the versioned span basis: an exact locked-contig span, or the recorded assessable span; required before +chr/-chr ISCN rendering",
+          "title": "Whole Chromosome Span Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "primary"
+      ],
+      "title": "GenomicEvent",
+      "type": "object"
+    },
+    "Locus": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "cytoband_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband End"
+        },
+        "cytoband_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband Start"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chromosome",
+        "start",
+        "end"
+      ],
+      "title": "Locus",
+      "type": "object"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "PathologyAssociation": {
+      "additionalProperties": false,
+      "description": "One source-attributed disease association for a rearrangement review pattern.\n\nThe association explains why a gene pair is surfaced to a reviewer.  It is deliberately\nnot a diagnosis, sample-level assertion, or reportability rule.",
+      "properties": {
+        "assertion_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assertion Count"
+        },
+        "disease_id": {
+          "pattern": "^DOID:\\d+$",
+          "title": "Disease Id",
+          "type": "string"
+        },
+        "evidence_item_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Item Count"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_record_id": {
+          "minLength": 1,
+          "title": "Source Record Id",
+          "type": "string"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disease_id",
+        "name",
+        "source_id",
+        "source_record_id",
+        "source_url"
+      ],
+      "title": "PathologyAssociation",
+      "type": "object"
+    },
+    "SvConsensusPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_breakpoint_distance_bp": {
+          "default": 500,
+          "minimum": 0,
+          "title": "Maximum Breakpoint Distance Bp",
+          "type": "integer"
+        },
+        "maximum_length_ratio_difference": {
+          "default": 0.35,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Length Ratio Difference",
+          "type": "number"
+        },
+        "merge_within_caller": {
+          "default": true,
+          "title": "Merge Within Caller",
+          "type": "boolean"
+        },
+        "minimum_reciprocal_overlap": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "require_orientation_when_available": {
+          "default": true,
+          "title": "Require Orientation When Available",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "technical_defaults_only",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_id",
+        "status",
+        "note"
+      ],
+      "title": "SvConsensusPolicy",
+      "type": "object"
+    },
+    "SvObservability": {
+      "enum": [
+        "OBSERVED_ADEQUATELY",
+        "PARTIALLY_OBSERVED",
+        "INSUFFICIENT_COVERAGE",
+        "OUTSIDE_TARGET",
+        "NOT_APPLICABLE"
+      ],
+      "title": "SvObservability",
+      "type": "string"
+    },
+    "SvValidationStatus": {
+      "enum": [
+        "detected",
+        "technically_supported",
+        "biologically_prioritized",
+        "analytically_validated",
+        "reportable"
+      ],
+      "title": "SvValidationStatus",
+      "type": "string"
+    },
+    "TargetBedRole": {
+      "description": "What a target BED actually is. The two are not interchangeable.\n\nThe BED a sequencer selects on usually carries flanks so that a read starting outside a\ngene is still enriched. Coverage computed over that buffered design answers \"was the\nenrichment working\"; it does not answer \"was the analysis region observed\", because the\nflanks dilute the per-target mean. Reporting one as the other overstates or understates\nadequacy depending on the flank size, so the manifest has to say which one it points at.",
+      "enum": [
+        "analysis_roi_unbuffered",
+        "selection_panel_buffered"
+      ],
+      "title": "TargetBedRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "caller_names": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Caller Names",
+      "type": "array"
+    },
+    "consolidated_event_count": {
+      "minimum": 0,
+      "title": "Consolidated Event Count",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/GenomicEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "input_event_count": {
+      "minimum": 0,
+      "title": "Input Event Count",
+      "type": "integer"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/SvConsensusPolicy"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ModuleRunStatus"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sample_id",
+    "genome_build",
+    "status",
+    "policy",
+    "events",
+    "input_event_count",
+    "consolidated_event_count",
+    "caller_names"
+  ],
+  "title": "SvConsensusReport",
+  "type": "object"
+}
