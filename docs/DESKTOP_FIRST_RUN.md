@@ -1,4 +1,4 @@
-# ONTSeq Desktop v0.8.1 — first run (engineering / RUO)
+# ONTSeq Desktop v0.8.2 — first run (engineering / RUO)
 
 ONTSeq Desktop is deliberately fail-closed. A BAM is not analysed until the local Linux runtime
 and the pinned GRCh37 or GRCh38 bundles required by its selected profile are available.
@@ -23,7 +23,7 @@ WSL2 and the configured Linux distribution (`Ubuntu` by default) must already be
 3. Choose **System einrichten**.
 4. Choose **System prüfen**.
 5. If the backend is missing, choose **Runtime installieren**.
-6. Confirm `resourceRootWsl` (fresh-settings default `~/.local/share/ontseq/resources-v0.8.1`, below the WSL user's
+6. Confirm `resourceRootWsl` (fresh-settings default `~/.local/share/ontseq/resources-v0.8.2`, below the WSL user's
    `$HOME`) and choose **Installieren** for either `GRCh38_GENCODE50_MANE1.5_v1` or
    `GRCh37_GENCODE19_HG19_v2`, matching the profiles you intend to run. The GRCh37 bundle
    contains separate native full-build and exact UCSC hg19 Canonical-25 contracts. Interactive status checks

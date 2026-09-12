@@ -1,14 +1,14 @@
-# ONTSeq Desktop v0.8.1 — first workstation run
+# ONTSeq Desktop v0.8.2 — first workstation run
 
 This checklist is for the unsigned engineering/research build only. It is not analytical or clinical validation.
 
 1. Confirm Windows WSL2 is enabled and the configured distribution opens normally.
-2. Extract the complete `ontseq-desktop-v0.8.1-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory, Core wheel or SHA256SUMS.
-3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime into its new, separate prefix. The installed runtime must report Core v0.7.1 and expose the reference-validation, target-coverage, component-selection and complete SV-policy capabilities checked by the Desktop preflight.
+2. Extract the complete `ontseq-desktop-v0.8.2-win-x64-setup-engineering` bundle; do not separate `ONTSeq.Desktop.exe` from the bundled `runtime` directory, Core wheel or SHA256SUMS.
+3. Start `ONTSeq.Desktop.exe`, open **System einrichten**, and install the bundled ONTSeq Linux runtime into its new, separate prefix. The installed runtime must report Core v0.8.2 and expose the reference-validation, target-coverage, component-selection and complete SV-policy capabilities checked by the Desktop preflight.
    The preflight also verifies pinned cuteSV 2.1.3 and absolute packaged policy paths; this
    runtime correction does not change scientific thresholds.
 4. Run **Selbsttest starten** before using any real sample. The self-test must finish successfully and produce its synthetic report bundle.
-5. Fresh settings use `~/.local/share/ontseq/resources-v0.8.1`; previously saved paths remain selected. For a separate test, choose a new resource root or explicitly select an existing validated installation. Select and install either `GRCh38_GENCODE50_MANE1.5_v1` or `GRCh37_GENCODE19_HG19_v2` when that family is absent. The latter provides both the native full GRCh37.p13 contract and the exact UCSC hg19 Canonical-25 contract required for adaptive sampling. Fast bundle status must pass; use **Reparieren** for damaged resources. Run `ontseq references validate` for a full SHA256 audit. The root's software-version suffix does not change scientific bundle versions or move existing resources.
+5. Fresh settings use `~/.local/share/ontseq/resources-v0.8.2`; previously saved paths remain selected. For a separate test, choose a new resource root or explicitly select an existing validated installation. Select and install either `GRCh38_GENCODE50_MANE1.5_v1` or `GRCh37_GENCODE19_HG19_v2` when that family is absent. The latter provides both the native full GRCh37.p13 contract and the exact UCSC hg19 Canonical-25 contract required for adaptive sampling. Fast bundle status must pass; use **Reparieren** for damaged resources. Run `ontseq references validate` for a full SHA256 audit. The root's software-version suffix does not change scientific bundle versions or move existing resources.
 6. Choose the profile matching the BAM dictionary. `AML_LCWGS_GRCh38` and
    `AML_AS_111_GRCh38` remain `exact_full` and require the complete ordered Primary-Assembly
    lock. `AML_LCWGS_GRCh38_CANONICAL25` and `AML_AS_111_GRCh38_CANONICAL25` require exactly

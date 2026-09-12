@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.Json;
 
 const string UnicodeOutputFixture = "DNS-Auflösung fehlgeschlagen – Grüße, Straße, Methylierung 🧬\n";
+var currentCoreVersion = typeof(WslServiceLauncher).Assembly.GetName().Version?.ToString(3)
+    ?? throw new InvalidOperationException("Missing Desktop assembly version");
 if (args is ["--emit-utf8-fixture"])
 {
     var bytes = Encoding.UTF8.GetBytes(UnicodeOutputFixture);
@@ -42,7 +44,7 @@ if (args is ["--verify-wsl-unicode", var unicodeDistribution])
 // command used by Desktop, but never runs it or changes Desktop settings.
 if (args is ["--emit-verified-runtime-install", var archivePath, var newPrefix])
 {
-    var verifiedPackage = await RuntimePackage.VerifyAsync(archivePath, "0.7.1", CancellationToken.None);
+    var verifiedPackage = await RuntimePackage.VerifyAsync(archivePath, currentCoreVersion, CancellationToken.None);
     Console.WriteLine(WslServiceLauncher.RuntimeInstallCoreCommand(verifiedPackage, newPrefix));
     return;
 }
@@ -1049,7 +1051,7 @@ try
     var runtimeFolder = Path.Combine(root, "runtime");
     Directory.CreateDirectory(runtimeFolder);
     var baseArchive = Path.Combine(runtimeFolder, "ontseq-linux-runtime.tar.gz");
-    var coreWheel = Path.Combine(runtimeFolder, "ontseq_platform-0.7.1-py3-none-any.whl");
+    var coreWheel = Path.Combine(runtimeFolder, $"ontseq_platform-{currentCoreVersion}-py3-none-any.whl");
     var checksumsPath = Path.Combine(runtimeFolder, "SHA256SUMS");
     File.WriteAllText(baseArchive, "synthetic base archive: not executable");
     File.WriteAllText(coreWheel, "synthetic Core wheel: not executable");
@@ -1059,10 +1061,10 @@ try
         archiveChecksum + "  " + Path.GetFileName(baseArchive),
         wheelChecksum + "  " + Path.GetFileName(coreWheel)
     ]);
-    var package = await RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None);
+    var package = await RuntimePackage.VerifyAsync(baseArchive, currentCoreVersion, CancellationToken.None);
     AssertEqual(coreWheel, package.WheelPath, "runtime requires matching Core wheel sidecar");
     var installCommand = WslServiceLauncher.RuntimeInstallCoreCommand(
-        package, "/home/synthetic/.local/share/ontseq/runtime-v0.8.1-synthetic");
+        package, $"/home/synthetic/.local/share/ontseq/runtime-v{currentCoreVersion}-synthetic");
     AssertEqual("False", installCommand.Contains("rm ", StringComparison.Ordinal).ToString(),
         "runtime installation never removes an existing prefix");
     AssertEqual("True", installCommand.StartsWith("test ! -e ", StringComparison.Ordinal).ToString(),
@@ -1082,15 +1084,15 @@ try
         package, "/home/synthetic/.local/share/ontseq/runtime-v0.5.3-existing"),
         "runtime installation cannot overwrite old release prefix");
     File.AppendAllText(coreWheel, "tampered");
-    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None)
+    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, currentCoreVersion, CancellationToken.None)
         .GetAwaiter().GetResult(), "tampered Core wheel blocks installation");
     File.WriteAllText(coreWheel, "synthetic Core wheel: not executable");
     File.AppendAllText(baseArchive, "tampered");
-    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None)
+    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, currentCoreVersion, CancellationToken.None)
         .GetAwaiter().GetResult(), "tampered base archive blocks installation");
     File.WriteAllText(baseArchive, "synthetic base archive: not executable");
     File.WriteAllText(checksumsPath, archiveChecksum + "  " + Path.GetFileName(baseArchive));
-    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, "0.7.1", CancellationToken.None)
+    AssertThrows<InvalidDataException>(() => RuntimePackage.VerifyAsync(baseArchive, currentCoreVersion, CancellationToken.None)
         .GetAwaiter().GetResult(), "missing Core checksum blocks installation");
 
     var originalSettingsOverride = Environment.GetEnvironmentVariable("ONTSEQ_DESKTOP_SETTINGS");
