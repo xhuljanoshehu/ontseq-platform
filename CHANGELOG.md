@@ -19,6 +19,23 @@ validated release.
 - No caller threshold, classification fraction, reference bundle or reportability rule changes.
   Whole-chromosome proposals remain research-use-only and require cytogenetic expert review.
 
+## 0.8.2 — 2026-09-11
+
+### Fixed
+
+- Repair the Windows engineering bundle: include the matching Core wheel and `SHA256SUMS`
+  beside the pinned Linux/R runtime instead of publishing only the runtime tarball.
+- Verify the runtime archive and Core wheel against the packaged SHA-256 manifest before
+  artifact upload, and fail CI if any installer input is missing.
+- Add a dedicated Desktop bundle-contract regression and correct stale current operator
+  documentation that still referred to Core v0.7.1.
+
+### Validation impact
+
+- Packaging/integrity behavior changes only. CNV/SV/methylation algorithms, thresholds,
+  reference/panel content and reportability semantics are unchanged. This remains an
+  unsigned Research Use Only engineering build, not an analytically validated release.
+
 ## 0.8.1 — 2026-09-09
 
 ### Fixed

@@ -2,7 +2,7 @@
   "wslDistribution": "Ubuntu",
   "backendCommand": "ontseq",
   "modkitExecutableWsl": null,
-  "resourceRootWsl": "~/.local/share/ontseq/resources-v0.8.1",
+  "resourceRootWsl": "~/.local/share/ontseq/resources-v0.8.2",
   "defaultProfile": "AML_LCWGS_GRCh38",
   "outputDirectoryWindows": "C:\\ONTSeq\\results",
   "port": 8765

@@ -1,4 +1,4 @@
-ONTSeq Desktop v0.7.1 engineering shell
+ONTSeq Desktop v0.8.2 engineering shell
 
 Research use only. Not clinically validated.
 The executable starts and controls the existing ONTSeq backend; it does not replace analytical validation.
@@ -10,6 +10,6 @@ dictionary; CANONICAL25 requires exactly chr1-22, chrX, chrY, chrM with build-sp
 The GRCh37 Adaptive-Sampling profiles use only AML_AS_111_GRCh37_v1, never the GRCh38 panel:
 110/111 selection intervals are mapped, 109 are reciprocal-exact and 108 have native GENCODE-19
 ROIs; ACACA requires roundtrip review and CT45A2, IGH and GPR128 remain mapping/ROI gaps.
-Default WSL resource root: ~/.local/share/ontseq/resources-v0.8.1 (under $HOME).
+Default WSL resource root: ~/.local/share/ontseq/resources-v0.8.2 (under $HOME).
 The default follows the software release; saved custom resource paths stay selected. GRCh37 and GRCh38
 resources remain isolated by profile and are never mixed or lifted over automatically.

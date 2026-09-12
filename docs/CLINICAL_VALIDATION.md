@@ -5,6 +5,15 @@
 The software is a research prototype. No output is validated for diagnosis, prognosis,
 treatment selection or patient release.
 
+### 0.8.2 Desktop packaging repair impact, 2026-09-11
+
+The Windows engineering bundle now carries the exact three installer inputs already required
+by the Desktop contract: the pinned base runtime, the matching Core wheel and their SHA-256
+manifest. CI verifies presence and hashes before artifact publication. This repairs deployment
+integrity only; analytical code, caller parameters, reference bundles, biological thresholds and
+reportability semantics are unchanged. Existing 0.8.1 Windows artifacts missing these files are
+not installable and must not be repaired by inventing checksums locally.
+
 ### Target interval identity correction, 2026-09-09
 
 The interval-identity fix reused from the methylation handover branch (`b2d5256`)
