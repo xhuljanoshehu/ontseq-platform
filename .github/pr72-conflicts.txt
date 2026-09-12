@@ -1,1 +1,2 @@
-merge_exit=128
+merge_exit=1
+CHANGELOG.md
