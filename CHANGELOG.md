@@ -3,6 +3,22 @@
 All notable changes to this research software are recorded here. The project has no clinically
 validated release.
 
+## Unreleased
+
+- Confirm a whole-chromosome ISCN span against the assessable QDNAseq bin extent instead of the
+  raw contig ends. QDNAseq drops telomeric, blacklisted and residual-filtered bins, so the former
+  exact zero-to-contig-end rule was unreachable through this lane: every real whole-chromosome
+  candidate was classified as a gain or loss and then omitted as an unsupported construct. The
+  basis is versioned in the CNV policy as `whole_chromosome_span_basis`, shipped as
+  `assessable_bin_extent`, and is reported in the ISCN policy parameters. `exact_contig` keeps the
+  previous behaviour, and a bin table without the exporter's `use` flag falls back to it.
+- Record the assessed region on the event (`assessable_span_start`, `assessable_span_end`) so the
+  model still verifies a confirmation instead of trusting the caller, and state in the event notes
+  which basis confirmed or suppressed the span. Filtered regions are never asserted to be
+  unchanged sequence.
+- No caller threshold, classification fraction, reference bundle or reportability rule changes.
+  Whole-chromosome proposals remain research-use-only and require cytogenetic expert review.
+
 ## 0.8.1 — 2026-09-09
 
 ### Fixed
@@ -58,6 +74,17 @@ validated release.
   metrics. The sidecar parser fails closed on malformed rows; runs without histogram
   output render no figure. Presentation only: no metric, gate, contract or
   reportability change.
+- Render a deterministic genome-wide copy-number overview in the CNV section: median
+  copy number per chromosome from the multi-bin consensus with min–max whiskers and
+  the fitted ACE ploidy as the dashed reference, next to the retained ACE PNG panels.
+  Pure presentation of the normalized QDNAseq/ACE report; no fit, threshold, contract
+  or reportability change.
+- Render the normalized methylation report as a deterministic inline-SVG heatmap:
+  regions in genome order, one row per modification code, measured fractions on a
+  0-1 blue scale, and coverage-floor misses as hatched not-measurable cells rather
+  than zeros. Failed and no-call totals from summary metrics stay visible beside
+  the figure. Presentation only: no pileup, threshold, contract or reportability
+  change.
 
 ### Fixed
 
@@ -549,7 +576,7 @@ The following methylation development changes are included in this integration:
 - Native GRCh37.p13 / GENCODE 19 reference family and an explicit lcWGS profile, isolated
   from the existing four GRCh38 profiles. Native GRCh37 annotations deliberately have no MANE.
 - Explicit `AML_LCWGS_GRCh37_UCSC_HG19_CANONICAL25` profile for ordered BAM dictionaries
-  containing exactly `chr1`-`chr22`, `chrX`, `chrY` and UCSC hg19 `chrM=16571`.
+  containing exactly `chr1`-`chr22`, `chrX`, `chrY` and `chrM`: `AML_LCWGS_GRCh38_CANONICAL25`.
 - Build-bound gene/transcript/cytoband cache consumption in SV and CNV annotation.
 - A separately versioned coordinate-free GRCh37 hematology review bundle, preserving the
   original source scope and without transferring GRCh38 coordinates or target coverage.
@@ -898,7 +925,7 @@ analytical or clinical validation.
   GRCh37/hg19 resources.
 - A canonical real-tool GRCh38 CI gate that exercises 100/500/1000-kbp QDNAseq + ACE,
   verifies the expected synthetic chromosome 7 loss and chromosome 8 gain, checks the
-  generated HTML/XLSX/JSON artifacts and proves content-addressed resume.
+  generated HTML/XLSX/JSON artifacts and proves content-addressable resume.
 
 ### Changed
 
