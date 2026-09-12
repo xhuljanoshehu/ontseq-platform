@@ -267,6 +267,7 @@ def _methylation_section(report: MethylationReport | None) -> str:
             region_id=region.region_id,
             chromosome=region.chromosome,
             start=region.start,
+            end=region.end,
             modification_label=MODKIT_MODIFICATION_NAMES[region.modification_code],
             fraction=region.mean_modified_fraction,
             valid_call_count=region.valid_call_count,

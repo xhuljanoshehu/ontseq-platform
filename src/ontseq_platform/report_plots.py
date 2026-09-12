@@ -434,6 +434,7 @@ class MethylationCell:
     valid_call_count: int
     sites_at_minimum_coverage: int
     sites_total: int
+    end: int | None = None
 
 
 _METH_ZERO = (244, 246, 249)
@@ -464,7 +465,7 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
     """
     if not cells:
         return ""
-    seen: set[tuple[str, int | None, str, str]] = set()
+    seen: set[tuple[str, int | None, int | None, str, str]] = set()
     for item in cells:
         counts = (item.valid_call_count, item.sites_at_minimum_coverage, item.sites_total)
         if (
@@ -479,6 +480,13 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
             not isinstance(item.start, int) or isinstance(item.start, bool) or item.start < 0
         ):
             raise ValueError("A methylation heatmap cell is not numeric/valid")
+        if item.end is not None and (
+            not isinstance(item.end, int)
+            or isinstance(item.end, bool)
+            or item.start is None
+            or item.end <= item.start
+        ):
+            raise ValueError("A methylation heatmap cell is not numeric/valid")
         if item.fraction is not None and (
             not isinstance(item.fraction, int | float)
             or isinstance(item.fraction, bool)
@@ -487,19 +495,26 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
             or item.fraction > 1
         ):
             raise ValueError("A methylation heatmap fraction is not in 0-1")
-        key = (item.chromosome, item.start, item.region_id, item.modification_label)
+        key = (item.chromosome, item.start, item.end, item.region_id, item.modification_label)
         if key in seen:
             raise ValueError("Methylation heatmap cells contain a duplicate region/code pair")
         seen.add(key)
 
     def column_key(
-        column: tuple[str, int | None, str],
-    ) -> tuple[tuple[int, str], bool, int, str]:
-        chromosome, start, region_id = column
-        return (chromosome_sort_key(chromosome), start is None, start or 0, region_id)
+        column: tuple[str, int | None, int | None, str],
+    ) -> tuple[tuple[int, str], bool, int, bool, int, str]:
+        chromosome, start, end, region_id = column
+        return (
+            chromosome_sort_key(chromosome),
+            start is None,
+            start or 0,
+            end is None,
+            end or 0,
+            region_id,
+        )
 
     columns = sorted(
-        {(item.chromosome, item.start, item.region_id) for item in cells},
+        {(item.chromosome, item.start, item.end, item.region_id) for item in cells},
         key=column_key,
     )
     rows = sorted(
@@ -507,7 +522,7 @@ def methylation_heatmap_svg(cells: Sequence[MethylationCell], *, title: str) -> 
         key=lambda name: (_CODE_RANK.get(name, 50), name),
     )
     lookup = {
-        (item.chromosome, item.start, item.region_id, item.modification_label): item
+        (item.chromosome, item.start, item.end, item.region_id, item.modification_label): item
         for item in cells
     }
     left = 72

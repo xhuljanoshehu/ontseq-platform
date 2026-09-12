@@ -5,6 +5,15 @@ validated release.
 
 ## Unreleased
 
+- Prevent CNV normalization from aborting when a segment covers all assessable bins but
+  remains below the versioned chromosome-classification fraction. Such events remain
+  duplications/deletions without whole-chromosome confirmation; thresholds are unchanged.
+  Record `classified-event-span-v1` in tool provenance and the CNV resume signature.
+- Preserve the interval end in methylation heatmap identity so nested targets sharing a
+  label and start remain distinct columns and no longer abort HTML reporting.
+- Synchronize the Live Workspace package and generated HTML with Core 0.8.2 so the
+  reproducible web build no longer fails on an inherited 0.7.1 version declaration.
+
 - Confirm a whole-chromosome ISCN span against the assessable QDNAseq bin extent instead of the
   raw contig ends. QDNAseq drops telomeric, blacklisted and residual-filtered bins, so the former
   exact zero-to-contig-end rule was unreachable through this lane: every real whole-chromosome
@@ -19,7 +28,7 @@ validated release.
 - No caller threshold, classification fraction, reference bundle or reportability rule changes.
   Whole-chromosome proposals remain research-use-only and require cytogenetic expert review.
 
-## 0.8.2 — 2026-09-11
+## 0.8.2 — 2026-09-12
 
 ### Fixed
 

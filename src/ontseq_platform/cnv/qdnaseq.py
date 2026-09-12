@@ -25,6 +25,8 @@ from ..models import (
     ToolRecord,
 )
 
+WHOLE_CHROMOSOME_CONFIRMATION = "classified-event-span-v1"
+
 
 class QDNAseqPolicy(StrictModel):
     """Executable policy for the live QDNAseq + ACE CNV lane."""
@@ -242,6 +244,7 @@ def _tool_records(summary: Mapping[str, object], policy: QDNAseqPolicy) -> list[
         "coordinate_system": "zero_based_half_open",
         "source_coordinate_system": "one_based_inclusive",
         "coordinate_normalization": "qdnaseq_start_minus_one_end_unchanged",
+        "whole_chromosome_confirmation": WHOLE_CHROMOSOME_CONFIRMATION,
     }
     return [
         ToolRecord(name="QDNAseq", version=qdna, parameters=shared),
@@ -421,7 +424,10 @@ def _events_from_primary_segments(
             and start <= extent[0]
             and end >= extent[1]
         )
-        whole_chromosome_span_confirmed = exact_span or assessable_span
+        whole_chromosome_span_confirmed = event_type in {
+            EventType.CHROMOSOME_GAIN,
+            EventType.CHROMOSOME_LOSS,
+        } and (exact_span or assessable_span)
         serial += 1
         agreement = consensus.get(chromosome)
         notes = [
@@ -438,7 +444,12 @@ def _events_from_primary_segments(
                 f"{agreement.agreeing_bins}/{agreement.contributing_bins}; "
                 f"median CN={agreement.median_copy_number:.3f}"
             )
-        if assessable_span and not exact_span and extent is not None:
+        if (
+            whole_chromosome_span_confirmed
+            and assessable_span
+            and not exact_span
+            and extent is not None
+        ):
             notes.append(
                 "Whole-chromosome span confirmed against the assessable QDNAseq bin extent "
                 f"{chromosome}:{extent[0]}-{extent[1]} of {contig_length} bp "

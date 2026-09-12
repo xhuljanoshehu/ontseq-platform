@@ -5,6 +5,26 @@
 The software is a research prototype. No output is validated for diagnosis, prognosis,
 treatment selection or patient release.
 
+### Review corrections and assessable chromosome spans, 2026-09-12
+
+The assessable-bin span policy introduced on main can enable a whole-chromosome ISCN
+proposal when filtered terminal bins prevent exact contig coverage. This is a change to
+proposal eligibility, not biological validation. The versioned classification fraction must
+still be met. The review correction now enforces that prerequisite before confirming a
+span: gain/loss segments below the fraction remain duplications/deletions instead of
+aborting normalization. It does not promote them to chromosome events or reportable calls.
+Synthetic regressions cover both directions, full and partial assessable coverage and the
+legacy exact-contig basis. `classified-event-span-v1` is recorded in QDNAseq/ACE parameters
+and the CNV resume signature alongside the fraction and selected span basis. Affected runs
+must be recomputed under the new source/runtime identity; existing reports are not relabeled.
+Assessed-span coordinates remain explicit for chromosome candidates. Filtered sequence is
+not asserted to be unchanged. Cytogenetic expert review and analytical validation remain required.
+
+The methylation heatmap correction retains chromosome, start, end and label in display
+identity. An HTML integration regression covers nested targets with independent fractions.
+Normalized methylation values, coverage policies, modification codes and reportability do
+not change; existing valid results can be rendered again without recalculating measurements.
+
 ### 0.8.2 Desktop packaging repair impact, 2026-09-11
 
 The Windows engineering bundle now carries the exact three installer inputs already required
