@@ -4,44 +4,46 @@
 
 Approved design for implementation on `feat/marlin-classification-v1`.
 
-This design records the user-approved **Approach B**: ONTSeq owns the typed contracts, provenance, feature construction, status semantics, validation and reporting boundaries; a pinned MARLIN R/Keras/TensorFlow runtime performs only the published model inference.
+This document records the user-approved **Approach B**: ONTSeq owns all typed contracts, provenance, input parsing, feature construction, confidence semantics, validation and reporting boundaries; a pinned MARLIN R/Keras/TensorFlow runtime performs only the published neural-network inference.
 
 Tracking issue: [#76 — 0.9.0: Integrate MARLIN methylation classifier and validate against GSE280090](https://github.com/xhuljanoshehu/ontseq-platform/issues/76).
 
 ## Goal
 
-Add a reproducible, fail-closed, Research-Use-Only MARLIN methylation-classification lane to ONTSeq that can:
+Add a reproducible, fail-closed, Research-Use-Only MARLIN methylation-classification lane that can:
 
 1. import the published CpG-level Nanopore methylation representation used by MARLIN;
-2. deterministically construct the exact model feature vector defined by the published MARLIN v1 workflow;
-3. execute a locked MARLIN model runtime without allowing runtime-dependent preprocessing drift;
-4. preserve all 42 class scores and expose confidence/unknown semantics without forcing a diagnosis;
-5. record enough provenance to reproduce or reject a run byte-for-byte at the input/artifact/contract level;
-6. validate the downstream CpG-to-classification path first against GSE280090, beginning with `GSM8587229_AL_001.txt.gz`;
-7. later bridge the same classifier to ONTSeq-native `modBAM -> modkit -> CpG` output without conflating the two evidence levels.
+2. deterministically construct the exact MARLIN v1 model feature vector;
+3. execute a checksum-locked MARLIN model/runtime without allowing preprocessing drift inside the ML runtime;
+4. preserve all 42 model-unit scores and derive class/family/lineage summaries from the locked annotation resource;
+5. expose high-confidence versus unknown classification without forcing a diagnosis;
+6. record enough provenance to reproduce or reject a run at the input/artifact/contract level;
+7. validate the downstream CpG-to-classification path first against GSE280090, beginning with `GSM8587229_AL_001.txt.gz`;
+8. later bridge the same classifier to ONTSeq-native `modBAM -> modkit -> probe-level CpG` output without conflating the two evidence levels.
 
 The intended claim after this work is deliberately narrow:
 
-> ONTSeq can reproducibly import published CpG-level Nanopore methylation data and execute a locked MARLIN downstream classification workflow with explicit provenance and fail-closed confidence semantics.
+> ONTSeq can reproducibly import published CpG-level Nanopore methylation data and execute a locked MARLIN downstream classification workflow with explicit provenance and confidence handling.
 
 This work does **not** establish clinical validity and does **not** establish end-to-end raw-signal equivalence.
 
 ## Current ONTSeq baseline
 
-The implementation starts from ONTSeq `main` at the 0.8.2 line. The repository already contains:
+Implementation starts from the 0.8.2 `main` line. Existing relevant infrastructure includes:
 
-- a pinned modkit methylation lane using modkit 0.6.4 semantics;
-- explicit `COMPLETED`, `NO_CALL`, `NOT_RUN` and `FAILED` handling across execution paths;
-- strong Pydantic-based contracts and model validators;
+- pinned modkit 0.6.4 methylation semantics;
+- explicit `COMPLETED`, `NO_CALL`, `NOT_RUN` and `FAILED` execution states;
+- Pydantic-based strict contracts and validators;
 - SHA-256 provenance/fingerprinting patterns;
-- prospective methylation validation and holdout infrastructure;
-- content-addressed/runtime-aware software locks;
+- prospective methylation validation/holdout infrastructure;
+- software/runtime identity locks;
+- fail-closed numeric and input handling;
 - technical-vs-analytical-vs-clinical evidence separation;
-- Research-Use-Only report semantics.
+- Research-Use-Only reporting.
 
-MARLIN must reuse these architectural principles rather than introduce an independent script-style subsystem.
+MARLIN must reuse these principles rather than become an independent script-style subsystem.
 
-## External scientific and software baseline
+## External scientific/software baseline
 
 ### Primary publication
 
@@ -50,90 +52,102 @@ Steinicke TL, Benfatto S et al. *Rapid epigenomic classification of acute leukem
 ### MARLIN code
 
 - Repository: `https://github.com/hovestadt/MARLIN`
-- Versioned code archive: `https://doi.org/10.5281/zenodo.15723932`
-- GitHub code inspected for this design at commit:
+- Versioned code: `https://doi.org/10.5281/zenodo.15723932`
+- GitHub implementation inspected for this design at commit:
   `442aa603415a54f62e7367794f9a31c6bc20fc2d`
 
-The inspected official prediction implementation defines the v1 model-input semantics:
+The inspected official code establishes the core v1 semantics:
 
-- input BED fields: chromosome, start, end, methylation call, probe identifier;
-- features are ordered by the published `marlin_v1.features.RData` probe list;
-- methylation values `>= 0.5` become `+1`;
-- methylation values `< 0.5` become `-1`;
+- model input contains **357,340 ordered CpG features**;
+- the network has two hidden dense layers (256 and 128 nodes) and a **42-node softmax output**;
+- training beta values are binarized at `0.5` to `-1/+1`;
+- prediction inputs are ordered by `marlin_v1.features.RData`;
+- observed values `>= 0.5` become `+1`;
+- observed values `< 0.5` become `-1`;
 - absent/not-covered features become `0`;
-- the trained model returns 42 class scores.
+- class annotations are loaded from `marlin_v1.class_annotations.xlsx`.
 
-ONTSeq must reproduce those semantics explicitly and test them independently; it must not rely on incidental ordering or permissive behavior inside the original R scripts.
+ONTSeq must reproduce these semantics explicitly and test them independently; it must not depend on incidental input ordering or permissive behavior inside the original R scripts.
 
 ### MARLIN model
 
-- Zenodo model record: `https://doi.org/10.5281/zenodo.15565404`
+- Zenodo model: `https://doi.org/10.5281/zenodo.15565404`
 - Published model version: `1.0.0`
 
-The model artifact is external to Git. Installation/import must compute and persist the local SHA-256; inference is refused if the artifact differs from the lock.
+The model stays external to Git. Installation/import computes a local SHA-256 and produces a lock; inference refuses any subsequent hash mismatch.
+
+### MARLIN reference resources
+
+At the inspected upstream commit, the MARLIN repository publishes:
+
+- `marlin_v1.features.RData`;
+- `marlin_v1.class_annotations.xlsx`;
+- `marlin_v1.probes_hg19.bed.gz`;
+- `marlin_v1.probes_hg38.bed.gz`;
+- `marlin_v1.probes_t2t.bed.gz`.
+
+The first ONTSeq validation lane uses only the hg19/GRCh37 resource. Presence of hg38/T2T resources upstream does not imply that ONTSeq has validated those builds.
 
 ### MARLIN training data
 
-- Zenodo record: `https://doi.org/10.5281/zenodo.15566584`
+- Zenodo: `https://doi.org/10.5281/zenodo.15566584`
 - Published version: `1.0.0`
 - `marlin_v1.betas.RData`, 6.7 GB, Zenodo MD5 `8ace3200b17c0e7bda383bf62b6b1fb7`
 - `marlin_v1.classes.RData`, 10.3 kB, Zenodo MD5 `84a8804eac2d979fd439227921c384f3`
 
-These training files are not required for first-pass inference and therefore are **not** a dependency of the initial ONTSeq MARLIN runtime.
+Training data are not required for first-pass inference and are not an initial runtime dependency.
 
 ### External validation data
 
-GEO series: `GSE280090` — 39 processed Nanopore methylation samples. GEO explicitly states that raw patient files were not deposited and that the processed files were generated from Dorado v0.3.2, modkit v0.1.13 and hg19.
+GEO series `GSE280090` contains 39 processed Nanopore methylation samples. GEO states that patient raw files were not deposited and that processed calls were produced with Dorado v0.3.2, modkit v0.1.13 and hg19.
 
-First external validation target:
+First external target:
 
-- accession: `GSM8587229`
-- sample label: `AL_001`
-- restricted processed file: `GSM8587229_AL_001.txt.gz`, approximately 4 MB
-- assembly: hg19 / GRCh37
-- GEO description: methylation status at CpG positions restricted to the reference-cohort CpGs
+- accession: `GSM8587229`;
+- sample label: `AL_001`;
+- file: `GSM8587229_AL_001.txt.gz`;
+- size: approximately 4 MB;
+- assembly: hg19 / GRCh37;
+- GEO description: methylation status at CpG positions restricted to the reference-cohort CpGs.
 
-The companion `*_all_cpgs.txt.gz` files are not part of the first implementation. Initial scope is deliberately restricted to the published MARLIN probe-level representation.
+The companion `*_all_cpgs.txt.gz` files are outside v1 scope. Initial support is deliberately restricted to the MARLIN probe-level representation.
 
-No GSE280090 payload is committed to Git. Validation manifests may record accession, filename, expected schema, build and checksums; data remain external/local.
+No GSE280090 payload is committed to Git. Validation manifests may store accession, expected filename/schema/build and hashes; payloads remain external/local.
 
 ## Architectural decision
 
 ### Chosen approach: ONTSeq-native contracts + locked MARLIN runtime
 
-The classifier is split into two trust domains:
+The system is split into two trust domains:
 
-1. **ONTSeq domain** — owns all data contracts, parsing, validation, feature mapping, provenance, status logic, threshold semantics, output normalization, atomic persistence and report integration.
-2. **MARLIN runtime domain** — owns only loading the pinned trained model and producing the 42 model scores from an already constructed feature vector.
+1. **ONTSeq domain** — contracts, parsing, build validation, feature mapping, provenance, artifact locks, status/confidence semantics, score validation, output normalization, validation and reporting.
+2. **MARLIN runtime domain** — load the verified trained model and infer 42 softmax scores from an already constructed feature vector.
 
-The runtime must not decide coordinate interpretation, feature ordering, missingness handling, confidence state, reportability or evidence level.
-
-This preserves faithfulness to the published model while keeping ONTSeq's existing fail-closed and auditable architecture.
+The runtime must not decide coordinate interpretation, feature ordering, missing-value semantics, confidence state, reportability or evidence level.
 
 ## Non-goals for v1
 
-The first MARLIN integration intentionally does **not** include:
+The first integration does not include:
 
-- model retraining;
-- model fine-tuning;
+- retraining or fine-tuning;
 - threshold optimization against GSE280090;
-- automatic downloading of patient-derived validation files during normal CI or execution;
-- automatic downloading of model artifacts during inference;
-- support for arbitrary methylation BED schemas;
-- support for the GSE280090 `*_all_cpgs.txt.gz` representation unless separately specified and versioned later;
-- GRCh38 or T2T classification in the first validation lane;
+- automatic model/data downloads during inference;
+- arbitrary methylation BED schemas;
+- `*_all_cpgs.txt.gz` input;
+- GRCh38 or T2T classification;
+- implicit liftover;
 - live/streaming classification;
-- early-stop clinical decision logic;
-- promotion of any MARLIN result to clinically reportable;
-- claiming that precomputed GSE data validate ONTSeq's Dorado, alignment, MM/ML or modkit path.
+- early-stop decision logic;
+- clinical reportability;
+- claims that precomputed GSE data validate Dorado, alignment, MM/ML or ONTSeq modkit extraction.
 
-These exclusions are deliberate to keep the first scientific gate narrow and falsifiable.
+These exclusions keep the first scientific gate narrow and falsifiable.
 
 ## Module boundaries
 
-New functionality should be separated from the existing quantitative methylation module.
+New functionality remains separate from the existing region-aggregated quantitative methylation lane.
 
-Recommended source layout:
+Recommended layout:
 
 ```text
 src/ontseq_platform/
@@ -145,77 +159,71 @@ src/ontseq_platform/
     marlin_cli.py
 ```
 
-Responsibilities:
-
 ### `marlin_contracts.py`
 
-Owns immutable/strict schemas and enums only:
+Owns strict schemas/enums only:
 
-- source-kind enum;
+- source kind;
 - input schema identity;
-- artifact lock;
-- normalized CpG/probe observation;
-- feature-vector summary;
-- per-class score;
+- artifact/runtime lock;
+- normalized probe observation;
+- feature summary;
+- model-unit score;
+- grouped class/family/lineage score;
 - classification decision;
-- final MARLIN report;
-- validation-manifest/result contracts.
+- final report;
+- validation manifest/result.
 
-No subprocess execution and no file-format parsing belongs here.
+No subprocess execution or input parsing belongs here.
 
 ### `marlin_input.py`
 
-Owns strict parsing of the published five-column MARLIN probe BED representation.
-
-It accepts plain text or gzip input and returns normalized probe observations. It performs no model inference.
+Strict parser for published five-column MARLIN probe BED. Supports plain text and gzip. Returns normalized probe observations and performs no inference.
 
 ### `marlin_features.py`
 
-Owns the deterministic published preprocessing contract:
+Canonical preprocessing oracle:
 
-- load the locked ordered probe identifiers;
-- map input observations by probe identifier;
-- transform observed beta/methylation fraction to `+1` or `-1` at exactly 0.5;
-- encode absent features as `0`;
-- compute observed/missing feature counts and fractions;
-- emit an ordered numeric vector plus a content digest.
+- load and verify the locked ordered 357,340 probe identifiers;
+- map observations by probe ID;
+- encode `>=0.5 -> +1`, `<0.5 -> -1`, absent/NA -> `0`;
+- compute observed/NA/absent/non-model counts;
+- emit the ordered vector and deterministic SHA-256.
 
-This module is the canonical oracle for feature construction. The R runtime must not recreate independent preprocessing logic.
+The R runtime must not implement a second independent preprocessing path.
 
 ### `marlin_runtime.py`
 
 Owns:
 
-- runtime preflight;
-- verification of model/runtime artifact locks;
-- creation of a minimal inference input from the canonical ONTSeq feature vector;
-- execution of the pinned R/Keras/TensorFlow environment;
-- strict parsing of exactly 42 finite scores;
-- rejection of malformed/partial outputs;
-- atomic publication of runtime output.
+- runtime/artifact preflight;
+- launch of the verified R/Keras/TensorFlow environment;
+- transfer of the already-built canonical feature vector;
+- strict parsing and validation of exactly 42 softmax scores;
+- runtime provenance;
+- cross-filesystem-safe result publication.
 
-It does not classify confidence and does not know expected diagnoses.
+It does not know expected diagnoses or confidence thresholds.
 
 ### `marlin_validation.py`
 
-Owns external downstream reproducibility evaluation:
+Owns downstream external reproducibility evaluation:
 
-- validation manifest for public processed CpG inputs;
-- expected accession/sample metadata;
-- expected build and input hash;
-- expected published label or comparison target where independently available;
-- repeated-run determinism checks;
-- concordance/discordance/unknown accounting;
-- cohort summaries;
-- no post-hoc parameter changes.
+- public processed-data manifest;
+- accession/build/hash locks;
+- independent expected comparison target where available;
+- repeated-run determinism;
+- concordant/discordant/unknown accounting;
+- cohort metrics;
+- prohibition of post-hoc threshold/preprocessing changes.
 
-It is explicitly distinct from the existing read-mixture/LoD validation subsystem because MARLIN validation measures classification reproducibility, not source-fraction recovery.
+It is separate from ONTSeq's methylation mixture/LoD infrastructure because it evaluates classification reproducibility rather than source-fraction recovery.
 
 ### `marlin_cli.py`
 
-Owns the user-facing single-purpose CLI commands while keeping the main dispatcher thin.
+Owns single-purpose CLI operations while keeping the global dispatcher thin.
 
-Initial commands should be:
+Initial commands:
 
 ```text
 ontseq marlin-lock
@@ -224,537 +232,518 @@ ontseq marlin-classify
 ontseq marlin-validate
 ```
 
-The final names may be wired through the repository's existing scientific CLI conventions, but there must be one canonical implementation per operation and no duplicate preprocessing path.
+There must be one canonical implementation per operation and no duplicate preprocessing route.
 
 ## Input contracts
 
 ### Source kinds
 
-The normalized report must distinguish at minimum:
+Final reports distinguish:
 
 ```text
 PRECOMPUTED_METHYLATION
 MODKIT_DERIVED
 ```
 
-Only `PRECOMPUTED_METHYLATION` is enabled for the first GSE280090 validation gate.
+Only `PRECOMPUTED_METHYLATION` is enabled for the first external gate.
 
-The provenance distinction is load-bearing: a successful precomputed-data classification must never count as evidence that ONTSeq generated equivalent CpG values from a modBAM.
+This distinction is load-bearing: successful GSE classification can never count as evidence that ONTSeq itself generated equivalent CpG values from modBAM.
 
 ### Published MARLIN probe-BED adapter
 
-Initial adapter identity:
+Adapter identity:
 
 ```text
 marlin_probe_bed_v1
 ```
 
-Accepted file transport:
+Accepted transport:
 
 - uncompressed UTF-8/ASCII text;
-- gzip-compressed text (`.gz`).
+- gzip-compressed text.
 
-Accepted logical schema is exactly five tab-separated fields per non-empty row:
+Logical schema is exactly five tab-separated fields per non-empty row:
 
 1. chromosome;
 2. start;
 3. end;
-4. methylation fraction or `NA`;
+4. methylation fraction or literal `NA`;
 5. MARLIN probe identifier.
 
 Rules:
 
-- no silently accepted extra columns;
-- no inferred delimiter;
-- no locale-dependent numeric parsing;
-- start/end must be integers with `0 <= start < end`;
-- methylation values must be finite and within `[0, 1]`, or the explicit missing token `NA`;
-- probe identifiers must be non-empty;
-- duplicate probe identifiers are rejected rather than resolved by first/last occurrence;
-- malformed rows fail the adapter; they are not skipped;
-- the declared genome build is mandatory and is never inferred from chromosome names;
-- v1 external validation accepts only GRCh37/hg19 because GSE280090 was processed on hg19;
-- an input SHA-256 is calculated before inference and written into the final report.
+- extra columns are rejected;
+- delimiter is not guessed;
+- numeric parsing is locale-independent;
+- coordinates satisfy `0 <= start < end`;
+- methylation is finite within `[0,1]` or explicit `NA`;
+- probe ID is non-empty;
+- duplicate probe IDs are rejected;
+- malformed rows fail the whole adapter and are not skipped;
+- genome build is mandatory and never inferred from names;
+- v1 accepts only GRCh37/hg19;
+- input SHA-256 is calculated before inference and retained in the report.
 
-Rejecting duplicate probe IDs is intentionally stricter than R's permissive `match()` behavior. A valid published MARLIN input is expected to map one observation per probe; ambiguous input should fail closed rather than inherit incidental row ordering.
+Rejecting duplicate probes is intentionally stricter than R's permissive `match()` behavior. Ambiguous inputs fail closed instead of inheriting row order.
 
 ### Native modkit bridge
 
-The future `MODKIT_DERIVED` path must not consume region-level aggregates from `methylation.py`; MARLIN needs probe-level CpG observations.
+The future `MODKIT_DERIVED` path cannot use region-level aggregates from `methylation.py`; MARLIN requires probe-level CpGs.
 
-The bridge therefore requires a dedicated probe-coordinate extraction/mapping stage tied to the same build-specific MARLIN probe resource used by the artifact lock.
-
-That bridge is a later phase of this design and becomes enabled only after precomputed-input classification is reproducible.
+The bridge therefore gets its own probe-coordinate extraction/mapping stage tied to the same build-specific probe resource recorded by the MARLIN artifact lock. It remains disabled until the precomputed path is reproducible.
 
 ## Genome-build policy
 
-The first implementation is **GRCh37/hg19 only**.
+v1 is **GRCh37/hg19 only**.
 
-Although upstream MARLIN documentation now mentions hg38 and T2T support, ONTSeq must not generalize that support without build-specific locked probe coordinates and an explicit bridge test.
+Artifact lock contains the build and the hg19 probe-resource hash. Input declaration must match it. Mismatch is a hard failure before feature construction.
 
-The artifact lock therefore includes a genome-build field, and input build must equal artifact-lock build.
-
-A mismatch is a hard failure before feature construction.
-
-Adding GRCh38 later requires a new artifact-lock identity and build-specific validation. No liftover is performed implicitly inside the classifier.
+GRCh38/T2T later require separate build-specific artifact locks and explicit bridge validation. No classifier-internal liftover is allowed.
 
 ## Canonical feature construction
 
-The feature contract must exactly reproduce the published v1 semantics while making each transformation explicit.
+Expected feature count is exactly **357,340** for MARLIN v1.
 
-Given an ordered feature list `F = [f1, f2, ..., fn]` and a unique mapping from probe ID to observed methylation value:
+For ordered feature list `F` and unique probe observations:
 
 ```text
-observed value >= 0.5  -> +1.0
-observed value <  0.5  -> -1.0
-missing / NA           ->  0.0
+observed methylation >= 0.5 -> +1.0
+observed methylation <  0.5 -> -1.0
+explicit NA                 ->  0.0
+feature absent from input   ->  0.0
 ```
 
-Important rules:
+Rules:
 
-- feature order comes only from the locked MARLIN feature artifact;
-- input row order cannot affect the vector;
-- CpGs not present in the locked feature list are ignored for model input but counted separately as non-model observations;
-- a locked feature present as explicit `NA` and a locked feature absent from the file both become model value `0`, but their origin is separately counted for QC/provenance;
-- feature values are materialized in a deterministic numeric representation before hashing;
-- vector hashing uses a documented canonical binary or canonical JSON encoding, not platform-dependent string formatting.
+- order comes only from locked `marlin_v1.features.RData`;
+- input row order cannot affect output;
+- probes outside the model feature list do not enter the vector but are counted;
+- explicit NA and absent model features both map to zero but are counted separately;
+- vector hashing uses a documented canonical representation, not platform-specific float formatting.
 
-Feature summary must include:
+Feature summary contains:
 
-- expected feature count;
+- expected feature count (`357340`);
 - observed model-feature count;
-- explicit-NA feature count;
-- absent feature count;
+- explicit-NA count;
+- absent-feature count;
 - non-model probe count;
 - observed fraction;
-- feature-vector SHA-256;
+- vector SHA-256;
 - feature-artifact SHA-256;
 - preprocessing-contract version.
 
-No minimum observed-feature threshold is invented in v1 unless it is directly locked to a published MARLIN rule. Sparse inputs are passed to the model exactly as specified; confidence handling occurs on the resulting scores.
+No new minimum-observed-feature threshold is invented for v1. Sparse valid inputs are passed to the model according to published semantics; confidence is evaluated from model output. A separate zero-evidence guard is defined below.
 
 ## Artifact lock
 
-MARLIN is treated like a controlled reference/tool bundle, not like an incidental executable.
+MARLIN is treated as a controlled reference/tool bundle.
 
-A `MarlinArtifactLock` must record at minimum:
+`MarlinArtifactLock` records at minimum:
 
 ```text
 schema_version
 lock_id
-marlin_model_version
-marlin_model_source_uri
-marlin_model_sha256
-marlin_code_source_uri
-marlin_code_version_or_commit
-marlin_code_sha256_or_manifest_sha256
-feature_artifact_source
-feature_artifact_sha256
-class_annotation_source
+model_version
+model_source_uri
+model_sha256
+code_source_uri
+code_version_or_commit
+code_manifest_sha256
+feature_source_uri
+feature_sha256
+class_annotation_source_uri
 class_annotation_sha256
+probe_resource_source_uri
+probe_resource_sha256
 genome_build
-expected_class_count
+expected_feature_count = 357340
+expected_model_unit_count = 42
 preprocessing_contract_version
 runtime_contract_version
 R_version
 keras_version
 tensorflow_version
 python_version_if_used
+execution_backend
 created_at
-research_only=true
+research_only = true
 ```
 
 Requirements:
 
-- lock creation is a separate explicit operation;
-- inference never downloads or mutates the locked artifacts;
-- each file is rehashed during preflight;
-- mismatch is `FAILED`, not a warning;
-- symlinks/reparse points must be resolved according to the repository's existing runtime-safety conventions before hashing/launch;
-- lock files contain metadata/hashes only, not model bytes.
+- lock creation is explicit;
+- inference performs no download/mutation;
+- artifact hashes are reverified before inference or through an existing verified content-addressed runtime cache;
+- mismatch is hard `FAILED`;
+- symlink/reparse handling follows existing runtime-safety rules;
+- lock contains metadata/hashes, not model bytes.
 
-The first supported model identity is the published MARLIN model version `1.0.0` from Zenodo record `15565404`.
+First supported model identity is MARLIN model `1.0.0`, Zenodo record `15565404`.
 
 ## Runtime design
 
 ### Boundary
 
-The runtime receives only:
+Runtime receives only:
 
-- one canonical ordered feature vector;
-- the verified model path;
+- one canonical 357,340-value feature vector;
+- verified model;
 - verified class annotations;
-- verified runtime environment.
+- verified runtime.
 
-The runtime returns only:
+Runtime returns only:
 
-- exactly 42 named scores;
-- runtime metadata needed for provenance;
-- exit status/log metadata.
+- exactly 42 raw model-unit scores;
+- execution metadata/log identity.
 
-### Original-runtime fidelity
+### Runtime fidelity
 
-The first reference runtime should retain the MARLIN-published R/Keras/TensorFlow stack rather than reimplement the model in a new framework.
+First reference runtime retains MARLIN's R/Keras/TensorFlow model-loading path rather than reimplementing the neural network in a new framework.
 
-The published README lists tested versions including R 4.1.3, Keras 2.13 and TensorFlow 2.13. ONTSeq packaging may use a reproducibly installed compatible environment, but every actual version becomes part of the lock and must be validated against the fixed reference score fixture before use.
+Published tested versions include R 4.1.3, Keras 2.13 and TensorFlow 2.13. The actual packaged versions must be recorded in the lock and pass the fixed-vector compatibility gate.
 
-### CPU and GPU
+### CPU/GPU
 
-CPU execution is sufficient for correctness validation and is the reference CI/local path where practical. GPU execution may be supported later for performance but must demonstrate score equivalence within a predeclared numerical tolerance before being treated as the same runtime profile.
+CPU is the correctness/reference path where practical. A GPU profile may be added later only after equivalence against the frozen reference fixture.
 
-Runtime profile identity must therefore include execution backend when numerical behavior can differ.
+Execution backend is part of runtime identity.
 
-### Output validation
+### Score invariants
 
-A runtime result is accepted only if:
+The official training code ends in a 42-node softmax layer. Therefore an accepted raw output must satisfy all of:
 
-- process exits successfully;
-- exactly 42 class entries are present;
-- class names exactly match the locked class annotation order/set;
-- every score is finite;
-- no duplicate class labels exist;
-- scores satisfy the model's expected probability-output constraints;
-- output file/artifact is complete and parses under a strict schema.
+- exactly 42 entries;
+- exact locked model-unit names/order after annotation binding;
+- every value finite;
+- every value in `[0,1]`;
+- no duplicate model-unit labels;
+- raw score sum differs from `1.0` by no more than `1e-5`;
+- output parses under the strict runtime-output schema.
 
-Any partial or malformed output is `FAILED`; it cannot degrade to `NO_CALL`.
+A violation is `FAILED`, never `NO_CALL`.
 
-### Atomic persistence
+### Numerical compatibility profile
 
-Results are written into a staging location and published atomically or with the repository's existing cross-filesystem-safe commit protocol.
+Cross-runtime score equivalence is not assumed byte-identical because TensorFlow/backend/threading can alter low-order floating values.
 
-This is required because ONTSeq is routinely used through Windows/WSL boundaries where a POSIX directory rename may not behave identically on a Windows-mounted filesystem.
+Before any GSE280090 biological validation, Phase 1 creates and freezes a `MarlinRuntimeCompatibilityProfile` containing:
 
-A failed publication must never leave a directory that appears to be a completed reusable analysis.
+- reference runtime lock ID;
+- fixed feature-vector SHA-256;
+- reference 42-score vector;
+- per-score absolute tolerance;
+- top-class identity requirement;
+- raw-score-sum tolerance.
+
+No external validation may run under a runtime profile that has not passed this frozen compatibility fixture. The tolerance is established on synthetic/reference-vector runs **before** GSE outcomes are inspected and then version-locked.
+
+### Atomic/cross-filesystem persistence
+
+Runtime output is written to staging and published with ONTSeq's cross-filesystem-safe result-commit protocol.
+
+This requirement is explicit because Windows/WSL-mounted filesystems may not support the same atomic directory operations as ext4. Failed publication must not leave a directory that resume logic can mistake for a completed result.
+
+## Class-annotation and confidence semantics
+
+The 42 network outputs are raw model-unit scores and are always preserved.
+
+The locked `marlin_v1.class_annotations.xlsx` defines deterministic groupings used by the upstream realtime plotting code:
+
+```text
+42 raw model-unit scores
+    -> class_name_current groups
+    -> methylation-family (`mcf`) groups
+    -> lineage groups
+```
+
+ONTSeq derives each grouped score by summing the raw softmax scores assigned to that group in the locked annotation file. No second hand-written mapping is allowed.
+
+### Primary v1 classification target
+
+For v1, `top_class` is the `class_name_current` group with the largest grouped score.
+
+The high-confidence rule is:
+
+```text
+max(class_name_current grouped score) >= 0.8 -> HIGH_CONFIDENCE
+max(class_name_current grouped score) <  0.8 -> UNKNOWN
+```
+
+`UNKNOWN` therefore means **valid model inference without a high-confidence current-class assignment**. It is not a technical failure and does not erase the top candidate or its score.
+
+Lineage and methylation-family grouped scores are retained as secondary summaries; they do not override the v1 primary class decision.
+
+Any future change in which score level is primary or which threshold is used requires a new decision-policy version and separate validation. GSE280090 outcomes cannot be used to tune the v1 threshold post hoc.
 
 ## Result contract
 
-Recommended normalized contract:
+Recommended normalized result:
 
 ```text
 MarlinClassificationReport
 ├── schema_version
 ├── sample_id
 ├── status                       # existing ModuleRunStatus
-├── classification_decision      # MARLIN-specific decision
+├── classification_decision      # HIGH_CONFIDENCE | UNKNOWN | null
+├── decision_policy
 ├── source_kind
 ├── input_schema
 ├── genome_build
 ├── artifact_lock_id
 ├── input_fingerprint
 ├── feature_summary
-├── class_scores[42]
+├── model_unit_scores[42]
+├── current_class_scores
+├── methylation_family_scores
+├── lineage_scores
 ├── top_class
 ├── top_class_score
-├── lineage_scores
-├── methylation_family_scores
 ├── warnings
 ├── limitations
 ├── runtime_provenance
 └── research_only = true
 ```
 
-All 42 model scores are retained in normalized output. The report must not discard lower-ranked classes simply because one top class exists.
+### Generic module status
 
-### Module status
+- `COMPLETED` — valid model inference exists, regardless of high-confidence versus unknown decision;
+- `NO_CALL` — inference is intentionally suppressed by a safety guard despite structurally valid input, e.g. zero observed model features;
+- `NOT_RUN` — classifier not requested or intentionally unavailable before execution;
+- `FAILED` — invalid input, build mismatch, artifact mismatch, runtime failure or malformed output.
 
-Use the existing generic status contract:
+Low confidence does **not** map to `NO_CALL`; it maps to `COMPLETED + UNKNOWN`.
 
-- `COMPLETED` — valid model inference exists, regardless of confidence;
-- `NO_CALL` — the input is technically valid but no biologically interpretable classification can be issued under an explicitly defined decision rule;
-- `NOT_RUN` — classifier was not requested or required resources were intentionally unavailable before execution;
-- `FAILED` — corrupted/mismatched artifacts, invalid input, runtime failure or malformed output.
+### Zero-evidence guard
 
-For v1, a low-confidence valid model run remains technically `COMPLETED`; its MARLIN-specific decision is `LOW_CONFIDENCE` / `UNKNOWN`. This avoids conflating successful computation with classification confidence.
+If zero locked model features are actually observed and the entire model vector would be zero, ONTSeq does not expose a prior-like network prediction as sample evidence.
 
-### MARLIN-specific decision
-
-Initial decision enum:
+It returns:
 
 ```text
-HIGH_CONFIDENCE
-LOW_CONFIDENCE
-UNKNOWN
+status = NO_CALL
+classification_decision = null
+reason = NO_MODEL_FEATURES_OBSERVED
 ```
 
-The design preserves a distinct `UNKNOWN` representation for inputs outside a supported decision context. `LOW_CONFIDENCE` is the direct state for a valid prediction whose class-level confidence does not satisfy the locked high-confidence rule.
+This is an ONTSeq safety boundary and receives an explicit regression test.
 
-## Confidence policy
+## Error handling
 
-The initial high-confidence policy is locked to the published MARLIN threshold of `0.8` for the relevant prediction score aggregation used by the publication/runtime annotation logic.
-
-Important constraints:
-
-- the exact score level being thresholded — class, methylation-family or lineage aggregation — must be encoded in the policy and tested against the published class annotations;
-- ONTSeq does not tune `0.8` against GSE280090;
-- a score below threshold is not promoted to a diagnosis;
-- a later threshold change requires a new policy version and separate validation, never silent configuration drift.
-
-The implementation plan must derive the aggregation logic directly from the published class-annotation artifact and reference plotting/inference scripts before writing production decision code.
-
-## Lineage and family aggregation
-
-The published MARLIN class annotations include mappings used to aggregate the 42 class scores into lineage and methylation-class-family views.
-
-ONTSeq should preserve this hierarchy as derived output:
-
-```text
-42 raw class scores
-   -> grouped lineage scores
-   -> grouped methylation-family scores
-```
-
-The mapping is read from the locked class-annotation artifact. ONTSeq must not maintain a second hand-written mapping table.
-
-Raw 42-class scores remain the primary model output; group scores are deterministic derived summaries.
-
-## Error handling and fail-closed behavior
-
-### Invalid input
+### Invalid input -> `FAILED`
 
 Examples:
 
-- wrong field count;
-- non-tab delimiter under the v1 adapter;
-- non-integer coordinates;
-- coordinate inversion;
-- beta outside `[0,1]`;
-- non-finite beta;
-- duplicate probe ID;
-- empty probe ID;
+- wrong column count/delimiter;
+- bad coordinates;
+- beta outside `[0,1]` or non-finite;
+- duplicate/empty probe ID;
 - declared build mismatch.
 
-Result: input validation error / `FAILED`. No rows are silently dropped.
+No malformed rows are silently skipped.
 
-### Artifact mismatch
+### Artifact/runtime mismatch -> `FAILED`
 
 Examples:
 
-- changed HDF5 model;
-- changed feature file;
-- changed class annotations;
-- wrong runtime version under a strict profile.
+- changed model;
+- changed feature/class/probe resource;
+- incompatible runtime profile;
+- incomplete score output.
 
-Result: hard preflight failure / `FAILED`.
+### Valid sparse input -> `COMPLETED`
 
-### Valid but sparse input
+Published missing-value semantics remain intact. Sparsity is reported quantitatively. Result may be `HIGH_CONFIDENCE` or `UNKNOWN`.
 
-Missing model features become `0` according to the published preprocessing contract. Sparsity is surfaced quantitatively in `feature_summary`.
-
-A valid sparse run may return low confidence; that is not a technical failure.
-
-### No usable model features
-
-If no locked model features are observed and all feature entries would be zero, ONTSeq must refuse to present a meaningful prediction. The implementation may execute a deterministic guard before the external model runtime and emit a `NO_CALL` with the reason `NO_MODEL_FEATURES_OBSERVED`; it must not expose a model's prior-like output as sample evidence.
-
-This guard is an ONTSeq safety boundary and must be covered by an explicit regression test.
-
-## CLI and operator workflow
-
-Initial operator flow:
+## CLI/operator flow
 
 ```text
-1. Install/prepare MARLIN runtime and artifacts offline.
-2. `ontseq marlin-lock ...` creates a checksummed artifact lock.
-3. `ontseq marlin-features ...` optionally inspects/exports the canonical feature summary.
-4. `ontseq marlin-classify ...` runs one sample.
-5. `ontseq marlin-validate ...` evaluates a pre-registered public processed-data manifest.
+1. Install/prepare MARLIN runtime and artifacts explicitly/offline.
+2. `ontseq marlin-lock ...` creates/verifies the artifact lock.
+3. `ontseq marlin-features ...` inspects canonical feature construction.
+4. `ontseq marlin-classify ...` classifies one sample.
+5. `ontseq marlin-validate ...` runs a registered external processed-data validation manifest.
 ```
 
-The classify command requires an explicit genome build and artifact lock.
-
-No command auto-detects build from filename or downloads a model implicitly.
+Classification always requires an explicit build and artifact lock. Build is not guessed from filename; model is not fetched implicitly.
 
 ## Validation strategy
 
-Validation is staged so each claim corresponds to one evidence layer.
-
 ### Phase 0 — pure preprocessing oracle
 
-Before invoking the real model runtime, create synthetic fixtures that independently test:
+Synthetic tests independently define expected vectors for:
 
 - row-order invariance;
-- exact `0.5` threshold behavior;
-- `<0.5` -> `-1`;
-- `>=0.5` -> `+1`;
-- explicit `NA` -> `0`;
-- absent feature -> `0`;
-- feature-order independence from input order;
+- `0.5` boundary;
+- `<0.5 -> -1`;
+- `>=0.5 -> +1`;
+- `NA -> 0`;
+- absent feature -> 0;
+- feature-order independence;
 - duplicate rejection;
 - malformed numeric rejection;
 - gzip/plain equivalence;
 - vector-digest determinism.
 
-The expected vectors must be written by hand/independent arithmetic, not generated by the implementation under test.
+Expected vectors are hand/independently specified, not generated by production code.
 
-### Phase 1 — fixed synthetic runtime oracle
+### Phase 1 — fixed real-runtime compatibility oracle
 
-Construct a small deterministic canonical feature vector, run it through the locked real MARLIN runtime and store the resulting 42-score vector as a versioned reference fixture with full artifact/runtime identity.
+A deterministic synthetic/reference feature vector is executed through the actual locked MARLIN runtime.
 
-Repeated runs must satisfy:
+Freeze:
 
-- identical class names/order;
-- stable top class;
-- score differences within a predeclared numerical tolerance;
-- deterministic normalized JSON after excluding intentionally variable timestamps.
+- feature-vector SHA-256;
+- 42-score vector;
+- score tolerance;
+- top-class requirement;
+- runtime/artifact lock identity.
 
-The tolerance is measured and then frozen before external biological validation; it is not adjusted after seeing GSE280090 results.
+Repeated runs must satisfy the frozen profile. This happens before external biological validation.
 
-### Phase 2 — AL_001 external processed-data gate
+### Phase 2 — AL_001 external gate
 
-Input:
-
-`GSM8587229_AL_001.txt.gz`
+Input: `GSM8587229_AL_001.txt.gz`.
 
 Requirements:
 
 - public accession and local SHA-256 recorded;
-- explicit GRCh37/hg19 declaration;
-- deterministic parse and feature digest;
-- deterministic 42-score output under repeated execution;
-- confidence decision follows the locked policy;
-- complete provenance written to JSON/report;
-- no upstream Dorado/modkit claim is made.
+- GRCh37/hg19 declaration;
+- deterministic parse/feature digest;
+- deterministic 42-score output within frozen runtime tolerance;
+- decision follows locked `class_name_current >= 0.8` policy;
+- complete provenance in normalized JSON/report;
+- no upstream Dorado/modkit claim.
 
-Expected biological comparison is recorded from the publication/source-data context before scoring is evaluated. Any expected score/tolerance entered into a validation manifest must come from an independently documented source, not from the first ONTSeq run.
+Expected biological comparison must be registered from publication/source-data context before the ONTSeq result is inspected. Expected values may not be derived from the first ONTSeq execution.
 
 ### Phase 3 — GSE280090 cohort
 
-Run all compatible restricted probe-level files under the same locked artifact/runtime/policy.
+Run every compatible restricted probe-level sample under the same lock/policy.
 
-Predeclared output metrics:
+Predeclared metrics:
 
-- number attempted;
-- number technically completed;
-- number failed input/runtime;
+- attempted/completed/failed counts;
 - high-confidence count;
-- low-confidence/unknown count;
-- top-class concordance where an independent expected class is available;
+- unknown count;
+- top-class concordance where independent expected class exists;
 - high-confidence concordance;
 - no-call fraction;
 - feature-coverage distribution;
 - runtime distribution;
 - deterministic-rerun failures;
-- full list of discordant samples for manual review.
+- discordant-sample list.
 
-No model, threshold or preprocessing rule is modified after outcomes are inspected within the same registered validation run.
+No model, threshold or preprocessing change is allowed after outcome inspection within the same registered validation.
 
 ### Phase 4 — native ONTSeq bridge
 
-Only after the processed-data path is stable:
+Only after processed-data reproducibility:
 
 ```text
-same specimen / equivalent source
-published or locked precomputed CpG input
-                versus
+same specimen/equivalent source
+published or locked precomputed probe input
+                 versus
 ONTSeq modBAM -> modkit 0.6.4 -> probe-level CpG extraction
 ```
 
 Compare:
 
-- probe IDs observed;
-- methylation fractions before binarization;
-- model feature vector;
-- feature digest;
-- 42 MARLIN scores;
-- top class and confidence state.
+- observed probe IDs;
+- pre-binarization methylation fractions;
+- feature vector/digest;
+- 42 raw scores;
+- grouped class/family/lineage scores;
+- top class/confidence decision.
 
-This phase is the first evidence that ONTSeq's native methylation extraction interoperates with MARLIN. It still does not constitute clinical validation.
+This is the first evidence for native ONTSeq-to-MARLIN interoperability. It is still not clinical validation.
 
 ### Phase 5 — streaming/realtime, deferred
 
-Real-time MARLIN inference is a separate design because early threshold crossing can be unstable over time. It requires a predeclared stability policy, cumulative evidence semantics and explicit rules for score reversals.
-
-No realtime/early-stop behavior is added in the first implementation.
+Streaming is a separate future design because early threshold crossing can reverse. It requires cumulative-evidence and stability policies; first-threshold-crossing alone is insufficient.
 
 ## Testing strategy
 
-Implementation follows strict test-driven development.
+Implementation is strict TDD.
 
 ### Unit tests
 
-Add focused test modules for:
+Add dedicated tests for:
 
-- contracts and validators;
+- contracts;
 - probe-BED parser;
-- gzip equivalence;
-- feature mapping and binarization;
-- artifact-lock verification;
-- score parser;
-- class-annotation aggregation;
-- confidence policy;
-- no-model-features guard;
+- gzip transport;
+- feature mapping/binarization;
+- artifact lock;
+- 357,340-feature invariant;
+- 42-softmax-score invariant;
+- annotation grouping;
+- `HIGH_CONFIDENCE`/`UNKNOWN` policy;
+- zero-feature `NO_CALL` guard;
 - deterministic hashing;
-- serialization round-trips.
+- serialization round trips.
 
-### Metamorphic/property tests
+### Property/metamorphic tests
 
 At minimum:
 
-- input row permutation does not change the feature vector;
-- gzip vs plain-text transport does not change semantic results;
-- class-score serialization/deserialization preserves all values;
-- changing any locked artifact byte invalidates preflight;
-- changing build invalidates the run;
-- repeated runs with identical locked inputs produce equivalent normalized results;
-- report rendering does not mutate normalized results.
+- input row permutation preserves feature vector;
+- plain/gzip semantic equivalence;
+- result roundtrip preserves every score;
+- any locked artifact-byte change invalidates preflight;
+- build change invalidates run;
+- repeated locked runs are numerically equivalent under the frozen runtime profile;
+- rendering does not mutate normalized result.
 
-Where useful, Hypothesis should generate valid/invalid numeric boundaries rather than duplicating implementation logic.
+Hypothesis may generate numeric/boundary cases where it gives an independent oracle.
 
 ### Integration tests
 
-A synthetic runtime fixture exercises the actual R/Keras/TensorFlow adapter when the runtime is present.
+Actual R/Keras/TensorFlow runtime is exercised with the fixed synthetic/reference vector when installed.
 
-CI must have two levels:
+CI has two layers:
 
-1. lightweight contract/preprocessing tests that are always blocking;
-2. MARLIN-runtime integration job that is blocking on the designated packaged-runtime workflow but may be skipped with an explicit reason where the external model/runtime is intentionally absent.
-
-A skipped runtime test must not be reported as validation success.
+1. always-blocking contract/preprocessing tests;
+2. blocking MARLIN-runtime integration in the designated packaged-runtime workflow. Where the external runtime/model is intentionally absent, the job may skip only with an explicit reason and cannot be reported as validation success.
 
 ### Existing-suite protection
 
-Run the full existing repository checks before merge:
+Before merge run all applicable repository checks:
 
-- pytest suites;
+- pytest;
 - Ruff lint/format;
 - mypy;
-- schema consistency;
-- version consistency;
+- schema/version consistency;
 - repository-safety checks;
-- relevant Snakemake/runtime dry-runs;
-- existing methylation tests;
-- packaging/install smoke tests for the selected 0.9.0 bundle.
+- relevant runtime/Snakemake dry runs;
+- existing methylation suites;
+- packaging/install smoke tests.
 
-No existing biological output fixture may change as a side effect of MARLIN integration unless a separate independently justified defect fix is reviewed.
+Existing biological output fixtures must not change as a side effect unless a separate independently justified defect fix is reviewed.
 
-## Security and local execution
+## Security/local execution
 
-The model/runtime is third-party executable content and must be treated as such.
+Third-party model/runtime content is treated as executable/untrusted input.
 
 Requirements:
 
-- no network access is required during inference;
-- model and runtime are installed from explicit user/admin actions, never silently fetched at run time;
-- hashes are verified before every run or via an existing content-addressed verified cache whose validity is rechecked according to ONTSeq runtime policy;
-- subprocess working directory is isolated;
-- output paths are constrained to the run workspace;
-- inherited environment is minimized;
-- cancellation terminates the complete process tree using the already hardened ONTSeq process-control primitives;
-- runtime logs are captured without exporting patient sequence/read identifiers;
-- no raw BAM/POD5/FASTQ content enters GitHub artifacts.
+- no network required during inference;
+- model/runtime installed only by explicit action;
+- hashes verified before use;
+- isolated subprocess working directory;
+- output constrained to run workspace;
+- minimized inherited environment;
+- complete process-tree cancellation via existing hardened primitives;
+- captured logs without exporting patient read identifiers;
+- no BAM/POD5/FASTQ or processed patient payloads in GitHub artifacts.
 
 ## Packaging
 
-MARLIN runtime/model packaging is separate from Python source packaging.
+Runtime/model packaging is separate from Python source packaging.
 
-The portable ONTSeq bundle may include a verified runtime archive only when licensing and redistribution terms permit it. Otherwise the bundle includes:
+If redistribution terms permit, a portable bundle may include a verified runtime archive. Otherwise it includes an explicit installer/import workflow, source/version expectations and lock creation.
 
-- installer/import workflow;
-- expected source URI/version;
-- checksum/lock creation tooling;
-- clear missing-resource status.
-
-The application must distinguish:
+Operator-visible missing/error states remain distinct:
 
 ```text
 runtime unavailable
@@ -762,17 +751,17 @@ model unavailable
 artifact mismatch
 input invalid
 inference failed
-inference completed low confidence
+inference completed unknown
 inference completed high confidence
 ```
 
-A missing optional MARLIN runtime must not break unrelated ONTSeq analysis profiles.
+Optional MARLIN absence must not break unrelated ONTSeq profiles.
 
-## Reporting and UI boundary
+## Reporting/UI boundary
 
-The scientific core is implemented and validated before UI integration.
+Scientific core is implemented and validated before UI integration.
 
-First mergeable scientific increment:
+First mergeable increment:
 
 - contracts;
 - parser;
@@ -783,30 +772,28 @@ First mergeable scientific increment:
 - normalized JSON;
 - validation runner.
 
-UI/report additions consume only the normalized report contract.
+UI/report code consumes only normalized MARLIN output.
 
-The UI must display at minimum:
+Minimum UI summary later:
 
 - MARLIN status;
-- top class and score;
-- confidence state;
-- number/fraction of observed model CpGs;
-- clear Research-Use-Only label;
-- source kind (`PRECOMPUTED_METHYLATION` vs `MODKIT_DERIVED`);
-- limitations when upstream extraction was not validated.
+- top class/score;
+- `HIGH_CONFIDENCE` or `UNKNOWN`;
+- observed model-CpG count/fraction;
+- source kind;
+- Research-Use-Only label;
+- upstream-validation limitation.
 
-All 42 scores may be available in an expandable reviewer view but need not dominate the summary screen.
+All raw 42 scores remain available for reviewer detail.
 
 ## Versioning
 
-The work belongs to the 0.9.0 development line because it adds a new classification/validation subsystem and aligns with the existing independent-validation audit design.
+This work belongs to the 0.9.0 development line but does not itself declare a 0.9.0 release.
 
-Versioning rules:
-
-- no `0.9.0` release is declared merely because the MARLIN lane lands;
-- package/runtime/desktop/report schemas must remain version-consistent under existing guards;
-- changelog wording must state that MARLIN integration is Research Use Only and not an analytically or clinically validated diagnostic release;
-- the artifact-lock and MARLIN-result schemas have independent schema versions so their evolution does not rely only on package version.
+- package/runtime/desktop/report version surfaces must remain internally consistent;
+- MARLIN artifact-lock and result schemas have their own schema versions;
+- changelog must state RUO/non-clinical status;
+- release requires the broader 0.9.0 validation/audit gates, not merely a working classifier.
 
 ## Planned repository changes
 
@@ -830,100 +817,79 @@ docs/MARLIN_CLASSIFICATION.md
 configs/marlin/marlin_v1.research.yaml
 ```
 
-Existing files likely touched in focused ways:
+Focused edits are expected in the canonical CLI/dispatcher, changelog and version/schema guard inputs. UI/report files are a later reviewed increment.
 
-```text
-src/ontseq_platform/entrypoint.py
-src/ontseq_platform/cli.py or the canonical scientific-command registration surface
-CHANGELOG.md
-version/schema guard inputs if required
-report/UI consumers only in a later reviewed increment
-```
-
-Large model/data artifacts are never committed to the source repository.
+Large model/data artifacts are never committed.
 
 ## Implementation sequence
 
-The implementation plan should preserve the following dependency order:
-
 1. contracts/enums with failing tests;
 2. strict precomputed probe-BED parser;
-3. canonical feature construction and digest;
-4. artifact lock and preflight verification;
-5. runtime score adapter using a synthetic fixed vector;
-6. MARLIN-specific decision/aggregation semantics;
-7. CLI and normalized JSON output;
+3. canonical feature construction/digest;
+4. artifact lock/preflight;
+5. runtime adapter with fixed synthetic/reference vector;
+6. annotation grouping and confidence policy;
+7. CLI and normalized JSON;
 8. validation manifest/runner;
-9. AL_001 external gate;
-10. full compatible GSE280090 cohort gate;
+9. AL_001 gate;
+10. compatible GSE280090 cohort gate;
 11. native modkit-to-MARLIN bridge;
 12. UI/report consumption;
 13. separate future streaming design.
 
-Do not start at step 9 and use AL_001 as the debugging oracle for steps 1–8.
+AL_001 is not used as the debugging oracle for steps 1–8.
 
 ## Acceptance criteria
 
-The first MARLIN classification increment is complete when all of the following hold:
+The first MARLIN classification increment is complete when:
 
-- [ ] published MARLIN v1 preprocessing semantics are encoded in one canonical ONTSeq implementation;
-- [ ] the external MARLIN model, feature and class-annotation artifacts are checksum-locked;
-- [ ] inference is offline and refuses artifact mismatch;
-- [ ] `marlin_probe_bed_v1` supports plain and gzip transport with strict schema validation;
-- [ ] v1 requires explicit GRCh37/hg19 and rejects build mismatch;
-- [ ] feature vector is independent of input row order;
-- [ ] exact 0.5 threshold and missing->0 semantics are regression-tested;
-- [ ] duplicate probes and malformed numerics fail closed;
-- [ ] no-observed-model-feature input returns an explicit non-diagnostic state rather than a prior-like prediction;
-- [ ] runtime returns and ONTSeq preserves exactly 42 finite class scores;
-- [ ] lineage/family aggregation derives only from the locked class annotation artifact;
-- [ ] high-confidence policy is versioned and not tuned on GSE280090 outcomes;
-- [ ] repeated synthetic runtime executions meet a frozen numerical-equivalence criterion;
-- [ ] `GSM8587229_AL_001.txt.gz` is processed reproducibly with recorded accession/build/hash/provenance;
-- [ ] GSE280090 validation can run from an external-data manifest without committing patient-derived payloads;
-- [ ] validation output separates technical completion, confidence/unknown and biological concordance;
-- [ ] `PRECOMPUTED_METHYLATION` cannot be mistaken for evidence of native `MODKIT_DERIVED` validation;
-- [ ] full existing ONTSeq CI/regression checks remain green;
-- [ ] documentation states the exact supported scientific claim and the stronger unsupported claims;
+- [ ] MARLIN v1 preprocessing exists in one canonical ONTSeq implementation;
+- [ ] model, feature, class-annotation and hg19 probe artifacts are checksum-locked;
+- [ ] v1 requires explicit GRCh37/hg19;
+- [ ] inference is offline and rejects artifact mismatch;
+- [ ] strict five-column probe-BED supports plain/gzip input;
+- [ ] 357,340-feature invariant is enforced;
+- [ ] row order cannot change the feature vector;
+- [ ] `0.5`, missing/NA and duplicate semantics are regression-tested;
+- [ ] zero observed model features produce explicit `NO_CALL` without model prediction;
+- [ ] runtime returns exactly 42 finite `[0,1]` softmax scores summing to 1 within `1e-5`;
+- [ ] all 42 raw scores are retained;
+- [ ] class/family/lineage aggregation derives only from locked annotations;
+- [ ] v1 primary decision is grouped `class_name_current >= 0.8 -> HIGH_CONFIDENCE`, otherwise `UNKNOWN`;
+- [ ] threshold/policy is not tuned on GSE280090;
+- [ ] synthetic real-runtime compatibility profile is frozen before external validation;
+- [ ] `GSM8587229_AL_001.txt.gz` runs reproducibly with accession/build/hash/provenance;
+- [ ] GSE280090 validation runs from an external-data manifest without committing payloads;
+- [ ] validation separates technical completion, classification confidence and biological concordance;
+- [ ] `PRECOMPUTED_METHYLATION` cannot be mistaken for native `MODKIT_DERIVED` validation;
+- [ ] full existing ONTSeq regression/quality gates remain green;
 - [ ] no clinical-reportable status is introduced.
 
 ## Risks and mitigations
 
 ### Runtime/version drift
 
-Risk: old Keras/TensorFlow HDF5 behavior can differ across environments.
+Old Keras/TensorFlow HDF5 behavior may vary. Mitigation: full runtime lock plus frozen fixed-vector compatibility profile; preprocessing stays outside ML runtime.
 
-Mitigation: lock full runtime identity, verify fixed-vector score equivalence, and keep preprocessing outside the ML runtime.
+### Build drift
 
-### Build/coordinate drift
-
-Risk: probe resources may exist for hg19, hg38 and T2T and can be accidentally mixed.
-
-Mitigation: artifact lock is build-specific; v1 supports GRCh37 only; no implicit liftover.
+MARLIN publishes hg19/hg38/T2T probe resources. Mitigation: v1 GRCh37-only lock; no implicit liftover.
 
 ### Overclaim from public processed data
 
-Risk: strong GSE280090 concordance could be mislabeled as end-to-end validation.
-
-Mitigation: source-kind provenance is mandatory and validation reports explicitly state that Dorado/alignment/MM-ML/modkit are outside this evidence layer.
+Strong GSE concordance can be mistaken for raw-pipeline validation. Mitigation: mandatory source-kind provenance and explicit evidence-boundary wording.
 
 ### Sparse-input false certainty
 
-Risk: a neural network always emits scores, even if evidence is minimal.
-
-Mitigation: preserve feature-coverage metrics, published confidence semantics and explicit low-confidence/unknown state; refuse a zero-observed-feature prior-like output.
+Softmax always returns a distribution. Mitigation: preserve feature coverage, `UNKNOWN` below confidence threshold and `NO_CALL` when zero model features are observed.
 
 ### Numerical nondeterminism
 
-Risk: CPU/GPU/threading differences can alter low-order score bytes.
+Backend/threading can perturb low-order scores. Mitigation: pre-GSE frozen runtime compatibility profile, not post-hoc tolerance adjustment.
 
-Mitigation: define semantic/numerical equivalence rather than blindly requiring byte-identical floating output; freeze tolerance before external biological validation and include runtime profile in provenance.
+### Patient-derived data handling
 
-### Patient-data handling
-
-Risk: validation inputs are processed human genomic/epigenomic data.
-
-Mitigation: no payloads in Git; public accession/checksum manifests only; local paths do not enter public reports; follow existing ONTSeq data-governance rules.
+GSE files are public processed human methylation data. Mitigation: no payloads in Git, accession/checksum manifests only, local paths excluded from public reports, existing ONTSeq governance retained.
 
 ## Scientific boundary after completion
 
@@ -939,4 +905,4 @@ It also does not yet support:
 
 > ONTSeq's raw-signal/Dorado/modkit path is analytically equivalent to the MARLIN publication.
 
-Those stronger statements require the later native bridge, analytical performance characterization, intended-use cohorts, orthogonal truth, governance and human review.
+Those stronger claims require the native bridge, analytical performance characterization, intended-use cohorts, orthogonal truth, governance and human review.
