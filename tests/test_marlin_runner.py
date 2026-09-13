@@ -11,8 +11,14 @@ from ontseq_platform.marlin_artifacts import (
     MarlinArtifactPaths,
     create_marlin_artifact_lock,
 )
-from ontseq_platform.marlin_contracts import MarlinClassificationDecision, MarlinRuntimeCompatibilityProfile
-from ontseq_platform.marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
+from ontseq_platform.marlin_contracts import (
+    MarlinClassificationDecision,
+    MarlinRuntimeCompatibilityProfile,
+)
+from ontseq_platform.marlin_runner import (
+    MarlinRunResources,
+    run_precomputed_marlin_classification,
+)
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 
 
