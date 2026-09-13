@@ -49,6 +49,15 @@ def _validate_feature_ids(feature_ids: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+def marlin_feature_vector_sha256(values: Sequence[float]) -> str:
+    """Hash the canonical MARLIN {-1,0,+1} vector as one byte per feature."""
+    try:
+        payload = b"".join(_FEATURE_TO_BYTE[value] for value in values)
+    except KeyError as exc:
+        raise ValueError("MARLIN feature vectors contain only -1.0, 0.0 or 1.0") from exc
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _build_feature_vector_for_ids(
     feature_ids: Sequence[str],
     observations: Mapping[str, MarlinProbeObservation],
@@ -83,8 +92,7 @@ def _build_feature_vector_for_ids(
         observed_count += 1
 
     non_model_count = sum(1 for probe_id in observations if probe_id not in feature_set)
-    payload = b"".join(_FEATURE_TO_BYTE[value] for value in values)
-    digest = hashlib.sha256(payload).hexdigest()
+    digest = marlin_feature_vector_sha256(values)
     expected_count = len(ordered)
     summary = _FeatureSummaryDraft(
         expected_feature_count=expected_count,
