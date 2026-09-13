@@ -175,7 +175,7 @@ class MarlinPredictionReport(StrictModel):
     lineage_scores: list[MarlinGroupedScore]
     top_class: str | None = Field(default=None, min_length=1)
     top_class_score: float | None = Field(default=None, ge=0, le=1.00001)
-    confidence_threshold: Literal[0.8] = 0.8
+    confidence_threshold: float = Field(default=0.8, ge=0.8, le=0.8)
     artifact_lock_id: str = Field(min_length=1)
     warnings: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
