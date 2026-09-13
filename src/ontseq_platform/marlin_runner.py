@@ -17,11 +17,7 @@ from .marlin_contracts import (
 )
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
-from .marlin_runtime import (
-    MarlinRuntimeResult,
-    run_marlin_inference,
-    verify_runtime_compatibility,
-)
+from .marlin_runtime import MarlinRuntimeResult, run_marlin_inference
 from .models import GenomeBuild
 
 
@@ -80,7 +76,6 @@ def run_precomputed_marlin_classification(
             work_dir=work_dir,
             rscript_path=rscript_path,
         )
-        verify_runtime_compatibility(runtime_profile, runtime_result)
 
     report = classify_marlin_scores(
         sample_id=sample_id,
