@@ -78,6 +78,7 @@ def _classify(runtime: MarlinRuntimeResult | None, observed: int = 1000):
         source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
         genome_build=GenomeBuild.GRCH37,
         artifact_lock_id="LOCK",
+        runtime_profile_id="PROFILE",
         annotations=_annotations(),
     )
 
@@ -89,6 +90,7 @@ def test_valid_low_grouped_score_is_completed_unknown() -> None:
     assert report.decision is MarlinClassificationDecision.UNKNOWN
     assert report.top_class == "Class A"
     assert report.top_class_score == pytest.approx(0.69)
+    assert report.runtime_profile_id == "PROFILE"
 
 
 def test_grouped_score_at_exact_threshold_is_high_confidence() -> None:
@@ -104,6 +106,7 @@ def test_zero_observed_features_is_no_call_without_runtime() -> None:
     assert report.decision is MarlinClassificationDecision.UNKNOWN
     assert report.raw_model_scores == []
     assert report.top_class is None
+    assert report.runtime_profile_id == "PROFILE"
 
 
 def test_nonzero_observed_features_require_runtime_result() -> None:
@@ -122,6 +125,7 @@ def test_runtime_feature_digest_and_lock_must_match_classification_inputs() -> N
             source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
             genome_build=GenomeBuild.GRCH37,
             artifact_lock_id="LOCK",
+            runtime_profile_id="PROFILE",
             annotations=_annotations(),
         )
     with pytest.raises(ValueError, match="artifact lock"):
@@ -133,6 +137,7 @@ def test_runtime_feature_digest_and_lock_must_match_classification_inputs() -> N
             source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
             genome_build=GenomeBuild.GRCH37,
             artifact_lock_id="LOCK",
+            runtime_profile_id="PROFILE",
             annotations=_annotations(),
         )
 
@@ -214,6 +219,7 @@ def test_grouped_scores_preserve_allowed_softmax_roundoff() -> None:
         source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
         genome_build=GenomeBuild.GRCH37,
         artifact_lock_id="LOCK",
+        runtime_profile_id="PROFILE",
         annotations=annotations,
     )
     assert report.top_class_score == pytest.approx(sum(scores))
