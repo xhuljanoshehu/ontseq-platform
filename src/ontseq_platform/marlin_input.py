@@ -82,9 +82,7 @@ def parse_marlin_probe_bed(path: Path, *, genome_build: GenomeBuild) -> MarlinPr
                 raise ValueError(f"Line {line_number}: blank rows are not allowed")
             fields = line.split("\t")
             if len(fields) != 5:
-                raise ValueError(
-                    f"Line {line_number}: expected exactly 5 tab-separated fields"
-                )
+                raise ValueError(f"Line {line_number}: expected exactly 5 tab-separated fields")
             if any(field != field.strip() for field in fields):
                 raise ValueError(f"Line {line_number}: surrounding field whitespace is not allowed")
 
