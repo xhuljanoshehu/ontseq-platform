@@ -102,11 +102,7 @@ def _parse_score_output(path: Path, labels: Sequence[str]) -> list[MarlinModelUn
             raise ValueError(f"MARLIN runtime row {expected_id} score must be finite")
         if not 0 <= score <= 1:
             raise ValueError(f"MARLIN runtime row {expected_id} score must be between 0 and 1")
-        scores.append(
-            MarlinModelUnitScore(
-                model_id=model_id, label=labels[model_id - 1], score=score
-            )
-        )
+        scores.append(MarlinModelUnitScore(model_id=model_id, label=labels[model_id - 1], score=score))
 
     if abs(sum(item.score for item in scores) - 1.0) > _SOFTMAX_SUM_TOLERANCE:
         raise ValueError("MARLIN runtime scores violate softmax-sum tolerance")
@@ -238,6 +234,5 @@ def verify_runtime_compatibility(
     ):
         if abs(candidate_score - reference_score) > profile.absolute_score_tolerance:
             raise ValueError(
-                "MARLIN candidate score exceeds frozen absolute tolerance "
-                f"at model unit {model_id}"
+                f"MARLIN candidate score exceeds frozen absolute tolerance at model unit {model_id}"
             )
