@@ -72,6 +72,7 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["docs/superpowers/plans/2026-09-13-marlin-classification-v1.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
