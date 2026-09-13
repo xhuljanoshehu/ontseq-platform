@@ -151,11 +151,26 @@ def test_runtime_profile_requires_42_scores_and_positive_tolerance() -> None:
         )
 
 
+def test_prediction_report_requires_runtime_profile_id() -> None:
+    with pytest.raises(ValidationError, match="runtime_profile_id"):
+        MarlinPredictionReport(
+            sample_id="AL_001",
+            status=ModuleRunStatus.NO_CALL,
+            decision=MarlinClassificationDecision.UNKNOWN,
+            source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
+            genome_build=GenomeBuild.GRCH37,
+            input_fingerprint=FileFingerprint(size_bytes=100, sha256=SHA6),
+            feature_summary=_feature_summary(observed=0, explicit_na=0),
+            raw_model_scores=[],
+            class_scores=[],
+            family_scores=[],
+            lineage_scores=[],
+            artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+        )
+
+
 def test_prediction_report_completed_unknown_for_valid_low_confidence() -> None:
-    raw = [
-        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42)
-        for i in range(42)
-    ]
+    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
     grouped = [MarlinGroupedScore(label="Class A", score=0.69)]
     report = MarlinPredictionReport(
         sample_id="AL_001",
@@ -173,6 +188,7 @@ def test_prediction_report_completed_unknown_for_valid_low_confidence() -> None:
         top_class_score=0.69,
         confidence_threshold=0.8,
         artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+        runtime_profile_id="PROFILE",
     )
     assert report.status is ModuleRunStatus.COMPLETED
     assert report.decision is MarlinClassificationDecision.UNKNOWN
@@ -196,14 +212,12 @@ def test_prediction_report_no_call_cannot_carry_high_confidence() -> None:
             top_class_score=None,
             confidence_threshold=0.8,
             artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+            runtime_profile_id="PROFILE",
         )
 
 
 def test_prediction_report_no_call_requires_zero_evidence_payload() -> None:
-    raw = [
-        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42)
-        for i in range(42)
-    ]
+    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
     with pytest.raises(ValidationError, match="NO_CALL"):
         MarlinPredictionReport(
             sample_id="AL_001",
@@ -221,14 +235,12 @@ def test_prediction_report_no_call_requires_zero_evidence_payload() -> None:
             top_class_score=None,
             confidence_threshold=0.8,
             artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+            runtime_profile_id="PROFILE",
         )
 
 
 def test_prediction_report_requires_raw_model_unit_order() -> None:
-    raw = [
-        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42)
-        for i in range(42)
-    ]
+    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
     raw[0], raw[1] = raw[1], raw[0]
     with pytest.raises(ValidationError, match="order"):
         MarlinPredictionReport(
@@ -247,4 +259,5 @@ def test_prediction_report_requires_raw_model_unit_order() -> None:
             top_class_score=0.69,
             confidence_threshold=0.8,
             artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+            runtime_profile_id="PROFILE",
         )
