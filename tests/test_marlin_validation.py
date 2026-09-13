@@ -58,13 +58,10 @@ def _report(
     feature_sha: str = "a" * 64,
     decision: MarlinClassificationDecision = MarlinClassificationDecision.HIGH_CONFIDENCE,
     top_class: str = "Class A",
+    runtime_profile_id: str = "PROFILE",
 ) -> MarlinPredictionReport:
     observed = 1
-    top_score = (
-        1.0
-        if decision is MarlinClassificationDecision.HIGH_CONFIDENCE
-        else 0.7
-    )
+    top_score = 1.0 if decision is MarlinClassificationDecision.HIGH_CONFIDENCE else 0.7
     return MarlinPredictionReport(
         sample_id="AL_TEST_001",
         status=ModuleRunStatus.COMPLETED,
@@ -104,6 +101,7 @@ def _report(
         top_class=top_class,
         top_class_score=top_score,
         artifact_lock_id="LOCK",
+        runtime_profile_id=runtime_profile_id,
     )
 
 
@@ -139,15 +137,24 @@ def test_repeated_identical_run_requires_same_feature_digest_and_decision(tmp_pa
     assert result.results[0].raw_score_sha256 == "c" * 64
 
 
+def test_validation_rejects_report_runtime_profile_mismatch(tmp_path: Path) -> None:
+    sample = _sample(tmp_path)
+    report = _report(input_sha=sample.input_sha256, runtime_profile_id="OTHER")
+    result = execute_marlin_validation(
+        _manifest(sample), classify_sample=lambda _: (report, "c" * 64, 0.1)
+    )
+    assert result.failed_count == 1
+    assert result.results[0].status == "FAILED"
+    assert result.results[0].reason == "Classification execution failed: ValueError"
+
+
 def test_nondeterministic_second_run_is_failed_not_silently_pooled(tmp_path: Path) -> None:
     sample = _sample(tmp_path)
     first = _report(input_sha=sample.input_sha256, feature_sha="a" * 64)
     second = _report(input_sha=sample.input_sha256, feature_sha="f" * 64)
     reports = iter([(first, "c" * 64, 0.2), (second, "d" * 64, 0.2)])
 
-    result = execute_marlin_validation(
-        _manifest(sample), classify_sample=lambda _: next(reports)
-    )
+    result = execute_marlin_validation(_manifest(sample), classify_sample=lambda _: next(reports))
     assert result.deterministic_rerun_failures == 1
     assert result.failed_count == 1
     assert result.results[0].status == "FAILED"
