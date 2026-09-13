@@ -90,6 +90,7 @@ def run_precomputed_marlin_classification(
         source_kind=source.source_kind,
         genome_build=source.genome_build,
         artifact_lock_id=lock.lock_id,
+        runtime_profile_id=runtime_profile.profile_id,
         annotations=annotations,
     )
     # Rehash all controlled resources after execution so a mid-run mutation cannot be
