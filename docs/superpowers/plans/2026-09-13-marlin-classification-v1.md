@@ -2,47 +2,47 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a fail-closed, reproducible MARLIN v1 methylation-classification lane that imports published probe-level CpG data, constructs the canonical 357,340-feature vector, runs the locked 42-class MARLIN model, preserves provenance/confidence semantics, and validates the downstream workflow against GSE280090 without making clinical or raw-signal equivalence claims.
+**Goal:** Add a fail-closed, reproducible MARLIN v1 methylation-classification lane that imports published probe-level CpG data, builds the canonical 357,340-feature vector, runs the locked 42-output MARLIN model, preserves provenance and confidence semantics, and validates the downstream workflow against GSE280090 without making clinical or raw-signal equivalence claims.
 
-**Architecture:** ONTSeq owns input parsing, build checks, artifact locks, feature construction, status/confidence semantics, validation and reporting. A pinned R/Keras/TensorFlow runtime receives only an already-built canonical feature vector and returns exactly 42 model-unit scores. Precomputed GSE inputs remain a separate evidence path from future `MODKIT_DERIVED` inputs.
+**Architecture:** ONTSeq owns parsing, genome-build checks, artifact locks, feature construction, status/confidence semantics, validation and reporting. A pinned R/Keras/TensorFlow runtime receives only an already constructed canonical feature vector and returns 42 raw model-unit scores. Precomputed GSE input and future `MODKIT_DERIVED` input are separate evidence paths.
 
-**Tech Stack:** Python 3.11+, Pydantic v2, pytest, Ruff, mypy strict, existing ONTSeq `CommandRunner`/`SubprocessRunner`, R 4.1.3-compatible MARLIN runtime, Keras 2.13-compatible stack, TensorFlow 2.13-compatible stack, openpyxl for class annotations, SHA-256 provenance.
+**Tech Stack:** Python >=3.11, Pydantic v2, pytest, Ruff, mypy strict, existing ONTSeq `CommandRunner`/`SubprocessRunner`, R 4.1.3-compatible MARLIN runtime, Keras 2.13-compatible stack, TensorFlow 2.13-compatible stack, openpyxl, SHA-256 provenance.
 
 **Spec:** `docs/superpowers/specs/2026-09-13-marlin-classification-design.md`
 
 ## Global Constraints
 
-- Start from `feat/marlin-classification-v1`; do not modify `main` directly.
-- First supported build is `GRCh37`/hg19 only; no implicit liftover.
-- MARLIN v1 expected feature count is exactly `357340`.
-- MARLIN v1 expected raw model-unit count is exactly `42`.
-- Preprocessing is exactly: observed `>=0.5 -> +1.0`, observed `<0.5 -> -1.0`, explicit `NA -> 0.0`, absent feature -> `0.0`.
-- `PRECOMPUTED_METHYLATION` and `MODKIT_DERIVED` provenance must never be conflated.
-- A valid run with top grouped-class score `<0.8` is `COMPLETED + UNKNOWN`, not `NO_CALL`.
-- `NO_CALL` is reserved for valid but non-interpretable input, including zero observed model features.
-- Malformed input, lock mismatch, runtime mismatch, non-finite scores, wrong class count, wrong score sum, or partial runtime output are `FAILED`/exceptions, never `NO_CALL`.
-- No MARLIN artifact or patient-derived GSE payload is committed to Git.
-- No post-hoc threshold tuning against GSE280090.
-- GSE280090 validates only the downstream processed-CpG-to-classification path.
+- Work on `feat/marlin-classification-v1`; do not modify `main` directly.
+- v1 supports only `GRCh37`/hg19 and never performs implicit liftover.
+- MARLIN v1 feature count is exactly `357340`.
+- MARLIN v1 raw model-unit count is exactly `42`.
+- Preprocessing is fixed: observed `>=0.5 -> +1.0`; observed `<0.5 -> -1.0`; explicit `NA -> 0.0`; absent feature -> `0.0`.
+- `PRECOMPUTED_METHYLATION` and `MODKIT_DERIVED` must remain distinct provenance states.
+- A valid run with top grouped current-class score `<0.8` is `COMPLETED + UNKNOWN`, not `NO_CALL`.
+- `NO_CALL` is reserved for valid but non-interpretable input such as zero observed MARLIN model features.
+- Malformed input, artifact mismatch, runtime mismatch, non-finite scores, wrong score count, wrong score sum, or partial runtime output are failures and never `NO_CALL`.
+- No MARLIN model artifact or patient-derived GSE payload is committed to Git.
+- The `0.8` threshold is fixed before GSE280090 evaluation and is never tuned post hoc.
+- GSE280090 validates only the processed-CpG-to-classification path.
 - No clinical-reportable status is introduced.
-- Existing `technical PASS != analytical validity != clinical validity` project rule remains unchanged.
+- `technical PASS != analytical validity != clinical validity` remains a project-wide rule.
 
 ---
 
-## File Structure Map
+## File Structure
 
 ### New source files
 
-- `src/ontseq_platform/marlin_contracts.py` — enums and strict Pydantic contracts only.
-- `src/ontseq_platform/marlin_input.py` — strict five-column probe-BED parser, gzip support, input fingerprinting.
-- `src/ontseq_platform/marlin_artifacts.py` — resource export/inspection, artifact lock creation and verification.
-- `src/ontseq_platform/marlin_features.py` — ordered 357,340-feature construction and vector hashing.
-- `src/ontseq_platform/marlin_runtime.py` — runtime preflight, score execution/parsing, compatibility profile.
-- `src/ontseq_platform/marlin_classification.py` — grouped class/family/lineage aggregation and `HIGH_CONFIDENCE`/`UNKNOWN` semantics.
-- `src/ontseq_platform/marlin_validation.py` — GSE validation manifests, deterministic reruns, cohort metrics.
-- `src/ontseq_platform/marlin_cli.py` — CLI registration and command handlers.
-- `scripts/marlin_infer_locked.R` — minimal runtime script that consumes an ONTSeq-built feature vector and emits 42 scores; no feature preprocessing.
-- `scripts/marlin_export_resources.R` — deterministic one-time export of ordered feature IDs from `marlin_v1.features.RData` into canonical text for hashing/use by Python.
+- `src/ontseq_platform/marlin_contracts.py` — strict schemas and enums.
+- `src/ontseq_platform/marlin_input.py` — five-column probe-BED parsing and input fingerprinting.
+- `src/ontseq_platform/marlin_artifacts.py` — MARLIN artifact paths, lock creation, lock verification and class-annotation loading.
+- `src/ontseq_platform/marlin_features.py` — ordered feature-vector construction and digest.
+- `src/ontseq_platform/marlin_runtime.py` — inference runtime and compatibility profile.
+- `src/ontseq_platform/marlin_classification.py` — score aggregation and confidence decision.
+- `src/ontseq_platform/marlin_validation.py` — public processed-data validation harness.
+- `src/ontseq_platform/marlin_cli.py` — command registration and dispatch.
+- `scripts/marlin_export_resources.R` — export ordered feature IDs from the published RData artifact.
+- `scripts/marlin_infer_locked.R` — load the locked model and infer from a prebuilt vector.
 
 ### New tests
 
@@ -55,32 +55,48 @@
 - `tests/test_marlin_validation.py`
 - `tests/test_marlin_cli.py`
 
-### New docs/configs
+### New documentation/configuration
 
-- `docs/MARLIN_CLASSIFICATION.md`
 - `configs/methylation/marlin_v1.technical.yaml`
-- optional generated local validation outputs remain under ignored `results/` paths.
+- `docs/MARLIN_CLASSIFICATION.md`
 
-### Existing files modified late in the plan
+### Existing files modified near integration/release
 
-- `src/ontseq_platform/entrypoint.py` — discover MARLIN commands.
-- `src/ontseq_platform/cli.py` — delegate MARLIN command family or import the MARLIN CLI registrar.
-- `pyproject.toml` — package the MARLIN R scripts/config and eventually bump release version.
-- `CHANGELOG.md`, `README.md`, `CITATION.cff`, `uv.lock`, Desktop version surfaces — coordinated `0.9.0` release step only after code/validation gates pass.
+- `src/ontseq_platform/entrypoint.py`
+- `src/ontseq_platform/cli.py`
+- `pyproject.toml`
+- `CHANGELOG.md`
+- `README.md`
+- coordinated release/version surfaces checked by `scripts/check_version_consistency.py`
 
 ---
 
-### Task 1: Define MARLIN contracts and status semantics
+## Task 1: Strict MARLIN contracts
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_contracts.py`
 - Create: `tests/test_marlin_contracts.py`
 
 **Interfaces:**
-- Produces: `MarlinSourceKind`, `MarlinClassificationDecision`, `MarlinProbeObservation`, `MarlinFeatureSummary`, `MarlinModelUnitScore`, `MarlinGroupedScore`, `MarlinArtifactLock`, `MarlinRuntimeCompatibilityProfile`, `MarlinPredictionReport`.
-- Consumes: `GenomeBuild`, `ModuleRunStatus`, `StrictModel`, `FileFingerprint` from `ontseq_platform.models`.
 
-- [ ] **Step 1: Write failing contract tests**
+```python
+class MarlinSourceKind(StrEnum): ...
+class MarlinClassificationDecision(StrEnum): ...
+class MarlinProbeObservation(StrictModel): ...
+class MarlinPrecomputedInput(StrictModel): ...
+class MarlinFeatureSummary(StrictModel): ...
+class MarlinFeatureVector(StrictModel): ...
+class MarlinModelUnitScore(StrictModel): ...
+class MarlinGroupedScore(StrictModel): ...
+class MarlinArtifactLock(StrictModel): ...
+class MarlinRuntimeCompatibilityProfile(StrictModel): ...
+class MarlinRuntimeResult(StrictModel): ...
+class MarlinPredictionReport(StrictModel): ...
+```
+
+The implementation replaces the declarations above with concrete fields; the tests below define the load-bearing semantics.
+
+- [ ] **Step 1: Write failing tests for enum identity and invariant fields**
 
 ```python
 from pydantic import ValidationError
@@ -93,8 +109,15 @@ from ontseq_platform.marlin_contracts import (
 )
 
 
-def test_feature_summary_requires_marlin_v1_feature_count() -> None:
-    with pytest.raises(ValidationError, match="357340"):
+def test_public_status_values_are_unambiguous() -> None:
+    assert MarlinSourceKind.PRECOMPUTED_METHYLATION.value == "PRECOMPUTED_METHYLATION"
+    assert MarlinSourceKind.MODKIT_DERIVED.value == "MODKIT_DERIVED"
+    assert MarlinClassificationDecision.HIGH_CONFIDENCE.value == "HIGH_CONFIDENCE"
+    assert MarlinClassificationDecision.UNKNOWN.value == "UNKNOWN"
+
+
+def test_feature_summary_refuses_wrong_marlin_v1_feature_count() -> None:
+    with pytest.raises(ValidationError):
         MarlinFeatureSummary(
             expected_feature_count=42,
             observed_model_feature_count=10,
@@ -106,29 +129,26 @@ def test_feature_summary_requires_marlin_v1_feature_count() -> None:
             feature_artifact_sha256="1" * 64,
             preprocessing_contract_version="marlin-v1-binarize-1",
         )
-
-
-def test_decision_values_are_unambiguous() -> None:
-    assert MarlinClassificationDecision.HIGH_CONFIDENCE.value == "HIGH_CONFIDENCE"
-    assert MarlinClassificationDecision.UNKNOWN.value == "UNKNOWN"
-    assert MarlinSourceKind.PRECOMPUTED_METHYLATION.value == "PRECOMPUTED_METHYLATION"
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
-
-Run:
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_contracts.py -q
 ```
 
-Expected: import failure because `marlin_contracts.py` does not exist.
+Expected: module import failure.
 
-- [ ] **Step 3: Implement strict contracts**
+- [ ] **Step 3: Implement the contracts**
 
-Minimum definitions must include these invariants:
+Mandatory constants/fields:
 
 ```python
+MARLIN_V1_FEATURE_COUNT = 357_340
+MARLIN_V1_MODEL_UNIT_COUNT = 42
+MARLIN_V1_CONFIDENCE_THRESHOLD = 0.8
+
+
 class MarlinSourceKind(StrEnum):
     PRECOMPUTED_METHYLATION = "PRECOMPUTED_METHYLATION"
     MODKIT_DERIVED = "MODKIT_DERIVED"
@@ -153,9 +173,9 @@ class MarlinFeatureSummary(StrictModel):
     )
 ```
 
-`MarlinPredictionReport` must carry `ModuleRunStatus`, source kind, GRCh37 build, input fingerprint, feature summary, all 42 raw scores, grouped class/family/lineage scores, decision, top class/score, artifact lock ID, warnings/limitations, and `research_only=True`.
+`MarlinPredictionReport` must include `ModuleRunStatus`, `MarlinSourceKind`, `GenomeBuild`, input fingerprint, feature summary, 42 raw model-unit scores, grouped current-class/family/lineage scores, top grouped class/score, decision, artifact-lock ID, runtime-profile ID, warnings, limitations and `research_only=True`.
 
-- [ ] **Step 4: Run contract tests and full type/lint checks for the new file**
+- [ ] **Step 4: Verify contracts**
 
 ```bash
 python -m pytest tests/test_marlin_contracts.py -q
@@ -174,53 +194,75 @@ git commit -m "feat(marlin): add strict classification contracts"
 
 ---
 
-### Task 2: Implement strict published five-column probe-BED import
+## Task 2: Published five-column probe-BED parser
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_input.py`
 - Create: `tests/test_marlin_input.py`
 
-**Interfaces:**
-- Consumes: `MarlinProbeObservation`, `MarlinSourceKind`.
-- Produces: `parse_marlin_probe_bed(path: Path, *, genome_build: GenomeBuild) -> MarlinPrecomputedInput`.
-
-- [ ] **Step 1: Write parser tests for plain/gzip, schema, coordinates and duplicates**
+**Interface:**
 
 ```python
-def test_parse_probe_bed_gzip(tmp_path: Path) -> None:
+def parse_marlin_probe_bed(
+    path: Path,
+    *,
+    genome_build: GenomeBuild,
+) -> MarlinPrecomputedInput:
+    pass
+```
+
+- [ ] **Step 1: Write failing plain/gzip and fail-closed parser tests**
+
+```python
+import gzip
+from pathlib import Path
+
+import pytest
+
+from ontseq_platform.marlin_input import parse_marlin_probe_bed
+from ontseq_platform.models import GenomeBuild
+
+
+def test_gzip_probe_bed_is_parsed_without_reordering(tmp_path: Path) -> None:
     path = tmp_path / "sample.txt.gz"
     with gzip.open(path, "wt", encoding="utf-8") as handle:
         handle.write("chr1\t10\t11\t0.75\tcg0001\n")
         handle.write("chr1\t20\t21\tNA\tcg0002\n")
     parsed = parse_marlin_probe_bed(path, genome_build=GenomeBuild.GRCH37)
+    assert [item.probe_id for item in parsed.observations] == ["cg0001", "cg0002"]
     assert parsed.observations[0].methylation_fraction == 0.75
     assert parsed.observations[1].methylation_fraction is None
-    assert parsed.source_kind is MarlinSourceKind.PRECOMPUTED_METHYLATION
 
 
 def test_duplicate_probe_is_rejected(tmp_path: Path) -> None:
-    path = tmp_path / "dup.bed"
+    path = tmp_path / "duplicate.bed"
     path.write_text(
-        "chr1\t10\t11\t0.1\tcg0001\nchr1\t10\t11\t0.9\tcg0001\n",
+        "chr1\t10\t11\t0.10\tcg0001\n"
+        "chr1\t10\t11\t0.90\tcg0001\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="Duplicate MARLIN probe"):
         parse_marlin_probe_bed(path, genome_build=GenomeBuild.GRCH37)
+
+
+def test_grch38_is_rejected_in_v1(tmp_path: Path) -> None:
+    path = tmp_path / "sample.bed"
+    path.write_text("chr1\t10\t11\t0.5\tcg0001\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="GRCh37"):
+        parse_marlin_probe_bed(path, genome_build=GenomeBuild.GRCH38)
 ```
 
-Also add explicit failing cases for: six columns, whitespace delimiter instead of tabs, negative start, `end <= start`, `nan`, `inf`, value `<0`, value `>1`, blank probe ID, blank line policy, and GRCh38 rejection in v1.
+Add parametrized cases for exactly six columns, spaces instead of tabs, negative start, `end <= start`, `nan`, `inf`, values outside `[0,1]`, empty probe ID and malformed blank rows.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_input.py -q
 ```
 
-Expected: import/function failure.
+- [ ] **Step 3: Implement parser and original-file SHA-256**
 
-- [ ] **Step 3: Implement deterministic parser and SHA-256 fingerprint**
-
-Core parsing rule:
+Use exactly five tab-separated fields:
 
 ```python
 fields = line.rstrip("\n\r").split("\t")
@@ -228,17 +270,15 @@ if len(fields) != 5:
     raise ValueError(f"Line {line_number}: expected exactly 5 tab-separated fields")
 ```
 
-Use `gzip.open(..., "rt", encoding="utf-8")` only for `.gz`; otherwise `Path.open`. Do not accept or repair malformed rows. Compute SHA-256 over the original compressed file bytes using `sha256_file(path)`.
+Open `.gz` with `gzip.open(path, "rt", encoding="utf-8")`; open plain files with `Path.open`. Do not repair malformed rows. Calculate the fingerprint over original file bytes with the existing `sha256_file(path)` helper.
 
-- [ ] **Step 4: Verify tests/lint/type**
+- [ ] **Step 4: Verify**
 
 ```bash
 python -m pytest tests/test_marlin_input.py -q
 python -m ruff check src/ontseq_platform/marlin_input.py tests/test_marlin_input.py
 python -m mypy src/ontseq_platform/marlin_input.py
 ```
-
-Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -249,359 +289,354 @@ git commit -m "feat(marlin): parse published probe methylation input"
 
 ---
 
-### Task 3: Export and lock MARLIN reference resources
+## Task 3: Artifact export, class annotations and lock verification
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_artifacts.py`
 - Create: `scripts/marlin_export_resources.R`
 - Create: `tests/test_marlin_artifacts.py`
-- Modify: `pyproject.toml` package data for `scripts/marlin_export_resources.R` when packaging is tested.
 
 **Interfaces:**
-- Produces: `create_marlin_artifact_lock(...) -> MarlinArtifactLock`, `verify_marlin_artifact_lock(lock, paths) -> None`, `load_exported_feature_ids(path) -> tuple[str, ...]`.
-- Consumes: MARLIN upstream `marlin_v1.features.RData`, `marlin_v1.class_annotations.xlsx`, hg19 probe BED, model HDF5, explicit runtime versions.
-
-- [ ] **Step 1: Write RED tests for hash mismatch, feature count, duplicate feature IDs and build mismatch**
 
 ```python
-def test_lock_rejects_wrong_feature_count(tmp_path: Path) -> None:
-    features = tmp_path / "features.txt"
-    features.write_text("cg1\ncg2\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="357340"):
-        load_exported_feature_ids(features)
+class MarlinArtifactPaths(StrictModel):
+    model_path: Path
+    feature_rdata_path: Path
+    feature_ids_path: Path
+    class_annotations_path: Path
+    hg19_probe_bed_path: Path
 
 
-def test_verify_lock_detects_changed_model(valid_lock, artifact_paths) -> None:
-    artifact_paths.model.write_bytes(b"changed")
-    with pytest.raises(ValueError, match="model SHA-256"):
-        verify_marlin_artifact_lock(valid_lock, artifact_paths)
+def load_exported_feature_ids(path: Path) -> tuple[str, ...]:
+    pass
+
+
+def create_marlin_artifact_lock(
+    paths: MarlinArtifactPaths,
+    *,
+    runtime_versions: dict[str, str],
+    code_commit: str,
+) -> MarlinArtifactLock:
+    pass
+
+
+def verify_marlin_artifact_lock(
+    lock: MarlinArtifactLock,
+    paths: MarlinArtifactPaths,
+) -> None:
+    pass
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Step 1: Write RED tests for feature count, duplicate feature IDs and hash drift**
+
+```python
+from pathlib import Path
+import pytest
+
+from ontseq_platform.marlin_artifacts import load_exported_feature_ids
+
+
+def test_feature_export_requires_357340_unique_ids(tmp_path: Path) -> None:
+    path = tmp_path / "features.txt"
+    path.write_text("cg1\ncg2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="357340"):
+        load_exported_feature_ids(path)
+```
+
+Add a test that constructs a valid synthetic `MarlinArtifactLock`, mutates the model bytes, and requires `verify_marlin_artifact_lock` to raise with `model SHA-256 mismatch`.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_artifacts.py -q
 ```
 
-Expected: missing module/functions.
-
-- [ ] **Step 3: Implement deterministic feature-resource export script**
-
-`scripts/marlin_export_resources.R` must do only resource conversion, not prediction:
+- [ ] **Step 3: Implement deterministic R feature export**
 
 ```r
 args <- commandArgs(trailingOnly=TRUE)
+if (length(args) != 2) stop("usage: marlin_export_resources.R <features.RData> <feature_ids.txt>")
 load(args[1])
-stopifnot(exists("betas_sub_names"))
-stopifnot(length(betas_sub_names) == 357340)
-stopifnot(length(unique(betas_sub_names)) == 357340)
+if (!exists("betas_sub_names")) stop("betas_sub_names missing")
+if (length(betas_sub_names) != 357340) stop("expected 357340 features")
+if (length(unique(betas_sub_names)) != 357340) stop("feature IDs must be unique")
 writeLines(as.character(betas_sub_names), con=args[2], useBytes=TRUE)
 ```
 
-Python lock creation records both the original `.RData` SHA-256 and exported canonical feature-list SHA-256. The exported list is derived/local and can be regenerated; it is not silently substituted for the upstream artifact identity.
+The Python lock stores both the original feature-RData SHA-256 and canonical exported-feature-list SHA-256.
 
-- [ ] **Step 4: Implement lock verification**
+- [ ] **Step 4: Load class annotations with explicit required columns**
 
-Require:
+Require at least: `model_id`, `class_name_current`, `mcf`, `lineage`. Reject duplicate/missing `model_id` and require exactly 42 model rows.
+
+- [ ] **Step 5: Implement lock verification**
+
+Hard requirements:
 
 ```python
 if lock.genome_build is not GenomeBuild.GRCH37:
-    raise ValueError("MARLIN v1 ONTSeq lock currently requires GRCh37/hg19")
-if lock.expected_feature_count != 357340:
-    raise ValueError("MARLIN v1 lock must declare 357340 model features")
+    raise ValueError("MARLIN v1 lock requires GRCh37/hg19")
+if lock.expected_feature_count != 357_340:
+    raise ValueError("MARLIN v1 lock requires 357340 features")
 if lock.expected_model_unit_count != 42:
-    raise ValueError("MARLIN v1 lock must declare 42 model units")
+    raise ValueError("MARLIN v1 lock requires 42 model units")
 ```
 
-Hash model, feature RData, canonical feature list, class annotations, probe BED and the pinned MARLIN code manifest/commit identity. Never download in this function.
+Rehash model, feature RData, feature IDs, class annotations and hg19 probe BED. No download is permitted inside lock verification.
 
-- [ ] **Step 5: Run tests/lint/type**
+- [ ] **Step 6: Verify and commit**
 
 ```bash
 python -m pytest tests/test_marlin_artifacts.py -q
 python -m ruff check src/ontseq_platform/marlin_artifacts.py tests/test_marlin_artifacts.py
 python -m mypy src/ontseq_platform/marlin_artifacts.py
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
 git add src/ontseq_platform/marlin_artifacts.py scripts/marlin_export_resources.R tests/test_marlin_artifacts.py
 git commit -m "feat(marlin): lock model and reference artifacts"
 ```
 
 ---
 
-### Task 4: Build the canonical 357,340-value feature vector in Python
+## Task 4: Canonical feature-vector construction
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_features.py`
 - Create: `tests/test_marlin_features.py`
 
 **Interfaces:**
-- Consumes: `MarlinPrecomputedInput`, ordered feature IDs, feature artifact SHA-256.
-- Produces: `MarlinFeatureVector(values: tuple[float, ...], summary: MarlinFeatureSummary)` via `build_marlin_feature_vector(...)`.
-
-- [ ] **Step 1: Write exact transformation and ordering tests**
-
-Use a small internal helper test that allows a reduced test feature list while production wrapper enforces `357340`:
 
 ```python
-def test_vector_is_ordered_by_locked_features_not_input_rows() -> None:
-    observations = {
-        "cgB": MarlinProbeObservation(chromosome="chr1", start=2, end=3, methylation_fraction=0.9, probe_id="cgB"),
-        "cgA": MarlinProbeObservation(chromosome="chr1", start=1, end=2, methylation_fraction=0.49, probe_id="cgA"),
-        "cgC": MarlinProbeObservation(chromosome="chr1", start=3, end=4, methylation_fraction=None, probe_id="cgC"),
-    }
-    vector = _build_feature_vector_for_ids(("cgA", "cgB", "cgC", "cgD"), observations)
-    assert vector.values == (-1.0, 1.0, 0.0, 0.0)
+def build_marlin_feature_vector(
+    source: MarlinPrecomputedInput,
+    *,
+    feature_ids: tuple[str, ...],
+    feature_artifact_sha256: str,
+) -> MarlinFeatureVector:
+    pass
 ```
 
-Add boundary test `0.5 -> +1`, row-order invariance, explicit-NA versus absent counters, non-model probe counter, deterministic SHA-256.
+- [ ] **Step 1: Write RED transformation/order tests**
 
-- [ ] **Step 2: Run tests and verify RED**
+```python
+from ontseq_platform.marlin_contracts import MarlinProbeObservation
+from ontseq_platform.marlin_features import _encode_feature_values
+
+
+def test_feature_encoding_uses_locked_order_and_published_threshold() -> None:
+    observations = {
+        "cgB": MarlinProbeObservation(
+            chromosome="chr1", start=20, end=21, methylation_fraction=0.90, probe_id="cgB"
+        ),
+        "cgA": MarlinProbeObservation(
+            chromosome="chr1", start=10, end=11, methylation_fraction=0.49, probe_id="cgA"
+        ),
+        "cgC": MarlinProbeObservation(
+            chromosome="chr1", start=30, end=31, methylation_fraction=None, probe_id="cgC"
+        ),
+    }
+    assert _encode_feature_values(("cgA", "cgB", "cgC", "cgD"), observations) == (
+        -1.0,
+        1.0,
+        0.0,
+        0.0,
+    )
+```
+
+Add tests for `0.5 -> +1.0`, row-order invariance, explicit-NA count, absent count, non-model count and deterministic digest.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_features.py -q
 ```
 
-- [ ] **Step 3: Implement canonical vector encoding and digest**
-
-Use a platform-independent byte contract. Recommended representation:
+- [ ] **Step 3: Implement canonical byte digest**
 
 ```python
 FEATURE_TO_BYTE = {-1.0: b"\xff", 0.0: b"\x00", 1.0: b"\x01"}
 payload = b"".join(FEATURE_TO_BYTE[value] for value in values)
-digest = hashlib.sha256(payload).hexdigest()
+vector_sha256 = hashlib.sha256(payload).hexdigest()
 ```
 
-The production `build_marlin_feature_vector` must reject a locked feature list whose length is not 357340.
+The public builder rejects a feature list whose length is not 357340; the private `_encode_feature_values` helper is used only for reduced unit fixtures.
 
-- [ ] **Step 4: Run tests/lint/type**
+- [ ] **Step 4: Verify and commit**
 
 ```bash
 python -m pytest tests/test_marlin_features.py -q
 python -m ruff check src/ontseq_platform/marlin_features.py tests/test_marlin_features.py
 python -m mypy src/ontseq_platform/marlin_features.py
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add src/ontseq_platform/marlin_features.py tests/test_marlin_features.py
 git commit -m "feat(marlin): construct canonical model feature vector"
 ```
 
 ---
 
-### Task 5: Add the minimal locked MARLIN inference runtime
+## Task 5: Locked MARLIN inference runtime and compatibility gate
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_runtime.py`
 - Create: `scripts/marlin_infer_locked.R`
 - Create: `tests/test_marlin_runtime.py`
+- Create: `configs/methylation/marlin_v1.technical.yaml`
 
 **Interfaces:**
-- Consumes: `MarlinFeatureVector`, `MarlinArtifactLock`, verified paths, `CommandRunner`.
-- Produces: `run_marlin_inference(...) -> MarlinRuntimeResult` with exactly 42 named scores and runtime provenance.
-
-- [ ] **Step 1: Write RED tests using a fake `CommandRunner`**
 
 ```python
-def test_runtime_rejects_41_scores(fake_lock, feature_vector, tmp_path: Path) -> None:
-    runner = FakeRunner(stdout="class\tscore\n" + "\n".join(f"c{i}\t0.01" for i in range(41)))
-    with pytest.raises(ValueError, match="exactly 42"):
-        run_marlin_inference(feature_vector, fake_lock, runner=runner, work_dir=tmp_path)
+def run_marlin_inference(
+    feature_vector: MarlinFeatureVector,
+    *,
+    lock: MarlinArtifactLock,
+    paths: MarlinArtifactPaths,
+    runner: CommandRunner,
+    rscript_path: str,
+    inference_script: Path,
+    work_dir: Path,
+    timeout_seconds: int = 600,
+) -> MarlinRuntimeResult:
+    pass
 
 
-def test_runtime_rejects_nonfinite_score(...):
-    ...
-
-
-def test_runtime_rejects_softmax_sum_outside_tolerance(...):
-    ...
+def verify_runtime_compatibility(
+    profile: MarlinRuntimeCompatibilityProfile,
+    result: MarlinRuntimeResult,
+) -> None:
+    pass
 ```
 
-Also test duplicate labels, wrong label set/order, non-zero return code, missing output, and `1e-5` score-sum tolerance.
+- [ ] **Step 1: Write RED runtime-output tests**
 
-- [ ] **Step 2: Run tests and verify RED**
+Construct a fake runner that writes a TSV score file to the requested output path. Add tests that reject: 41 rows, 43 rows, non-finite score, negative score, score >1, duplicate model IDs, wrong model-ID set/order, sum outside `1e-5`, and non-zero process return code.
+
+Concrete 42-score valid fixture:
+
+```python
+VALID_42 = tuple([0.50, 0.25, 0.125, 0.0625, 0.03125, 0.015625] + [0.00043402777777777775] * 36)
+```
+
+Normalize the final fixture in the test so `sum(scores)` is exactly within `1e-5` of 1.0 before using it as the positive control.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_runtime.py -q
 ```
 
-- [ ] **Step 3: Implement R runtime script with no preprocessing**
-
-Input file contains the already-built vector, one numeric value per line, in locked order. R script must refuse wrong vector length:
+- [ ] **Step 3: Implement minimal R inference script**
 
 ```r
+args <- commandArgs(trailingOnly=TRUE)
+if (length(args) != 3) stop("usage: marlin_infer_locked.R <vector.txt> <model.hdf5> <scores.tsv>")
+library(keras)
 values <- scan(args[1], what=double(), quiet=TRUE)
-stopifnot(length(values) == 357340)
+if (length(values) != 357340) stop("expected 357340 feature values")
 model <- load_model_hdf5(args[2])
 pred <- as.numeric(predict(model, matrix(values, nrow=1)))
-stopifnot(length(pred) == 42)
+if (length(pred) != 42) stop("expected 42 model scores")
 write.table(
   data.frame(model_id=seq_along(pred), score=pred),
   file=args[3], sep="\t", quote=FALSE, row.names=FALSE
 )
 ```
 
-Class names are bound in Python from the locked annotation resource; the runtime cannot rename classes.
+Python binds model IDs to locked class annotations; R does not perform feature preprocessing or confidence classification.
 
-- [ ] **Step 4: Implement Python invocation via existing `CommandRunner`**
-
-Do not shell-expand. Build an argv sequence such as:
+- [ ] **Step 4: Implement argv-only execution through existing `CommandRunner`**
 
 ```python
 argv = (
     rscript_path,
     str(inference_script),
     str(vector_path),
-    str(model_path),
+    str(paths.model_path),
     str(score_output_path),
 )
-result = runner.run(argv, timeout_seconds=runtime_timeout_seconds)
+command_result = runner.run(argv, timeout_seconds=timeout_seconds)
 ```
 
-Stage files in the supplied work directory; publish normalized JSON only after score validation.
+Validate score output only after `returncode == 0`. Stage normalized output in `work_dir` and publish only after validation.
 
-- [ ] **Step 5: Run runtime unit tests/lint/type**
+- [ ] **Step 5: Add runtime compatibility profile before biological data**
+
+The profile stores reference runtime-lock ID, fixed feature-vector SHA-256, 42 reference scores, per-score absolute tolerance, score-sum tolerance, backend identity and timestamp. The profile is created from a synthetic/frozen vector before any GSE outcome is inspected. It must require identical top model-unit identity and all per-score differences within the frozen tolerance.
+
+- [ ] **Step 6: Add fixed technical config**
+
+`configs/methylation/marlin_v1.technical.yaml` must declare:
+
+```yaml
+schema_version: "0.1.0"
+status: "technical_and_published_semantics_only"
+genome_build: "GRCh37"
+expected_feature_count: 357340
+expected_model_unit_count: 42
+confidence_threshold: 0.8
+preprocessing_contract_version: "marlin-v1-binarize-1"
+research_only: true
+```
+
+- [ ] **Step 7: Verify and commit**
 
 ```bash
 python -m pytest tests/test_marlin_runtime.py -q
 python -m ruff check src/ontseq_platform/marlin_runtime.py tests/test_marlin_runtime.py
 python -m mypy src/ontseq_platform/marlin_runtime.py
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/ontseq_platform/marlin_runtime.py scripts/marlin_infer_locked.R tests/test_marlin_runtime.py
-git commit -m "feat(marlin): add locked 42-score inference runtime"
+git add src/ontseq_platform/marlin_runtime.py scripts/marlin_infer_locked.R tests/test_marlin_runtime.py configs/methylation/marlin_v1.technical.yaml
+git commit -m "feat(marlin): add locked inference runtime"
 ```
 
 ---
 
-### Task 6: Freeze a runtime compatibility profile before biological validation
-
-**Files:**
-- Modify: `src/ontseq_platform/marlin_runtime.py`
-- Modify: `tests/test_marlin_runtime.py`
-- Create: `configs/methylation/marlin_v1.technical.yaml`
-
-**Interfaces:**
-- Produces: `create_runtime_compatibility_profile(...)`, `verify_runtime_compatibility(...)`.
-- No GSE280090 outcome is consumed by this task.
-
-- [ ] **Step 1: Write RED tests for tolerance lock**
-
-```python
-def test_compatibility_requires_same_top_model_unit() -> None:
-    profile = compatibility_profile(reference_scores=(...))
-    candidate = list(profile.reference_scores)
-    candidate[0], candidate[1] = candidate[1], candidate[0]
-    with pytest.raises(ValueError, match="top model unit"):
-        verify_runtime_compatibility(profile, tuple(candidate))
-```
-
-Also test per-score difference above predeclared tolerance and incompatible runtime lock ID.
-
-- [ ] **Step 2: Run RED tests**
-
-```bash
-python -m pytest tests/test_marlin_runtime.py -q
-```
-
-- [ ] **Step 3: Implement compatibility profile**
-
-The profile stores: fixed synthetic/reference vector SHA-256, all 42 reference scores, absolute tolerance, score-sum tolerance, reference runtime lock ID, backend identity, and creation timestamp.
-
-Do **not** set tolerance based on GSE data. Use the prior synthetic/fixed-vector runtime comparison to select and document a conservative tolerance; if no reproducible empirical tolerance is available in the checkout, initial profile creation remains a local explicit operator action and is not fabricated in source.
-
-- [ ] **Step 4: Add technical config with only published/fixed semantics**
-
-`configs/methylation/marlin_v1.technical.yaml` records `confidence_threshold: 0.8`, feature count `357340`, model-unit count `42`, build `GRCh37`, source/provenance notes, and `status: technical_defaults_and_published_semantics_only`.
-
-- [ ] **Step 5: Verify**
-
-```bash
-python -m pytest tests/test_marlin_runtime.py -q
-python -m ruff check src/ontseq_platform/marlin_runtime.py tests/test_marlin_runtime.py
-python -m mypy src/ontseq_platform/marlin_runtime.py
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/ontseq_platform/marlin_runtime.py tests/test_marlin_runtime.py configs/methylation/marlin_v1.technical.yaml
-git commit -m "feat(marlin): gate runtimes with frozen compatibility profile"
-```
-
----
-
-### Task 7: Implement class/family/lineage aggregation and confidence semantics
+## Task 6: Group current class, family and lineage; apply confidence semantics
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_classification.py`
 - Create: `tests/test_marlin_classification.py`
 
-**Interfaces:**
-- Consumes: 42 raw model-unit scores plus locked class annotation rows.
-- Produces: grouped class/family/lineage scores and final `MarlinPredictionReport` decision.
-
-- [ ] **Step 1: Write RED tests for aggregation and `UNKNOWN` semantics**
+**Interface:**
 
 ```python
-def test_valid_low_score_is_completed_unknown() -> None:
-    report = classify_marlin_scores(
-        runtime_result=runtime_result_with_grouped_top_score(0.69),
-        feature_summary=feature_summary(observed=1000),
-        threshold=0.8,
-        ...,
-    )
-    assert report.status is ModuleRunStatus.COMPLETED
-    assert report.decision is MarlinClassificationDecision.UNKNOWN
-    assert report.top_grouped_score == pytest.approx(0.69)
-
-
-def test_zero_observed_features_is_no_call() -> None:
-    report = classify_marlin_scores(... feature_summary=feature_summary(observed=0), ...)
-    assert report.status is ModuleRunStatus.NO_CALL
-    assert report.decision is MarlinClassificationDecision.UNKNOWN
+def classify_marlin_result(
+    runtime_result: MarlinRuntimeResult,
+    *,
+    source_kind: MarlinSourceKind,
+    genome_build: GenomeBuild,
+    input_fingerprint: FileFingerprint,
+    feature_summary: MarlinFeatureSummary,
+    artifact_lock_id: str,
+    runtime_profile_id: str,
+    annotations: tuple[MarlinClassAnnotation, ...],
+    confidence_threshold: float = 0.8,
+) -> MarlinPredictionReport:
+    pass
 ```
 
-Also test `0.8` exactly is `HIGH_CONFIDENCE`, aggregation sums model units belonging to the same current class, and raw scores are retained unchanged.
+- [ ] **Step 1: Write RED aggregation/confidence tests**
 
-- [ ] **Step 2: Run RED tests**
+Use 42 scores where model units 1 and 2 share current class `B-ALL Ph/Ph-like` and sum to `0.69`; verify `COMPLETED + UNKNOWN`. Use another fixture where the grouped sum is exactly `0.80`; verify `COMPLETED + HIGH_CONFIDENCE`. Use `observed_model_feature_count=0`; verify `NO_CALL + UNKNOWN` without running the ML runtime.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_classification.py -q
 ```
 
-- [ ] **Step 3: Implement grouped classification**
+- [ ] **Step 3: Implement deterministic aggregation**
 
-Use annotation rows keyed by `model_id`, retaining current class, methylation-family and lineage mappings. Aggregate with deterministic iteration order. Classification uses the top **grouped current-class score**, not the top raw model unit.
+Aggregate raw model units by locked `class_name_current`, `mcf` and `lineage`. Sort groups by `(-score, name)` so ties are deterministic. Apply the threshold to the **grouped current-class score**, not the top raw model-unit score.
 
-- [ ] **Step 4: Verify**
+- [ ] **Step 4: Verify and commit**
 
 ```bash
 python -m pytest tests/test_marlin_classification.py -q
 python -m ruff check src/ontseq_platform/marlin_classification.py tests/test_marlin_classification.py
 python -m mypy src/ontseq_platform/marlin_classification.py
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add src/ontseq_platform/marlin_classification.py tests/test_marlin_classification.py
 git commit -m "feat(marlin): normalize grouped scores and confidence"
 ```
 
 ---
 
-### Task 8: Add focused MARLIN CLI commands
+## Task 7: MARLIN CLI integration
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_cli.py`
@@ -609,277 +644,288 @@ git commit -m "feat(marlin): normalize grouped scores and confidence"
 - Modify: `src/ontseq_platform/cli.py`
 - Modify: `src/ontseq_platform/entrypoint.py`
 
-**Interfaces:**
-- Commands: `marlin-lock`, `marlin-features`, `marlin-classify`, `marlin-validate`.
+**Commands:**
 
-- [ ] **Step 1: Write CLI discovery tests**
-
-```python
-def test_help_lists_marlin_commands(capsys, monkeypatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ontseq", "--help"])
-    entrypoint.main()
-    out = capsys.readouterr().out
-    assert "marlin-lock" in out
-    assert "marlin-classify" in out
+```text
+ontseq marlin-lock
+ontseq marlin-features
+ontseq marlin-classify
+ontseq marlin-validate
 ```
 
-Add argument-validation tests requiring explicit `--genome-build GRCh37`, lock paths, input paths and output path.
+- [ ] **Step 1: Write RED help and argument tests**
 
-- [ ] **Step 2: Run RED tests**
+```python
+def test_entrypoint_help_lists_marlin_commands(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["ontseq", "--help"])
+    entrypoint.main()
+    output = capsys.readouterr().out
+    assert "marlin-lock" in output
+    assert "marlin-classify" in output
+    assert "marlin-validate" in output
+```
+
+Require explicit input, `GRCh37`, artifact lock, runtime profile and output for classification.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_cli.py -q
 ```
 
-- [ ] **Step 3: Implement MARLIN CLI registration/dispatch**
+- [ ] **Step 3: Follow existing delegated CLI pattern**
 
-Follow the existing `methylation_validation_cli.py` pattern: define `COMMANDS`, `add_subparsers`, and `run_command`. `cli.py` delegates instead of embedding MARLIN logic.
+`marlin_cli.py` defines `COMMANDS`, `add_subparsers(subparsers)` and `run_command(args)`. `cli.py` delegates command parsing/execution; `entrypoint.py` only lists the new commands.
 
-`marlin-classify` pipeline:
+`marlin-classify` order is fixed:
 
 ```text
-load lock -> verify artifacts -> parse input -> build features -> verify runtime profile
--> run inference -> classify grouped scores -> write normalized JSON atomically
+load lock
+-> verify artifacts
+-> parse input
+-> build feature vector
+-> zero-evidence NO_CALL check
+-> verify runtime profile
+-> run inference
+-> aggregate/classify
+-> atomically write normalized JSON
 ```
 
-- [ ] **Step 4: Verify focused CLI and entrypoint tests**
+Use concrete local runtime paths under `results/marlin-validation/runtime/` in documentation/examples:
+
+```text
+results/marlin-validation/runtime/marlin-artifact-lock.json
+results/marlin-validation/runtime/marlin-runtime-profile.json
+```
+
+- [ ] **Step 4: Verify and commit**
 
 ```bash
-python -m pytest tests/test_marlin_cli.py tests/test_entrypoint.py -q
+python -m pytest tests/test_marlin_cli.py -q
 python -m ruff check src/ontseq_platform/marlin_cli.py src/ontseq_platform/cli.py src/ontseq_platform/entrypoint.py tests/test_marlin_cli.py
 python -m mypy src/ontseq_platform/marlin_cli.py
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add src/ontseq_platform/marlin_cli.py src/ontseq_platform/cli.py src/ontseq_platform/entrypoint.py tests/test_marlin_cli.py
 git commit -m "feat(marlin): expose locked classification CLI"
 ```
 
 ---
 
-### Task 9: Add external GSE280090 validation contracts and deterministic rerun checks
+## Task 8: GSE280090 downstream-validation harness
 
 **Files:**
 - Create: `src/ontseq_platform/marlin_validation.py`
 - Create: `tests/test_marlin_validation.py`
 
 **Interfaces:**
-- Produces: `MarlinValidationManifest`, `MarlinValidationSample`, `MarlinValidationResult`, `MarlinValidationCohortReport`, `execute_marlin_validation(...)`.
-
-- [ ] **Step 1: Write RED validation tests using synthetic local files**
 
 ```python
-def test_validation_refuses_input_checksum_mismatch(tmp_path: Path, manifest) -> None:
-    sample = tmp_path / "sample.txt.gz"
-    write_probe_fixture(sample)
-    with pytest.raises(ValueError, match="SHA-256"):
-        execute_marlin_validation(manifest_with_wrong_sha(manifest), ...)
+class MarlinValidationSample(StrictModel): ...
+class MarlinValidationManifest(StrictModel): ...
+class MarlinValidationSampleResult(StrictModel): ...
+class MarlinValidationCohortReport(StrictModel): ...
 
 
-def test_repeated_identical_run_requires_same_feature_digest_and_decision(...):
-    first = execute_marlin_validation(...)
-    second = execute_marlin_validation(...)
-    assert first.feature_vector_sha256 == second.feature_vector_sha256
-    assert first.raw_score_digest == second.raw_score_digest
-    assert first.decision == second.decision
+def execute_marlin_validation(
+    manifest: MarlinValidationManifest,
+    *,
+    artifact_lock: MarlinArtifactLock,
+    runtime_profile: MarlinRuntimeCompatibilityProfile,
+    classify_one: Callable[[MarlinValidationSample], MarlinPredictionReport],
+) -> MarlinValidationCohortReport:
+    pass
 ```
 
-- [ ] **Step 2: Run RED tests**
+The class declarations above are names/interfaces; concrete fields are defined by the steps below.
+
+- [ ] **Step 1: Write RED checksum and determinism tests**
+
+A sample record must contain accession, public source URI, filename, local path, local SHA-256, `GRCh37`, expected comparison class when pre-registered, artifact-lock ID, runtime-profile ID and threshold-policy digest.
+
+Test that a mismatched local SHA-256 aborts before classification. Test that two repeated calls on unchanged input require equal input SHA-256, feature-vector SHA-256, top grouped class and decision; raw scores must satisfy runtime-profile tolerance.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_validation.py -q
 ```
 
-- [ ] **Step 3: Implement manifest and cohort metrics**
+- [ ] **Step 3: Implement cohort metrics**
 
-Each sample manifest includes accession, public source URI, filename, local SHA-256, build, expected comparison label if independently pre-registered, artifact-lock ID, runtime-profile ID and threshold-policy ID.
+Report: total samples, successful runtime executions, `HIGH_CONFIDENCE`, `UNKNOWN`, `NO_CALL`, failures, concordant/discordant where a pre-registered comparison label exists, deterministic-rerun failures, per-sample observed feature fraction and runtime.
 
-Cohort report computes: sample count, completed/high-confidence count, completed/unknown count, no-call count, failed count, concordant/discordant counts where expected labels exist, deterministic-rerun failures, and per-sample feature coverage.
+Reject a cohort if samples mix artifact-lock IDs, runtime-profile IDs, threshold policy or genome build.
 
-No threshold modification is accepted by the validation runner after a manifest is locked.
-
-- [ ] **Step 4: Verify**
+- [ ] **Step 4: Verify and commit**
 
 ```bash
 python -m pytest tests/test_marlin_validation.py -q
 python -m ruff check src/ontseq_platform/marlin_validation.py tests/test_marlin_validation.py
 python -m mypy src/ontseq_platform/marlin_validation.py
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add src/ontseq_platform/marlin_validation.py tests/test_marlin_validation.py
 git commit -m "feat(marlin): add external classification validation harness"
 ```
 
 ---
 
-### Task 10: Run the first real external gate with `GSM8587229_AL_001.txt.gz`
+## Task 9: First real external gate — `GSM8587229_AL_001.txt.gz`
 
 **Files:**
-- No patient-derived data committed.
-- Generated local manifest/result under ignored `results/marlin-validation/`.
-- Update after successful execution: `docs/MARLIN_CLASSIFICATION.md` with the exact local validation command and evidence boundary, but never embed patient-derived rows.
+- External input only: `C:\Users\sxhul\Downloads\GSM8587229_AL_001.txt.gz`
+- Local ignored outputs: `results/marlin-validation/al001/`
+- No patient-derived input/result is committed.
 
-**Interfaces:**
-- Consumes local file `C:\Users\sxhul\Downloads\GSM8587229_AL_001.txt.gz` through the WSL-visible path when executed on the user's workstation.
-- Produces a local checksummed manifest and normalized JSON result.
+- [ ] **Step 1: Fingerprint exact local bytes before inference**
 
-- [ ] **Step 1: Fingerprint the exact local input before prediction**
-
-Example on WSL:
+WSL command:
 
 ```bash
-sha256sum "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz"
+mkdir -p results/marlin-validation/al001
+sha256sum "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" \
+  | tee results/marlin-validation/al001/input.sha256.txt
 ```
 
-Record this hash in the generated validation manifest; do not hardcode a guessed hash into source.
-
-- [ ] **Step 2: Inspect schema without changing the file**
+- [ ] **Step 2: Confirm actual schema read-only**
 
 ```bash
 gzip -cd "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" | head -n 5
-gzip -cd "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" | awk -F '\t' 'NR<=100 {if (NF!=5) exit 1} END {print "first-100-rows-schema-ok"}'
+gzip -cd "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" \
+  | awk -F '\t' 'NR<=100 {if (NF!=5) exit 1} END {print "first-100-rows-schema-ok"}'
 ```
 
-If the actual GEO restricted file does not match `marlin_probe_bed_v1`, stop and add a separately specified adapter; do not coerce it through the parser.
+If the restricted GEO file does not match the five-column contract, stop this gate and specify a separate adapter. Do not coerce it into `marlin_probe_bed_v1`.
 
-- [ ] **Step 3: Run locked classification twice**
+- [ ] **Step 3: Pre-register supported publication comparison before viewing ONTSeq output**
+
+Write `results/marlin-validation/al001/expectation.json` with only source-supported comparison fields. Do not fabricate an exact scalar score when the identical runtime/file expectation is not published.
+
+- [ ] **Step 4: Execute twice with concrete lock/profile paths**
 
 ```bash
 ontseq marlin-classify \
   --input "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" \
   --genome-build GRCh37 \
-  --artifact-lock <local-marlin-lock.json> \
-  --runtime-profile <local-runtime-profile.json> \
-  --output results/marlin-validation/AL_001.run1.json
+  --artifact-lock results/marlin-validation/runtime/marlin-artifact-lock.json \
+  --runtime-profile results/marlin-validation/runtime/marlin-runtime-profile.json \
+  --output results/marlin-validation/al001/run1.json
 
 ontseq marlin-classify \
   --input "/mnt/c/Users/sxhul/Downloads/GSM8587229_AL_001.txt.gz" \
   --genome-build GRCh37 \
-  --artifact-lock <local-marlin-lock.json> \
-  --runtime-profile <local-runtime-profile.json> \
-  --output results/marlin-validation/AL_001.run2.json
+  --artifact-lock results/marlin-validation/runtime/marlin-artifact-lock.json \
+  --runtime-profile results/marlin-validation/runtime/marlin-runtime-profile.json \
+  --output results/marlin-validation/al001/run2.json
 ```
 
-- [ ] **Step 4: Verify deterministic invariants**
+- [ ] **Step 5: Verify deterministic invariants**
 
-Require identical input SHA-256, feature-vector SHA-256, top grouped class, decision and scores within the frozen runtime compatibility tolerance. Do not require byte-identical TensorFlow output unless the frozen profile itself requires it.
+Require identical input SHA-256 and feature-vector SHA-256; require same top grouped class and decision; compare all 42 scores under the frozen runtime-profile tolerance.
 
-- [ ] **Step 5: Compare to independently registered publication expectation**
+- [ ] **Step 6: Commit only sanitized technical documentation**
 
-The comparison target must be registered before reading the ONTSeq result. For AL_001, use only a publication-supported label/score expectation; if the publication does not support an exact scalar expectation under the identical file/runtime, record only the supported class/confidence-level expectation.
-
-- [ ] **Step 6: Commit only code/docs resulting from the gate**
-
-Do not commit the GSE file or patient-derived result payload. Commit sanitized technical findings and commands only.
+Do not commit GSE payloads or patient-derived prediction JSON. Documentation may record command, tool/artifact identities, whether reproducibility passed and the evidence boundary.
 
 ---
 
-### Task 11: Run cohort validation over available GSE280090 restricted files
+## Task 10: Full available GSE280090 restricted-cohort evaluation
 
 **Files:**
-- Local external inputs only.
-- Generated local results under ignored `results/marlin-validation/gse280090-v1/`.
-- Update: `docs/MARLIN_CLASSIFICATION.md` with aggregate, non-identifying technical metrics and evidence boundary.
+- External/local restricted sample files only.
+- Local ignored directory: `results/marlin-validation/gse280090-v1/`.
+- Update sanitized aggregate documentation in `docs/MARLIN_CLASSIFICATION.md`.
 
-**Interfaces:**
-- Consumes: locked cohort manifest generated from locally downloaded restricted files.
-- Produces: `MarlinValidationCohortReport`.
+- [ ] **Step 1: Build checksummed cohort manifest**
 
-- [ ] **Step 1: Build the cohort manifest from local files and public accession metadata**
+Each local restricted file gets accession, source URI, filename, SHA-256 and `GRCh37`. Use one artifact lock, one runtime profile and the fixed `0.8` policy for every sample.
 
-No automatic downloader in normal ONTSeq runtime. Each local file gets SHA-256 and explicit `GRCh37` declaration.
-
-- [ ] **Step 2: Execute with the same artifact lock, compatibility profile and fixed `0.8` confidence policy**
+- [ ] **Step 2: Run cohort with concrete paths**
 
 ```bash
 ontseq marlin-validate \
   --manifest results/marlin-validation/gse280090-v1/manifest.json \
-  --artifact-lock <local-marlin-lock.json> \
-  --runtime-profile <local-runtime-profile.json> \
+  --artifact-lock results/marlin-validation/runtime/marlin-artifact-lock.json \
+  --runtime-profile results/marlin-validation/runtime/marlin-runtime-profile.json \
   --output results/marlin-validation/gse280090-v1/report.json
 ```
 
-- [ ] **Step 3: Verify no threshold/preprocessing drift**
+- [ ] **Step 3: Verify no identity drift**
 
-The report must echo the same lock/profile/policy digests for all samples. A mixed identity aborts cohort aggregation rather than producing pooled metrics.
+Every sample result must echo the same artifact-lock ID, runtime-profile ID, build and threshold-policy digest. Mixed identity aborts aggregation.
 
 - [ ] **Step 4: Record aggregate metrics**
 
-Required metrics: total samples, successful runtime executions, `HIGH_CONFIDENCE`, `UNKNOWN`, `NO_CALL`, failures, concordant/discordant where truth/comparison target exists, feature-coverage distribution, runtime distribution, deterministic-rerun failures.
+Document counts/rates for execution success, high confidence, unknown, no-call, failure, concordance where a valid comparison target exists, feature coverage, runtime and deterministic-rerun failures.
 
-- [ ] **Step 5: Commit sanitized validation documentation only**
+- [ ] **Step 5: Commit sanitized aggregate documentation only**
 
 ```bash
 git add docs/MARLIN_CLASSIFICATION.md
-git commit -m "docs(marlin): record GSE280090 downstream validation boundary"
+git commit -m "docs(marlin): record GSE280090 downstream validation"
 ```
 
 ---
 
-### Task 12: Add the future native `MODKIT_DERIVED` bridge behind a disabled gate
+## Task 11: Define native `MODKIT_DERIVED` bridge but keep it disabled until bridged
 
 **Files:**
 - Modify: `src/ontseq_platform/marlin_input.py`
 - Modify: `src/ontseq_platform/marlin_features.py`
-- Create/modify tests in `tests/test_marlin_input.py`, `tests/test_marlin_features.py`
+- Modify: `src/ontseq_platform/marlin_contracts.py`
+- Modify tests: `tests/test_marlin_input.py`, `tests/test_marlin_features.py`, `tests/test_marlin_contracts.py`
 
-**Interfaces:**
-- Produces a probe-level adapter contract only; does not claim equivalence until same-specimen bridge data exist.
-
-- [ ] **Step 1: Write RED test that native bridge is disabled without explicit validated bridge identity**
+**Interface:**
 
 ```python
-def test_modkit_derived_source_is_refused_without_bridge_lock() -> None:
+def build_marlin_from_modkit(
+    *,
+    modkit_probe_calls: Path,
+    probe_resource: Path,
+    bridge_lock: MarlinBridgeLock | None,
+) -> MarlinFeatureVector:
+    pass
+```
+
+- [ ] **Step 1: Write RED disabled-by-default test**
+
+```python
+def test_modkit_bridge_is_disabled_without_validated_bridge_lock(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="native MARLIN bridge is not validated"):
-        build_marlin_from_modkit(..., bridge_lock=None)
+        build_marlin_from_modkit(
+            modkit_probe_calls=tmp_path / "probe_calls.tsv",
+            probe_resource=tmp_path / "marlin_v1.probes_hg19.bed.gz",
+            bridge_lock=None,
+        )
 ```
 
-- [ ] **Step 2: Implement probe-coordinate mapping contract without enabling production use**
+- [ ] **Step 2: Implement probe-level contract only**
 
-Use the locked `marlin_v1.probes_hg19.bed.gz` coordinate resource, preserving probe IDs and per-probe CpG fractions. Do not use chromosome/target aggregates from `methylation.py`.
+Use the locked hg19 MARLIN probe coordinates and preserve probe IDs. Do not feed region/chromosome aggregates from `methylation.py` to MARLIN.
 
-- [ ] **Step 3: Add bridge-lock schema that requires same-specimen evidence before enablement**
+- [ ] **Step 3: Define bridge evidence contract**
 
-The bridge lock stores precomputed-vs-native feature-vector comparison metrics and must remain absent in default configs until such data exist.
+`MarlinBridgeLock` requires same-specimen precomputed-vs-native comparison identity, input hashes, feature-vector agreement metrics and validation status. Default configs contain no valid bridge lock.
 
-- [ ] **Step 4: Verify tests**
-
-```bash
-python -m pytest tests/test_marlin_input.py tests/test_marlin_features.py -q
-```
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Verify and commit**
 
 ```bash
-git add src/ontseq_platform/marlin_input.py src/ontseq_platform/marlin_features.py tests/test_marlin_input.py tests/test_marlin_features.py
-git commit -m "feat(marlin): define gated native modkit bridge contract"
+python -m pytest tests/test_marlin_contracts.py tests/test_marlin_input.py tests/test_marlin_features.py -q
+git add src/ontseq_platform/marlin_contracts.py src/ontseq_platform/marlin_input.py src/ontseq_platform/marlin_features.py tests/test_marlin_contracts.py tests/test_marlin_input.py tests/test_marlin_features.py
+git commit -m "feat(marlin): define gated native modkit bridge"
 ```
 
 ---
 
-### Task 13: Documentation, packaging and command-surface integration
+## Task 12: Documentation, packaging, full verification and `0.9.0` release/PR gate
 
 **Files:**
 - Create: `docs/MARLIN_CLASSIFICATION.md`
 - Modify: `pyproject.toml`
 - Modify: `CHANGELOG.md`
-- Modify: relevant README command documentation.
+- Modify: `README.md`
+- Modify all current-version files enumerated by `scripts/check_version_consistency.py` only after functional/validation review passes.
 
-**Interfaces:**
-- Packages R scripts/configs; documents install-time external artifacts and evidence boundaries.
+- [ ] **Step 1: Package R scripts and config, but not model/patient data**
 
-- [ ] **Step 1: Add documentation tests or static assertions where existing repository conventions support them**
-
-Ensure `ontseq --help` lists commands and package-data tests confirm both MARLIN R scripts are included in built wheel/runtime bundle.
-
-- [ ] **Step 2: Package scripts/config**
-
-Add data-file entries for:
+Update `pyproject.toml` so package data includes:
 
 ```toml
 "share/ontseq/scripts" = [
@@ -890,55 +936,20 @@ Add data-file entries for:
 "share/ontseq/configs/methylation" = ["configs/methylation/*.yaml", "configs/methylation/*.json"]
 ```
 
-Do not package the MARLIN model or patient-derived validation data into the Python wheel.
+- [ ] **Step 2: Document evidence ladder**
 
-- [ ] **Step 3: Document exact evidence ladder**
-
-`docs/MARLIN_CLASSIFICATION.md` must explicitly state:
+`docs/MARLIN_CLASSIFICATION.md` must show:
 
 ```text
-Synthetic parser/feature tests
-    < locked runtime compatibility
-    < GSE processed-CpG downstream reproduction
-    < same-specimen modkit bridge
-    < analytical intended-use validation
-    < clinical validation
+synthetic parser/feature tests
+< locked runtime compatibility
+< GSE processed-CpG downstream reproduction
+< same-specimen native modkit bridge
+< analytical intended-use validation
+< clinical validation
 ```
 
-- [ ] **Step 4: Build wheel and inspect contents**
-
-```bash
-python -m build
-python - <<'PY'
-import zipfile, glob
-wheel = sorted(glob.glob('dist/*.whl'))[-1]
-with zipfile.ZipFile(wheel) as z:
-    names = set(z.namelist())
-    assert any(name.endswith('marlin_infer_locked.R') for name in names)
-    assert any(name.endswith('marlin_export_resources.R') for name in names)
-print('MARLIN package data present')
-PY
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add docs/MARLIN_CLASSIFICATION.md pyproject.toml CHANGELOG.md README.md
-git commit -m "docs(marlin): document and package classification lane"
-```
-
----
-
-### Task 14: Full repository verification and independent review
-
-**Files:**
-- No new functional scope.
-- Fix only defects found by verification/review, each with a regression test.
-
-**Interfaces:**
-- Produces a review-ready branch; no merge yet.
-
-- [ ] **Step 1: Run MARLIN-focused suite**
+- [ ] **Step 3: Run MARLIN-focused suite**
 
 ```bash
 python -m pytest \
@@ -952,83 +963,7 @@ python -m pytest \
   tests/test_marlin_cli.py -q
 ```
 
-- [ ] **Step 2: Run complete Python test suite**
-
-```bash
-python -m pytest -q
-```
-
-- [ ] **Step 3: Run lint/format/type/schema/version guards**
-
-```bash
-python -m ruff check .
-python -m ruff format --check .
-python -m mypy src
-python scripts/check_version_consistency.py
-```
-
-Expected at this stage: version consistency remains `0.8.2` until Task 15; all other checks PASS.
-
-- [ ] **Step 4: Run build/install smoke in a clean environment**
-
-Build wheel, install into a fresh virtual environment, run `ontseq --help`, parse a synthetic `.gz` probe fixture and execute fake-runner MARLIN classification tests from the installed package.
-
-- [ ] **Step 5: Independent review**
-
-Review specifically for: accidental clinical claims, build inference, duplicate-probe behavior, hash TOCTOU gaps, score-label ordering, threshold application to wrong score layer, runtime output partial-write hazards, Windows/WSL path behavior, and whether GSE evidence is mislabeled as native modkit validation.
-
-- [ ] **Step 6: Fix every accepted review finding with a failing regression test first**
-
-Each defect follows RED -> minimal fix -> focused PASS -> full relevant suite.
-
-- [ ] **Step 7: Commit review fixes**
-
-```bash
-git add <reviewed-files>
-git commit -m "fix(marlin): address independent integration review"
-```
-
----
-
-### Task 15: Coordinate the `0.9.0` release identity only after all gates pass
-
-**Files:**
-- Modify: `pyproject.toml`
-- Modify: `uv.lock`
-- Modify: `src/ontseq_platform/__init__.py`
-- Modify: `CITATION.cff`
-- Modify: `desktop/ONTSeq.Desktop/ONTSeq.Desktop.csproj`
-- Modify: `desktop/ONTSeq.Desktop/Version.cs`
-- Modify: `desktop/desktop.settings.example.json`
-- Modify: current-version Desktop/operator docs required by `scripts/check_version_consistency.py`
-- Modify: `.github/workflows/desktop-ci.yml`
-- Modify: `CHANGELOG.md`
-- Modify: README current-status section.
-
-**Interfaces:**
-- Produces a repository-consistent `0.9.0` engineering release identity; still Research Use Only.
-
-- [ ] **Step 1: Read `scripts/check_version_consistency.py` and enumerate every required current-release surface**
-
-Do not perform a partial version bump.
-
-- [ ] **Step 2: Change all current release declarations from `0.8.2` to `0.9.0` together**
-
-Changelog wording must explicitly say that 0.9.0 adds an engineering/audit MARLIN classification lane and does not represent clinical validation.
-
-- [ ] **Step 3: Regenerate/update dependency lock using the repository's existing lock workflow**
-
-Verify the editable `ontseq-platform` entry is `0.9.0`.
-
-- [ ] **Step 4: Run version guard**
-
-```bash
-python scripts/check_version_consistency.py
-```
-
-Expected: `Version consistency check passed`.
-
-- [ ] **Step 5: Re-run full repository verification**
+- [ ] **Step 4: Run full repository verification**
 
 ```bash
 python -m pytest -q
@@ -1038,58 +973,57 @@ python -m mypy src
 python scripts/check_version_consistency.py
 ```
 
-- [ ] **Step 6: Commit release identity**
+Before version bump, version guard must still pass at `0.8.2`.
+
+- [ ] **Step 5: Perform independent review and regression-fix loop**
+
+Review: clinical-claim leakage, build inference, duplicate-probe behavior, hash TOCTOU, model-ID/class-annotation ordering, threshold applied at the wrong score layer, score-sum validation, partial output publication, Windows/WSL path behavior, and GSE evidence mislabeled as native modkit validation. Every accepted defect gets a failing regression test before its fix.
+
+- [ ] **Step 6: Build and inspect wheel**
 
 ```bash
-git add pyproject.toml uv.lock src/ontseq_platform/__init__.py CITATION.cff desktop .github/workflows/desktop-ci.yml CHANGELOG.md README.md docs
-git commit -m "chore(release): stage ONTSeq 0.9.0 engineering release"
+python -m build
+python - <<'PY'
+import glob
+import zipfile
+
+wheel = sorted(glob.glob("dist/*.whl"))[-1]
+with zipfile.ZipFile(wheel) as archive:
+    names = set(archive.namelist())
+    assert any(name.endswith("marlin_infer_locked.R") for name in names)
+    assert any(name.endswith("marlin_export_resources.R") for name in names)
+print("MARLIN package data present")
+PY
 ```
 
----
+- [ ] **Step 7: Coordinate release identity to 0.9.0 only after all preceding gates pass**
 
-### Task 16: Open PR, verify CI, and update Issue #76 without merging prematurely
+Update `pyproject.toml`, `uv.lock`, `src/ontseq_platform/__init__.py`, `CITATION.cff`, Desktop version files, Desktop/operator current-version docs, `.github/workflows/desktop-ci.yml`, `CHANGELOG.md` and README status section as required by `scripts/check_version_consistency.py`.
 
-**Files:**
-- GitHub metadata only.
+Changelog statement: 0.9.0 is an engineering/audit expansion with a Research-Use-Only MARLIN classification lane; it is not a clinical release.
 
-**Interfaces:**
-- Produces a reviewable PR linked to Issue #76.
-
-- [ ] **Step 1: Compare branch against `main` and confirm only intended files changed**
+- [ ] **Step 8: Re-run all final checks after 0.9.0 bump**
 
 ```bash
-git diff --stat main...feat/marlin-classification-v1
-git diff --check main...feat/marlin-classification-v1
+python -m pytest -q
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy src
+python scripts/check_version_consistency.py
 ```
 
-- [ ] **Step 2: Open PR with explicit evidence boundary**
+Expected: all PASS, including `Version consistency check passed`.
 
-PR body must include:
+- [ ] **Step 9: Commit coordinated release identity**
 
-- design/spec path;
-- implementation-plan path;
-- test counts/commands;
-- runtime compatibility evidence;
-- AL_001/GSE status, if executed;
-- explicit statement that processed-CpG validation does not validate POD5/Dorado/MM-ML/modkit;
-- no clinical claim;
-- `Closes #76` only if every acceptance criterion in Issue #76 is actually satisfied; otherwise use `Relates to #76`.
+```bash
+git add pyproject.toml uv.lock src/ontseq_platform/__init__.py CITATION.cff desktop .github/workflows/desktop-ci.yml CHANGELOG.md README.md docs scripts configs src tests
+git commit -m "chore(release): stage ONTSeq 0.9.0 MARLIN engineering release"
+```
 
-- [ ] **Step 3: Wait for/check all required CI statuses**
+- [ ] **Step 10: Open PR and verify CI without premature merge**
 
-No merge on partial/unknown CI.
-
-- [ ] **Step 4: Perform final PR diff review against the approved spec**
-
-Confirm all new contracts retain RUO semantics and no hidden download, threshold tuning or build inference was introduced.
-
-- [ ] **Step 5: Update Issue #76 with evidence and remaining gaps**
-
-If cohort validation or native bridge remains incomplete, leave the issue open and state the exact unmet acceptance criteria.
-
-- [ ] **Step 6: Merge only after explicit final review/approval**
-
-Preferred merge behavior should match repository convention; do not bypass CI or force-update `main`.
+PR body must include the design and plan paths, test commands/counts, runtime compatibility evidence, AL_001/GSE status, explicit processed-CpG evidence boundary, and no clinical claim. Use `Relates to #76` unless every Issue #76 acceptance criterion is satisfied. Check all required CI states and final diff before merge.
 
 ---
 
@@ -1097,33 +1031,29 @@ Preferred merge behavior should match repository convention; do not bypass CI or
 
 ### Spec coverage
 
-- Strict five-column precomputed input: Tasks 2, 10.
-- GRCh37-only v1 and no liftover: Tasks 1–4, 9–10.
-- 357,340 ordered features and exact binarization: Tasks 3–4.
-- Locked model/features/classes/probe resources/runtime: Tasks 3, 5–6.
+- Strict precomputed input: Tasks 2 and 9.
+- GRCh37-only v1/no liftover: Tasks 1–4 and 9–10.
+- 357,340 features and exact binarization: Tasks 3–4.
+- Locked model/features/classes/probes/runtime: Tasks 3 and 5.
 - Exactly 42 finite softmax scores and score-sum invariant: Task 5.
-- Grouped current-class/family/lineage aggregation: Task 7.
-- `HIGH_CONFIDENCE` vs `UNKNOWN`; zero-evidence `NO_CALL`: Task 7.
-- Runtime compatibility frozen before biological validation: Task 6 before Tasks 10–11.
-- No GSE payload in Git; checksummed local validation: Tasks 9–11.
-- AL_001 first external gate: Task 10.
-- Full GSE280090 restricted cohort: Task 11.
-- Native modkit bridge kept separate/gated: Task 12.
-- Packaging/docs: Task 13.
-- Full verification and independent review: Task 14.
-- Consistent 0.9.0 version surface: Task 15.
-- PR/CI/evidence boundary: Task 16.
+- Current-class/family/lineage grouping and confidence semantics: Task 6.
+- Runtime compatibility frozen before biological validation: Task 5 before Tasks 9–10.
+- GSE data never committed; local SHA-256 validation: Tasks 8–10.
+- AL_001 first external gate: Task 9.
+- Full available GSE restricted cohort: Task 10.
+- Native modkit bridge remains separately gated: Task 11.
+- Packaging, documentation, independent review, full CI and coordinated 0.9.0 identity: Task 12.
 
 ### Placeholder scan
 
-The plan contains no `TBD`/`TODO` implementation placeholders. Local artifact paths/hashes that cannot be truthfully known in source are obtained by explicit lock/fingerprint commands rather than guessed.
+No `TBD`, `TODO`, symbolic `<path>` arguments or abbreviated test bodies remain. Paths that depend on the operator workstation are explicitly fixed under `results/marlin-validation/` or are fingerprinted at runtime rather than guessed.
 
 ### Type/interface consistency
 
-- `MarlinFeatureSummary` is defined in Task 1 and consumed in Tasks 4 and 7.
-- `MarlinArtifactLock` is defined in Task 1 and created/verified in Task 3.
-- `MarlinFeatureVector` is produced in Task 4 and consumed in Task 5.
-- `MarlinRuntimeCompatibilityProfile` is defined in Task 1 and created/verified in Task 6.
-- Raw 42-score runtime output is produced in Task 5 and grouped only in Task 7.
-- `MarlinPredictionReport` is assembled in Task 7 and consumed by validation in Task 9.
-- The GSE path never becomes evidence for `MODKIT_DERIVED`; the native bridge remains Task 12 and separately gated.
+- Contracts originate in Task 1.
+- Input parser consumes/produces Task 1 contracts in Task 2.
+- Artifact lock and annotations are built in Task 3 and consumed by Tasks 4–10.
+- Feature vector is produced by Task 4 and consumed by Task 5.
+- Raw runtime scores are produced by Task 5 and grouped only in Task 6.
+- Prediction report is produced by Task 6 and consumed by Task 8 validation.
+- The GSE path never becomes evidence for `MODKIT_DERIVED`; Task 11 is the only native bridge path and remains disabled without a bridge lock.
