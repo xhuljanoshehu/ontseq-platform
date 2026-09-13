@@ -26,27 +26,47 @@ def test_marlin_classify_requires_explicit_grch37(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(SystemExit):
         _parser().parse_args(["marlin-classify", "--input", "x", "--output", "y"])
     with pytest.raises(SystemExit):
-        _parser().parse_args([
-            "marlin-classify", "--input", "x", "--output", "y", "--genome-build", "GRCh38"
-        ])
+        _parser().parse_args(
+            [
+                "marlin-classify",
+                "--input",
+                "x",
+                "--output",
+                "y",
+                "--genome-build",
+                "GRCh38",
+            ]
+        )
 
 
 def test_marlin_validate_slot_is_discoverable() -> None:
     from ontseq_platform.marlin_cli import _parser
 
-    args = _parser().parse_args([
-        "marlin-validate",
-        "--manifest", "manifest.json",
-        "--artifact-lock", "lock.json",
-        "--runtime-profile", "profile.json",
-        "--model", "model.hdf5",
-        "--feature-rdata", "features.RData",
-        "--feature-list", "features.txt",
-        "--class-annotations", "classes.xlsx",
-        "--probe-bed", "probes.bed.gz",
-        "--inference-script", "infer.R",
-        "--output", "report.json",
-    ])
+    args = _parser().parse_args(
+        [
+            "marlin-validate",
+            "--manifest",
+            "manifest.json",
+            "--artifact-lock",
+            "lock.json",
+            "--runtime-profile",
+            "profile.json",
+            "--model",
+            "model.hdf5",
+            "--feature-rdata",
+            "features.RData",
+            "--feature-list",
+            "features.txt",
+            "--class-annotations",
+            "classes.xlsx",
+            "--probe-bed",
+            "probes.bed.gz",
+            "--inference-script",
+            "infer.R",
+            "--output",
+            "report.json",
+        ]
+    )
     assert args.command == "marlin-validate"
     assert args.output == Path("report.json")
 
@@ -102,15 +122,23 @@ def test_marlin_features_writes_locked_vector_and_summary(tmp_path: Path) -> Non
     vector = tmp_path / "vector.txt"
     summary = tmp_path / "summary.json"
 
-    main([
-        "marlin-features",
-        "--input", str(source),
-        "--genome-build", "GRCh37",
-        "--artifact-lock", str(lock_path),
-        "--feature-list", str(feature_list),
-        "--output-vector", str(vector),
-        "--output-summary", str(summary),
-    ])
+    main(
+        [
+            "marlin-features",
+            "--input",
+            str(source),
+            "--genome-build",
+            "GRCh37",
+            "--artifact-lock",
+            str(lock_path),
+            "--feature-list",
+            str(feature_list),
+            "--output-vector",
+            str(vector),
+            "--output-summary",
+            str(summary),
+        ]
+    )
 
     assert vector.read_text(encoding="utf-8").splitlines()[0] == "1"
     payload = __import__("json").loads(summary.read_text(encoding="utf-8"))
@@ -123,7 +151,10 @@ def test_marlin_classify_zero_evidence_returns_no_call_without_r_runtime(tmp_pat
 
     from openpyxl import Workbook
 
-    from ontseq_platform.marlin_artifacts import MarlinArtifactPaths, create_marlin_artifact_lock
+    from ontseq_platform.marlin_artifacts import (
+        MarlinArtifactPaths,
+        create_marlin_artifact_lock,
+    )
     from ontseq_platform.marlin_cli import main
     from ontseq_platform.marlin_contracts import MarlinRuntimeCompatibilityProfile
     from ontseq_platform.models import GenomeBuild
@@ -175,21 +206,35 @@ def test_marlin_classify_zero_evidence_returns_no_call_without_r_runtime(tmp_pat
     source.write_text("chr1\t1\t2\t0.75\toff-model\n", encoding="utf-8")
     output = tmp_path / "result.json"
 
-    main([
-        "marlin-classify",
-        "--sample-id", "SAMPLE_001",
-        "--input", str(source),
-        "--genome-build", "GRCh37",
-        "--artifact-lock", str(lock_path),
-        "--runtime-profile", str(profile_path),
-        "--model", str(model),
-        "--feature-rdata", str(feature_rdata),
-        "--feature-list", str(feature_list),
-        "--class-annotations", str(classes),
-        "--probe-bed", str(probe_bed),
-        "--inference-script", str(tmp_path / "missing.R"),
-        "--output", str(output),
-    ])
+    main(
+        [
+            "marlin-classify",
+            "--sample-id",
+            "SAMPLE_001",
+            "--input",
+            str(source),
+            "--genome-build",
+            "GRCh37",
+            "--artifact-lock",
+            str(lock_path),
+            "--runtime-profile",
+            str(profile_path),
+            "--model",
+            str(model),
+            "--feature-rdata",
+            str(feature_rdata),
+            "--feature-list",
+            str(feature_list),
+            "--class-annotations",
+            str(classes),
+            "--probe-bed",
+            str(probe_bed),
+            "--inference-script",
+            str(tmp_path / "missing.R"),
+            "--output",
+            str(output),
+        ]
+    )
     payload = __import__("json").loads(output.read_text(encoding="utf-8"))
     assert payload["status"] == "NO_CALL"
     assert payload["decision"] == "UNKNOWN"
