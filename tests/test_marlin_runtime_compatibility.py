@@ -24,9 +24,7 @@ def _runtime_result(
         artifact_lock_id=lock_id,
         feature_vector_sha256="e" * 64,
         model_scores=[
-            MarlinModelUnitScore(
-                model_id=index + 1, label=f"unit-{index + 1}", score=score
-            )
+            MarlinModelUnitScore(model_id=index + 1, label=f"unit-{index + 1}", score=score)
             for index, score in enumerate(values)
         ],
         raw_score_sha256="d" * 64,
