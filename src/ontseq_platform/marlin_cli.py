@@ -15,13 +15,11 @@ from .marlin_artifacts import (
     MarlinArtifactPaths,
     create_marlin_artifact_lock,
     load_exported_feature_ids,
-    verify_marlin_artifact_lock,
 )
-from .marlin_classification import classify_marlin_scores, load_marlin_class_annotations
 from .marlin_contracts import MarlinArtifactLock, MarlinRuntimeCompatibilityProfile
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
-from .marlin_runtime import run_marlin_inference
+from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from .models import GenomeBuild
 from .reference import sha256_file
 
@@ -106,6 +104,10 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--manifest", type=Path, required=True)
     validate.add_argument("--artifact-lock", type=Path, required=True)
     validate.add_argument("--runtime-profile", type=Path, required=True)
+    _add_common_artifact_paths(validate)
+    validate.add_argument("--inference-script", type=Path, required=True)
+    validate.add_argument("--rscript", default="Rscript")
+    validate.add_argument("--work-dir", type=Path)
     validate.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -177,43 +179,18 @@ def _check_runtime_profile_identity(
 def _run_classify(args: argparse.Namespace) -> Path:
     lock = load_model(args.artifact_lock, MarlinArtifactLock)
     profile = load_model(args.runtime_profile, MarlinRuntimeCompatibilityProfile)
-    _check_runtime_profile_identity(profile, lock)
-    paths = _artifact_paths(args)
-    verify_marlin_artifact_lock(lock, paths)
-    feature_ids = load_exported_feature_ids(args.feature_list)
-    source = parse_marlin_probe_bed(
-        args.input, genome_build=GenomeBuild(args.genome_build)
-    )
-    vector = build_marlin_feature_vector(
-        source,
-        feature_ids,
-        feature_artifact_sha256=lock.canonical_feature_list_sha256,
-    )
-    annotations = load_marlin_class_annotations(args.class_annotations)
-
-    runtime_result = None
-    if vector.summary.observed_model_feature_count > 0:
-        work_dir = args.work_dir or (args.output.parent / ".marlin-runtime")
-        runtime_result = run_marlin_inference(
-            vector,
-            lock,
-            model_path=args.model,
-            class_labels=tuple(f"model-unit-{index}" for index in range(1, 43)),
-            inference_script=args.inference_script,
-            runner=SubprocessRunner(),
-            work_dir=work_dir,
-            rscript_path=args.rscript,
-        )
-
-    report = classify_marlin_scores(
+    resources = MarlinRunResources(_artifact_paths(args), args.inference_script)
+    work_dir = args.work_dir or (args.output.parent / ".marlin-runtime")
+    report, _runtime_result = run_precomputed_marlin_classification(
         sample_id=args.sample_id,
-        runtime_result=runtime_result,
-        feature_summary=vector.summary,
-        input_fingerprint=source.input_fingerprint,
-        source_kind=source.source_kind,
-        genome_build=source.genome_build,
-        artifact_lock_id=lock.lock_id,
-        annotations=annotations,
+        input_path=args.input,
+        genome_build=GenomeBuild(args.genome_build),
+        lock=lock,
+        runtime_profile=profile,
+        resources=resources,
+        runner=SubprocessRunner(),
+        work_dir=work_dir,
+        rscript_path=args.rscript,
     )
     return _write_model_atomic(report, args.output)
 
@@ -234,7 +211,11 @@ def run_command(args: argparse.Namespace) -> None:
                 args.manifest,
                 artifact_lock_path=args.artifact_lock,
                 runtime_profile_path=args.runtime_profile,
+                artifact_paths=_artifact_paths(args),
+                inference_script=args.inference_script,
                 output_path=args.output,
+                rscript_path=args.rscript,
+                work_dir=args.work_dir,
             )
         )
     else:

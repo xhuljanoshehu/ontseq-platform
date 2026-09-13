@@ -39,6 +39,12 @@ def test_marlin_validate_slot_is_discoverable() -> None:
         "--manifest", "manifest.json",
         "--artifact-lock", "lock.json",
         "--runtime-profile", "profile.json",
+        "--model", "model.hdf5",
+        "--feature-rdata", "features.RData",
+        "--feature-list", "features.txt",
+        "--class-annotations", "classes.xlsx",
+        "--probe-bed", "probes.bed.gz",
+        "--inference-script", "infer.R",
         "--output", "report.json",
     ])
     assert args.command == "marlin-validate"
@@ -54,9 +60,9 @@ def _write_features(path: Path) -> tuple[str, ...]:
 def _lock_for_feature_list(feature_list: Path):
     from datetime import UTC, datetime
 
-    from ontseq_platform.marlin_contracts import MarlinArtifactLock
-    from ontseq_platform.models import GenomeBuild
+    from ontseq_platform.marlin_contracts import MarlinQrtifactLock
     from ontseq_platform.reference import sha256_file
+    from ontseq_platform.models import GenomeBuild
 
     return MarlinArtifactLock(
         lock_id="LOCK",
