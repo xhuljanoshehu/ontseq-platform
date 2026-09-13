@@ -6,13 +6,18 @@ import shutil
 import struct
 import tempfile
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
 
 from .execution import CommandRunner, ToolExecutionError
-from .marlin_contracts import MarlinArtifactLock, MarlinModelUnitScore
+from .marlin_contracts import (
+    MarlinArtifactLock,
+    MarlinModelUnitScore,
+    MarlinRuntimeCompatibilityProfile,
+)
 from .marlin_features import MarlinFeatureVector, marlin_feature_vector_sha256
 from .models import StrictModel
 from .reference import sha256_file
@@ -175,3 +180,64 @@ def run_marlin_inference(
         )
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def create_runtime_compatibility_profile(
+    reference_result: MarlinRuntimeResult,
+    *,
+    profile_id: str,
+    absolute_score_tolerance: float,
+    score_sum_tolerance: float,
+    created_at: datetime,
+) -> MarlinRuntimeCompatibilityProfile:
+    """Freeze a runtime's fixed-vector output before biological validation.
+
+    Tolerances are caller-supplied experimental decisions. This function deliberately does
+    not infer them from a biological cohort or from the observed score differences.
+    """
+    if not math.isfinite(absolute_score_tolerance) or absolute_score_tolerance <= 0:
+        raise ValueError("absolute_score_tolerance must be a positive finite value")
+    if not math.isfinite(score_sum_tolerance) or score_sum_tolerance <= 0:
+        raise ValueError("score_sum_tolerance must be a positive finite value")
+    scores = [item.score for item in reference_result.model_scores]
+    top_index = max(range(_EXPECTED_MODEL_UNITS), key=scores.__getitem__)
+    return MarlinRuntimeCompatibilityProfile(
+        profile_id=profile_id,
+        reference_runtime_lock_id=reference_result.artifact_lock_id,
+        feature_vector_sha256=reference_result.feature_vector_sha256,
+        reference_scores=scores,
+        absolute_score_tolerance=absolute_score_tolerance,
+        score_sum_tolerance=score_sum_tolerance,
+        top_model_unit_index=top_index,
+        execution_backend=reference_result.execution_backend,
+        created_at=created_at,
+    )
+
+
+def verify_runtime_compatibility(
+    profile: MarlinRuntimeCompatibilityProfile,
+    candidate: MarlinRuntimeResult,
+) -> None:
+    """Refuse a runtime result that drifts outside a previously frozen profile."""
+    if candidate.artifact_lock_id != profile.reference_runtime_lock_id:
+        raise ValueError("MARLIN candidate runtime lock differs from compatibility profile")
+    if candidate.execution_backend != profile.execution_backend:
+        raise ValueError("MARLIN candidate execution backend differs from compatibility profile")
+    if candidate.feature_vector_sha256 != profile.feature_vector_sha256:
+        raise ValueError("MARLIN candidate feature vector differs from compatibility profile")
+
+    candidate_scores = [item.score for item in candidate.model_scores]
+    candidate_top = max(range(_EXPECTED_MODEL_UNITS), key=candidate_scores.__getitem__)
+    if candidate_top != profile.top_model_unit_index:
+        raise ValueError("MARLIN candidate changed the top model unit")
+    if abs(sum(candidate_scores) - 1.0) > profile.score_sum_tolerance:
+        raise ValueError("MARLIN candidate violates frozen score-sum tolerance")
+
+    for model_id, (reference_score, candidate_score) in enumerate(
+        zip(profile.reference_scores, candidate_scores, strict=True), 1
+    ):
+        if abs(candidate_score - reference_score) > profile.absolute_score_tolerance:
+            raise ValueError(
+                "MARLIN candidate score exceeds frozen absolute tolerance "
+                f"at model unit {model_id}"
+            )

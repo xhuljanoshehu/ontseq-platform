@@ -1,0 +1,16 @@
+profile_id: MARLIN_V1_GRCH37_TECHNICAL
+status: technical_defaults_and_published_semantics_only
+genome_build: GRCh37
+expected_feature_count: 357340
+expected_model_unit_count: 42
+confidence_threshold: 0.8
+preprocessing_contract_version: marlin-v1-binarize-1
+runtime_contract_version: marlin-runtime-v1
+model_version: 1.0.0
+model_source: https://doi.org/10.5281/zenodo.15565404
+code_source: https://github.com/hovestadt/MARLIN
+reference_publication: https://doi.org/10.1038/s41588-025-02321-z
+notes:
+  - The 0.8 confidence threshold is the published MARLIN high-confidence threshold; ONTSeq does not retune it against GSE280090.
+  - Runtime numerical compatibility tolerances are intentionally absent from this file. They must be frozen from a non-biological fixed-vector experiment before external biological validation.
+  - This profile is Research Use Only and does not establish analytical or clinical validity.
