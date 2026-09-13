@@ -81,7 +81,7 @@ class MarlinModelUnitScore(StrictModel):
 
 class MarlinGroupedScore(StrictModel):
     label: str = Field(min_length=1)
-    score: float = Field(ge=0, le=1)
+    score: float = Field(ge=0, le=1.00001)
 
     @model_validator(mode="after")
     def score_is_finite(self) -> MarlinGroupedScore:
@@ -174,7 +174,7 @@ class MarlinPredictionReport(StrictModel):
     family_scores: list[MarlinGroupedScore]
     lineage_scores: list[MarlinGroupedScore]
     top_class: str | None = Field(default=None, min_length=1)
-    top_class_score: float | None = Field(default=None, ge=0, le=1)
+    top_class_score: float | None = Field(default=None, ge=0, le=1.00001)
     confidence_threshold: Literal[0.8] = 0.8
     artifact_lock_id: str = Field(min_length=1)
     warnings: list[str] = Field(default_factory=list)
@@ -212,7 +212,8 @@ class MarlinPredictionReport(StrictModel):
         labels = [item.label for item in self.raw_model_scores]
         if ids != list(range(1, 43)) or len(set(labels)) != 42:
             raise ValueError(
-                "MARLIN raw model scores require model IDs in locked order 1..42 and unique labels"
+                "MARLIN raw model scores require model IDs in locked order 1..42 "
+                "and unique labels"
             )
         if abs(sum(item.score for item in self.raw_model_scores) - 1.0) > 1e-5:
             raise ValueError("MARLIN raw model scores violate softmax-sum tolerance")
