@@ -143,7 +143,10 @@ class MarlinRuntimeCompatibilityProfile(StrictModel):
     def profile_is_valid_softmax_reference(self) -> MarlinRuntimeCompatibilityProfile:
         if self.created_at.utcoffset() is None:
             raise ValueError("MARLIN runtime-profile timestamp requires a timezone")
-        if any(not math.isfinite(score) or score < 0 or score > 1 for score in self.reference_scores):
+        if any(
+            not math.isfinite(score) or score < 0 or score > 1
+            for score in self.reference_scores
+        ):
             raise ValueError("MARLIN reference scores must be finite probabilities")
         if abs(sum(self.reference_scores) - 1.0) > self.score_sum_tolerance:
             raise ValueError("MARLIN reference scores violate the declared softmax-sum tolerance")
@@ -189,7 +192,12 @@ class MarlinPredictionReport(StrictModel):
                 raise ValueError("MARLIN NO_CALL must carry UNKNOWN decision")
             if self.top_class is not None or self.top_class_score is not None:
                 raise ValueError("MARLIN NO_CALL cannot carry a top classification")
-            if self.raw_model_scores or self.class_scores or self.family_scores or self.lineage_scores:
+            if (
+                self.raw_model_scores
+                or self.class_scores
+                or self.family_scores
+                or self.lineage_scores
+            ):
                 raise ValueError("MARLIN NO_CALL cannot carry model or grouped score payloads")
             return self
 
