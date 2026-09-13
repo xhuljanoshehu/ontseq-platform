@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from ontseq_platform.marlin_contracts import (
     MarlinClassificationDecision,
@@ -168,7 +169,7 @@ def test_unknown_is_counted_separately_from_no_call(tmp_path: Path) -> None:
 
 def test_manifest_rejects_non_grch37_or_threshold_drift(tmp_path: Path) -> None:
     sample = _sample(tmp_path)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         MarlinValidationManifest(
             validation_id="BAD",
             artifact_lock_id="LOCK",
@@ -177,7 +178,7 @@ def test_manifest_rejects_non_grch37_or_threshold_drift(tmp_path: Path) -> None:
             samples=[sample],
             locked_at=datetime(2026, 9, 13, tzinfo=UTC),
         )
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         MarlinValidationSample.model_validate(
             {**sample.model_dump(), "genome_build": GenomeBuild.GRCH38}
         )
