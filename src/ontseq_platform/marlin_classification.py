@@ -56,6 +56,8 @@ def load_marlin_class_annotations(path: Path) -> tuple[MarlinClassAnnotation, ..
     workbook = load_workbook(candidate, read_only=True, data_only=True)
     try:
         sheet = workbook.active
+        if sheet is None:
+            raise ValueError("MARLIN class annotation workbook has no active worksheet")
         rows = sheet.iter_rows(values_only=True)
         try:
             header_values = next(rows)
