@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 import os
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 from pydantic import BaseModel
 
