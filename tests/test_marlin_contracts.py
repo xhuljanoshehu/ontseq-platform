@@ -169,8 +169,14 @@ def test_prediction_report_requires_runtime_profile_id() -> None:
         )
 
 
+def _raw_uniform_scores() -> list[MarlinModelUnitScore]:
+    return [
+        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42)
+        for i in range(42)
+    ]
+
+
 def test_prediction_report_completed_unknown_for_valid_low_confidence() -> None:
-    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
     grouped = [MarlinGroupedScore(label="Class A", score=0.69)]
     report = MarlinPredictionReport(
         sample_id="AL_001",
@@ -180,7 +186,7 @@ def test_prediction_report_completed_unknown_for_valid_low_confidence() -> None:
         genome_build=GenomeBuild.GRCH37,
         input_fingerprint=FileFingerprint(size_bytes=100, sha256=SHA6),
         feature_summary=_feature_summary(),
-        raw_model_scores=raw,
+        raw_model_scores=_raw_uniform_scores(),
         class_scores=grouped,
         family_scores=[MarlinGroupedScore(label="Family A", score=0.8)],
         lineage_scores=[MarlinGroupedScore(label="Lineage A", score=0.9)],
@@ -217,7 +223,6 @@ def test_prediction_report_no_call_cannot_carry_high_confidence() -> None:
 
 
 def test_prediction_report_no_call_requires_zero_evidence_payload() -> None:
-    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
     with pytest.raises(ValidationError, match="NO_CALL"):
         MarlinPredictionReport(
             sample_id="AL_001",
@@ -227,7 +232,7 @@ def test_prediction_report_no_call_requires_zero_evidence_payload() -> None:
             genome_build=GenomeBuild.GRCH37,
             input_fingerprint=FileFingerprint(size_bytes=100, sha256=SHA6),
             feature_summary=_feature_summary(observed=0, explicit_na=0),
-            raw_model_scores=raw,
+            raw_model_scores=_raw_uniform_scores(),
             class_scores=[],
             family_scores=[],
             lineage_scores=[],
@@ -240,7 +245,7 @@ def test_prediction_report_no_call_requires_zero_evidence_payload() -> None:
 
 
 def test_prediction_report_requires_raw_model_unit_order() -> None:
-    raw = [MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)]
+    raw = _raw_uniform_scores()
     raw[0], raw[1] = raw[1], raw[0]
     with pytest.raises(ValidationError, match="order"):
         MarlinPredictionReport(
