@@ -60,9 +60,9 @@ def _write_features(path: Path) -> tuple[str, ...]:
 def _lock_for_feature_list(feature_list: Path):
     from datetime import UTC, datetime
 
-    from ontseq_platform.marlin_contracts import MarlinQrtifactLock
-    from ontseq_platform.reference import sha256_file
+    from ontseq_platform.marlin_contracts import MarlinArtifactLock
     from ontseq_platform.models import GenomeBuild
+    from ontseq_platform.reference import sha256_file
 
     return MarlinArtifactLock(
         lock_id="LOCK",
