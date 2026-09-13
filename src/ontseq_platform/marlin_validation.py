@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .execution import SubprocessRunner
+from .io import load_model
 from .marlin_artifacts import MarlinArtifactPaths
 from .marlin_contracts import (
     MarlinArtifactLock,
@@ -19,8 +21,6 @@ from .marlin_contracts import (
     MarlinRuntimeCompatibilityProfile,
     MarlinSourceKind,
 )
-from .execution import SubprocessRunner
-from .io import load_model
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from .models import GenomeBuild, ModuleRunStatus, StrictModel
 from .reference import sha256_file
@@ -51,7 +51,7 @@ class MarlinValidationManifest(StrictModel):
     artifact_lock_id: str = Field(min_length=1)
     runtime_profile_id: str = Field(min_length=1)
     threshold_policy_id: Literal["MARLIN_V1_PUBLISHED_0.8"] = "MARLIN_V1_PUBLISHED_0.8"
-    confidence_threshold: Literal[0.8] = 0.8
+    confidence_threshold: float = Field(default=0.8, ge=0.8, le=0.8)
     samples: list[MarlinValidationSample] = Field(min_length=1)
     locked_at: datetime
     posthoc_tuning_allowed: Literal[False] = False
@@ -94,7 +94,7 @@ class MarlinValidationCohortReport(StrictModel):
     validation_id: str
     artifact_lock_id: str
     runtime_profile_id: str
-    confidence_threshold: Literal[0.8] = 0.8
+    confidence_threshold: float = Field(default=0.8, ge=0.8, le=0.8)
     sample_count: int = Field(ge=0)
     high_confidence_count: int = Field(ge=0)
     unknown_count: int = Field(ge=0)
@@ -197,9 +197,7 @@ def _reports_are_deterministic(
         for left, right in zip(first.raw_model_scores, second.raw_model_scores, strict=True)
     ):
         return False
-    if absolute_score_tolerance == 0 and first_raw_digest != second_raw_digest:
-        return False
-    return True
+    return not (absolute_score_tolerance == 0 and first_raw_digest != second_raw_digest)
 
 
 def _sample_result(
@@ -212,7 +210,7 @@ def _sample_result(
         None
         if sample.expected_class is None or report.top_class is None
         else report.top_class == sample.expected_class
-     )
+    )
     status = "NO_CALL" if report.status is ModuleRunStatus.NO_CALL else "COMPLETED"
     return MarlinValidationSampleResult(
         accession=sample.accession,
@@ -293,7 +291,7 @@ def execute_marlin_validation(
                     expected_class=sample.expected_class,
                     runtime_seconds=0,
                     reason=f"Classification execution failed: {type(exc).__name__}",
-                 )
+                )
             )
 
     high_confidence = sum(
