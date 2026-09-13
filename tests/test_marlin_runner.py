@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from openpyxl import Workbook
 
 from ontseq_platform.execution import CommandResult
@@ -13,7 +11,7 @@ from ontseq_platform.marlin_artifacts import (
     MarlinArtifactPaths,
     create_marlin_artifact_lock,
 )
-from ontseq_platform.marlin_contracts import MarlinRuntimeCompatibilityProfile
+from ontseq_platform.marlin_contracts import MarlinClassificationDecision, MarlinRuntimeCompatibilityProfile
 from ontseq_platform.marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 
@@ -31,7 +29,7 @@ def _resources(tmp_path: Path):
     model.write_bytes(b"model")
     feature_rdata.write_bytes(b"features")
     probe_bed.write_bytes(b"probes")
-    inference_script.write_text("# not executed for zero-evidence fixture\n", encoding="utf-8")
+    inference_script.write_text("# test inference fixture\n", encoding="utf-8")
     wb = Workbook()
     ws = wb.active
     ws.append(["model_id", "class_name_current", "mcf", "lineage"])
@@ -90,24 +88,12 @@ def test_zero_evidence_runner_skips_external_runtime(tmp_path: Path) -> None:
     assert runtime_result is None
 
 
-def test_observed_runner_rejects_scores_outside_frozen_runtime_profile(tmp_path: Path) -> None:
-    resources, lock, _ = _resources(tmp_path)
+def test_biological_scores_need_not_match_fixed_runtime_fixture(tmp_path: Path) -> None:
+    resources, lock, profile = _resources(tmp_path)
     input_path = tmp_path / "sample.bed"
     input_path.write_text("chr1\t1\t2\t0.9\tcg000000000\n", encoding="utf-8")
-    feature_sha256 = hashlib.sha256(b"\x01" + b"\x00" * 357339).hexdigest()
-    profile = MarlinRuntimeCompatibilityProfile(
-        profile_id="PROFILE",
-        reference_runtime_lock_id="LOCK",
-        feature_vector_sha256=feature_sha256,
-        reference_scores=[1 / 42] * 42,
-        absolute_score_tolerance=1e-7,
-        score_sum_tolerance=1e-5,
-        top_model_unit_index=0,
-        execution_backend="cpu",
-        created_at=datetime(2026, 9, 13, tzinfo=UTC),
-    )
 
-    class DriftedScoreRunner:
+    class BiologicalScoreRunner:
         def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
             scores = [0.6, 0.4] + [0.0] * 40
             payload = ["model_id\tscore"]
@@ -117,14 +103,21 @@ def test_observed_runner_rejects_scores_outside_frozen_runtime_profile(tmp_path:
                 argv=tuple(argv), returncode=0, stdout="runtime-log", stderr=""
             )
 
-    with pytest.raises(ValueError, match="frozen|tolerance"):
-        run_precomputed_marlin_classification(
-            sample_id="SAMPLE",
-            input_path=input_path,
-            genome_build=GenomeBuild.GRCH37,
-            lock=lock,
-            runtime_profile=profile,
-            resources=resources,
-            runner=DriftedScoreRunner(),
-            work_dir=tmp_path / "work",
-        )
+    report, runtime_result = run_precomputed_marlin_classification(
+        sample_id="SAMPLE",
+        input_path=input_path,
+        genome_build=GenomeBuild.GRCH37,
+        lock=lock,
+        runtime_profile=profile,
+        resources=resources,
+        runner=BiologicalScoreRunner(),
+        work_dir=tmp_path / "work",
+    )
+
+    assert runtime_result is not None
+    assert runtime_result.model_scores[0].score == 0.6
+    assert report.status is ModuleRunStatus.COMPLETED
+    assert report.decision is MarlinClassificationDecision.UNKNOWN
+    assert report.top_class == "Class 1"
+    assert report.top_class_score == 0.6
+    assert report.runtime_profile_id == "PROFILE"
