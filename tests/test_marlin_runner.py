@@ -105,9 +105,7 @@ def test_biological_scores_need_not_match_fixed_runtime_fixture(tmp_path: Path) 
             payload = ["model_id\tscore"]
             payload.extend(f"{index}\t{score:.17g}" for index, score in enumerate(scores, 1))
             Path(argv[-1]).write_text("\n".join(payload) + "\n", encoding="utf-8")
-            return CommandResult(
-                argv=tuple(argv), returncode=0, stdout="runtime-log", stderr=""
-            )
+            return CommandResult(argv=tuple(argv), returncode=0, stdout="runtime-log", stderr="")
 
     report, runtime_result = run_precomputed_marlin_classification(
         sample_id="SAMPLE",
