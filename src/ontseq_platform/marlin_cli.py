@@ -84,9 +84,7 @@ def _parser() -> argparse.ArgumentParser:
     features.add_argument("--output-vector", type=Path, required=True)
     features.add_argument("--output-summary", type=Path, required=True)
 
-    classify = subparsers.add_parser(
-        "marlin-classify", help="Run locked MARLIN v1 classification"
-    )
+    classify = subparsers.add_parser("marlin-classify", help="Run locked MARLIN v1 classification")
     classify.add_argument("--sample-id", required=True)
     classify.add_argument("--input", type=Path, required=True)
     classify.add_argument("--genome-build", choices=[GenomeBuild.GRCH37.value], required=True)
@@ -139,9 +137,7 @@ def _run_lock(args: argparse.Namespace) -> Path:
     return _write_model_atomic(lock, args.output)
 
 
-def _load_locked_features(
-    feature_list: Path, lock: MarlinArtifactLock
-) -> tuple[str, ...]:
+def _load_locked_features(feature_list: Path, lock: MarlinArtifactLock) -> tuple[str, ...]:
     observed_hash = sha256_file(feature_list)
     if observed_hash != lock.canonical_feature_list_sha256:
         raise ValueError("MARLIN canonical feature-list SHA-256 differs from artifact lock")
@@ -151,9 +147,7 @@ def _load_locked_features(
 def _run_features(args: argparse.Namespace) -> tuple[Path, Path]:
     lock = load_model(args.artifact_lock, MarlinArtifactLock)
     feature_ids = _load_locked_features(args.feature_list, lock)
-    source = parse_marlin_probe_bed(
-        args.input, genome_build=GenomeBuild(args.genome_build)
-    )
+    source = parse_marlin_probe_bed(args.input, genome_build=GenomeBuild(args.genome_build))
     vector = build_marlin_feature_vector(
         source,
         feature_ids,
