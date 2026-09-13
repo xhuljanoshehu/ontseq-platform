@@ -80,9 +80,7 @@ def load_marlin_class_annotations(path: Path) -> tuple[MarlinClassAnnotation, ..
                 continue
             model_id_value = row[index["model_id"]]
             if isinstance(model_id_value, bool) or not isinstance(model_id_value, int):
-                raise ValueError(
-                    f"MARLIN annotation row {row_number} model_id must be an integer"
-                )
+                raise ValueError(f"MARLIN annotation row {row_number} model_id must be an integer")
             annotations.append(
                 MarlinClassAnnotation(
                     model_id=model_id_value,
@@ -134,9 +132,7 @@ def _aggregate_scores(
             labels.append(label)
             members[label] = []
         members[label].append(unit.score)
-    return [
-        MarlinGroupedScore(label=label, score=math.fsum(members[label])) for label in labels
-    ]
+    return [MarlinGroupedScore(label=label, score=math.fsum(members[label])) for label in labels]
 
 
 def classify_marlin_scores(
@@ -148,6 +144,7 @@ def classify_marlin_scores(
     source_kind: MarlinSourceKind,
     genome_build: GenomeBuild,
     artifact_lock_id: str,
+    runtime_profile_id: str,
     annotations: Sequence[MarlinClassAnnotation],
 ) -> MarlinPredictionReport:
     """Bind raw MARLIN units to the locked taxonomy and apply published confidence semantics."""
@@ -175,6 +172,7 @@ def classify_marlin_scores(
             top_class=None,
             top_class_score=None,
             artifact_lock_id=artifact_lock_id,
+            runtime_profile_id=runtime_profile_id,
             limitations=["No MARLIN model feature was observed; inference was not run."],
         )
 
@@ -187,9 +185,7 @@ def classify_marlin_scores(
     if runtime_result.artifact_lock_id != artifact_lock_id:
         raise ValueError("MARLIN runtime artifact lock differs from classification artifact lock")
 
-    class_scores = _aggregate_scores(
-        runtime_result, annotation_by_id, field="class_name_current"
-    )
+    class_scores = _aggregate_scores(runtime_result, annotation_by_id, field="class_name_current")
     family_scores = _aggregate_scores(
         runtime_result, annotation_by_id, field="methylation_class_family"
     )
@@ -215,7 +211,6 @@ def classify_marlin_scores(
         top_class=top.label,
         top_class_score=top.score,
         artifact_lock_id=artifact_lock_id,
-        limitations=[
-            "MARLIN classification is Research Use Only and is not a clinical diagnosis."
-        ],
+        runtime_profile_id=runtime_profile_id,
+        limitations=["MARLIN classification is Research Use Only and is not a clinical diagnosis."],
     )
