@@ -86,6 +86,7 @@ def test_zero_evidence_runner_skips_external_runtime(tmp_path: Path) -> None:
         work_dir=tmp_path / "work",
     )
     assert report.status is ModuleRunStatus.NO_CALL
+    assert report.runtime_profile_id == "PROFILE"
     assert runtime_result is None
 
 
