@@ -68,8 +68,8 @@ def _build_feature_vector_for_ids(
     ordered = _validate_feature_ids(feature_ids)
     if _SHA256.fullmatch(feature_artifact_sha256) is None:
         raise ValueError("feature_artifact_sha256 must be lowercase SHA-256")
-    for key, observation in observations.items():
-        if key != observation.probe_id:
+    for key, mapped_observation in observations.items():
+        if key != mapped_observation.probe_id:
             raise ValueError("MARLIN observation mapping key must equal observation.probe_id")
 
     feature_set = set(ordered)
