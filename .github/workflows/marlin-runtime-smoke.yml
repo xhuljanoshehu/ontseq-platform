@@ -48,16 +48,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p results
+          CONTROL_PYTHON="$pythonLocation/bin/python"
           MARLIN_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-runtime/bin/Rscript"
+          test -x "$CONTROL_PYTHON"
           test -x "$MARLIN_RSCRIPT"
-          python -m ontseq_platform marlin-runtime-probe \
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-runtime-probe \
             --probe-script scripts/marlin_runtime_probe.R \
             --rscript "$MARLIN_RSCRIPT" \
             --output results/marlin-runtime-probe.json
       - name: Verify declared technical baseline
         run: |
           set -euo pipefail
-          python - <<'PY'
+          "$pythonLocation/bin/python" - <<'PY'
           import json
           from pathlib import Path
 
