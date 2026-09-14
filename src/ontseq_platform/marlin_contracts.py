@@ -132,7 +132,7 @@ class MarlinBridgeLock(StrictModel):
     The hashes under ``validation_*`` identify the same-specimen comparison that justified
     enabling this adapter. They are evidence provenance, not identities that every future
     specimen must share. Runtime inputs are instead constrained by build, adapter, modkit,
-    probe-resource and feature-resource identities.
+    pileup semantics, probe-resource and feature-resource identities.
     """
 
     schema_version: Literal["0.1.0"] = "0.1.0"
@@ -141,6 +141,7 @@ class MarlinBridgeLock(StrictModel):
     genome_build: GenomeBuild
     adapter_version: Literal["marlin-modkit-bridge-v1"] = "marlin-modkit-bridge-v1"
     modkit_version: Literal["0.6.4"] = "0.6.4"
+    pileup_semantics: Literal["5mC+5hmC-combine-mods-v1"] = "5mC+5hmC-combine-mods-v1"
     probe_resource_sha256: str = Field(pattern=_SHA256)
     feature_artifact_sha256: str = Field(pattern=_SHA256)
     validation_precomputed_input_sha256: str = Field(pattern=_SHA256)
