@@ -3,10 +3,25 @@ if (length(args) != 1) {
   stop("usage: marlin_runtime_probe.R <runtime-probe.tsv>")
 }
 
+runtime_prefix <- normalizePath(file.path(R.home(), "..", ".."), mustWork = TRUE)
+runtime_python <- file.path(runtime_prefix, "bin", "python")
+if (!file.exists(runtime_python)) {
+  stop(sprintf("MARLIN runtime Python is missing: %s", runtime_python))
+}
+Sys.setenv(RETICULATE_PYTHON = runtime_python)
+
+suppressPackageStartupMessages({
+  library(reticulate)
+})
+reticulate::use_python(runtime_python, required = TRUE)
+python_config <- reticulate::py_config()
+if (normalizePath(python_config$python, mustWork = TRUE) != normalizePath(runtime_python, mustWork = TRUE)) {
+  stop("reticulate did not bind to the MARLIN runtime Python")
+}
+
 suppressPackageStartupMessages({
   library(keras)
   library(tensorflow)
-  library(reticulate)
 })
 
 keras_backend <- keras::k_backend()
@@ -21,9 +36,7 @@ invisible(probe_tensor$numpy())
 r_version <- paste(R.version$major, R.version$minor, sep = ".")
 keras_version <- as.character(utils::packageVersion("keras"))
 tensorflow_version <- as.character(tensorflow::tf$`__version__`)
-python_version <- as.character(
-  reticulate::py_eval("'.'.join(map(str, __import__('sys').version_info[:3]))")
-)
+python_version <- as.character(python_config$version)
 gpus <- tensorflow::tf$config$list_physical_devices("GPU")
 execution_backend <- if (length(gpus) > 0) "gpu" else "cpu"
 
