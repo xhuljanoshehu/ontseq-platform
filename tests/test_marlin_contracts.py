@@ -171,8 +171,7 @@ def test_prediction_report_requires_runtime_profile_id() -> None:
 
 def _raw_uniform_scores() -> list[MarlinModelUnitScore]:
     return [
-        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42)
-        for i in range(42)
+        MarlinModelUnitScore(model_id=i + 1, label=f"unit-{i + 1}", score=1 / 42) for i in range(42)
     ]
 
 
