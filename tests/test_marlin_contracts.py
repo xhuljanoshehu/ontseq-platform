@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from ontseq_platform.marlin_contracts import (
     MarlinArtifactLock,
+    MarlinBridgeLock,
     MarlinClassificationDecision,
     MarlinFeatureSummary,
     MarlinGroupedScore,
@@ -60,6 +61,27 @@ def _artifact_lock() -> MarlinArtifactLock:
         python_version_if_used="3.11.0",
         execution_backend="cpu",
         created_at=datetime(2026, 9, 13, tzinfo=UTC),
+    )
+
+
+def _bridge_lock() -> MarlinBridgeLock:
+    return MarlinBridgeLock(
+        bridge_id="MARLIN_MODKIT_BRIDGE_TEST",
+        status="validated_same_specimen_bridge",
+        genome_build=GenomeBuild.GRCH37,
+        adapter_version="marlin-modkit-bridge-v1",
+        modkit_version="0.6.4",
+        probe_resource_sha256=SHA0,
+        feature_artifact_sha256=SHA1,
+        validation_precomputed_input_sha256=SHA2,
+        validation_modkit_bedmethyl_sha256=SHA3,
+        validation_precomputed_feature_vector_sha256=SHA4,
+        validation_modkit_feature_vector_sha256=SHA5,
+        compared_feature_count=1000,
+        concordant_feature_count=990,
+        feature_agreement_fraction=0.99,
+        evidence_reference="same-specimen-bridge-study-001",
+        validated_at=datetime(2026, 9, 13, tzinfo=UTC),
     )
 
 
@@ -134,6 +156,35 @@ def test_artifact_lock_is_grch37_and_exact_marlin_shape() -> None:
     assert lock.expected_model_unit_count == 42
     with pytest.raises(ValidationError):
         MarlinArtifactLock(**{**lock.model_dump(), "genome_build": GenomeBuild.GRCH38})
+
+
+def test_bridge_lock_records_same_specimen_evidence_and_modkit_identity() -> None:
+    lock = _bridge_lock()
+    assert lock.status == "validated_same_specimen_bridge"
+    assert lock.modkit_version == "0.6.4"
+    assert lock.feature_agreement_fraction == pytest.approx(0.99)
+    assert lock.research_only is True
+
+
+def test_bridge_lock_rejects_non_grch37_or_inconsistent_agreement() -> None:
+    lock = _bridge_lock()
+    with pytest.raises(ValidationError, match="GRCh37"):
+        MarlinBridgeLock.model_validate(
+            {**lock.model_dump(), "genome_build": GenomeBuild.GRCH38}
+        )
+    with pytest.raises(ValidationError, match="agreement"):
+        MarlinBridgeLock.model_validate(
+            {**lock.model_dump(), "feature_agreement_fraction": 0.5}
+        )
+    with pytest.raises(ValidationError, match="concordant"):
+        MarlinBridgeLock.model_validate(
+            {
+                **lock.model_dump(),
+                "compared_feature_count": 10,
+                "concordant_feature_count": 11,
+                "feature_agreement_fraction": 1.0,
+            }
+        )
 
 
 def test_runtime_profile_requires_42_scores_and_positive_tolerance() -> None:
