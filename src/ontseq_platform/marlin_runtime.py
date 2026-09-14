@@ -42,7 +42,7 @@ class MarlinRuntimeProbeReport(StrictModel):
     R_version: str = Field(min_length=1)
     keras_version: str = Field(min_length=1)
     tensorflow_version: str = Field(min_length=1)
-    python_version: str = Field(min_length=1)
+    python_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
     execution_backend: Literal["cpu", "gpu"]
     research_only: Literal[True] = True
 
