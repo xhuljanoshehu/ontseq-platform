@@ -186,8 +186,7 @@ class MarlinRuntimeCompatibilityProfile(StrictModel):
         if self.created_at.utcoffset() is None:
             raise ValueError("MARLIN runtime-profile timestamp requires a timezone")
         if any(
-            not math.isfinite(score) or score < 0 or score > 1
-            for score in self.reference_scores
+            not math.isfinite(score) or score < 0 or score > 1 for score in self.reference_scores
         ):
             raise ValueError("MARLIN reference scores must be finite probabilities")
         if abs(sum(self.reference_scores) - 1.0) > self.score_sum_tolerance:
