@@ -21,6 +21,7 @@ _SCIENTIFIC_COMMANDS = (
     ("call-sniffles", "Run Sniffles2 and normalize candidate SV evidence"),
     ("call-methylation", "Run modkit pileup and normalize modified-base fractions"),
     ("marlin-lock", "Lock local MARLIN v1 artifacts"),
+    ("marlin-runtime-probe", "Probe the live MARLIN R/Keras/TensorFlow runtime"),
     ("marlin-features", "Build the locked MARLIN v1 feature vector"),
     ("marlin-classify", "Run locked MARLIN v1 classification"),
     ("marlin-validate", "Validate locked MARLIN classifications against a manifest"),
