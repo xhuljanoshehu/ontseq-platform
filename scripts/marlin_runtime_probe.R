@@ -36,7 +36,9 @@ invisible(probe_tensor$numpy())
 r_version <- paste(R.version$major, R.version$minor, sep = ".")
 keras_version <- as.character(utils::packageVersion("keras"))
 tensorflow_version <- as.character(tensorflow::tf$`__version__`)
-python_version <- as.character(python_config$version)
+python_version <- as.character(
+  reticulate::py_eval("'.'.join(map(str, __import__('sys').version_info[:3]))")
+)
 gpus <- tensorflow::tf$config$list_physical_devices("GPU")
 execution_backend <- if (length(gpus) > 0) "gpu" else "cpu"
 
