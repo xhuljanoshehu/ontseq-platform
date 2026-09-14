@@ -266,9 +266,7 @@ def parse_marlin_modkit_probe_input(
         chromosome = positions[0][0]
         starts = [start for _chromosome, start in positions]
         matched = [
-            site_by_position[position]
-            for position in positions
-            if position in site_by_position
+            site_by_position[position] for position in positions if position in site_by_position
         ]
         total_valid = sum(site.valid_coverage for site in matched)
         total_modified = sum(site.modified_calls for site in matched)
