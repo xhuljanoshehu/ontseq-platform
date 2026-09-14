@@ -15,6 +15,7 @@ Current implementation scope:
 - deterministic construction of the 357,340-value MARLIN v1 feature vector;
 - checksum-locked model, feature, class-annotation and probe resources;
 - locked R/Keras/TensorFlow inference boundary returning exactly 42 softmax scores;
+- live runtime probing of R, R-Keras, Python TensorFlow, Python and CPU/GPU backend identity;
 - grouped current-class, methylation-family and lineage summaries with explicit deterministic
   score/label tie ordering;
 - published `0.8` high-confidence threshold with explicit `UNKNOWN` below threshold;
@@ -59,6 +60,8 @@ ONTSeq deliberately separates engineering evidence from analytical and clinical 
 ```text
 synthetic parser / contract / feature tests
         <
+real R/Keras/TensorFlow import and backend smoke
+        <
 locked non-biological runtime compatibility
         <
 GSE processed-CpG downstream reproduction
@@ -80,6 +83,9 @@ In particular:
   locked downstream CpG-to-MARLIN classification workflow.
 - It does **not** validate Dorado basecalling, alignment, MM/ML generation, ONTSeq modkit
   extraction, CNV, SV, fusion calling, or clinical reportability.
+- A successful runtime smoke proves that the selected R/Keras/TensorFlow stack imports and
+  initializes. It does **not** prove numerical equivalence to the published MARLIN runtime or
+  correct classification of biological samples.
 
 ## Architecture
 
@@ -203,17 +209,75 @@ platform-dependent floating-point text formatting.
 - GRCh37 build;
 - expected 357,340 features and 42 model units;
 - preprocessing/runtime contract versions;
-- declared R, Keras and TensorFlow versions;
-- execution backend;
+- live-probed R, R-Keras, Python TensorFlow and Python versions;
+- live-probed execution backend;
 - creation timestamp.
 
 Inference performs no automatic artifact download. Hash mismatch is a hard failure.
 
+`marlin-lock` no longer accepts manually typed runtime-version/backend values. It requires the
+runtime probe script and the `Rscript` executable that will identify the actual candidate runtime.
+This prevents a lock from claiming one software stack while executing another.
+
+## Engineering runtime and live probe
+
+ONTSeq deliberately keeps the control plane and the legacy MARLIN model runtime in separate Python
+environments:
+
+```text
+ONTSeq control plane
+Python >= 3.11
+        |
+        | argv-only Rscript execution
+        v
+MARLIN model runtime
+R 4.2.x
+Python 3.10.x
+R-Keras 2.13.0
+R-TensorFlow 2.13.0
+Python tensorflow-cpu 2.13.0
+```
+
+The environment definition is `workflow/envs/marlin_runtime.yaml`. The CI smoke does not install
+ONTSeq/Pydantic into the MARLIN Python 3.10 environment; this avoids contaminating the legacy
+TensorFlow dependency set. ONTSeq invokes the MARLIN `Rscript` from its supported Python control
+plane.
+
+`scripts/marlin_runtime_probe.R` then:
+
+1. locates the Python executable belonging to the same MARLIN environment as `Rscript`;
+2. binds `reticulate` explicitly to that Python interpreter;
+3. loads R-Keras and R-TensorFlow;
+4. verifies that Keras is using the TensorFlow backend;
+5. initializes Python TensorFlow with a real tensor operation;
+6. queries CPU/GPU physical-device availability;
+7. emits the observed R, R-Keras, Python TensorFlow and full Python patch versions.
+
+The current Linux CPU engineering smoke resolves and verifies:
+
+```text
+R                 4.2.3
+R-Keras           2.13.0
+R-TensorFlow      2.13.0
+Python            3.10.21
+Python TensorFlow 2.13.0
+backend            CPU
+```
+
+This is an **engineering runtime identity**, not a biological validation result. The inspected
+upstream MARLIN repository documents R 4.1.3 as its tested R version. ONTSeq therefore does not
+assume that R 4.2.3 is numerically equivalent. Numerical compatibility with the locked trained
+model must be established independently by the frozen non-biological runtime fixture before any
+biological validation is permitted.
+
+The smoke workflow stores only a small non-biological runtime-identity JSON artifact. It does not
+contain the trained MARLIN model, GSE280090 payloads or patient-derived data.
+
 ## Runtime compatibility gate
 
-External biological validation requires more than a stored profile. Before any validation
-sample is run, ONTSeq re-executes a fixed, non-biological 357,340-value `-1/0/+1` feature fixture
-through the current locked model/runtime.
+External biological validation requires more than a successful runtime import or a stored profile.
+Before any validation sample is run, ONTSeq re-executes a fixed, non-biological 357,340-value
+`-1/0/+1` feature fixture through the current locked model/runtime.
 
 The candidate runtime must match the frozen `MarlinRuntimeCompatibilityProfile` for:
 
@@ -310,9 +374,37 @@ Available engineering commands:
 
 ```text
 ontseq marlin-lock
+ontseq marlin-runtime-probe
 ontseq marlin-features
 ontseq marlin-classify
 ontseq marlin-validate
+```
+
+The runtime probe can be executed independently:
+
+```bash
+ontseq marlin-runtime-probe \
+  --probe-script scripts/marlin_runtime_probe.R \
+  --rscript /path/to/ontseq-marlin-runtime/bin/Rscript \
+  --output results/marlin-runtime-probe.json
+```
+
+`marlin-lock` requires the same live probe boundary:
+
+```bash
+ontseq marlin-lock \
+  --model /path/to/marlin_v1.model.hdf5 \
+  --feature-rdata /path/to/marlin_v1.features.RData \
+  --feature-list /path/to/marlin_v1.features.txt \
+  --class-annotations /path/to/marlin_v1.class_annotations.xlsx \
+  --probe-bed /path/to/marlin_v1.probes_hg19.bed.gz \
+  --lock-id MARLIN_V1_GRCH37_LOCAL \
+  --code-version 442aa603415a54f62e7367794f9a31c6bc20fc2d \
+  --code-manifest-sha256 <sha256> \
+  --genome-build GRCh37 \
+  --runtime-probe-script scripts/marlin_runtime_probe.R \
+  --rscript /path/to/ontseq-marlin-runtime/bin/Rscript \
+  --output results/marlin-artifact-lock.json
 ```
 
 ### External validation
