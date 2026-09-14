@@ -13,7 +13,7 @@ from pydantic import Field, model_validator
 
 from .execution import SubprocessRunner
 from .io import load_model
-from .marlin_artifacts import MarlinArtifactPaths
+from .marlin_artifacts import MarlinArtifactPaths, verify_marlin_artifact_lock
 from .marlin_contracts import (
     MarlinArtifactLock,
     MarlinClassificationDecision,
@@ -22,6 +22,7 @@ from .marlin_contracts import (
     MarlinSourceKind,
 )
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
+from .marlin_runtime import verify_frozen_runtime_fixture
 from .models import GenomeBuild, ModuleRunStatus, StrictModel
 from .reference import sha256_file
 
@@ -342,6 +343,7 @@ def run_validation_manifest(
     *,
     artifact_lock_path: Path,
     runtime_profile_path: Path,
+    runtime_fixture_path: Path,
     artifact_paths: MarlinArtifactPaths,
     inference_script: Path,
     output_path: Path,
@@ -361,9 +363,21 @@ def run_validation_manifest(
     if profile.execution_backend != lock.execution_backend:
         raise ValueError("MARLIN runtime profile backend differs from artifact lock")
 
+    verify_marlin_artifact_lock(lock, artifact_paths)
     resources = MarlinRunResources(artifact_paths, inference_script)
     base_work_dir = work_dir or (Path(output_path).parent / ".marlin-validation-runtime")
     runner = SubprocessRunner()
+
+    verify_frozen_runtime_fixture(
+        profile,
+        lock,
+        fixture_path=runtime_fixture_path,
+        model_path=artifact_paths.model,
+        inference_script=inference_script,
+        runner=runner,
+        work_dir=base_work_dir / "runtime-compatibility",
+        rscript_path=rscript_path,
+    )
 
     def classify_sample(
         sample: MarlinValidationSample,
