@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ontseq_platform.execution import CommandResult, ToolExecutionError
 from ontseq_platform import marlin_cli, marlin_runtime
+from ontseq_platform.execution import CommandResult, ToolExecutionError
 
 
 class ProbeRunner:
