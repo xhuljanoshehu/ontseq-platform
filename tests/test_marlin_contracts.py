@@ -312,3 +312,28 @@ def test_prediction_report_requires_raw_model_unit_order() -> None:
             artifact_lock_id="MARLIN_V1_GRCH37_TEST",
             runtime_profile_id="PROFILE",
         )
+
+
+def test_prediction_report_ties_require_canonical_label_tiebreak() -> None:
+    with pytest.raises(ValidationError, match="top classification"):
+        MarlinPredictionReport(
+            sample_id="AL_001",
+            status=ModuleRunStatus.COMPLETED,
+            decision=MarlinClassificationDecision.UNKNOWN,
+            source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
+            genome_build=GenomeBuild.GRCH37,
+            input_fingerprint=FileFingerprint(size_bytes=100, sha256=SHA6),
+            feature_summary=_feature_summary(),
+            raw_model_scores=_raw_uniform_scores(),
+            class_scores=[
+                MarlinGroupedScore(label="Class Z", score=0.5),
+                MarlinGroupedScore(label="Class A", score=0.5),
+            ],
+            family_scores=[MarlinGroupedScore(label="Family A", score=1.0)],
+            lineage_scores=[MarlinGroupedScore(label="Lineage A", score=1.0)],
+            top_class="Class Z",
+            top_class_score=0.5,
+            confidence_threshold=0.8,
+            artifact_lock_id="MARLIN_V1_GRCH37_TEST",
+            runtime_profile_id="PROFILE",
+        )
