@@ -15,12 +15,14 @@ Current implementation scope:
 - deterministic construction of the 357,340-value MARLIN v1 feature vector;
 - checksum-locked model, feature, class-annotation and probe resources;
 - locked R/Keras/TensorFlow inference boundary returning exactly 42 softmax scores;
-- grouped current-class, methylation-family and lineage summaries;
+- grouped current-class, methylation-family and lineage summaries with explicit deterministic
+  score/label tie ordering;
 - published `0.8` high-confidence threshold with explicit `UNKNOWN` below threshold;
 - frozen non-biological runtime-fixture verification before external cohort validation;
 - manifest-driven external processed-CpG validation with deterministic repeat runs;
-- a native modkit-to-MARLIN bridge contract that remains unusable without a separately created
-  same-specimen bridge-evidence lock.
+- a native modkit-to-MARLIN bridge contract reproducing MARLIN's combined 5mC+5hmC pileup
+  semantics, while remaining unusable without a separately created same-specimen bridge-evidence
+  lock.
 
 The external GSE280090 / `GSM8587229_AL_001.txt.gz` validation gate has **not** been completed in
 this repository state. Public/patient-derived validation payloads are not committed to Git.
@@ -109,17 +111,33 @@ A future native path is separate:
 
 ```text
 MODKIT_DERIVED
-modBAM -> modkit 0.6.4 bedMethyl
-          |
-          v
+modBAM
+  |
+  v
+modkit 0.6.4 pileup
+--modified-bases 5mC 5hmC
+--combine-mods
+  |
+  v
+combined cytosine bedMethyl (raw code C)
+  |
+  v
 locked hg19 MARLIN probe resource
-          |
-          v
+  |
+  v
 per-probe beta = sum(N_mod) / sum(N_valid)
-          |
-          v
+  |
+  v
 same 357,340-feature constructor
 ```
+
+Under this MARLIN-specific bridge, `N_mod` is the combined 5mC+5hmC modified-cytosine count,
+`N_canonical` is the unmodified cytosine count and `N_other_mod` must be zero. Separate `m`/`h`
+bedMethyl rows are refused by this bridge because they do not prove the published MARLIN
+`--combine-mods` semantics.
+
+This rule is **specific to the MARLIN bridge**. ONTSeq's general methylation lane continues to
+preserve 5mC and 5hmC as separate modification codes and is not reinterpreted by this integration.
 
 The native path is not enabled by the existence of code alone. It requires a
 `MarlinBridgeLock` recording separate same-specimen comparison evidence. No valid bridge lock is
@@ -209,7 +227,8 @@ The candidate runtime must match the frozen `MarlinRuntimeCompatibilityProfile` 
 The tolerance is frozen before biological validation. It must not be tuned from GSE280090
 outcomes.
 
-`ontseq marlin-validate` therefore requires an explicit `--runtime-fixture` path.
+`ontseq marlin-validate` therefore requires an explicit `--runtime-fixture` path. A direct
+`marlin-classify` invocation is not a substitute for this external-validation gate.
 
 ## Classification semantics
 
@@ -219,6 +238,10 @@ to aggregate scores into:
 - current methylation class;
 - methylation family;
 - lineage.
+
+Grouped scores are ordered deterministically by `(-score, label)`. Therefore an exact score tie
+is resolved by the lexicographically smaller locked label rather than by model-unit or workbook
+row order. The normalized report validator enforces the same rule.
 
 The primary classification decision uses the top grouped current-class score.
 
@@ -244,21 +267,34 @@ scores or partial output are failures, not biological negatives.
 The bridge follows the published MARLIN probe aggregation rather than reusing ONTSeq's
 chromosome/target-level methylation summaries.
 
-The upstream MARLIN workflow selects the probe resource positions, reads modkit `N_valid` and
-`N_mod`, and calculates for each probe:
+The inspected upstream MARLIN workflow runs modkit over the hg19 probe resource with combined
+modification semantics and subsequently reads genomic position, `N_valid` and `N_mod` to calculate
+for each probe:
 
 ```text
 beta = sum(N_mod) / sum(N_valid)
 ```
 
-ONTSeq mirrors that probe-level rule using its pinned modkit 0.6.4 bedMethyl parser. A probe with
-no valid calls remains `NA` and becomes `0` only at MARLIN feature construction.
+ONTSeq mirrors that probe-level rule with a dedicated MARLIN parser. It deliberately does **not**
+reuse the generic ONTSeq 5mC-only parser, because the general methylation lane keeps 5mC and 5hmC
+separate while MARLIN's native workflow combines them before computing beta.
+
+Accepted MARLIN bridge rows therefore require:
+
+```text
+raw modification code = C
+N_valid = N_mod + N_canonical + N_other_mod
+N_other_mod = 0
+```
+
+A probe with no valid calls remains `NA` and becomes `0` only at MARLIN feature construction.
 
 The bridge is gated by `MarlinBridgeLock`, which records:
 
 - GRCh37/hg19 identity;
 - adapter identity;
 - modkit version `0.6.4`;
+- fixed `5mC+5hmC-combine-mods-v1` pileup semantics;
 - probe-resource and feature-resource fingerprints;
 - same-specimen precomputed and native validation input fingerprints;
 - precomputed and native feature-vector fingerprints;
@@ -319,8 +355,10 @@ Before classification:
 2. verify the file matches the supported five-column processed-probe schema;
 3. lock the expected publication-supported comparison target before inspecting ONTSeq output;
 4. pass the non-biological runtime compatibility fixture;
-5. run the sample twice;
-6. require deterministic feature identity, decision and score agreement within the frozen runtime
+5. register AL_001 as a one-sample validation manifest and execute it once through
+   `ontseq marlin-validate`;
+6. let the validation harness perform its required repeated classifications and require
+   deterministic input/feature identity, decision and score agreement within the frozen runtime
    tolerance.
 
 The repository currently contains no claim that this gate has passed.
