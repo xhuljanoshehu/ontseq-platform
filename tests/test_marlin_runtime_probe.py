@@ -81,6 +81,17 @@ def test_runtime_probe_reports_actual_versions_and_backend(tmp_path: Path) -> No
     assert runner.argv[1] == str(script.resolve())
 
 
+def test_runtime_probe_requires_patch_level_python_version(tmp_path: Path) -> None:
+    script = tmp_path / "probe.R"
+    script.write_text("# fixture\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="python_version"):
+        _probe_function()(
+            probe_script=script,
+            runner=ProbeRunner(_payload(python_version="3.10")),
+        )
+
+
 def test_runtime_probe_rejects_missing_or_duplicate_fields(tmp_path: Path) -> None:
     script = tmp_path / "probe.R"
     script.write_text("# fixture\n", encoding="utf-8")
