@@ -10,7 +10,11 @@ import pytest
 from ontseq_platform.execution import CommandResult, ToolExecutionError
 from ontseq_platform.marlin_contracts import MarlinArtifactLock, MarlinFeatureSummary
 from ontseq_platform.marlin_features import MarlinFeatureVector
-from ontseq_platform.marlin_runtime import run_marlin_inference
+from ontseq_platform.marlin_runtime import (
+    create_runtime_compatibility_profile,
+    run_marlin_inference,
+    verify_frozen_runtime_fixture,
+)
 from ontseq_platform.models import GenomeBuild
 
 
@@ -119,6 +123,16 @@ def _run(tmp_path: Path, runner: FakeRunner, scores: Sequence[float] | None = No
     )
 
 
+def _fixture_path(tmp_path: Path, *, first_value: int = 1) -> Path:
+    path = tmp_path / "runtime-fixture.txt"
+    path.write_text(
+        f"{first_value}\n" + "0\n" * 357339,
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
+
+
 def test_runtime_accepts_exact_42_score_softmax(tmp_path: Path) -> None:
     runner = FakeRunner(None)
     result = _run(tmp_path, runner, [1 / 42] * 42)
@@ -214,4 +228,83 @@ def test_runtime_rejects_feature_digest_mismatch(tmp_path: Path) -> None:
             inference_script=script,
             runner=FakeRunner(_payload([1 / 42] * 42)),
             work_dir=tmp_path / "work",
+        )
+
+
+def test_frozen_runtime_fixture_is_reexecuted_before_external_validation(tmp_path: Path) -> None:
+    reference_scores = [0.6, 0.4] + [0.0] * 40
+    reference = _run(tmp_path, FakeRunner(None), reference_scores)
+    profile = create_runtime_compatibility_profile(
+        reference,
+        profile_id="MARLIN_CPU_REF_V1",
+        absolute_score_tolerance=1e-7,
+        score_sum_tolerance=1e-5,
+        created_at=datetime(2026, 9, 13, tzinfo=UTC),
+    )
+    model, script, lock = _runtime_paths(tmp_path)
+    runner = FakeRunner(_payload(reference_scores))
+
+    candidate = verify_frozen_runtime_fixture(
+        profile,
+        lock,
+        fixture_path=_fixture_path(tmp_path),
+        model_path=model,
+        inference_script=script,
+        runner=runner,
+        work_dir=tmp_path / "fixture-work",
+    )
+
+    assert candidate.feature_vector_sha256 == profile.feature_vector_sha256
+    assert candidate.raw_score_sha256 == reference.raw_score_sha256
+    assert runner.argv is not None
+
+
+def test_frozen_runtime_fixture_rejects_wrong_vector_before_execution(tmp_path: Path) -> None:
+    reference_scores = [0.6, 0.4] + [0.0] * 40
+    reference = _run(tmp_path, FakeRunner(None), reference_scores)
+    profile = create_runtime_compatibility_profile(
+        reference,
+        profile_id="MARLIN_CPU_REF_V1",
+        absolute_score_tolerance=1e-7,
+        score_sum_tolerance=1e-5,
+        created_at=datetime(2026, 9, 13, tzinfo=UTC),
+    )
+    model, script, lock = _runtime_paths(tmp_path)
+    runner = FakeRunner(_payload(reference_scores))
+
+    with pytest.raises(ValueError, match="fixture feature vector differs"):
+        verify_frozen_runtime_fixture(
+            profile,
+            lock,
+            fixture_path=_fixture_path(tmp_path, first_value=0),
+            model_path=model,
+            inference_script=script,
+            runner=runner,
+            work_dir=tmp_path / "fixture-work",
+        )
+    assert runner.argv is None
+
+
+def test_frozen_runtime_fixture_rejects_score_drift(tmp_path: Path) -> None:
+    reference_scores = [0.6, 0.4] + [0.0] * 40
+    reference = _run(tmp_path, FakeRunner(None), reference_scores)
+    profile = create_runtime_compatibility_profile(
+        reference,
+        profile_id="MARLIN_CPU_REF_V1",
+        absolute_score_tolerance=1e-7,
+        score_sum_tolerance=1e-5,
+        created_at=datetime(2026, 9, 13, tzinfo=UTC),
+    )
+    model, script, lock = _runtime_paths(tmp_path)
+    runner = FakeRunner(_payload([0.59, 0.41] + [0.0] * 40))
+
+    with pytest.raises(ValueError, match="frozen absolute tolerance"):
+        verify_frozen_runtime_fixture(
+            profile,
+            lock,
+            fixture_path=_fixture_path(tmp_path),
+            model_path=model,
+            inference_script=script,
+            runner=runner,
+            work_dir=tmp_path / "fixture-work",
         )
