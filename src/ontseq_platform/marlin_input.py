@@ -47,7 +47,7 @@ class MarlinModkitProbeInput(StrictModel):
     probe_resource_fingerprint: FileFingerprint
     bridge_lock_id: str = Field(min_length=3)
     modkit_version: Literal["0.6.4"] = "0.6.4"
-    pileup_semantics: Literal["5mC+5hmC-combine-mods-v1"] = _MARLIN_PILEUP_SEMANTICS
+    pileup_semantics: Literal["5mC+5hmC-combine-mods-v1"] = "5mC+5hmC-combine-mods-v1"
     observations: list[MarlinProbeObservation] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -180,7 +180,13 @@ def _parse_marlin_combined_bedmethyl(path: Path) -> list[_MarlinCombinedSite]:
             other_mod = _parse_nonnegative_int(
                 fields[13], line_number=line_number, field_name="N_other_mod"
             )
-            for index, name in ((14, "N_delete"), (15, "N_fail"), (16, "N_diff"), (17, "N_nocall")):
+            trailing_counts = (
+                (14, "N_delete"),
+                (15, "N_fail"),
+                (16, "N_diff"),
+                (17, "N_nocall"),
+            )
+            for index, name in trailing_counts:
                 _parse_nonnegative_int(fields[index], line_number=line_number, field_name=name)
 
             if modified + canonical + other_mod != valid:
@@ -190,7 +196,8 @@ def _parse_marlin_combined_bedmethyl(path: Path) -> list[_MarlinCombinedSite]:
                 )
             if other_mod != 0:
                 raise ValueError(
-                    f"Line {line_number}: N_other_mod must be 0 under MARLIN --combine-mods semantics"
+                    f"Line {line_number}: N_other_mod must be 0 under MARLIN "
+                    "--combine-mods semantics"
                 )
 
             key = (chromosome, start)
