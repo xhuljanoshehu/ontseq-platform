@@ -123,16 +123,16 @@ def _aggregate_scores(
     *,
     field: str,
 ) -> list[MarlinGroupedScore]:
-    labels: list[str] = []
     members: dict[str, list[float]] = {}
     for unit in runtime_result.model_scores:
         annotation = annotation_by_id[unit.model_id]
         label = getattr(annotation, field)
-        if label not in members:
-            labels.append(label)
-            members[label] = []
-        members[label].append(unit.score)
-    return [MarlinGroupedScore(label=label, score=math.fsum(members[label])) for label in labels]
+        members.setdefault(label, []).append(unit.score)
+    grouped = [
+        MarlinGroupedScore(label=label, score=math.fsum(scores))
+        for label, scores in members.items()
+    ]
+    return sorted(grouped, key=lambda item: (-item.score, item.label))
 
 
 def classify_marlin_scores(
@@ -190,7 +190,7 @@ def classify_marlin_scores(
         runtime_result, annotation_by_id, field="methylation_class_family"
     )
     lineage_scores = _aggregate_scores(runtime_result, annotation_by_id, field="lineage")
-    top = max(class_scores, key=lambda item: item.score)
+    top = class_scores[0]
     decision = (
         MarlinClassificationDecision.HIGH_CONFIDENCE
         if top.score >= _CONFIDENCE_THRESHOLD
