@@ -26,6 +26,37 @@ from .reference import sha256_file
 _EXPECTED_FEATURE_COUNT = 357340
 _EXPECTED_MODEL_UNITS = 42
 _SOFTMAX_SUM_TOLERANCE = 1e-5
+_RUNTIME_PROBE_FIELDS = frozenset(
+    {
+        "R_version",
+        "keras_version",
+        "tensorflow_version",
+        "python_version",
+        "execution_backend",
+    }
+)
+
+
+class MarlinRuntimeProbeReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    R_version: str = Field(min_length=1)
+    keras_version: str = Field(min_length=1)
+    tensorflow_version: str = Field(min_length=1)
+    python_version: str = Field(min_length=1)
+    execution_backend: Literal["cpu", "gpu"]
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def runtime_identity_is_normalized(self) -> MarlinRuntimeProbeReport:
+        version_fields = (
+            self.R_version,
+            self.keras_version,
+            self.tensorflow_version,
+            self.python_version,
+        )
+        if any(value != value.strip() for value in version_fields):
+            raise ValueError("MARLIN runtime probe version fields must be whitespace-normalized")
+        return self
 
 
 class MarlinRuntimeResult(StrictModel):
@@ -58,6 +89,58 @@ def _require_file(path: Path, *, label: str) -> Path:
     if not resolved.is_file():
         raise ValueError(f"MARLIN {label} path is not a file: {candidate}")
     return resolved
+
+
+def _parse_runtime_probe_output(path: Path) -> MarlinRuntimeProbeReport:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "key\tvalue":
+        raise ValueError("MARLIN runtime probe output has an invalid header")
+
+    observed: dict[str, str] = {}
+    for line_number, row in enumerate(lines[1:], 2):
+        fields = row.split("\t")
+        if len(fields) != 2 or not fields[0] or not fields[1]:
+            raise ValueError(
+                f"MARLIN runtime probe row {line_number} must contain non-empty key/value fields"
+            )
+        key, value = fields
+        if key in observed:
+            raise ValueError(f"MARLIN runtime probe contains duplicate field {key!r}")
+        observed[key] = value
+
+    if set(observed) != _RUNTIME_PROBE_FIELDS:
+        missing = sorted(_RUNTIME_PROBE_FIELDS - set(observed))
+        extra = sorted(set(observed) - _RUNTIME_PROBE_FIELDS)
+        raise ValueError(
+            "MARLIN runtime probe fields must match the locked contract; "
+            f"missing={missing}, extra={extra}"
+        )
+    return MarlinRuntimeProbeReport.model_validate(observed)
+
+
+def probe_marlin_runtime(
+    *,
+    probe_script: Path,
+    runner: CommandRunner,
+    rscript_path: str = "Rscript",
+    timeout_seconds: int = 120,
+) -> MarlinRuntimeProbeReport:
+    """Execute the live R/Keras/TensorFlow probe and normalize its runtime identity."""
+    script = _require_file(probe_script, label="runtime probe script")
+    with tempfile.TemporaryDirectory(prefix="ontseq-marlin-runtime-probe-") as directory:
+        output = Path(directory) / "runtime-probe.tsv"
+        result = runner.run(
+            (rscript_path, str(script), str(output)),
+            timeout_seconds=timeout_seconds,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or "no stderr"
+            raise ToolExecutionError(
+                f"MARLIN runtime probe failed with exit code {result.returncode}: {detail}"
+            )
+        if not output.is_file():
+            raise ValueError("MARLIN runtime probe succeeded but produced no output file")
+        return _parse_runtime_probe_output(output)
 
 
 def _validate_class_labels(class_labels: Sequence[str]) -> tuple[str, ...]:
