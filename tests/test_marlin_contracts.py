@@ -169,13 +169,9 @@ def test_bridge_lock_records_same_specimen_evidence_and_modkit_identity() -> Non
 def test_bridge_lock_rejects_non_grch37_or_inconsistent_agreement() -> None:
     lock = _bridge_lock()
     with pytest.raises(ValidationError, match="GRCh37"):
-        MarlinBridgeLock.model_validate(
-            {**lock.model_dump(), "genome_build": GenomeBuild.GRCH38}
-        )
+        MarlinBridgeLock.model_validate({**lock.model_dump(), "genome_build": GenomeBuild.GRCH38})
     with pytest.raises(ValidationError, match="agreement"):
-        MarlinBridgeLock.model_validate(
-            {**lock.model_dump(), "feature_agreement_fraction": 0.5}
-        )
+        MarlinBridgeLock.model_validate({**lock.model_dump(), "feature_agreement_fraction": 0.5})
     with pytest.raises(ValidationError, match="concordant"):
         MarlinBridgeLock.model_validate(
             {
