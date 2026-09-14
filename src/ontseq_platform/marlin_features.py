@@ -4,9 +4,14 @@ import hashlib
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
-from .marlin_contracts import MarlinFeatureSummary, MarlinProbeObservation
-from .marlin_input import MarlinPrecomputedInput
+from .marlin_contracts import MarlinBridgeLock, MarlinFeatureSummary, MarlinProbeObservation
+from .marlin_input import (
+    MarlinModkitProbeInput,
+    MarlinPrecomputedInput,
+    parse_marlin_modkit_probe_input,
+)
 from .models import GenomeBuild
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -107,13 +112,12 @@ def _build_feature_vector_for_ids(
     return _FeatureVectorDraft(values=tuple(values), summary=summary)
 
 
-def build_marlin_feature_vector(
-    source: MarlinPrecomputedInput,
+def _build_production_feature_vector(
+    source: MarlinPrecomputedInput | MarlinModkitProbeInput,
     feature_ids: Sequence[str],
     *,
     feature_artifact_sha256: str,
 ) -> MarlinFeatureVector:
-    """Build the production MARLIN v1 vector under the fixed 357,340-feature contract."""
     if source.genome_build is not GenomeBuild.GRCH37:
         raise ValueError("MARLIN v1 feature construction currently requires GRCh37/hg19")
     ordered = _validate_feature_ids(feature_ids)
@@ -140,3 +144,51 @@ def build_marlin_feature_vector(
         feature_artifact_sha256=draft.summary.feature_artifact_sha256,
     )
     return MarlinFeatureVector(values=draft.values, summary=summary)
+
+
+def build_marlin_feature_vector(
+    source: MarlinPrecomputedInput,
+    feature_ids: Sequence[str],
+    *,
+    feature_artifact_sha256: str,
+) -> MarlinFeatureVector:
+    """Build the production MARLIN v1 vector under the fixed 357,340-feature contract."""
+    return _build_production_feature_vector(
+        source,
+        feature_ids,
+        feature_artifact_sha256=feature_artifact_sha256,
+    )
+
+
+def build_marlin_from_modkit(
+    *,
+    modkit_probe_calls: Path,
+    probe_resource: Path,
+    bridge_lock: MarlinBridgeLock | None,
+    feature_ids: Sequence[str] | None = None,
+    feature_artifact_sha256: str | None = None,
+    modkit_version: str | None = None,
+) -> MarlinFeatureVector:
+    """Build a native MARLIN vector only behind an explicit same-specimen bridge lock."""
+    if bridge_lock is None:
+        raise ValueError("native MARLIN bridge is not validated; a bridge lock is required")
+    if feature_ids is None:
+        raise ValueError("native MARLIN bridge requires the locked ordered MARLIN feature list")
+    if feature_artifact_sha256 is None:
+        raise ValueError("native MARLIN bridge requires the locked feature-artifact SHA-256")
+    if feature_artifact_sha256 != bridge_lock.feature_artifact_sha256:
+        raise ValueError("native MARLIN bridge feature-artifact SHA-256 differs from bridge lock")
+    if modkit_version is None:
+        raise ValueError("native MARLIN bridge requires an explicit modkit version")
+
+    source = parse_marlin_modkit_probe_input(
+        modkit_probe_calls,
+        probe_resource=probe_resource,
+        bridge_lock=bridge_lock,
+        modkit_version=modkit_version,
+    )
+    return _build_production_feature_vector(
+        source,
+        feature_ids,
+        feature_artifact_sha256=feature_artifact_sha256,
+    )
