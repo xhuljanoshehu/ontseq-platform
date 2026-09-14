@@ -15,6 +15,7 @@ from pydantic import Field, model_validator
 from .execution import CommandRunner, ToolExecutionError
 from .marlin_contracts import (
     MarlinArtifactLock,
+    MarlinFeatureSummary,
     MarlinModelUnitScore,
     MarlinRuntimeCompatibilityProfile,
 )
@@ -242,3 +243,79 @@ def verify_runtime_compatibility(
             raise ValueError(
                 f"MARLIN candidate score exceeds frozen absolute tolerance at model unit {model_id}"
             )
+
+
+def _load_frozen_runtime_fixture(
+    fixture_path: Path,
+    lock: MarlinArtifactLock,
+) -> MarlinFeatureVector:
+    """Load the canonical {-1,0,+1} runtime fixture without biological preprocessing."""
+    fixture = _require_file(fixture_path, label="runtime fixture")
+    before_sha256 = sha256_file(fixture)
+    lines = fixture.read_text(encoding="utf-8").splitlines()
+    if len(lines) != _EXPECTED_FEATURE_COUNT:
+        raise ValueError("MARLIN runtime fixture requires exactly 357340 feature values")
+
+    values: list[float] = []
+    for line_number, text in enumerate(lines, 1):
+        if text not in {"-1", "0", "1"}:
+            raise ValueError(
+                f"MARLIN runtime fixture line {line_number} must be exactly -1, 0 or 1"
+            )
+        values.append(float(text))
+
+    after_sha256 = sha256_file(fixture)
+    if after_sha256 != before_sha256:
+        raise ValueError("MARLIN runtime fixture changed while it was being loaded")
+
+    value_tuple = tuple(values)
+    observed_count = sum(value != 0 for value in value_tuple)
+    absent_count = _EXPECTED_FEATURE_COUNT - observed_count
+    vector_sha256 = marlin_feature_vector_sha256(value_tuple)
+    summary = MarlinFeatureSummary(
+        observed_model_feature_count=observed_count,
+        explicit_na_feature_count=0,
+        absent_feature_count=absent_count,
+        non_model_probe_count=0,
+        observed_fraction=observed_count / _EXPECTED_FEATURE_COUNT,
+        feature_vector_sha256=vector_sha256,
+        feature_artifact_sha256=lock.canonical_feature_list_sha256,
+    )
+    return MarlinFeatureVector(values=value_tuple, summary=summary)
+
+
+def verify_frozen_runtime_fixture(
+    profile: MarlinRuntimeCompatibilityProfile,
+    lock: MarlinArtifactLock,
+    *,
+    fixture_path: Path,
+    model_path: Path,
+    inference_script: Path,
+    runner: CommandRunner,
+    work_dir: Path,
+    rscript_path: str = "Rscript",
+    timeout_seconds: int = 300,
+) -> MarlinRuntimeResult:
+    """Re-execute the frozen non-biological fixture before external validation."""
+    if profile.reference_runtime_lock_id != lock.lock_id:
+        raise ValueError("MARLIN runtime profile belongs to a different artifact/runtime lock")
+    if profile.execution_backend != lock.execution_backend:
+        raise ValueError("MARLIN runtime profile execution backend differs from artifact lock")
+
+    vector = _load_frozen_runtime_fixture(fixture_path, lock)
+    if vector.summary.feature_vector_sha256 != profile.feature_vector_sha256:
+        raise ValueError("MARLIN runtime fixture feature vector differs from frozen compatibility profile")
+
+    result = run_marlin_inference(
+        vector,
+        lock,
+        model_path=model_path,
+        class_labels=tuple(f"model-unit-{index}" for index in range(1, 43)),
+        inference_script=inference_script,
+        runner=runner,
+        work_dir=work_dir,
+        rscript_path=rscript_path,
+        timeout_seconds=timeout_seconds,
+    )
+    verify_runtime_compatibility(profile, result)
+    return result
