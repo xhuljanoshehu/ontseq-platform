@@ -237,9 +237,14 @@ def parse_marlin_modkit_probe_input(
     if modkit_version != bridge_lock.modkit_version:
         raise ValueError("MARLIN native bridge modkit version differs from bridge lock")
 
-    probe_positions, probe_fingerprint = _load_marlin_probe_positions(probe_resource)
-    if probe_fingerprint.sha256 != bridge_lock.probe_resource_sha256:
+    probe_resource_path = Path(probe_resource)
+    if not probe_resource_path.is_file():
+        raise ValueError("MARLIN probe resource is missing")
+    if sha256_file(probe_resource_path) != bridge_lock.probe_resource_sha256:
         raise ValueError("MARLIN native bridge probe-resource SHA-256 differs from bridge lock")
+    probe_positions, probe_fingerprint = _load_marlin_probe_positions(probe_resource_path)
+    if probe_fingerprint.sha256 != bridge_lock.probe_resource_sha256:
+        raise ValueError("MARLIN native bridge probe-resource SHA-256 changed during parsing")
 
     calls = Path(path)
     if not calls.is_file():
