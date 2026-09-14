@@ -51,6 +51,8 @@ def test_marlin_validate_slot_is_discoverable() -> None:
             "lock.json",
             "--runtime-profile",
             "profile.json",
+            "--runtime-fixture",
+            "runtime-fixture.txt",
             "--model",
             "model.hdf5",
             "--feature-rdata",
@@ -68,6 +70,7 @@ def test_marlin_validate_slot_is_discoverable() -> None:
         ]
     )
     assert args.command == "marlin-validate"
+    assert args.runtime_fixture == Path("runtime-fixture.txt")
     assert args.output == Path("report.json")
 
 
