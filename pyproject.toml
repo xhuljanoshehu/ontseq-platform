@@ -67,7 +67,11 @@ where = ["src"]
 "share/ontseq/configs/reference_bundles/GRCh37_GENCODE19_HG19_v2" = ["configs/reference_bundles/GRCh37_GENCODE19_HG19_v2/*"]
 "share/ontseq/configs/knowledge_bundles/HEMATOLOGY_GRCh37_v1" = ["configs/knowledge_bundles/HEMATOLOGY_GRCh37_v1/*"]
 "share/ontseq/configs/sv" = ["configs/sv/*"]
-"share/ontseq/scripts" = ["scripts/run_qdnaseq_ace.R"]
+"share/ontseq/scripts" = [
+  "scripts/run_qdnaseq_ace.R",
+  "scripts/marlin_export_resources.R",
+  "scripts/marlin_infer_locked.R",
+]
 
 [tool.ruff]
 line-length = 100
