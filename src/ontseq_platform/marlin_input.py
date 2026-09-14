@@ -168,9 +168,7 @@ def _parse_marlin_combined_bedmethyl(path: Path) -> list[_MarlinCombinedSite]:
                     f"Line {line_number}: MARLIN combined bedMethyl has invalid chromosome"
                 ) from exc
 
-            valid = _parse_nonnegative_int(
-                fields[9], line_number=line_number, field_name="N_valid"
-            )
+            valid = _parse_nonnegative_int(fields[9], line_number=line_number, field_name="N_valid")
             modified = _parse_nonnegative_int(
                 fields[11], line_number=line_number, field_name="N_mod"
             )
@@ -191,8 +189,7 @@ def _parse_marlin_combined_bedmethyl(path: Path) -> list[_MarlinCombinedSite]:
 
             if modified + canonical + other_mod != valid:
                 raise ValueError(
-                    f"Line {line_number}: N_valid must equal "
-                    "N_mod + N_canonical + N_other_mod"
+                    f"Line {line_number}: N_valid must equal N_mod + N_canonical + N_other_mod"
                 )
             if other_mod != 0:
                 raise ValueError(
