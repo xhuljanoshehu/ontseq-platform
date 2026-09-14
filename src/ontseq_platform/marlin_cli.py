@@ -102,6 +102,7 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--manifest", type=Path, required=True)
     validate.add_argument("--artifact-lock", type=Path, required=True)
     validate.add_argument("--runtime-profile", type=Path, required=True)
+    validate.add_argument("--runtime-fixture", type=Path, required=True)
     _add_common_artifact_paths(validate)
     validate.add_argument("--inference-script", type=Path, required=True)
     validate.add_argument("--rscript", default="Rscript")
@@ -205,6 +206,7 @@ def run_command(args: argparse.Namespace) -> None:
                 args.manifest,
                 artifact_lock_path=args.artifact_lock,
                 runtime_profile_path=args.runtime_profile,
+                runtime_fixture_path=args.runtime_fixture,
                 artifact_paths=_artifact_paths(args),
                 inference_script=args.inference_script,
                 output_path=args.output,
