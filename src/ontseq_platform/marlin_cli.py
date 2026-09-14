@@ -20,10 +20,19 @@ from .marlin_contracts import MarlinArtifactLock, MarlinRuntimeCompatibilityProf
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
+from .marlin_runtime import probe_marlin_runtime
 from .models import GenomeBuild
 from .reference import sha256_file
 
-COMMANDS = frozenset({"marlin-lock", "marlin-features", "marlin-classify", "marlin-validate"})
+COMMANDS = frozenset(
+    {
+        "marlin-lock",
+        "marlin-runtime-probe",
+        "marlin-features",
+        "marlin-classify",
+        "marlin-validate",
+    }
+)
 
 
 def _write_text_atomic(path: Path, text: str) -> Path:
@@ -67,12 +76,16 @@ def _parser() -> argparse.ArgumentParser:
     lock.add_argument("--code-version", required=True)
     lock.add_argument("--code-manifest-sha256", required=True)
     lock.add_argument("--genome-build", choices=[GenomeBuild.GRCH37.value], required=True)
-    lock.add_argument("--r-version", required=True)
-    lock.add_argument("--keras-version", required=True)
-    lock.add_argument("--tensorflow-version", required=True)
-    lock.add_argument("--python-version-if-used")
-    lock.add_argument("--execution-backend", required=True)
+    lock.add_argument("--runtime-probe-script", type=Path, required=True)
+    lock.add_argument("--rscript", default="Rscript")
     lock.add_argument("--output", type=Path, required=True)
+
+    probe = subparsers.add_parser(
+        "marlin-runtime-probe", help="Probe the live MARLIN R/Keras/TensorFlow runtime"
+    )
+    probe.add_argument("--probe-script", type=Path, required=True)
+    probe.add_argument("--rscript", default="Rscript")
+    probe.add_argument("--output", type=Path, required=True)
 
     features = subparsers.add_parser(
         "marlin-features", help="Build the locked MARLIN v1 feature vector"
@@ -121,18 +134,34 @@ def _artifact_paths(args: argparse.Namespace) -> MarlinArtifactPaths:
     )
 
 
+def _run_runtime_probe(args: argparse.Namespace) -> Path:
+    report = probe_marlin_runtime(
+        probe_script=args.probe_script,
+        runner=SubprocessRunner(),
+        rscript_path=args.rscript,
+        timeout_seconds=120,
+    )
+    return _write_model_atomic(report, args.output)
+
+
 def _run_lock(args: argparse.Namespace) -> Path:
+    runtime = probe_marlin_runtime(
+        probe_script=args.runtime_probe_script,
+        runner=SubprocessRunner(),
+        rscript_path=args.rscript,
+        timeout_seconds=120,
+    )
     lock = create_marlin_artifact_lock(
         _artifact_paths(args),
         lock_id=args.lock_id,
         code_version_or_commit=args.code_version,
         code_manifest_sha256=args.code_manifest_sha256,
         genome_build=GenomeBuild(args.genome_build),
-        R_version=args.r_version,
-        keras_version=args.keras_version,
-        tensorflow_version=args.tensorflow_version,
-        python_version_if_used=args.python_version_if_used,
-        execution_backend=args.execution_backend,
+        R_version=runtime.R_version,
+        keras_version=runtime.keras_version,
+        tensorflow_version=runtime.tensorflow_version,
+        python_version_if_used=runtime.python_version,
+        execution_backend=runtime.execution_backend,
         created_at=datetime.now(UTC),
     )
     return _write_model_atomic(lock, args.output)
@@ -193,6 +222,8 @@ def _run_classify(args: argparse.Namespace) -> Path:
 def run_command(args: argparse.Namespace) -> None:
     if args.command == "marlin-lock":
         print(_run_lock(args))
+    elif args.command == "marlin-runtime-probe":
+        print(_run_runtime_probe(args))
     elif args.command == "marlin-features":
         for path in _run_features(args):
             print(path)
