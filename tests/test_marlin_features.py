@@ -40,13 +40,15 @@ def _bedmethyl_row(
     *,
     valid: int,
     modified: int,
+    code: str = "C",
+    other_mod: int = 0,
 ) -> str:
-    canonical = valid - modified
+    canonical = valid - modified - other_mod
     fields = [
         chromosome,
         str(start),
         str(start + 1),
-        "m",
+        code,
         "0",
         ".",
         str(start),
@@ -56,7 +58,7 @@ def _bedmethyl_row(
         "0",
         str(modified),
         str(canonical),
-        "0",
+        str(other_mod),
         "0",
         "0",
         "0",
@@ -212,11 +214,50 @@ def test_modkit_probe_adapter_reproduces_published_sum_mod_over_sum_valid(
     )
 
     assert parsed.source_kind is MarlinSourceKind.MODKIT_DERIVED
+    assert parsed.pileup_semantics == "5mC+5hmC-combine-mods-v1"
     by_probe = {item.probe_id: item for item in parsed.observations}
     assert by_probe["cgA"].start == 10
     assert by_probe["cgA"].end == 12
     assert by_probe["cgA"].methylation_fraction == pytest.approx(8 / 12)
     assert by_probe["cgB"].methylation_fraction is None
+
+
+def test_modkit_bridge_requires_combined_cytosine_bedmethyl(tmp_path: Path) -> None:
+    probe_resource = tmp_path / "probes.bed.gz"
+    _write_probe_resource(probe_resource)
+    calls = tmp_path / "separate-5mc.bedmethyl"
+    calls.write_text(
+        _bedmethyl_row("chr1", 10, valid=10, modified=7, code="m"),
+        encoding="utf-8",
+    )
+    lock = _bridge_lock(probe_resource)
+
+    with pytest.raises(ValueError, match="combine-mods"):
+        parse_marlin_modkit_probe_input(
+            calls,
+            probe_resource=probe_resource,
+            bridge_lock=lock,
+            modkit_version="0.6.4",
+        )
+
+
+def test_modkit_bridge_rejects_other_mod_counts_under_combined_semantics(tmp_path: Path) -> None:
+    probe_resource = tmp_path / "probes.bed.gz"
+    _write_probe_resource(probe_resource)
+    calls = tmp_path / "invalid-combined.bedmethyl"
+    calls.write_text(
+        _bedmethyl_row("chr1", 10, valid=10, modified=7, code="C", other_mod=1),
+        encoding="utf-8",
+    )
+    lock = _bridge_lock(probe_resource)
+
+    with pytest.raises(ValueError, match="N_other_mod"):
+        parse_marlin_modkit_probe_input(
+            calls,
+            probe_resource=probe_resource,
+            bridge_lock=lock,
+            modkit_version="0.6.4",
+        )
 
 
 def test_modkit_bridge_builds_model_vector_only_after_evidence_gate(tmp_path: Path) -> None:
