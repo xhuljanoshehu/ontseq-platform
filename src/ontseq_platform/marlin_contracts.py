@@ -126,6 +126,48 @@ class MarlinArtifactLock(StrictModel):
         return self
 
 
+class MarlinBridgeLock(StrictModel):
+    """Evidence lock required before the native modkit-to-MARLIN bridge can be used.
+
+    The hashes under ``validation_*`` identify the same-specimen comparison that justified
+    enabling this adapter. They are evidence provenance, not identities that every future
+    specimen must share. Runtime inputs are instead constrained by build, adapter, modkit,
+    probe-resource and feature-resource identities.
+    """
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    bridge_id: str = Field(min_length=3)
+    status: Literal["validated_same_specimen_bridge"] = "validated_same_specimen_bridge"
+    genome_build: GenomeBuild
+    adapter_version: Literal["marlin-modkit-bridge-v1"] = "marlin-modkit-bridge-v1"
+    modkit_version: Literal["0.6.4"] = "0.6.4"
+    probe_resource_sha256: str = Field(pattern=_SHA256)
+    feature_artifact_sha256: str = Field(pattern=_SHA256)
+    validation_precomputed_input_sha256: str = Field(pattern=_SHA256)
+    validation_modkit_bedmethyl_sha256: str = Field(pattern=_SHA256)
+    validation_precomputed_feature_vector_sha256: str = Field(pattern=_SHA256)
+    validation_modkit_feature_vector_sha256: str = Field(pattern=_SHA256)
+    compared_feature_count: int = Field(ge=1, le=357340)
+    concordant_feature_count: int = Field(ge=0, le=357340)
+    feature_agreement_fraction: float = Field(ge=0, le=1)
+    evidence_reference: str = Field(min_length=3)
+    validated_at: datetime
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def bridge_evidence_is_consistent(self) -> MarlinBridgeLock:
+        if self.genome_build is not GenomeBuild.GRCH37:
+            raise ValueError("MARLIN native bridge currently requires GRCh37/hg19")
+        if self.validated_at.utcoffset() is None:
+            raise ValueError("MARLIN bridge-lock timestamp requires a timezone")
+        if self.concordant_feature_count > self.compared_feature_count:
+            raise ValueError("MARLIN bridge concordant count cannot exceed compared count")
+        expected = self.concordant_feature_count / self.compared_feature_count
+        if not math.isclose(self.feature_agreement_fraction, expected, rel_tol=0, abs_tol=1e-12):
+            raise ValueError("MARLIN bridge feature agreement fraction is inconsistent with counts")
+        return self
+
+
 class MarlinRuntimeCompatibilityProfile(StrictModel):
     schema_version: Literal["0.1.0"] = "0.1.0"
     profile_id: str = Field(min_length=1)
