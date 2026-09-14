@@ -3,15 +3,19 @@ from __future__ import annotations
 import gzip
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TextIO
 
 from pydantic import Field, model_validator
 
 from .marlin_contracts import MarlinBridgeLock, MarlinProbeObservation, MarlinSourceKind
-from .methylation import ModificationCode, parse_bedmethyl
 from .models import FileFingerprint, GenomeBuild, StrictModel
 from .reference import sha256_file
+
+_BEDMETHYL_COLUMNS = 18
+_MARLIN_COMBINED_CODE = "C"
+_MARLIN_PILEUP_SEMANTICS = "5mC+5hmC-combine-mods-v1"
 
 
 class MarlinPrecomputedInput(StrictModel):
@@ -43,6 +47,7 @@ class MarlinModkitProbeInput(StrictModel):
     probe_resource_fingerprint: FileFingerprint
     bridge_lock_id: str = Field(min_length=3)
     modkit_version: Literal["0.6.4"] = "0.6.4"
+    pileup_semantics: Literal["5mC+5hmC-combine-mods-v1"] = _MARLIN_PILEUP_SEMANTICS
     observations: list[MarlinProbeObservation] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -53,6 +58,17 @@ class MarlinModkitProbeInput(StrictModel):
         if len(probe_ids) != len(set(probe_ids)):
             raise ValueError("MARLIN native bridge observations require unique probe identifiers")
         return self
+
+
+@dataclass(frozen=True)
+class _MarlinCombinedSite:
+    chromosome: str
+    start: int
+    end: int
+    valid_coverage: int
+    modified_calls: int
+    canonical_calls: int
+    other_mod_calls: int
 
 
 def _open_text(path: Path) -> TextIO:
@@ -66,6 +82,13 @@ def _parse_int(value: str, *, line_number: int, field_name: str) -> int:
         parsed = int(value)
     except ValueError as exc:
         raise ValueError(f"Line {line_number}: {field_name} must be an integer") from exc
+    return parsed
+
+
+def _parse_nonnegative_int(value: str, *, line_number: int, field_name: str) -> int:
+    parsed = _parse_int(value, line_number=line_number, field_name=field_name)
+    if parsed < 0:
+        raise ValueError(f"Line {line_number}: {field_name} must be non-negative")
     return parsed
 
 
@@ -83,6 +106,109 @@ def _parse_fraction(value: str, *, line_number: int) -> float | None:
     if not 0 <= parsed <= 1:
         raise ValueError(f"Line {line_number}: methylation fraction must be between 0 and 1")
     return parsed
+
+
+def _split_bedmethyl(line: str) -> list[str]:
+    fields = line.split("\t")
+    if len(fields) == _BEDMETHYL_COLUMNS:
+        return fields
+    return line.split()
+
+
+def _parse_marlin_combined_bedmethyl(path: Path) -> list[_MarlinCombinedSite]:
+    """Parse the exact combined-cytosine bedMethyl semantics used by upstream MARLIN.
+
+    MARLIN's native workflow calls modkit with selected 5mC/5hmC bases and ``--combine-mods``.
+    The resulting row is therefore a binary modified-versus-canonical cytosine statement:
+    raw modification code ``C``, ``N_other_mod == 0`` and
+    ``N_valid == N_mod + N_canonical``.
+    """
+    if not path.is_file():
+        raise ValueError("MARLIN native bridge bedMethyl input is missing")
+
+    sites: list[_MarlinCombinedSite] = []
+    seen_positions: set[tuple[str, int]] = set()
+    with _open_text(path) as handle:
+        for line_number, raw_line in enumerate(handle, 1):
+            line = raw_line.rstrip("\r\n")
+            if not line or line.startswith(("#", "track ", "browser ")):
+                continue
+            fields = _split_bedmethyl(line)
+            if len(fields) != _BEDMETHYL_COLUMNS:
+                raise ValueError(
+                    f"MARLIN bedMethyl line {line_number} has {len(fields)} columns; "
+                    f"expected {_BEDMETHYL_COLUMNS}"
+                )
+            chromosome = fields[0]
+            raw_code = fields[3]
+            if raw_code != _MARLIN_COMBINED_CODE:
+                raise ValueError(
+                    "MARLIN native bridge requires modkit 5mC/5hmC --combine-mods output "
+                    f"with raw code 'C'; line {line_number} reports {raw_code!r}"
+                )
+
+            start = _parse_nonnegative_int(
+                fields[1], line_number=line_number, field_name="bedMethyl start"
+            )
+            end = _parse_nonnegative_int(
+                fields[2], line_number=line_number, field_name="bedMethyl end"
+            )
+            if end <= start:
+                raise ValueError(f"Line {line_number}: bedMethyl end must be greater than start")
+            try:
+                MarlinProbeObservation(
+                    chromosome=chromosome,
+                    start=start,
+                    end=end,
+                    methylation_fraction=None,
+                    probe_id=f"site-{line_number}",
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Line {line_number}: MARLIN combined bedMethyl has invalid chromosome"
+                ) from exc
+
+            valid = _parse_nonnegative_int(
+                fields[9], line_number=line_number, field_name="N_valid"
+            )
+            modified = _parse_nonnegative_int(
+                fields[11], line_number=line_number, field_name="N_mod"
+            )
+            canonical = _parse_nonnegative_int(
+                fields[12], line_number=line_number, field_name="N_canonical"
+            )
+            other_mod = _parse_nonnegative_int(
+                fields[13], line_number=line_number, field_name="N_other_mod"
+            )
+            for index, name in ((14, "N_delete"), (15, "N_fail"), (16, "N_diff"), (17, "N_nocall")):
+                _parse_nonnegative_int(fields[index], line_number=line_number, field_name=name)
+
+            if modified + canonical + other_mod != valid:
+                raise ValueError(
+                    f"Line {line_number}: N_valid must equal "
+                    "N_mod + N_canonical + N_other_mod"
+                )
+            if other_mod != 0:
+                raise ValueError(
+                    f"Line {line_number}: N_other_mod must be 0 under MARLIN --combine-mods semantics"
+                )
+
+            key = (chromosome, start)
+            if key in seen_positions:
+                raise ValueError("MARLIN combined bedMethyl contains a duplicate genomic position")
+            seen_positions.add(key)
+            sites.append(
+                _MarlinCombinedSite(
+                    chromosome=chromosome,
+                    start=start,
+                    end=end,
+                    valid_coverage=valid,
+                    modified_calls=modified,
+                    canonical_calls=canonical,
+                    other_mod_calls=other_mod,
+                )
+            )
+    return sites
 
 
 def parse_marlin_probe_bed(path: Path, *, genome_build: GenomeBuild) -> MarlinPrecomputedInput:
@@ -231,11 +357,13 @@ def parse_marlin_modkit_probe_input(
     bridge_lock: MarlinBridgeLock,
     modkit_version: str,
 ) -> MarlinModkitProbeInput:
-    """Map locked modkit bedMethyl calls to MARLIN probes using the published aggregation."""
+    """Map locked MARLIN-style combined modkit calls to the published probe aggregation."""
     if bridge_lock.genome_build is not GenomeBuild.GRCH37:
         raise ValueError("MARLIN native bridge currently requires GRCh37/hg19")
     if modkit_version != bridge_lock.modkit_version:
         raise ValueError("MARLIN native bridge modkit version differs from bridge lock")
+    if bridge_lock.pileup_semantics != _MARLIN_PILEUP_SEMANTICS:
+        raise ValueError("MARLIN native bridge pileup semantics differ from the supported contract")
 
     probe_resource_path = Path(probe_resource)
     if not probe_resource_path.is_file():
@@ -251,10 +379,7 @@ def parse_marlin_modkit_probe_input(
         raise ValueError("MARLIN native bridge bedMethyl input is missing")
     initial_calls_sha256 = sha256_file(calls)
     initial_calls_size = calls.stat().st_size
-    sites, _skipped_non_canonical = parse_bedmethyl(
-        calls,
-        allowed_codes=[ModificationCode.FIVE_MC],
-    )
+    sites = _parse_marlin_combined_bedmethyl(calls)
     final_calls_sha256 = sha256_file(calls)
     final_calls_size = calls.stat().st_size
     if final_calls_sha256 != initial_calls_sha256 or final_calls_size != initial_calls_size:
@@ -291,5 +416,6 @@ def parse_marlin_modkit_probe_input(
         probe_resource_fingerprint=probe_fingerprint,
         bridge_lock_id=bridge_lock.bridge_id,
         modkit_version=bridge_lock.modkit_version,
+        pileup_semantics=bridge_lock.pileup_semantics,
         observations=observations,
     )
