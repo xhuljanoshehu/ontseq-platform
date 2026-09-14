@@ -156,6 +156,35 @@ def test_raw_scores_are_preserved_and_grouping_is_deterministic() -> None:
     assert lineage_scores["Other"] == pytest.approx(0.1)
 
 
+def test_grouped_score_ties_use_label_as_explicit_tiebreaker() -> None:
+    annotations = list(_annotations())
+    annotations[0] = MarlinClassAnnotation(
+        model_id=1,
+        class_name_current="Class Z",
+        methylation_class_family="Family Z",
+        lineage="Lineage Z",
+    )
+    annotations[1] = MarlinClassAnnotation(
+        model_id=2,
+        class_name_current="Class A",
+        methylation_class_family="Family A",
+        lineage="Lineage A",
+    )
+    report = classify_marlin_scores(
+        sample_id="SAMPLE_001",
+        runtime_result=_runtime(tuple([0.5, 0.5] + [0.0] * 40)),
+        feature_summary=_feature_summary(),
+        input_fingerprint=FileFingerprint(size_bytes=10, sha256="d" * 64),
+        source_kind=MarlinSourceKind.PRECOMPUTED_METHYLATION,
+        genome_build=GenomeBuild.GRCH37,
+        artifact_lock_id="LOCK",
+        runtime_profile_id="PROFILE",
+        annotations=tuple(annotations),
+    )
+    assert [item.label for item in report.class_scores[:2]] == ["Class A", "Class Z"]
+    assert report.top_class == "Class A"
+
+
 def _write_annotation_xlsx(path: Path, rows: list[tuple[object, ...]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
