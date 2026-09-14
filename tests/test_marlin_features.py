@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from ontseq_platform.marlin_contracts import MarlinProbeObservation
+from ontseq_platform.marlin_contracts import (
+    MarlinBridgeLock,
+    MarlinProbeObservation,
+    MarlinSourceKind,
+)
 from ontseq_platform.marlin_features import (
     _build_feature_vector_for_ids,
     build_marlin_feature_vector,
+    build_marlin_from_modkit,
 )
-from ontseq_platform.marlin_input import MarlinPrecomputedInput
+from ontseq_platform.marlin_input import MarlinPrecomputedInput, parse_marlin_modkit_probe_input
 from ontseq_platform.models import FileFingerprint, GenomeBuild
+from ontseq_platform.reference import sha256_file
 
 SHA = "a" * 64
 
@@ -22,6 +31,65 @@ def _obs(probe_id: str, value: float | None, start: int) -> MarlinProbeObservati
         end=start + 1,
         methylation_fraction=value,
         probe_id=probe_id,
+    )
+
+
+def _bedmethyl_row(
+    chromosome: str,
+    start: int,
+    *,
+    valid: int,
+    modified: int,
+) -> str:
+    canonical = valid - modified
+    fields = [
+        chromosome,
+        str(start),
+        str(start + 1),
+        "m",
+        "0",
+        ".",
+        str(start),
+        str(start + 1),
+        "0",
+        str(valid),
+        "0",
+        str(modified),
+        str(canonical),
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+    ]
+    return "\t".join(fields) + "\n"
+
+
+def _write_probe_resource(path: Path) -> None:
+    with gzip.open(path, "wt", encoding="utf-8", newline="\n") as handle:
+        handle.write("chr1\t10\t11\tcgA\n")
+        handle.write("chr1\t11\t12\tcgA\n")
+        handle.write("chr1\t20\t21\tcgB\n")
+
+
+def _bridge_lock(probe_resource: Path) -> MarlinBridgeLock:
+    return MarlinBridgeLock(
+        bridge_id="MARLIN_MODKIT_BRIDGE_TEST",
+        status="validated_same_specimen_bridge",
+        genome_build=GenomeBuild.GRCH37,
+        adapter_version="marlin-modkit-bridge-v1",
+        modkit_version="0.6.4",
+        probe_resource_sha256=sha256_file(probe_resource),
+        feature_artifact_sha256=SHA,
+        validation_precomputed_input_sha256="1" * 64,
+        validation_modkit_bedmethyl_sha256="2" * 64,
+        validation_precomputed_feature_vector_sha256="3" * 64,
+        validation_modkit_feature_vector_sha256="4" * 64,
+        compared_feature_count=1000,
+        concordant_feature_count=990,
+        feature_agreement_fraction=0.99,
+        evidence_reference="same-specimen-bridge-study-001",
+        validated_at=datetime(2026, 9, 13, tzinfo=UTC),
     )
 
 
@@ -111,3 +179,92 @@ def test_production_builder_refuses_non_grch37_even_if_constructed_unsafely() ->
     full_features = tuple(f"cg{i}" for i in range(357340))
     with pytest.raises(ValueError, match="GRCh37"):
         build_marlin_feature_vector(source, full_features, feature_artifact_sha256=SHA)
+
+
+def test_modkit_bridge_is_disabled_without_validated_bridge_lock(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="native MARLIN bridge is not validated"):
+        build_marlin_from_modkit(
+            modkit_probe_calls=tmp_path / "probe_calls.bedmethyl",
+            probe_resource=tmp_path / "marlin_v1.probes_hg19.bed.gz",
+            bridge_lock=None,
+        )
+
+
+def test_modkit_probe_adapter_reproduces_published_sum_mod_over_sum_valid(
+    tmp_path: Path,
+) -> None:
+    probe_resource = tmp_path / "probes.bed.gz"
+    _write_probe_resource(probe_resource)
+    calls = tmp_path / "calls.bedmethyl"
+    calls.write_text(
+        _bedmethyl_row("chr1", 10, valid=10, modified=7)
+        + _bedmethyl_row("chr1", 11, valid=2, modified=1)
+        + _bedmethyl_row("chr1", 30, valid=4, modified=4),
+        encoding="utf-8",
+    )
+    lock = _bridge_lock(probe_resource)
+
+    parsed = parse_marlin_modkit_probe_input(
+        calls,
+        probe_resource=probe_resource,
+        bridge_lock=lock,
+        modkit_version="0.6.4",
+    )
+
+    assert parsed.source_kind is MarlinSourceKind.MODKIT_DERIVED
+    by_probe = {item.probe_id: item for item in parsed.observations}
+    assert by_probe["cgA"].start == 10
+    assert by_probe["cgA"].end == 12
+    assert by_probe["cgA"].methylation_fraction == pytest.approx(8 / 12)
+    assert by_probe["cgB"].methylation_fraction is None
+
+
+def test_modkit_bridge_builds_model_vector_only_after_evidence_gate(tmp_path: Path) -> None:
+    probe_resource = tmp_path / "probes.bed.gz"
+    _write_probe_resource(probe_resource)
+    calls = tmp_path / "calls.bedmethyl"
+    calls.write_text(
+        _bedmethyl_row("chr1", 10, valid=10, modified=7)
+        + _bedmethyl_row("chr1", 11, valid=2, modified=1),
+        encoding="utf-8",
+    )
+    lock = _bridge_lock(probe_resource)
+    feature_ids = ("cgA", "cgB") + tuple(f"dummy-{i}" for i in range(357338))
+
+    vector = build_marlin_from_modkit(
+        modkit_probe_calls=calls,
+        probe_resource=probe_resource,
+        bridge_lock=lock,
+        feature_ids=feature_ids,
+        feature_artifact_sha256=SHA,
+        modkit_version="0.6.4",
+    )
+
+    assert vector.values[:2] == (1.0, 0.0)
+    assert vector.summary.observed_model_feature_count == 1
+    assert vector.summary.explicit_na_feature_count == 1
+
+
+def test_modkit_bridge_rejects_resource_or_modkit_identity_drift(tmp_path: Path) -> None:
+    probe_resource = tmp_path / "probes.bed.gz"
+    _write_probe_resource(probe_resource)
+    calls = tmp_path / "calls.bedmethyl"
+    calls.write_text(_bedmethyl_row("chr1", 10, valid=10, modified=7), encoding="utf-8")
+    lock = _bridge_lock(probe_resource)
+
+    with pytest.raises(ValueError, match="modkit version"):
+        parse_marlin_modkit_probe_input(
+            calls,
+            probe_resource=probe_resource,
+            bridge_lock=lock,
+            modkit_version="0.7.0",
+        )
+
+    probe_resource.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="probe-resource SHA-256"):
+        parse_marlin_modkit_probe_input(
+            calls,
+            probe_resource=probe_resource,
+            bridge_lock=lock,
+            modkit_version="0.6.4",
+        )
