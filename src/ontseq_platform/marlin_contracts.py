@@ -258,7 +258,7 @@ class MarlinPredictionReport(StrictModel):
             raise ValueError("MARLIN COMPLETED report requires grouped current-class scores")
         if self.top_class is None or self.top_class_score is None:
             raise ValueError("MARLIN COMPLETED report requires top current class and score")
-        top = max(self.class_scores, key=lambda item: item.score)
+        top = min(self.class_scores, key=lambda item: (-item.score, item.label))
         if self.top_class != top.label or not math.isclose(
             self.top_class_score, top.score, rel_tol=0, abs_tol=1e-12
         ):
