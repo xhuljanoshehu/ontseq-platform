@@ -115,16 +115,12 @@ class MarlinValidationCohortReport(StrictModel):
         if self.sample_count != len(self.results):
             raise ValueError("MARLIN validation sample_count differs from results")
         outcome_count = (
-            self.high_confidence_count
-            + self.unknown_count
-            + self.no_call_count
-            + self.failed_count
+            self.high_confidence_count + self.unknown_count + self.no_call_count + self.failed_count
         )
         if outcome_count != self.sample_count:
             raise ValueError("MARLIN validation status counts do not partition the cohort")
         comparable = sum(
-            item.expected_class is not None and item.top_class is not None
-            for item in self.results
+            item.expected_class is not None and item.top_class is not None for item in self.results
         )
         if self.concordant_count + self.discordant_count != comparable:
             raise ValueError("MARLIN validation concordance counts differ from comparable results")
@@ -176,8 +172,7 @@ def _reports_are_deterministic(
     absolute_score_tolerance: float,
 ) -> bool:
     if (
-        first.feature_summary.feature_vector_sha256
-        != second.feature_summary.feature_vector_sha256
+        first.feature_summary.feature_vector_sha256 != second.feature_summary.feature_vector_sha256
         or first.status is not second.status
         or first.decision is not second.decision
         or first.top_class != second.top_class
@@ -295,13 +290,11 @@ def execute_marlin_validation(
             )
 
     high_confidence = sum(
-        item.status == "COMPLETED"
-        and item.decision is MarlinClassificationDecision.HIGH_CONFIDENCE
+        item.status == "COMPLETED" and item.decision is MarlinClassificationDecision.HIGH_CONFIDENCE
         for item in results
     )
     unknown = sum(
-        item.status == "COMPLETED"
-        and item.decision is MarlinClassificationDecision.UNKNOWN
+        item.status == "COMPLETED" and item.decision is MarlinClassificationDecision.UNKNOWN
         for item in results
     )
     no_call = sum(item.status == "NO_CALL" for item in results)
