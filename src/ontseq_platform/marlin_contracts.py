@@ -143,10 +143,7 @@ class MarlinRuntimeCompatibilityProfile(StrictModel):
     def profile_is_valid_softmax_reference(self) -> MarlinRuntimeCompatibilityProfile:
         if self.created_at.utcoffset() is None:
             raise ValueError("MARLIN runtime-profile timestamp requires a timezone")
-        if any(
-            not math.isfinite(score) or score < 0 or score > 1
-            for score in self.reference_scores
-        ):
+        if any(not math.isfinite(score) or score < 0 or score > 1 for score in self.reference_scores):
             raise ValueError("MARLIN reference scores must be finite probabilities")
         if abs(sum(self.reference_scores) - 1.0) > self.score_sum_tolerance:
             raise ValueError("MARLIN reference scores violate the declared softmax-sum tolerance")
