@@ -1,0 +1,14 @@
+name: ontseq-marlin-runtime
+channels:
+  - conda-forge
+channel_priority: strict
+dependencies:
+  - python=3.10
+  - r-base=4.2
+  - r-keras=2.13.0
+  - r-tensorflow=2.13.0
+  - r-reticulate
+  - tensorflow=2.13.0
+  - pydantic>=2.8,<3
+  - openpyxl>=3.1,<4
+  - pyyaml>=6,<7
