@@ -304,7 +304,9 @@ def verify_frozen_runtime_fixture(
 
     vector = _load_frozen_runtime_fixture(fixture_path, lock)
     if vector.summary.feature_vector_sha256 != profile.feature_vector_sha256:
-        raise ValueError("MARLIN runtime fixture feature vector differs from frozen compatibility profile")
+        raise ValueError(
+            "MARLIN runtime fixture feature vector differs from frozen compatibility profile"
+        )
 
     result = run_marlin_inference(
         vector,
