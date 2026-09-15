@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.marlin_contracts import MarlinArtifactLock
-from ontseq_platform.marlin_runtime import (
+from ontseq_platform.marlin_runtime_freeze import (
     MARLIN_RUNTIME_FIXTURE_ABSOLUTE_SCORE_TOLERANCE,
     MARLIN_RUNTIME_FIXTURE_GENERATOR_VERSION,
     MARLIN_RUNTIME_FIXTURE_SCORE_SUM_TOLERANCE,
