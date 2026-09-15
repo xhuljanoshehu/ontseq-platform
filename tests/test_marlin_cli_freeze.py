@@ -29,6 +29,8 @@ def test_runtime_freeze_requires_locked_runtime_inputs_and_outputs() -> None:
             "model.hdf5",
             "--inference-script",
             "infer.R",
+            "--runtime-probe-script",
+            "probe.R",
             "--profile-id",
             "MARLIN_V1_CPU_FROZEN",
             "--output-fixture",
@@ -41,9 +43,31 @@ def test_runtime_freeze_requires_locked_runtime_inputs_and_outputs() -> None:
     assert args.artifact_lock == Path("lock.json")
     assert args.model == Path("model.hdf5")
     assert args.inference_script == Path("infer.R")
+    assert args.runtime_probe_script == Path("probe.R")
     assert args.profile_id == "MARLIN_V1_CPU_FROZEN"
     assert args.output_fixture == Path("runtime-fixture.txt")
     assert args.output_profile == Path("runtime-profile.json")
+
+
+def test_runtime_freeze_rejects_missing_live_probe_argument() -> None:
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            [
+                "marlin-freeze-runtime",
+                "--artifact-lock",
+                "lock.json",
+                "--model",
+                "model.hdf5",
+                "--inference-script",
+                "infer.R",
+                "--profile-id",
+                "MARLIN_V1_CPU_FROZEN",
+                "--output-fixture",
+                "runtime-fixture.txt",
+                "--output-profile",
+                "runtime-profile.json",
+            ]
+        )
 
 
 def test_runtime_freeze_refuses_existing_or_colliding_outputs(tmp_path: Path) -> None:
