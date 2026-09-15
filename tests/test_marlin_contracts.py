@@ -396,7 +396,12 @@ def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
     from ontseq_platform.marlin_contracts import MarlinDualRuntimeCompatibilityReport
 
     payload = _valid_dual_runtime_report_payload()
+    payload["candidate_scores"] = [0.4999998, 0.5000002] + [0.0] * 40
+    payload["absolute_differences"] = [2e-7, 2e-7] + [0.0] * 40
+    payload["max_absolute_difference"] = 2e-7
+    payload["candidate_top_model_unit_index"] = 1
     payload["all_scores_within_tolerance"] = False
+    payload["top_model_unit_matches"] = False
     with pytest.raises(ValidationError, match="PASS"):
         MarlinDualRuntimeCompatibilityReport.model_validate(payload)
 
