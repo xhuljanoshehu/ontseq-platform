@@ -337,3 +337,85 @@ def test_prediction_report_ties_require_canonical_label_tiebreak() -> None:
             artifact_lock_id="MARLIN_V1_GRCH37_TEST",
             runtime_profile_id="PROFILE",
         )
+
+
+def _valid_dual_runtime_report_payload() -> dict[str, object]:
+    from ontseq_platform.marlin_contracts import MarlinArtifactSetIdentity, MarlinRuntimeIdentity
+
+    artifact_set = MarlinArtifactSetIdentity(
+        artifact_set_sha256=SHA6,
+        model_version="1.0.0",
+        model_sha256=SHA0,
+        code_version_or_commit="442aa603415a54f62e7367794f9a31c6bc20fc2d",
+        code_manifest_sha256=SHA1,
+        feature_sha256=SHA2,
+        canonical_feature_list_sha256=SHA3,
+        class_annotation_sha256=SHA4,
+        probe_resource_sha256=SHA5,
+        genome_build=GenomeBuild.GRCH37,
+    )
+    reference_runtime = MarlinRuntimeIdentity(
+        runtime_id="REF_RUNTIME",
+        R_version="4.1.3",
+        keras_version="2.13.0",
+        tensorflow_version="2.13.0",
+        python_version="3.10.21",
+        execution_backend="cpu",
+        created_at=datetime(2026, 9, 15, tzinfo=UTC),
+    )
+    candidate_runtime = reference_runtime.model_copy(
+        update={"runtime_id": "CANDIDATE_RUNTIME", "R_version": "4.2.3"}
+    )
+    scores = [0.5, 0.5] + [0.0] * 40
+    return {
+        "comparison_id": "DUAL_RUNTIME_TEST",
+        "artifact_set_identity": artifact_set,
+        "reference_artifact_lock_id": "REFERENCE_LOCK",
+        "candidate_artifact_lock_id": "CANDIDATE_LOCK",
+        "feature_vector_sha256": SHA6,
+        "reference_profile_id": "REFERENCE_PROFILE",
+        "reference_runtime_identity": reference_runtime,
+        "candidate_runtime_identity": candidate_runtime,
+        "absolute_score_tolerance": 1e-7,
+        "score_sum_tolerance": 1e-5,
+        "reference_scores": scores,
+        "candidate_scores": scores,
+        "absolute_differences": [0.0] * 42,
+        "max_absolute_difference": 0.0,
+        "reference_top_model_unit_index": 0,
+        "candidate_top_model_unit_index": 0,
+        "all_scores_within_tolerance": True,
+        "top_model_unit_matches": True,
+        "softmax_invariants_pass": True,
+        "verdict": "PASS",
+        "created_at": datetime(2026, 9, 15, tzinfo=UTC),
+    }
+
+
+def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
+    from ontseq_platform.marlin_contracts import MarlinDualRuntimeCompatibilityReport
+
+    payload = _valid_dual_runtime_report_payload()
+    payload["candidate_scores"] = [0.4999998, 0.5000002] + [0.0] * 40
+    payload["absolute_differences"] = [2e-7, 2e-7] + [0.0] * 40
+    payload["max_absolute_difference"] = 2e-7
+    payload["candidate_top_model_unit_index"] = 1
+    payload["all_scores_within_tolerance"] = False
+    payload["top_model_unit_matches"] = False
+    with pytest.raises(ValidationError, match="PASS"):
+        MarlinDualRuntimeCompatibilityReport.model_validate(payload)
+
+
+def test_runtime_identity_requires_timezone_aware_timestamp() -> None:
+    from ontseq_platform.marlin_contracts import MarlinRuntimeIdentity
+
+    with pytest.raises(ValidationError, match="timezone"):
+        MarlinRuntimeIdentity(
+            runtime_id="REF_RUNTIME",
+            R_version="4.1.3",
+            keras_version="2.13.0",
+            tensorflow_version="2.13.0",
+            python_version="3.10.21",
+            execution_backend="cpu",
+            created_at=datetime(2026, 9, 15),
+        )
