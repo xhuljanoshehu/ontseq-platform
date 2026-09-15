@@ -18,8 +18,8 @@
 - PR #77 remains Draft.
 - Existing `ontseq marlin-freeze-runtime` semantics remain backward compatible.
 - Reference and candidate executions use separate `MarlinArtifactLock` objects.
-- Two execution locks may differ in `lock_id`, runtime versions, backend, source URI formatting and timestamps, but must have identical canonical immutable artifact-set identity before candidate inference.
-- Canonical artifact-set identity includes model/code/features/class-annotation/probe hashes, build, expected feature/model-unit counts and preprocessing/runtime contract versions; it excludes runtime identity and timestamps.
+- Two execution locks may differ in `lock_id`, source URI formatting, runtime versions, backend and timestamps, but must have identical canonical immutable artifact-set identity before candidate inference.
+- Canonical artifact-set identity includes model/code/features/class-annotation/probe hashes, model/code version identity, build, expected feature/model-unit counts and preprocessing/runtime contract versions. It excludes runtime identity, source URI formatting, local paths and timestamps.
 - Candidate runtime identity is created only from a live runtime probe; manually claimed versions are not evidence.
 - First engineering tolerances remain `absolute_score_tolerance = 1e-7` and `score_sum_tolerance = 1e-5`; do not tune after inspecting AL_001/GSE280090.
 - Exactly 357,340 fixture values and exactly 42 model scores are required.
@@ -46,15 +46,15 @@ class MarlinDualRuntimeVerdict(StrEnum):
 
 class MarlinArtifactSetIdentity(StrictModel):
     schema_version: Literal["0.1.0"] = "0.1.0"
-    artifact_set_sha256: str
-    model_version: str
-    model_sha256: str
-    code_version_or_commit: str
-    code_manifest_sha256: str
-    feature_sha256: str
-    canonical_feature_list_sha256: str
-    class_annotation_sha256: str
-    probe_resource_sha256: str
+    artifact_set_sha256: str = Field(pattern=_SHA256)
+    model_version: str = Field(min_length=1)
+    model_sha256: str = Field(pattern=_SHA256)
+    code_version_or_commit: str = Field(min_length=1)
+    code_manifest_sha256: str = Field(pattern=_SHA256)
+    feature_sha256: str = Field(pattern=_SHA256)
+    canonical_feature_list_sha256: str = Field(pattern=_SHA256)
+    class_annotation_sha256: str = Field(pattern=_SHA256)
+    probe_resource_sha256: str = Field(pattern=_SHA256)
     genome_build: GenomeBuild
     expected_feature_count: Literal[357340] = 357340
     expected_model_unit_count: Literal[42] = 42
@@ -64,11 +64,11 @@ class MarlinArtifactSetIdentity(StrictModel):
 
 class MarlinRuntimeIdentity(StrictModel):
     schema_version: Literal["0.1.0"] = "0.1.0"
-    runtime_id: str
-    R_version: str
-    keras_version: str
-    tensorflow_version: str
-    python_version: str
+    runtime_id: str = Field(min_length=3)
+    R_version: str = Field(min_length=1)
+    keras_version: str = Field(min_length=1)
+    tensorflow_version: str = Field(min_length=1)
+    python_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
     execution_backend: Literal["cpu", "gpu"]
     runtime_contract_version: Literal["marlin-runtime-v1"] = "marlin-runtime-v1"
     created_at: datetime
@@ -76,22 +76,22 @@ class MarlinRuntimeIdentity(StrictModel):
 
 class MarlinDualRuntimeCompatibilityReport(StrictModel):
     schema_version: Literal["0.1.0"] = "0.1.0"
-    comparison_id: str
+    comparison_id: str = Field(min_length=3)
     artifact_set_identity: MarlinArtifactSetIdentity
-    reference_artifact_lock_id: str
-    candidate_artifact_lock_id: str
-    feature_vector_sha256: str
-    reference_profile_id: str
+    reference_artifact_lock_id: str = Field(min_length=3)
+    candidate_artifact_lock_id: str = Field(min_length=3)
+    feature_vector_sha256: str = Field(pattern=_SHA256)
+    reference_profile_id: str = Field(min_length=1)
     reference_runtime_identity: MarlinRuntimeIdentity
     candidate_runtime_identity: MarlinRuntimeIdentity
-    absolute_score_tolerance: float
-    score_sum_tolerance: float
-    reference_scores: list[float]
-    candidate_scores: list[float]
-    absolute_differences: list[float]
-    max_absolute_difference: float
-    reference_top_model_unit_index: int
-    candidate_top_model_unit_index: int
+    absolute_score_tolerance: float = Field(gt=0, le=1)
+    score_sum_tolerance: float = Field(gt=0, le=1)
+    reference_scores: list[float] = Field(min_length=42, max_length=42)
+    candidate_scores: list[float] = Field(min_length=42, max_length=42)
+    absolute_differences: list[float] = Field(min_length=42, max_length=42)
+    max_absolute_difference: float = Field(ge=0)
+    reference_top_model_unit_index: int = Field(ge=0, le=41)
+    candidate_top_model_unit_index: int = Field(ge=0, le=41)
     all_scores_within_tolerance: bool
     top_model_unit_matches: bool
     softmax_invariants_pass: bool
@@ -102,7 +102,7 @@ class MarlinDualRuntimeCompatibilityReport(StrictModel):
 
 - [ ] **Step 1: Write RED contract tests**
 
-Add tests proving timezone-aware timestamps, exact 42-element score/difference vectors, finite `[0,1]` scores, non-negative finite differences, `max_absolute_difference == max(absolute_differences)`, and report verdict consistency.
+Add tests for timezone-aware timestamps, exact 42-element score/difference vectors, finite `[0,1]` scores, non-negative finite differences, consistent `max_absolute_difference`, and verdict consistency.
 
 ```python
 def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
@@ -113,30 +113,25 @@ def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
         MarlinDualRuntimeCompatibilityReport.model_validate(payload)
 ```
 
-Also test that a `MarlinRuntimeIdentity` with a naive `created_at` is rejected.
+Add a test that a naive `MarlinRuntimeIdentity.created_at` is rejected.
 
-- [ ] **Step 2: Run RED tests**
+- [ ] **Step 2: Verify RED**
 
 ```bash
 python -m pytest tests/test_marlin_contracts.py -q
 ```
 
-Expected: FAIL because the new contract classes do not exist.
+Expected: FAIL because the new contracts do not exist.
 
-- [ ] **Step 3: Implement the minimal strict models and validators**
+- [ ] **Step 3: Implement minimal models and validators**
 
-`MarlinDualRuntimeCompatibilityReport` validator must independently recompute:
+The report validator independently checks every score/difference is finite, both score vectors are probability vectors, both timestamps are timezone-aware, and:
 
 ```python
 expected_max = max(self.absolute_differences)
 if not math.isclose(self.max_absolute_difference, expected_max, rel_tol=0, abs_tol=1e-15):
     raise ValueError("MARLIN dual-runtime max difference is inconsistent")
-
-expected_pass = (
-    self.all_scores_within_tolerance
-    and self.top_model_unit_matches
-    and self.softmax_invariants_pass
-)
+expected_pass = self.all_scores_within_tolerance and self.top_model_unit_matches and self.softmax_invariants_pass
 if (self.verdict is MarlinDualRuntimeVerdict.PASS) != expected_pass:
     raise ValueError("MARLIN dual-runtime PASS verdict is inconsistent with gate results")
 ```
@@ -187,11 +182,9 @@ def require_same_marlin_artifact_set(
 ) -> MarlinArtifactSetIdentity: ...
 ```
 
-- [ ] **Step 1: Write RED artifact identity tests**
+- [ ] **Step 1: Write RED identity tests**
 
-Construct two valid locks with identical immutable fields but different `lock_id`, source URIs, R/Python/Keras/TensorFlow versions, backend and timestamps. Assert equal `artifact_set_sha256`.
-
-Then mutate each immutable field one at a time (`model_sha256`, `code_manifest_sha256`, `feature_sha256`, `canonical_feature_list_sha256`, `class_annotation_sha256`, `probe_resource_sha256`, `genome_build` where model validation permits a synthetic dict-level test, `preprocessing_contract_version`, `runtime_contract_version`) and require a different digest or model rejection.
+Construct two valid locks with identical immutable fields but different `lock_id`, source URIs, R/Python/Keras/TensorFlow versions, backend and timestamps. Assert equal `artifact_set_sha256`. Mutating any immutable SHA, `model_version`, `code_version_or_commit`, build, expected counts or contract version must change the digest or be rejected by the existing strict lock model.
 
 - [ ] **Step 2: Verify RED**
 
@@ -203,7 +196,7 @@ Expected: FAIL because `marlin_runtime_compare.py` does not exist.
 
 - [ ] **Step 3: Implement canonical digest**
 
-Use an explicit JSON-compatible canonical payload with sorted keys and compact separators; never hash `model_dump_json()` wholesale because future unrelated fields could silently alter identity.
+Use exactly this explicit payload and canonical encoding:
 
 ```python
 payload = {
@@ -225,11 +218,11 @@ encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_asci
 digest = hashlib.sha256(encoded).hexdigest()
 ```
 
-Source URIs are deliberately excluded.
+Never hash the whole lock serialization. Source URIs are excluded.
 
-- [ ] **Step 4: Implement live-probe identity binding**
+- [ ] **Step 4: Implement runtime identity binding**
 
-`runtime_identity_from_probe()` must require exact equality between probe values and the corresponding execution-lock runtime fields. Reuse the same semantics as `verify_runtime_probe_matches_lock`; do not accept typed version overrides.
+Require exact equality between live probe and corresponding lock fields. Use the same field semantics as existing `verify_runtime_probe_matches_lock()` and create the identity only after all values match.
 
 - [ ] **Step 5: Verify GREEN**
 
@@ -248,14 +241,13 @@ git commit -m "feat(marlin): separate artifact-set and runtime identities"
 
 ---
 
-### Task 3: Implement pure 42-score dual-runtime comparison
+### Task 3: Implement pure 42-score comparison
 
 **Files:**
 - Modify: `src/ontseq_platform/marlin_runtime_compare.py`
 - Modify: `tests/test_marlin_runtime_compare.py`
 
 **Interfaces:**
-- Consumes: Task 2 identity functions, existing `MarlinRuntimeResult`, existing `MarlinRuntimeCompatibilityProfile`.
 - Produces:
 
 ```python
@@ -275,22 +267,18 @@ def compare_marlin_runtime_results(
 
 - [ ] **Step 1: Write RED numerical policy tests**
 
-Add independent tests for:
-
 ```python
 def test_dual_runtime_exact_tolerance_boundary_passes() -> None:
-    # reference unit 1 = 0.5000000; candidate unit 1 = 0.5000001
-    # compensate another score by -1e-7 so both sums remain 1.0
-    report = _compare_with_delta(1e-7)
+    report = _compare_with_compensated_delta(1e-7)
     assert report.verdict is MarlinDualRuntimeVerdict.PASS
 
 
 def test_dual_runtime_one_score_above_tolerance_fails() -> None:
-    report = _compare_with_delta(1.0000001e-7)
+    report = _compare_with_compensated_delta(1.0000001e-7)
     assert report.verdict is MarlinDualRuntimeVerdict.FAIL
 ```
 
-Also test top-unit mismatch yields FAIL and a candidate vector violating score-sum tolerance cannot produce PASS.
+Add top-unit mismatch -> FAIL and valid 42-score softmax drift -> FAIL tests.
 
 - [ ] **Step 2: Verify RED**
 
@@ -298,14 +286,14 @@ Also test top-unit mismatch yields FAIL and a candidate vector violating score-s
 python -m pytest tests/test_marlin_runtime_compare.py -q
 ```
 
-- [ ] **Step 3: Implement comparison without exceptions for valid incompatibility**
+- [ ] **Step 3: Implement pure comparison**
 
-Precondition/evidence corruption remains an exception. A structurally valid candidate inference that differs numerically returns a report with `verdict=FAIL`.
+Malformed/inconsistent evidence raises. Structurally valid numerical incompatibility returns a FAIL report.
 
 ```python
 reference_scores = tuple(reference_profile.reference_scores)
 candidate_scores = tuple(item.score for item in candidate_result.model_scores)
-differences = tuple(abs(left - right) for left, right in zip(reference_scores, candidate_scores, strict=True))
+differences = tuple(abs(a - b) for a, b in zip(reference_scores, candidate_scores, strict=True))
 all_within = all(delta <= reference_profile.absolute_score_tolerance for delta in differences)
 reference_top = reference_profile.top_model_unit_index
 candidate_top = max(range(42), key=candidate_scores.__getitem__)
@@ -316,12 +304,7 @@ softmax_ok = (
 verdict = MarlinDualRuntimeVerdict.PASS if all_within and reference_top == candidate_top and softmax_ok else MarlinDualRuntimeVerdict.FAIL
 ```
 
-Require:
-- `reference_profile.reference_runtime_lock_id == reference_lock.lock_id`;
-- `candidate_result.artifact_lock_id == candidate_lock.lock_id`;
-- `candidate_result.feature_vector_sha256 == reference_profile.feature_vector_sha256`;
-- artifact-set identity matches both locks;
-- runtime identities match their respective locks.
+Before comparison require the reference profile belongs to the reference lock, candidate result belongs to the candidate lock, candidate fixture digest matches the reference profile, the supplied artifact-set identity matches both locks, and both runtime identities match their execution locks.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -343,12 +326,14 @@ git commit -m "feat(marlin): compare frozen and candidate runtime scores"
 ### Task 4: Add fail-closed candidate execution orchestration
 
 **Files:**
+- Modify: `src/ontseq_platform/marlin_runtime.py`
 - Modify: `src/ontseq_platform/marlin_runtime_compare.py`
+- Modify: `tests/test_marlin_runtime.py`
 - Modify: `tests/test_marlin_runtime_compare.py`
 
 **Interfaces:**
-- Consumes: existing `_load_frozen_runtime_fixture` behavior via a new public wrapper in `marlin_runtime.py` if needed, `probe_marlin_runtime()`, `run_marlin_inference()`, artifact verification helpers.
-- Produces:
+- Rename existing private `_load_frozen_runtime_fixture()` to public `load_frozen_runtime_fixture()` without changing parsing/hash semantics. Update `verify_frozen_runtime_fixture()` to call the public function.
+- Produce:
 
 ```python
 def execute_marlin_dual_runtime_comparison(
@@ -369,41 +354,33 @@ def execute_marlin_dual_runtime_comparison(
 ) -> MarlinDualRuntimeCompatibilityReport: ...
 ```
 
-- [ ] **Step 1: Write RED ordering tests with a recording fake runner**
+- [ ] **Step 1: Write RED ordering tests**
 
-The fake runner records probe/inference calls. Assert artifact-set mismatch or fixture digest mismatch raises before any candidate inference command is issued.
-
-```python
-with pytest.raises(ValueError, match="artifact set"):
-    execute_marlin_dual_runtime_comparison(...)
-assert recording_runner.inference_calls == 0
-```
+Use a recording fake runner. Artifact-set mismatch and fixture digest mismatch must raise before any candidate inference invocation. Candidate probe must run before candidate inference.
 
 - [ ] **Step 2: Verify RED**
 
 ```bash
-python -m pytest tests/test_marlin_runtime_compare.py -q
+python -m pytest tests/test_marlin_runtime_compare.py tests/test_marlin_runtime.py -q
 ```
 
-- [ ] **Step 3: Expose a narrow public fixture loader if required**
+- [ ] **Step 3: Publicize the single canonical fixture loader**
 
-If orchestration cannot reuse the existing private `_load_frozen_runtime_fixture()` cleanly, rename it to `load_frozen_runtime_fixture()` in `marlin_runtime.py`, retain behavior exactly, and update its internal callers/tests. Do not create a second fixture parser.
+Rename `_load_frozen_runtime_fixture` to `load_frozen_runtime_fixture`; update only its callers and tests. Do not duplicate fixture parsing.
 
-- [ ] **Step 4: Implement exact execution order**
-
-Order is mandatory:
+- [ ] **Step 4: Implement exact orchestration order**
 
 ```text
 same artifact-set preflight
 -> reference identity/profile checks
--> load fixture + require profile digest
+-> load fixture and require profile digest
 -> candidate live probe
 -> candidate identity binding
--> one candidate inference
--> pure comparison
+-> candidate inference once
+-> pure comparison report
 ```
 
-Do not execute the reference runtime again in this command; the reference oracle is the previously frozen profile plus its separately persisted live-probed reference runtime identity.
+The reference runtime is not re-executed here; its frozen profile plus persisted live-probed runtime identity are the oracle.
 
 - [ ] **Step 5: Verify GREEN**
 
@@ -430,34 +407,25 @@ git commit -m "feat(marlin): execute fail-closed dual-runtime qualification"
 - Create: `tests/test_marlin_cli_compare.py`
 
 **Interfaces:**
-- Consumes: Task 4 orchestration, existing `_write_model_atomic()`, `load_model()` and CLI delegation pattern.
-- Produces command:
+- Add command `marlin-compare-runtimes` to `COMMANDS` with required arguments:
 
 ```text
-ontseq marlin-compare-runtimes \
-  --reference-artifact-lock <reference-lock.json> \
-  --candidate-artifact-lock <candidate-lock.json> \
-  --reference-runtime-identity <reference-runtime-identity.json> \
-  --reference-profile <reference-profile.json> \
-  --runtime-fixture <runtime-fixture.txt> \
-  --model <marlin-model.hdf5> \
-  --inference-script scripts/marlin_infer_locked.R \
-  --candidate-runtime-probe-script scripts/marlin_runtime_probe.R \
-  --candidate-rscript <candidate-env/bin/Rscript> \
-  --comparison-id MARLIN_V1_R413_VS_R423_CPU \
-  --output results/marlin-validation/runtime-comparison.json
+--reference-artifact-lock
+--candidate-artifact-lock
+--reference-runtime-identity
+--reference-profile
+--runtime-fixture
+--model
+--inference-script
+--candidate-runtime-probe-script
+--candidate-rscript
+--comparison-id
+--output
 ```
 
-- [ ] **Step 1: Write RED parser/help tests**
+- [ ] **Step 1: Write RED help/parser tests**
 
-```python
-def test_global_help_lists_marlin_compare_runtimes(capsys, monkeypatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ontseq", "--help"])
-    entrypoint.main()
-    assert "marlin-compare-runtimes" in capsys.readouterr().out
-```
-
-Require every input above and reject an existing output path to prevent silent evidence overwrite.
+Global help must list `marlin-compare-runtimes`; missing required args must raise `SystemExit`; existing output must raise `FileExistsError` before execution.
 
 - [ ] **Step 2: Verify RED**
 
@@ -465,11 +433,11 @@ Require every input above and reject an existing output path to prevent silent e
 python -m pytest tests/test_marlin_cli_compare.py -q
 ```
 
-- [ ] **Step 3: Implement parser and command handler**
+- [ ] **Step 3: Implement parser and handler**
 
-Add `"marlin-compare-runtimes"` to `COMMANDS`. The handler loads both locks, reference identity and profile, invokes Task 4 with `SubprocessRunner()`, and writes the report using existing atomic JSON persistence.
+Load both execution locks, reference identity and reference profile via `load_model()`, call `execute_marlin_dual_runtime_comparison()` with `SubprocessRunner()`, and persist with existing `_write_model_atomic()`.
 
-Use a new helper:
+Add:
 
 ```python
 def _require_new_output(path: Path, *, label: str) -> Path:
@@ -479,13 +447,9 @@ def _require_new_output(path: Path, *, label: str) -> Path:
     return candidate
 ```
 
-Do not alter `_require_new_freeze_outputs()` semantics.
+Do not change `_require_new_freeze_outputs()`.
 
-- [ ] **Step 4: Add fake-runner integration test at the Python API boundary**
-
-The CLI parser test stays subprocess-free. End-to-end model execution remains covered in `test_marlin_runtime_compare.py` with fake probe/inference outputs.
-
-- [ ] **Step 5: Verify GREEN**
+- [ ] **Step 4: Verify GREEN**
 
 ```bash
 python -m pytest tests/test_marlin_cli_compare.py tests/test_marlin_cli.py tests/test_marlin_cli_freeze.py -q
@@ -493,7 +457,7 @@ python -m ruff check src/ontseq_platform/marlin_cli.py src/ontseq_platform/entry
 python -m mypy src/ontseq_platform/marlin_cli.py
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/ontseq_platform/marlin_cli.py src/ontseq_platform/entrypoint.py tests/test_marlin_cli_compare.py
@@ -502,7 +466,7 @@ git commit -m "feat(marlin): expose dual-runtime comparison CLI"
 
 ---
 
-### Task 6: Persist reference runtime identity during freeze without breaking existing outputs
+### Task 6: Persist the exact reference runtime identity during freeze
 
 **Files:**
 - Modify: `src/ontseq_platform/marlin_runtime_freeze.py`
@@ -511,16 +475,12 @@ git commit -m "feat(marlin): expose dual-runtime comparison CLI"
 - Modify: `tests/test_marlin_cli_freeze.py`
 
 **Interfaces:**
-- Consumes: Task 1 `MarlinRuntimeIdentity`, Task 2 `runtime_identity_from_probe()`.
-- Produces optional CLI argument:
-
-```text
---output-runtime-identity <reference-runtime-identity.json>
-```
+- Add optional `marlin-freeze-runtime --output-runtime-identity <path>`.
+- Use the already executed live probe from `_run_freeze()`; do not run a second probe.
 
 - [ ] **Step 1: Write RED backward-compatibility tests**
 
-Existing `marlin-freeze-runtime` invocation without `--output-runtime-identity` must still parse and retain its two original required outputs. A new invocation with the optional argument writes a third evidence artifact representing the exact live reference probe used before freeze.
+Existing freeze invocation without the new option still requires and writes only fixture/profile. With the option, a third distinct non-existing output path is required and contains a `MarlinRuntimeIdentity` matching the reference execution lock and live probe.
 
 - [ ] **Step 2: Verify RED**
 
@@ -528,11 +488,9 @@ Existing `marlin-freeze-runtime` invocation without `--output-runtime-identity` 
 python -m pytest tests/test_marlin_runtime_freeze.py tests/test_marlin_cli_freeze.py -q
 ```
 
-- [ ] **Step 3: Extend freeze result without duplicating probe execution**
+- [ ] **Step 3: Implement reference identity persistence**
 
-The live probe already occurs in `_run_freeze()`. Create `MarlinRuntimeIdentity` from that same probe and reference execution lock. Do not launch a second probe solely for persistence.
-
-If `--output-runtime-identity` is supplied, require it to be a third distinct non-existing path and atomically write it. Failure writing any requested freeze evidence must remove newly written siblings from that invocation.
+Create identity with `runtime_identity_from_probe(reference_lock, live_runtime, runtime_id=f"{reference_lock.lock_id}:runtime", created_at=<same freeze timestamp>)`. Use one timezone-aware timestamp for profile and identity in that invocation. Atomically write every requested output; if any requested write fails, remove newly written siblings from that invocation.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -551,37 +509,18 @@ git commit -m "feat(marlin): persist frozen reference runtime identity"
 
 ---
 
-### Task 7: Documentation, packaging and evidence-boundary regression tests
+### Task 7: Documentation, technical policy and wheel contract
 
 **Files:**
 - Modify: `docs/MARLIN_RUNTIME_FREEZE.md`
 - Modify: `docs/MARLIN_CLASSIFICATION.md`
 - Modify: `configs/methylation/marlin_v1.technical.yaml`
-- Modify: `scripts/check_wheel_resources.py` only if the new Python module is not automatically packaged by the existing package discovery.
-- Modify: `tests/test_repository_safety.py` only if needed to make the no-biological-payload contract explicit.
+- Modify: `scripts/check_wheel_resources.py`
+- Modify: `tests/test_repository_safety.py`
 
 **Interfaces:**
-- Consumes: completed CLI/contracts.
-- Produces: operator sequence and precise claim language.
-
-- [ ] **Step 1: Add the reference qualification workflow**
-
-Document:
-
-```text
-A. build/reconstruct reference MARLIN runtime
-B. create reference execution lock with live probe
-C. marlin-freeze-runtime --output-runtime-identity ...
-D. create candidate execution lock with candidate live probe
-E. marlin-compare-runtimes ...
-F. require verdict PASS before AL_001/GSE280090
-```
-
-State explicitly that if the reference runtime resolves to anything other than the upstream documented environment, the observed versions are reported as-is and must not be relabeled as R 4.1.3.
-
-- [ ] **Step 2: Freeze policy identifiers in technical config**
-
-Add non-biological policy metadata without changing existing classifier semantics:
+- Add `ontseq_platform/marlin_runtime_compare.py` to `REQUIRED_SUFFIXES` in `scripts/check_wheel_resources.py`.
+- Add technical config:
 
 ```yaml
 dual_runtime_compatibility:
@@ -592,7 +531,26 @@ dual_runtime_compatibility:
   research_only: true
 ```
 
-- [ ] **Step 3: Verify docs/config/package tests**
+- [ ] **Step 1: Document the operator sequence**
+
+Document exactly:
+
+```text
+A. reconstruct/reference MARLIN environment and live-probe it
+B. create reference execution lock
+C. freeze fixture/profile/reference runtime identity
+D. create candidate execution lock from its live probe using identical artifact bytes
+E. run marlin-compare-runtimes
+F. require report verdict PASS before AL_001/GSE280090
+```
+
+If the reference environment resolves to versions other than upstream's documented stack, record actual observed versions and never relabel them as R 4.1.3.
+
+- [ ] **Step 2: Add wheel and safety assertions**
+
+The wheel contract must require the new module. Repository-safety test must explicitly reject committed files named `marlin-runtime-profile.json`, `runtime-comparison.json`, `GSM8587229_AL_001.txt.gz`, and common trained-model extensions under validation result paths, while preserving existing fixture/code files.
+
+- [ ] **Step 3: Verify docs/config/package gates**
 
 ```bash
 python -m pytest tests/test_repository_safety.py tests/test_marlin_runtime_compare.py tests/test_marlin_cli_compare.py -q
@@ -608,35 +566,18 @@ git add docs/MARLIN_RUNTIME_FREEZE.md docs/MARLIN_CLASSIFICATION.md configs/meth
 git commit -m "docs(marlin): define dual-runtime qualification gate"
 ```
 
-Only stage paths that actually changed.
-
 ---
 
-### Task 8: Full automated verification and external real-model qualification instructions
+### Task 8: Full automated verification and real-model qualification gate
 
 **Files:**
-- No production-code change unless verification finds a defect.
-- Update PR #77 description only after all automated gates are green, summarizing evidence level accurately.
-
-**Interfaces:**
-- Consumes: Tasks 1-7.
-- Produces: verified feature branch plus a reproducible operator procedure for the model-containing environment.
+- No planned production-code edits. Verification defects are fixed in the owning Task 1-7 file and re-run through its targeted tests before this final gate.
 
 - [ ] **Step 1: Run targeted MARLIN suite**
 
 ```bash
-python -m pytest \
-  tests/test_marlin_contracts.py \
-  tests/test_marlin_runtime.py \
-  tests/test_marlin_runtime_freeze.py \
-  tests/test_marlin_runtime_compare.py \
-  tests/test_marlin_cli.py \
-  tests/test_marlin_cli_freeze.py \
-  tests/test_marlin_cli_compare.py \
-  tests/test_marlin_validation.py -q
+python -m pytest tests/test_marlin_contracts.py tests/test_marlin_runtime.py tests/test_marlin_runtime_freeze.py tests/test_marlin_runtime_compare.py tests/test_marlin_cli.py tests/test_marlin_cli_freeze.py tests/test_marlin_cli_compare.py tests/test_marlin_validation.py -q
 ```
-
-Expected: PASS.
 
 - [ ] **Step 2: Run complete Python quality gates**
 
@@ -648,49 +589,29 @@ python -m mypy src/ontseq_platform
 python scripts/check_repository_safety.py
 ```
 
-Expected: PASS.
-
-- [ ] **Step 3: Verify GitHub Actions for the final head**
-
-Require successful:
+- [ ] **Step 3: Require successful GitHub Actions for final head**
 
 ```text
 CI
 Desktop CI
 Desktop bundle contract
 MARLIN runtime smoke
-CodeQL (when triggered)
+CodeQL when triggered
 ```
 
-Do not claim completion from local tests alone.
+- [ ] **Step 4: Final code review**
 
-- [ ] **Step 4: Perform final code review before declaring engineering-complete**
+Review the Task 1-7 diff against the spec. Mandatory findings to check: runtime fields absent from artifact-set digest; source URIs absent from digest; artifact-set/fixture mismatch before inference; valid numerical incompatibility returns report FAIL; malformed evidence raises; exact `1e-7` boundary passes; reference identity came from the same live probe used for freeze; no biological/clinical claim leakage.
 
-Review the complete Task 1-7 diff against the spec, with special attention to:
-- no runtime fields inside canonical artifact-set digest;
-- no source URI influence on digest;
-- artifact-set/fixture mismatch occurs before inference;
-- valid numerical mismatch yields report FAIL rather than command failure;
-- malformed evidence fails hard;
-- exact-boundary `1e-7` behavior;
-- reference identity is the actual live-probed environment used for freeze;
-- no clinical/biological claim leakage.
-
-- [ ] **Step 5: Real-model qualification remains external and must use controlled local resources**
-
-On the workstation/runtime that has the trained MARLIN model, execute:
+- [ ] **Step 5: Execute controlled real-model qualification outside Git**
 
 ```text
-1. Reference runtime: live probe -> reference execution lock.
+1. Reference live probe -> reference execution lock.
 2. Freeze deterministic fixture + reference profile + reference runtime identity.
-3. Candidate runtime: live probe -> candidate execution lock using the identical model/artifact bytes.
+3. Candidate live probe -> candidate execution lock over identical artifact bytes.
 4. Run marlin-compare-runtimes.
 5. Archive the machine-readable report locally.
-6. Proceed to AL_001 only if verdict == PASS.
+6. Proceed to AL_001 only when verdict == PASS.
 ```
 
-The trained model, generated score profile, GSE data and patient-derived data remain outside Git.
-
-- [ ] **Step 6: Commit only verification-derived fixes if necessary**
-
-If no code changes are required, do not manufacture a verification commit.
+The trained model, generated scores/profile, GSE data and patient-derived data remain outside Git.
