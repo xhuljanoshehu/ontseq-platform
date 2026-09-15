@@ -15,8 +15,19 @@ REQUIRED_SUFFIXES = (
     "ontseq_platform/modbam.py",
     "ontseq_platform/methylation_holdout_runner.py",
     "ontseq_platform/methylation_validation_runner.py",
+    "ontseq_platform/marlin_contracts.py",
+    "ontseq_platform/marlin_input.py",
+    "ontseq_platform/marlin_artifacts.py",
+    "ontseq_platform/marlin_features.py",
+    "ontseq_platform/marlin_runtime.py",
+    "ontseq_platform/marlin_runtime_freeze.py",
+    "ontseq_platform/marlin_classification.py",
+    "ontseq_platform/marlin_runner.py",
+    "ontseq_platform/marlin_validation.py",
+    "ontseq_platform/marlin_cli.py",
     "share/ontseq/configs/methylation/modkit.technical.yaml",
     "share/ontseq/configs/methylation/paired_source_nanopolish.technical.yaml",
+    "share/ontseq/configs/methylation/marlin_v1.technical.yaml",
     "share/ontseq/configs/reference_bundles/GRCh38_GENCODE50_MANE1.5_v1/bundle.recipe.yaml",
     "share/ontseq/configs/reference_bundles/GRCh37_GENCODE19_v1/bundle.recipe.yaml",
     "share/ontseq/configs/reference_bundles/GRCh37_GENCODE19_HG19_v2/bundle.recipe.yaml",
@@ -50,6 +61,8 @@ REQUIRED_SUFFIXES = (
     "share/ontseq/configs/sv/sniffles2_cutesv.consensus.technical.yaml",
     "share/ontseq/configs/sv/evidence-priority.technical.yaml",
     "share/ontseq/scripts/run_qdnaseq_ace.R",
+    "share/ontseq/scripts/marlin_export_resources.R",
+    "share/ontseq/scripts/marlin_infer_locked.R",
 )
 
 FORBIDDEN_PARTS = ("share/ontseq/configs/configs/",)

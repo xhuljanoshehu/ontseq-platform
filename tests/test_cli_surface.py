@@ -1,11 +1,9 @@
 """The command surface: what ``ontseq`` offers, and what it does with a bad invocation.
 
-Both parsers and the dispatcher had no test coverage at all, which is how
-``validate-reference`` came to be a working command that ``ontseq`` never listed. The
-checks here are the ones that do not need a genome, a tool or a subprocess: that the three
-descriptions of the command set agree with each other, that dispatch sends a command to the
-parser that owns it, and that a failure leaves through the documented exit path instead of
-a traceback.
+The dispatcher owns three parser families: runtime operations, the legacy/scientific adapter
+surface, and the dedicated MARLIN classifier surface. The checks here make sure the rendered
+overview matches the union of the parser-owned commands, that dispatch remains unambiguous,
+and that bad invocations leave through the documented exit path instead of a traceback.
 
 Nothing here runs a pipeline. What each command *does* is covered by the module tests for
 the adapter behind it; this covers the layer between the operator and those.
@@ -22,7 +20,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from ontseq_platform import __version__, cli, entrypoint, runtime_cli
+from ontseq_platform import __version__, cli, entrypoint, marlin_cli, runtime_cli
 from ontseq_platform.resource_bootstrap import GRCH37_PROFILE_IDS, PROFILE_IDS
 from ontseq_platform.runtime_cli import RUNTIME_COMMANDS
 
@@ -36,14 +34,7 @@ def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
 
 
 class CommandSetTests(unittest.TestCase):
-    """Three places describe the command set. A command missing from one is invisible.
-
-    ``entrypoint`` lists commands for the overview, ``RUNTIME_COMMANDS`` decides which
-    parser a command reaches, and the two parsers define what actually exists. Drift
-    between them is silent in both directions: a command absent from the overview cannot
-    be found, and one absent from the dispatch set falls through to the other parser and
-    fails with an unrelated message.
-    """
+    """Every advertised command must belong to exactly one parser family."""
 
     def test_the_overview_lists_every_runtime_command(self) -> None:
         listed = {name for name, _ in entrypoint._RUNTIME_COMMANDS}
@@ -51,14 +42,19 @@ class CommandSetTests(unittest.TestCase):
 
     def test_the_overview_lists_every_scientific_command(self) -> None:
         listed = {name for name, _ in entrypoint._SCIENTIFIC_COMMANDS}
-        self.assertEqual(listed, _subcommands(cli._parser()))
+        implemented = _subcommands(cli._parser()) | _subcommands(marlin_cli._parser())
+        self.assertEqual(listed, implemented)
 
     def test_dispatch_routes_exactly_the_runtime_parser_s_commands(self) -> None:
         self.assertEqual(RUNTIME_COMMANDS, _subcommands(runtime_cli._parser()))
 
-    def test_the_two_parsers_share_no_command_name(self) -> None:
-        """A shared name would be routed by the dispatch set alone, unreadably."""
-        self.assertEqual(_subcommands(cli._parser()) & _subcommands(runtime_cli._parser()), set())
+    def test_the_three_parsers_share_no_command_name(self) -> None:
+        runtime = _subcommands(runtime_cli._parser())
+        scientific = _subcommands(cli._parser())
+        marlin = _subcommands(marlin_cli._parser())
+        self.assertEqual(runtime & scientific, set())
+        self.assertEqual(runtime & marlin, set())
+        self.assertEqual(scientific & marlin, set())
 
     def test_every_listed_command_has_a_summary(self) -> None:
         for name, summary in entrypoint._RUNTIME_COMMANDS + entrypoint._SCIENTIFIC_COMMANDS:

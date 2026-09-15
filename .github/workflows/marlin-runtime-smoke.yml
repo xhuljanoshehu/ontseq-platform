@@ -1,0 +1,79 @@
+name: MARLIN runtime smoke
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/marlin_*.py"
+      - "src/ontseq_platform/entrypoint.py"
+      - "scripts/marlin_runtime_probe.R"
+      - "workflow/envs/marlin_runtime.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/marlin-runtime-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/ontseq_platform/marlin_*.py"
+      - "src/ontseq_platform/entrypoint.py"
+      - "scripts/marlin_runtime_probe.R"
+      - "workflow/envs/marlin_runtime.yaml"
+      - "pyproject.toml"
+      - ".github/workflows/marlin-runtime-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marlin-runtime-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install ONTSeq control plane
+        run: python -m pip install -e .
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/marlin_runtime.yaml
+          cache-environment: true
+          cache-downloads: true
+      - name: Probe real R Keras TensorFlow runtime
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          CONTROL_PYTHON="$pythonLocation/bin/python"
+          MARLIN_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-runtime/bin/Rscript"
+          test -x "$CONTROL_PYTHON"
+          test -x "$MARLIN_RSCRIPT"
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-runtime-probe \
+            --probe-script scripts/marlin_runtime_probe.R \
+            --rscript "$MARLIN_RSCRIPT" \
+            --output results/marlin-runtime-probe.json
+      - name: Verify declared technical baseline
+        run: |
+          set -euo pipefail
+          "$pythonLocation/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("results/marlin-runtime-probe.json").read_text(encoding="utf-8"))
+          assert payload["R_version"].startswith("4.2."), payload
+          assert payload["keras_version"] == "2.13.0", payload
+          assert payload["tensorflow_version"] == "2.13.0", payload
+          assert payload["python_version"].startswith("3.10."), payload
+          assert payload["execution_backend"] == "cpu", payload
+          assert payload["research_only"] is True, payload
+          PY
+      - name: Upload non-biological runtime identity
+        uses: actions/upload-artifact@v7
+        with:
+          name: marlin-runtime-probe
+          path: results/marlin-runtime-probe.json
+          retention-days: 7
