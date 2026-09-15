@@ -21,7 +21,11 @@ from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from .marlin_runtime import probe_marlin_runtime
-from .marlin_runtime_freeze import freeze_runtime_compatibility, render_frozen_runtime_fixture
+from .marlin_runtime_freeze import (
+    freeze_runtime_compatibility,
+    render_frozen_runtime_fixture,
+    verify_runtime_probe_matches_lock,
+)
 from .models import GenomeBuild
 from .reference import sha256_file
 
@@ -107,6 +111,7 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("--artifact-lock", type=Path, required=True)
     freeze.add_argument("--model", type=Path, required=True)
     freeze.add_argument("--inference-script", type=Path, required=True)
+    freeze.add_argument("--runtime-probe-script", type=Path, required=True)
     freeze.add_argument("--profile-id", required=True)
     freeze.add_argument("--rscript", default="Rscript")
     freeze.add_argument("--work-dir", type=Path)
@@ -199,12 +204,20 @@ def _run_freeze(args: argparse.Namespace) -> tuple[Path, Path]:
         args.output_profile,
     )
     lock = load_model(args.artifact_lock, MarlinArtifactLock)
+    runner = SubprocessRunner()
+    live_runtime = probe_marlin_runtime(
+        probe_script=args.runtime_probe_script,
+        runner=runner,
+        rscript_path=args.rscript,
+        timeout_seconds=120,
+    )
+    verify_runtime_probe_matches_lock(lock, live_runtime)
     work_dir = args.work_dir or (profile_path.parent / ".marlin-freeze-runtime")
     vector, _runtime_result, profile = freeze_runtime_compatibility(
         lock,
         model_path=args.model,
         inference_script=args.inference_script,
-        runner=SubprocessRunner(),
+        runner=runner,
         work_dir=work_dir,
         profile_id=args.profile_id,
         created_at=datetime.now(UTC),
