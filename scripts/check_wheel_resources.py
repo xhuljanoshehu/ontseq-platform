@@ -20,6 +20,7 @@ REQUIRED_SUFFIXES = (
     "ontseq_platform/marlin_artifacts.py",
     "ontseq_platform/marlin_features.py",
     "ontseq_platform/marlin_runtime.py",
+    "ontseq_platform/marlin_runtime_freeze.py",
     "ontseq_platform/marlin_classification.py",
     "ontseq_platform/marlin_runner.py",
     "ontseq_platform/marlin_validation.py",
