@@ -16,6 +16,7 @@ Current implementation scope:
 - checksum-locked model, feature, class-annotation and probe resources;
 - locked R/Keras/TensorFlow inference boundary returning exactly 42 softmax scores;
 - live runtime probing of R, R-Keras, Python TensorFlow, Python and CPU/GPU backend identity;
+- deterministic non-biological runtime-fixture generation and one-time reference-profile freeze;
 - grouped current-class, methylation-family and lineage summaries with explicit deterministic
   score/label tie ordering;
 - published `0.8` high-confidence threshold with explicit `UNKNOWN` below threshold;
@@ -27,6 +28,10 @@ Current implementation scope:
 
 The external GSE280090 / `GSM8587229_AL_001.txt.gz` validation gate has **not** been completed in
 this repository state. Public/patient-derived validation payloads are not committed to Git.
+
+The runtime-freeze implementation is present, but this repository does **not** contain a generated
+compatibility profile from the real Zenodo MARLIN model. That profile remains a local controlled
+validation artifact and must be created before biological validation begins.
 
 ## Scientific reference
 
@@ -279,7 +284,25 @@ External biological validation requires more than a successful runtime import or
 Before any validation sample is run, ONTSeq re-executes a fixed, non-biological 357,340-value
 `-1/0/+1` feature fixture through the current locked model/runtime.
 
-The candidate runtime must match the frozen `MarlinRuntimeCompatibilityProfile` for:
+The canonical ONTSeq generator is `sha256-index-mod3-v1`. It deterministically maps each feature
+index to `-1`, `0`, or `+1` under a fixed SHA-256 salt. The generated vector and text
+representation have regression-locked SHA-256 identities. Full generator details and the locked
+hashes are documented in `docs/MARLIN_RUNTIME_FREEZE.md`.
+
+The engineering tolerances are fixed before biological validation:
+
+```text
+absolute tolerance per raw model score: 1e-7
+softmax-sum tolerance:                  1e-5
+```
+
+`ontseq marlin-freeze-runtime` first probes the same live `Rscript` environment that will run
+model inference and requires exact agreement with the artifact lock for R, R-Keras, Python
+TensorFlow, full Python patch version and CPU/GPU backend. It then runs the fixed vector exactly
+once through the locked model and writes the local fixture plus the 42-score compatibility
+profile. Existing output paths are refused rather than overwritten.
+
+The candidate runtime later must match the frozen `MarlinRuntimeCompatibilityProfile` for:
 
 - artifact/runtime lock identity;
 - execution backend;
@@ -288,8 +311,8 @@ The candidate runtime must match the frozen `MarlinRuntimeCompatibilityProfile` 
 - all 42 scores within the predeclared absolute tolerance;
 - softmax-sum tolerance.
 
-The tolerance is frozen before biological validation. It must not be tuned from GSE280090
-outcomes.
+The tolerance is frozen before biological validation. It must not be tuned from AL_001 or
+GSE280090 outcomes.
 
 `ontseq marlin-validate` therefore requires an explicit `--runtime-fixture` path. A direct
 `marlin-classify` invocation is not a substitute for this external-validation gate.
@@ -375,6 +398,7 @@ Available engineering commands:
 ```text
 ontseq marlin-lock
 ontseq marlin-runtime-probe
+ontseq marlin-freeze-runtime
 ontseq marlin-features
 ontseq marlin-classify
 ontseq marlin-validate
@@ -406,6 +430,23 @@ ontseq marlin-lock \
   --rscript /path/to/ontseq-marlin-runtime/bin/Rscript \
   --output results/marlin-artifact-lock.json
 ```
+
+After the artifact lock has been created and before any biological validation, freeze the local
+runtime compatibility reference:
+
+```bash
+ontseq marlin-freeze-runtime \
+  --artifact-lock results/marlin-validation/marlin-artifact-lock.json \
+  --model /path/to/marlin_v1.model.hdf5 \
+  --inference-script scripts/marlin_infer_locked.R \
+  --runtime-probe-script scripts/marlin_runtime_probe.R \
+  --profile-id MARLIN_V1_CPU_FROZEN \
+  --rscript /path/to/ontseq-marlin-runtime/bin/Rscript \
+  --output-fixture results/marlin-validation/marlin-runtime-fixture.txt \
+  --output-profile results/marlin-validation/marlin-runtime-profile.json
+```
+
+The fixture/profile files are generated locally and are not repository assets.
 
 ### External validation
 
@@ -486,6 +527,7 @@ not include:
 
 - the trained MARLIN model unless distribution rights and packaging policy are separately
   reviewed and explicitly approved;
+- generated runtime fixture/profile outputs from a local model freeze;
 - GSE280090 patient-derived processed payloads;
 - local validation outputs containing sample-level data;
 - private/institutional methylation datasets.
