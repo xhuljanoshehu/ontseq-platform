@@ -6,11 +6,16 @@ expected_model_unit_count: 42
 confidence_threshold: 0.8
 preprocessing_contract_version: marlin-v1-binarize-1
 runtime_contract_version: marlin-runtime-v1
+runtime_fixture_generator_version: sha256-index-mod3-v1
+runtime_fixture_absolute_score_tolerance: 1.0e-7
+runtime_fixture_score_sum_tolerance: 1.0e-5
 model_version: 1.0.0
 model_source: https://doi.org/10.5281/zenodo.15565404
 code_source: https://github.com/hovestadt/MARLIN
 reference_publication: https://doi.org/10.1038/s41588-025-02321-z
 notes:
   - The 0.8 confidence threshold is the published MARLIN high-confidence threshold; ONTSeq does not retune it against GSE280090.
-  - Runtime numerical compatibility tolerances are intentionally absent from this file. They must be frozen from a non-biological fixed-vector experiment before external biological validation.
+  - The runtime fixture generator and numerical tolerances above are fixed engineering contracts declared before external biological validation; they must not be tuned from AL_001 or GSE280090 outcomes.
+  - The runtime fixture is explicitly non-biological and contains only deterministic -1, 0 and +1 feature values.
+  - A frozen runtime profile proves numerical compatibility only for the locked model/runtime/fixture contract; it does not establish analytical or clinical validity.
   - This profile is Research Use Only and does not establish analytical or clinical validity.
