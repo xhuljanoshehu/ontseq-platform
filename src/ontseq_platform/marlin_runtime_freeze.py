@@ -13,6 +13,7 @@ from .marlin_contracts import (
 )
 from .marlin_features import MarlinFeatureVector, marlin_feature_vector_sha256
 from .marlin_runtime import (
+    MarlinRuntimeProbeReport,
     MarlinRuntimeResult,
     create_runtime_compatibility_profile,
     run_marlin_inference,
@@ -38,9 +39,7 @@ def generate_frozen_runtime_fixture(lock: MarlinArtifactLock) -> MarlinFeatureVe
         raise ValueError("MARLIN runtime freeze requires exactly 357340 locked features")
 
     values = tuple(
-        _FIXTURE_VALUE_MAP[
-            hashlib.sha256(_FIXTURE_SALT + index.to_bytes(8, "big")).digest()[0] % 3
-        ]
+        _FIXTURE_VALUE_MAP[hashlib.sha256(_FIXTURE_SALT + index.to_bytes(8, "big")).digest()[0] % 3]
         for index in range(_EXPECTED_FEATURE_COUNT)
     )
     observed_count = sum(value != 0.0 for value in values)
@@ -66,6 +65,34 @@ def render_frozen_runtime_fixture(vector: MarlinFeatureVector) -> str:
     if observed_sha256 != vector.summary.feature_vector_sha256:
         raise ValueError("MARLIN runtime fixture digest does not match its feature summary")
     return "".join(f"{int(value)}\n" for value in vector.values)
+
+
+def verify_runtime_probe_matches_lock(
+    lock: MarlinArtifactLock,
+    probe: MarlinRuntimeProbeReport,
+) -> None:
+    """Require the live model runtime to match the identity recorded by the artifact lock."""
+    expected = {
+        "R_version": lock.R_version,
+        "keras_version": lock.keras_version,
+        "tensorflow_version": lock.tensorflow_version,
+        "python_version": lock.python_version_if_used,
+        "execution_backend": lock.execution_backend,
+    }
+    observed = {
+        "R_version": probe.R_version,
+        "keras_version": probe.keras_version,
+        "tensorflow_version": probe.tensorflow_version,
+        "python_version": probe.python_version,
+        "execution_backend": probe.execution_backend,
+    }
+    for field, expected_value in expected.items():
+        observed_value = observed[field]
+        if expected_value != observed_value:
+            raise ValueError(
+                f"MARLIN live runtime {field} differs from artifact lock: "
+                f"expected {expected_value!r}, observed {observed_value!r}"
+            )
 
 
 def freeze_runtime_compatibility(
@@ -116,4 +143,5 @@ __all__ = [
     "freeze_runtime_compatibility",
     "generate_frozen_runtime_fixture",
     "render_frozen_runtime_fixture",
+    "verify_runtime_probe_matches_lock",
 ]
