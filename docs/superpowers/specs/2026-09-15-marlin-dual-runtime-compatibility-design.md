@@ -8,7 +8,7 @@ This design strengthens the existing frozen MARLIN runtime fixture. The current 
 
 ## Goal
 
-Establish a fail-closed, Research-Use-Only numerical compatibility gate that compares the same locked MARLIN v1 model and the same deterministic 357,340-value non-biological feature fixture across two independently identified runtimes:
+Establish a fail-closed, Research-Use-Only numerical compatibility gate that compares the same immutable MARLIN v1 artifact set and the same deterministic 357,340-value non-biological feature fixture across two independently identified execution runtimes:
 
 1. a **reference runtime** representing the chosen MARLIN reference environment; and
 2. a **candidate runtime** representing the ONTSeq runtime proposed for biological validation.
@@ -39,13 +39,53 @@ ONTSeq must not assume these environments are numerically equivalent merely beca
 
 ## Core architectural correction
 
-### Artifact identity and runtime identity are separate trust domains
+### Artifact-set identity and execution-runtime identity are separate trust domains
 
-`MarlinArtifactLock` currently records both immutable classifier artifacts and one concrete runtime identity. That is useful for fail-closed execution of a specific locked environment, but it is insufficient as the sole provenance model for a dual-runtime experiment because both runtimes must consume the same artifact set while preserving their different runtime identities.
+`MarlinArtifactLock` intentionally binds immutable classifier artifacts to one concrete execution runtime. That remains useful and is not removed. A dual-runtime experiment therefore uses **two execution locks**:
 
-The dual-runtime gate therefore introduces an explicit runtime identity object rather than mutating the artifact identities between executions.
+- a reference execution lock whose runtime fields describe the live reference environment;
+- a candidate execution lock whose runtime fields describe the live candidate environment.
 
-### New runtime identity contract
+The two locks may have different `lock_id`, runtime versions, backend and creation timestamp. They may be compared only if their immutable classifier artifacts are exactly identical under a canonical artifact-set digest.
+
+This avoids rewriting a lock to impersonate another runtime and preserves backward compatibility with all existing MARLIN v1 execution paths.
+
+### Canonical artifact-set identity
+
+Add a deterministic function and strict contract for immutable classifier identity:
+
+```text
+MarlinArtifactSetIdentity
+schema_version = "0.1.0"
+artifact_set_sha256
+model_version
+model_sha256
+code_version_or_commit
+code_manifest_sha256
+feature_sha256
+canonical_feature_list_sha256
+class_annotation_sha256
+probe_resource_sha256
+genome_build
+expected_feature_count = 357340
+expected_model_unit_count = 42
+preprocessing_contract_version
+runtime_contract_version
+research_only = true
+```
+
+`artifact_set_sha256` is calculated from a canonical byte representation of the fields above. It explicitly excludes:
+
+- `lock_id`;
+- R/Python/Keras/TensorFlow versions;
+- execution backend;
+- timestamps;
+- local file paths;
+- source URI formatting that does not change artifact bytes.
+
+Both execution locks must yield exactly the same `artifact_set_sha256` before any candidate inference is allowed.
+
+### Runtime identity contract
 
 Add `MarlinRuntimeIdentity` with at least:
 
@@ -64,35 +104,20 @@ research_only = true
 
 The identity is populated only from the live runtime probe. Manually typed version strings are not accepted as evidence.
 
-### Artifact set identity
-
-The model-side identity remains governed by the existing artifact lock and must be identical for both reference and candidate executions:
-
-- model SHA-256;
-- upstream MARLIN code identity/manifest SHA-256;
-- feature RData SHA-256;
-- canonical ordered feature-list SHA-256;
-- class-annotation SHA-256;
-- hg19 probe-resource SHA-256;
-- GRCh37 build;
-- preprocessing contract;
-- expected 357,340 inputs;
-- expected 42 outputs.
-
-The existing runtime fields in `MarlinArtifactLock` remain supported for backward compatibility and for the normal single-runtime execution boundary in MARLIN v1. The dual-runtime comparison must not rewrite those fields to impersonate another runtime.
+`MarlinRuntimeIdentity` must also be internally consistent with the corresponding `MarlinArtifactLock` runtime fields. A mismatch is a hard failure.
 
 ## Existing freeze behavior remains
 
 `ontseq marlin-freeze-runtime` remains the canonical command to create a single-runtime frozen baseline. It continues to:
 
-1. load the artifact lock;
+1. load one execution artifact lock;
 2. probe the live runtime;
-3. require the live runtime to match the runtime identity recorded by that execution lock;
+3. require the live runtime to match that lock's runtime identity;
 4. generate the deterministic non-biological feature fixture;
 5. execute the locked model once;
 6. write the frozen fixture and 42-score runtime profile.
 
-No existing frozen profile is silently overwritten.
+Therefore the first reference profile is frozen under the **reference execution lock**, not under the later candidate lock. No existing frozen profile is silently overwritten.
 
 ## New dual-runtime workflow
 
@@ -102,12 +127,13 @@ Introduce a separate command:
 ontseq marlin-compare-runtimes
 ```
 
-The command compares a previously frozen reference profile with a candidate runtime execution.
+The command compares a previously frozen reference profile with a live candidate runtime execution while proving that both execution locks represent the same immutable classifier artifact set.
 
 Required inputs:
 
 ```text
---artifact-lock
+--reference-artifact-lock
+--candidate-artifact-lock
 --reference-runtime-identity
 --reference-profile
 --runtime-fixture
@@ -115,24 +141,30 @@ Required inputs:
 --inference-script
 --candidate-runtime-probe-script
 --candidate-rscript
+--comparison-id
 --output
 ```
 
-Optional explicit candidate identity output may be supported, but the comparison report itself must contain the live-probed candidate identity.
+The `--model` bytes must satisfy both execution locks' model SHA-256 because the locks are required to share the same artifact-set identity.
 
 ### Execution order
 
 The command must execute in this exact logical order:
 
 ```text
-load artifact lock
+load reference execution lock
+-> load candidate execution lock
+-> derive canonical artifact-set identity from each lock
+-> require equal artifact-set SHA-256
 -> load reference runtime identity
+-> verify reference runtime identity matches reference execution lock
 -> load reference profile
--> verify profile belongs to artifact lock
+-> verify profile belongs to reference execution lock
 -> verify fixed fixture SHA against profile
--> verify model SHA and locked artifacts
+-> verify model SHA and immutable artifact identity
 -> live-probe candidate runtime
 -> build candidate runtime identity from probe
+-> verify candidate runtime identity matches candidate execution lock
 -> execute same frozen 357,340-value fixture through same locked model
 -> validate exactly 42 finite softmax scores
 -> compare all 42 candidate scores to reference scores
@@ -141,7 +173,9 @@ load artifact lock
 -> atomically write PASS/FAIL comparison report
 ```
 
-A mismatch is a failed compatibility comparison. It must not be converted to `UNKNOWN`, `NO_CALL`, or a biological classification state.
+Any artifact-set mismatch fails **before** candidate model execution.
+
+A numerical mismatch is a failed compatibility comparison. It must not be converted to `UNKNOWN`, `NO_CALL`, or a biological classification state.
 
 ## Comparison contract
 
@@ -150,8 +184,9 @@ Add `MarlinDualRuntimeCompatibilityReport` with at least:
 ```text
 schema_version = "0.1.0"
 comparison_id
-artifact_lock_id
-model_sha256
+artifact_set_identity
+reference_artifact_lock_id
+candidate_artifact_lock_id
 feature_vector_sha256
 reference_profile_id
 reference_runtime_identity
@@ -178,17 +213,19 @@ The report stores no biological sample information.
 
 PASS requires all of:
 
-- artifact lock ID matches the reference profile;
-- candidate uses the same model bytes verified by artifact SHA-256;
+- reference profile belongs to the reference execution lock;
+- reference and candidate execution locks yield the same canonical artifact-set SHA-256;
+- candidate model bytes match the shared model SHA-256;
 - fixture digest equals the reference profile fixture digest;
+- reference runtime identity matches the reference execution lock;
+- live candidate runtime identity matches the candidate execution lock;
 - exactly 42 reference and 42 candidate scores exist;
 - all values are finite probabilities;
 - each score's absolute difference is `<=` the frozen absolute tolerance;
 - candidate and reference top raw model-unit indices are identical;
-- both score vectors satisfy the declared softmax-sum tolerance;
-- the candidate runtime identity is live-probed and preserved in the report.
+- both score vectors satisfy the declared softmax-sum tolerance.
 
-Any failed requirement yields overall `FAIL`.
+Any failed requirement yields overall `FAIL` or, for malformed/inconsistent evidence that prevents a valid comparison, a hard command failure. A report must never claim PASS after a failed precondition.
 
 ## Tolerance policy
 
@@ -207,8 +244,9 @@ If the reference environment cannot reproduce the deterministic fixture stably e
 
 The dual-runtime report distinguishes:
 
-- **reference runtime identity** — the environment that generated the frozen 42-score oracle;
-- **candidate runtime identity** — the environment currently being qualified.
+- **reference runtime identity** — the live environment that generated the frozen 42-score oracle;
+- **candidate runtime identity** — the live environment currently being qualified;
+- **shared artifact-set identity** — the immutable model/code/features/annotations/probe resources common to both runs.
 
 For the first compatibility study, the preferred reference runtime is the closest reproducible environment to upstream MARLIN's documented tested stack, centered on R 4.1.3 / Keras 2.13 / TensorFlow 2.13 / Python 3.10.
 
@@ -244,11 +282,14 @@ No PASS may be promoted to a higher evidence level.
 
 Fail closed on:
 
-- artifact/model SHA mismatch;
-- reference profile belonging to a different artifact lock;
+- reference/candidate artifact-set SHA mismatch;
+- model SHA mismatch;
+- reference profile belonging to a different reference execution lock;
 - wrong fixture digest;
 - missing or malformed runtime identity;
-- runtime probe failure;
+- reference runtime identity inconsistent with its lock;
+- candidate runtime probe failure;
+- candidate runtime identity inconsistent with its lock;
 - wrong score count;
 - non-finite score;
 - score outside `[0,1]`;
@@ -271,10 +312,12 @@ Implementation uses strict TDD.
 
 Unit tests must cover:
 
+- canonical artifact-set digest is identical for locks differing only in runtime identity/lock ID/timestamp;
+- artifact-set digest changes when any immutable artifact SHA or build/contract field changes;
 - runtime identity construction from a live probe;
-- rejection of manually inconsistent runtime identity data;
+- rejection of runtime identity inconsistent with its execution lock;
 - exact preservation of reference and candidate runtime identities;
-- same artifact/model identity across both executions;
+- artifact-set mismatch rejected before candidate model execution;
 - fixture SHA mismatch rejected before candidate model execution;
 - 42-score PASS within tolerance;
 - one-score drift `>1e-7` -> FAIL;
@@ -286,7 +329,7 @@ Unit tests must cover:
 - atomic output behavior;
 - no patient/GSE payload dependency.
 
-Integration tests must verify the CLI argument contract and a fake-runner end-to-end comparison.
+Integration tests must verify the CLI argument contract and a fake-runner end-to-end comparison using two execution locks with the same artifact-set identity but different runtime identities.
 
 The real reference-vs-candidate model execution remains an external engineering qualification step because the trained MARLIN model is not stored in GitHub CI.
 
@@ -309,6 +352,6 @@ PR #77 remains Draft. No merge to `main`, release, clinical claim, or publicatio
 
 ## Acceptance criteria
 
-The feature is complete when ONTSeq can produce a machine-readable comparison report proving, for one locked artifact set and one fixed non-biological fixture, whether a live candidate runtime reproduces the frozen reference runtime's 42 MARLIN scores within the predeclared tolerance while preserving both runtime identities separately.
+The feature is complete when ONTSeq can produce a machine-readable comparison report proving, for two separately runtime-locked executions of one identical classifier artifact set and one fixed non-biological fixture, whether the live candidate runtime reproduces the frozen reference runtime's 42 MARLIN scores within the predeclared tolerance while preserving both runtime identities separately.
 
 Only after that report is PASS should the project proceed to AL_001 and GSE280090 biological downstream validation under that candidate runtime.
