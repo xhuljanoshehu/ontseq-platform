@@ -6,8 +6,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.marlin_contracts import MarlinArtifactLock
+from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport
 from ontseq_platform.marlin_runtime_freeze import (
     MARLIN_RUNTIME_FIXTURE_ABSOLUTE_SCORE_TOLERANCE,
     MARLIN_RUNTIME_FIXTURE_GENERATOR_VERSION,
@@ -15,6 +18,7 @@ from ontseq_platform.marlin_runtime_freeze import (
     freeze_runtime_compatibility,
     generate_frozen_runtime_fixture,
     render_frozen_runtime_fixture,
+    verify_runtime_probe_matches_lock,
 )
 from ontseq_platform.models import GenomeBuild
 
@@ -67,6 +71,16 @@ def _lock(model_sha256: str) -> MarlinArtifactLock:
     )
 
 
+def _probe() -> MarlinRuntimeProbeReport:
+    return MarlinRuntimeProbeReport(
+        R_version="4.2.3",
+        keras_version="2.13.0",
+        tensorflow_version="2.13.0",
+        python_version="3.10.21",
+        execution_backend="cpu",
+    )
+
+
 def test_runtime_fixture_generator_is_deterministic_and_contract_locked() -> None:
     lock = _lock("0" * 64)
 
@@ -112,6 +126,21 @@ def test_runtime_fixture_text_is_byte_reproducible() -> None:
     assert hashlib.sha256(first.encode("utf-8")).hexdigest() == (
         "c41b18446193c5ca93e64e054762356203a020b9a53d9330b31e979d61b27d30"
     )
+
+
+def test_live_runtime_probe_must_match_artifact_lock() -> None:
+    lock = _lock("0" * 64)
+    verify_runtime_probe_matches_lock(lock, _probe())
+
+    for field, value in (
+        ("R_version", "4.3.0"),
+        ("keras_version", "2.14.0"),
+        ("tensorflow_version", "2.14.0"),
+        ("python_version", "3.10.20"),
+        ("execution_backend", "gpu"),
+    ):
+        with pytest.raises(ValueError, match=field):
+            verify_runtime_probe_matches_lock(lock, _probe().model_copy(update={field: value}))
 
 
 def test_freeze_runtime_compatibility_runs_model_once_and_binds_profile(tmp_path: Path) -> None:
