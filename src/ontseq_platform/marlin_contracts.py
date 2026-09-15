@@ -291,7 +291,9 @@ class MarlinDualRuntimeCompatibilityReport(StrictModel):
         ):
             raise ValueError("MARLIN dual-runtime scores must be finite probabilities")
         if any(not math.isfinite(delta) or delta < 0 for delta in self.absolute_differences):
-            raise ValueError("MARLIN dual-runtime score differences must be finite and non-negative")
+            raise ValueError(
+                "MARLIN dual-runtime score differences must be finite and non-negative"
+            )
         if not math.isfinite(self.max_absolute_difference):
             raise ValueError("MARLIN dual-runtime max difference must be finite")
         expected_differences = [
