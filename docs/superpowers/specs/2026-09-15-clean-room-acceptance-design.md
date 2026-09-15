@@ -38,7 +38,7 @@ Those capabilities may be displayed in the acceptance report as optional or sepa
 
 ## Design principles
 
-1. **Reuse, do not fork.** Existing `WslServiceLauncher` methods remain the authority for WSL checks, runtime installation, resource installation/repair, resource status/validation and `RunSelfTestAsync`.
+1. **Reuse, do not fork.** Existing `WslServiceLauncher` methods remain the authority for WSL checks, runtime installation, resource installation/repair, resource status and `RunSelfTestAsync`.
 2. **One operator action.** The setup window exposes one primary action: `Vollständig einrichten & testen`.
 3. **Fail closed.** A required step that cannot be proven successful prevents a final PASS.
 4. **No terminal dependency.** Expected setup conditions are handled through the Desktop UI. A stack trace, exit code or raw shell error may be preserved in diagnostic evidence but is not the primary operator message.
@@ -68,7 +68,7 @@ SystemAcceptanceRunner
    |      +--> InstallProfileResourcesAsync when absent
    |      +--> RepairProfileResourcesAsync when incomplete
    |
-   +--> Validate selected resource family
+   +--> checksum-validate each managed bundle in the selected family
    |
    +--> RunSelfTestAsync
    |
@@ -139,16 +139,27 @@ After install/repair, refresh status and require `CanAnalyze == true` for the se
 
 The UI must display that several GB and network access may be required before the operator starts the one-click process.
 
-### 5. Full resource validation
+### 5. Full selected-family resource validation
 
-A fast status result is not the final acceptance proof. The runner must invoke the existing full resource-validation contract after provisioning and require success.
+A fast status result is not the final acceptance proof. The backend CLI already supports targeted full validation through:
+
+```text
+ontseq references validate <bundle_id> --resource-root <root>
+```
+
+The Desktop bridge is extended so `validate` may receive an explicit bundle ID. `SystemAcceptanceRunner` then obtains the selected family's exact managed IDs from `WslServiceLauncher.ManagedResourceBundleIds(genomeBuild)` and checksum-validates **each of those bundle IDs individually**.
+
+All selected-family bundle validations must succeed. A bundle from the other genome-build family is outside this run's scope and must neither be installed implicitly nor cause failure merely because it is absent or independently incomplete.
+
+After the targeted checksum validations, refresh `CheckResourceFamiliesAsync` and again require the selected family to report `CanAnalyze == true`. This proves both bundle integrity and profile-resolution readiness without turning the other build into a hidden prerequisite.
 
 The report records:
 
 - selected build;
 - selected resource root;
-- managed bundle IDs expected for that build;
-- final validation outcome and detail.
+- exact managed bundle IDs validated for that build;
+- per-bundle validation outcome and detail;
+- final selected-family status after validation.
 
 No file hash is invented or duplicated in the Desktop layer; the backend resource manifests remain authoritative.
 
@@ -306,7 +317,7 @@ WSL2/Ubuntu is not available. Install or repair WSL, then rerun this acceptance 
 ```
 
 ```text
-GRCh38 resources could not be validated after automatic repair. No research analysis was enabled. See acceptance evidence: ...
+GRCh38 resources could not be validated after automatic repair. No research analysis was enabled. The acceptance evidence is stored below %LOCALAPPDATA%\ONTSeq\acceptance.
 ```
 
 The UI must not ask the operator to run pip, conda, R package installation, or ad-hoc shell commands for expected setup states.
@@ -366,17 +377,18 @@ If the process is cancelled:
 
 The orchestration is tested against a fake acceptance service interface. Required cases:
 
-1. clean system with working WSL, missing runtime, missing selected resources -> install runtime -> install resources -> validate -> self-test -> PASS;
-2. already-ready system -> no reinstall/re-download -> self-test -> PASS;
-3. incomplete resources -> repair -> validate -> PASS;
+1. clean system with working WSL, missing runtime, missing selected resources -> install runtime -> install resources -> validate selected bundles -> self-test -> PASS;
+2. already-ready system -> no reinstall/re-download -> selected-bundle validation -> self-test -> PASS;
+3. incomplete selected resources -> repair -> selected-bundle validation -> PASS;
 4. WSL unavailable -> stop before mutation -> FAIL;
 5. runtime install followed by version/capability mismatch -> FAIL;
 6. resource install/repair followed by non-ready status -> FAIL;
-7. full resource validation failure -> FAIL;
-8. self-test failure -> FAIL;
-9. self-test reports success but evidence/report is missing or invalid -> FAIL;
-10. cancellation -> CANCELLED with downstream `NOT_RUN`;
-11. optional modkit/MARLIN/raw-signal readiness never upgrades Core evidence beyond its declared scope.
+7. any selected managed bundle failing checksum validation -> FAIL;
+8. a broken or absent resource family from the other genome build does not block the selected family acceptance;
+9. self-test failure -> FAIL;
+10. self-test reports success but evidence/report is missing or invalid -> FAIL;
+11. cancellation -> CANCELLED with downstream `NOT_RUN`;
+12. optional modkit/MARLIN/raw-signal readiness never upgrades Core evidence beyond its declared scope.
 
 ### Desktop integration tests
 
@@ -385,6 +397,7 @@ Extend `desktop/ONTSeq.Desktop.Tests` to verify:
 - result-model serialization;
 - stable step IDs and verdict semantics;
 - UI-facing summary generation;
+- targeted `references validate <bundle_id>` argument construction;
 - existing SetupWindow state rules remain compatible;
 - acceptance evidence paths remain under `%LOCALAPPDATA%\ONTSeq\acceptance`.
 
@@ -416,15 +429,16 @@ The feature is engineering-complete when all of the following are true:
 1. one Desktop action orchestrates the existing runtime/resource/self-test contracts;
 2. a missing runtime is installed automatically from the checksummed bundled runtime;
 3. the selected missing/incomplete resource family is installed/repaired automatically;
-4. full resource validation is mandatory after provisioning;
-5. the canonical installed-runtime self-test is mandatory;
-6. self-test evidence is independently checked before final PASS;
-7. machine-readable and human-readable acceptance evidence is persisted;
-8. PASS has no failed or skipped required step;
-9. optional methylation/MARLIN/raw-signal states are clearly separated from aligned-BAM Core readiness;
-10. unit/Desktop tests cover happy paths, repair paths, failure paths and cancellation;
-11. Core CI, Desktop CI and existing system-smoke gates remain green;
-12. a fresh Windows workstation can complete the documented clean-room procedure without terminal troubleshooting.
+4. every managed bundle in the selected resource family is checksum-validated individually;
+5. an absent or broken non-selected genome-build family does not become an implicit prerequisite;
+6. the canonical installed-runtime self-test is mandatory;
+7. self-test evidence is independently checked before final PASS;
+8. machine-readable and human-readable acceptance evidence is persisted;
+9. PASS has no failed or skipped required step;
+10. optional methylation/MARLIN/raw-signal states are clearly separated from aligned-BAM Core readiness;
+11. unit/Desktop tests cover happy paths, repair paths, failure paths, cross-build isolation and cancellation;
+12. Core CI, Desktop CI and existing system-smoke gates remain green;
+13. a fresh Windows workstation can complete the documented clean-room procedure without terminal troubleshooting.
 
 ## Release boundary
 
