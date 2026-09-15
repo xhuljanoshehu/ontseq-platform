@@ -310,9 +310,7 @@ class MarlinDualRuntimeCompatibilityReport(StrictModel):
         ):
             raise ValueError("MARLIN dual-runtime score differences are inconsistent")
         expected_max = max(self.absolute_differences)
-        if not math.isclose(
-            self.max_absolute_difference, expected_max, rel_tol=0, abs_tol=1e-15
-        ):
+        if not math.isclose(self.max_absolute_difference, expected_max, rel_tol=0, abs_tol=1e-15):
             raise ValueError("MARLIN dual-runtime max difference is inconsistent")
         reference_top = max(range(42), key=self.reference_scores.__getitem__)
         candidate_top = max(range(42), key=self.candidate_scores.__getitem__)
