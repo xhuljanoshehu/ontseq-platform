@@ -50,7 +50,7 @@ These values are declared before biological validation and must not be widened a
 
 ## Single-runtime freeze
 
-`ontseq marlin-freeze-runtime` creates the frozen reference oracle for one execution lock. The command:
+`ontseq marlin-freeze-runtime` creates a frozen numerical baseline for one execution lock. The command:
 
 1. loads the `MarlinArtifactLock`;
 2. live-probes the same `Rscript` environment used for inference;
@@ -60,9 +60,9 @@ These values are declared before biological validation and must not be widened a
 6. writes the fixture and `MarlinRuntimeCompatibilityProfile` atomically;
 7. when requested, writes a `MarlinRuntimeIdentity` produced from **that same live probe and same freeze timestamp**.
 
-The optional runtime-identity output is the provenance source required by the dual-runtime gate. It must not be recreated by manually typing version strings.
+For the reference runtime, the optional runtime-identity output is the provenance source required by the dual-runtime gate. It must not be recreated by manually typing version strings.
 
-Example:
+Example reference freeze:
 
 ```bash
 ontseq marlin-freeze-runtime \
@@ -72,8 +72,8 @@ ontseq marlin-freeze-runtime \
   --runtime-probe-script scripts/marlin_runtime_probe.R \
   --profile-id MARLIN_V1_REFERENCE_FROZEN \
   --rscript /reference-runtime/bin/Rscript \
-  --output-fixture results/marlin-validation/marlin-runtime-fixture.txt \
-  --output-profile results/marlin-validation/marlin-runtime-profile.json \
+  --output-fixture results/marlin-validation/reference-runtime-fixture.txt \
+  --output-profile results/marlin-validation/reference-runtime-profile.json \
   --output-runtime-identity results/marlin-validation/reference-runtime-identity.json
 ```
 
@@ -133,11 +133,15 @@ It excludes runtime versions/backend, lock IDs, timestamps, local paths and sour
 ```text
 A. Reconstruct the reference MARLIN environment and live-probe it.
 B. Create the reference execution lock with marlin-lock.
-C. Freeze fixture + reference profile + reference runtime identity in the reference runtime.
+C. Freeze reference fixture/profile/runtime identity under the reference execution lock.
 D. Create the candidate execution lock from the candidate live probe using identical artifact bytes.
 E. Run marlin-compare-runtimes with both locks and the frozen reference evidence.
-F. Require report verdict PASS before AL_001 or GSE280090 is executed.
+F. Require dual-runtime report verdict PASS.
+G. Freeze a candidate fixture/profile under the candidate execution lock.
+H. Run AL_001/GSE280090 only with candidate lock + candidate profile + candidate fixture.
 ```
+
+Step G preserves the existing `marlin-validate` same-lock safety boundary. The reference profile is not substituted for a candidate profile. The second freeze is a candidate reproducibility baseline, not a new biological qualification.
 
 If the reconstructed reference environment resolves to versions different from the upstream documentation, record the **actual observed versions**. Never relabel a different runtime as R 4.1.3.
 
@@ -148,8 +152,8 @@ ontseq marlin-compare-runtimes \
   --reference-artifact-lock results/marlin-validation/reference-artifact-lock.json \
   --candidate-artifact-lock results/marlin-validation/candidate-artifact-lock.json \
   --reference-runtime-identity results/marlin-validation/reference-runtime-identity.json \
-  --reference-profile results/marlin-validation/marlin-runtime-profile.json \
-  --runtime-fixture results/marlin-validation/marlin-runtime-fixture.txt \
+  --reference-profile results/marlin-validation/reference-runtime-profile.json \
+  --runtime-fixture results/marlin-validation/reference-runtime-fixture.txt \
   --model /controlled/marlin_v1.model.hdf5 \
   --inference-script scripts/marlin_infer_locked.R \
   --candidate-runtime-probe-script scripts/marlin_runtime_probe.R \
@@ -196,13 +200,31 @@ Dual-runtime `PASS` requires all of:
 
 The report preserves both exact runtime identities, both execution-lock IDs, the common artifact-set identity, all 42 reference/candidate scores and differences, the maximum absolute difference, and the final PASS/FAIL verdict.
 
+## Candidate validation baseline after PASS
+
+`marlin-validate` intentionally requires `profile.reference_runtime_lock_id == lock.lock_id`. After a dual-runtime PASS, create a candidate profile under the candidate lock before biological validation:
+
+```bash
+ontseq marlin-freeze-runtime \
+  --artifact-lock results/marlin-validation/candidate-artifact-lock.json \
+  --model /controlled/marlin_v1.model.hdf5 \
+  --inference-script scripts/marlin_infer_locked.R \
+  --runtime-probe-script scripts/marlin_runtime_probe.R \
+  --profile-id MARLIN_V1_CANDIDATE_FROZEN \
+  --rscript /candidate-runtime/bin/Rscript \
+  --output-fixture results/marlin-validation/candidate-runtime-fixture.txt \
+  --output-profile results/marlin-validation/candidate-runtime-profile.json
+```
+
+The candidate fixture is generated by the same deterministic contract and therefore must have the same canonical feature-vector identity. The candidate profile is the self-baseline that `marlin-validate` rechecks immediately before the biological cohort. A reference profile presented with a candidate lock remains a hard failure.
+
 ## Evidence boundary
 
 A dual-runtime PASS supports only:
 
 > Under the tested conditions, the live candidate runtime reproduced the frozen reference runtime's numerical MARLIN v1 behavior on the fixed non-biological fixture within the predeclared engineering tolerances.
 
-It does **not** demonstrate correct leukemia classification. After PASS, the evidence ladder continues with:
+It does **not** demonstrate correct leukemia classification. After dual-runtime PASS and candidate same-lock baseline, the evidence ladder continues with:
 
 ```text
 AL_001 processed-CpG external gate
@@ -214,4 +236,4 @@ AL_001 processed-CpG external gate
 
 ## Data and repository policy
 
-The trained model, generated runtime profile, runtime identities, comparison reports, GEO payloads and patient-derived data are controlled local evidence and are not committed to Git. Repository safety rejects force-tracked files under `results/marlin-validation/`.
+The trained model, generated runtime profiles, runtime identities, comparison reports, GEO payloads and patient-derived data are controlled local evidence and are not committed to Git. Repository safety rejects force-tracked files under `results/marlin-validation/`.
