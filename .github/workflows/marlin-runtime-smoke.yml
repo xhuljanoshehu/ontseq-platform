@@ -82,7 +82,7 @@ jobs:
 
   reference-runtime-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -96,13 +96,30 @@ jobs:
           environment-file: workflow/envs/marlin_reference_runtime.yaml
           cache-environment: true
           cache-downloads: true
+      - name: Install historical R keras and tensorflow interfaces
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          MARLIN_PREFIX="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime"
+          MARLIN_RSCRIPT="$MARLIN_PREFIX/bin/Rscript"
+          export RETICULATE_PYTHON="$MARLIN_PREFIX/bin/python"
+          test -x "$MARLIN_RSCRIPT"
+          test -x "$RETICULATE_PYTHON"
+          "$MARLIN_RSCRIPT" - <<'RS'
+          options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2023-08-16/"))
+          install.packages(c("tensorflow", "keras"), dependencies = NA)
+          stopifnot(as.character(packageVersion("tensorflow")) == "2.13.0")
+          stopifnot(as.character(packageVersion("keras")) == "2.13.0")
+          RS
       - name: Probe upstream-tested reference runtime
         shell: bash -el {0}
         run: |
           set -euo pipefail
           mkdir -p results
           CONTROL_PYTHON="$pythonLocation/bin/python"
-          MARLIN_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime/bin/Rscript"
+          MARLIN_PREFIX="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime"
+          MARLIN_RSCRIPT="$MARLIN_PREFIX/bin/Rscript"
+          export RETICULATE_PYTHON="$MARLIN_PREFIX/bin/python"
           test -x "$CONTROL_PYTHON"
           test -x "$MARLIN_RSCRIPT"
           "$CONTROL_PYTHON" -m ontseq_platform marlin-runtime-probe \
