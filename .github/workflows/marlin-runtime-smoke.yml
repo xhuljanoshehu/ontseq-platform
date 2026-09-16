@@ -7,6 +7,7 @@ on:
       - "src/ontseq_platform/entrypoint.py"
       - "scripts/marlin_runtime_probe.R"
       - "workflow/envs/marlin_runtime.yaml"
+      - "workflow/envs/marlin_reference_runtime.yaml"
       - "pyproject.toml"
       - ".github/workflows/marlin-runtime-smoke.yml"
   push:
@@ -16,6 +17,7 @@ on:
       - "src/ontseq_platform/entrypoint.py"
       - "scripts/marlin_runtime_probe.R"
       - "workflow/envs/marlin_runtime.yaml"
+      - "workflow/envs/marlin_reference_runtime.yaml"
       - "pyproject.toml"
       - ".github/workflows/marlin-runtime-smoke.yml"
 
@@ -76,4 +78,55 @@ jobs:
         with:
           name: marlin-runtime-probe
           path: results/marlin-runtime-probe.json
+          retention-days: 7
+
+  reference-runtime-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install ONTSeq control plane
+        run: python -m pip install -e .
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/marlin_reference_runtime.yaml
+          cache-environment: true
+          cache-downloads: true
+      - name: Probe upstream-tested reference runtime
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          CONTROL_PYTHON="$pythonLocation/bin/python"
+          MARLIN_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime/bin/Rscript"
+          test -x "$CONTROL_PYTHON"
+          test -x "$MARLIN_RSCRIPT"
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-runtime-probe \
+            --probe-script scripts/marlin_runtime_probe.R \
+            --rscript "$MARLIN_RSCRIPT" \
+            --output results/marlin-reference-runtime-probe.json
+      - name: Verify upstream-tested reference baseline
+        run: |
+          set -euo pipefail
+          "$pythonLocation/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("results/marlin-reference-runtime-probe.json").read_text(encoding="utf-8"))
+          assert payload["R_version"] == "4.1.3", payload
+          assert payload["keras_version"] == "2.13.0", payload
+          assert payload["tensorflow_version"] == "2.13.0", payload
+          assert payload["python_version"].startswith("3.10."), payload
+          assert payload["execution_backend"] == "cpu", payload
+          assert payload["research_only"] is True, payload
+          PY
+      - name: Upload non-biological reference runtime identity
+        uses: actions/upload-artifact@v7
+        with:
+          name: marlin-reference-runtime-probe
+          path: results/marlin-reference-runtime-probe.json
           retention-days: 7
