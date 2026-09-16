@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from pydantic import ValidationError
 
 from ontseq_platform.marlin_contracts import (
     MarlinArtifactLock,
@@ -16,6 +15,7 @@ from ontseq_platform.marlin_runtime_compare import (
     derive_marlin_artifact_set_identity,
     require_same_marlin_artifact_set,
     runtime_identity_from_probe,
+    verify_marlin_artifact_set_identity,
 )
 from ontseq_platform.models import GenomeBuild
 
@@ -95,11 +95,10 @@ def _candidate_result() -> MarlinRuntimeResult:
 
 def test_artifact_set_identity_rejects_tampered_digest() -> None:
     identity = derive_marlin_artifact_set_identity(_lock())
-    payload = identity.model_dump()
-    payload["artifact_set_sha256"] = "f" * 64
+    tampered = identity.model_copy(update={"artifact_set_sha256": "f" * 64})
 
-    with pytest.raises(ValidationError, match="digest"):
-        type(identity).model_validate(payload)
+    with pytest.raises(ValueError, match="digest"):
+        verify_marlin_artifact_set_identity(tampered)
 
 
 def test_reference_runtime_identity_must_share_reference_freeze_timestamp() -> None:
@@ -123,9 +122,7 @@ def test_reference_runtime_identity_must_share_reference_freeze_timestamp() -> N
     with pytest.raises(ValueError, match="timestamp"):
         compare_marlin_runtime_results(
             comparison_id="DUAL_RUNTIME_EVIDENCE_TEST",
-            artifact_set_identity=require_same_marlin_artifact_set(
-                reference_lock, candidate_lock
-            ),
+            artifact_set_identity=require_same_marlin_artifact_set(reference_lock, candidate_lock),
             reference_lock=reference_lock,
             candidate_lock=candidate_lock,
             reference_runtime_identity=stale_reference_identity,
@@ -150,6 +147,4 @@ def test_marlin_v1_runtime_profile_policy_rejects_widened_tolerance() -> None:
 def test_marlin_v1_runtime_profile_policy_accepts_frozen_policy() -> None:
     from ontseq_platform.marlin_runtime_freeze import verify_marlin_v1_runtime_profile_policy
 
-    verify_marlin_v1_runtime_profile_policy(
-        _profile(datetime(2026, 9, 16, 4, 0, tzinfo=UTC))
-    )
+    verify_marlin_v1_runtime_profile_policy(_profile(datetime(2026, 9, 16, 4, 0, tzinfo=UTC)))
