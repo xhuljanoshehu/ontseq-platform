@@ -24,7 +24,12 @@ suppressPackageStartupMessages({
   library(tensorflow)
 })
 
-keras_backend <- keras::k_backend()
+# R keras 2.13.0's k_backend() helper is not portable across all historical
+# R/TensorFlow combinations. Query the backend from the exact Python runtime
+# already bound by reticulate instead of exercising that unrelated wrapper.
+keras_backend <- as.character(
+  reticulate::py_eval("__import__('keras').backend.backend()")
+)
 if (!identical(keras_backend, "tensorflow")) {
   stop(sprintf("expected keras tensorflow backend, observed %s", keras_backend))
 }
