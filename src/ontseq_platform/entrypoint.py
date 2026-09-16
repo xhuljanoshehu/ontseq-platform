@@ -23,6 +23,7 @@ _SCIENTIFIC_COMMANDS = (
     ("marlin-lock", "Lock local MARLIN v1 artifacts"),
     ("marlin-runtime-probe", "Probe the live MARLIN R/Keras/TensorFlow runtime"),
     ("marlin-freeze-runtime", "Freeze the non-biological MARLIN runtime fixture"),
+    ("marlin-compare-runtimes", "Compare a live MARLIN runtime to a frozen reference"),
     ("marlin-features", "Build the locked MARLIN v1 feature vector"),
     ("marlin-classify", "Run locked MARLIN v1 classification"),
     ("marlin-validate", "Validate locked MARLIN classifications against a manifest"),
