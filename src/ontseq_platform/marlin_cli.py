@@ -16,11 +16,16 @@ from .marlin_artifacts import (
     create_marlin_artifact_lock,
     load_exported_feature_ids,
 )
-from .marlin_contracts import MarlinArtifactLock, MarlinRuntimeCompatibilityProfile
+from .marlin_contracts import (
+    MarlinArtifactLock,
+    MarlinRuntimeCompatibilityProfile,
+    MarlinRuntimeIdentity,
+)
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from .marlin_runtime import probe_marlin_runtime
+from .marlin_runtime_compare import execute_marlin_dual_runtime_comparison
 from .marlin_runtime_freeze import (
     freeze_runtime_compatibility,
     render_frozen_runtime_fixture,
@@ -34,6 +39,7 @@ COMMANDS = frozenset(
         "marlin-lock",
         "marlin-runtime-probe",
         "marlin-freeze-runtime",
+        "marlin-compare-runtimes",
         "marlin-features",
         "marlin-classify",
         "marlin-validate",
@@ -62,6 +68,13 @@ def _write_text_atomic(path: Path, text: str) -> Path:
 
 def _write_model_atomic(model: BaseModel, path: Path) -> Path:
     return _write_text_atomic(path, model.model_dump_json(indent=2) + "\n")
+
+
+def _require_new_output(path: Path, *, label: str) -> Path:
+    candidate = Path(path)
+    if candidate.exists():
+        raise FileExistsError(f"{label} output already exists: {candidate}")
+    return candidate
 
 
 def _require_new_freeze_outputs(fixture_path: Path, profile_path: Path) -> tuple[Path, Path]:
@@ -117,6 +130,22 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("--work-dir", type=Path)
     freeze.add_argument("--output-fixture", type=Path, required=True)
     freeze.add_argument("--output-profile", type=Path, required=True)
+
+    compare = subparsers.add_parser(
+        "marlin-compare-runtimes",
+        help="Compare a live MARLIN runtime against a frozen reference",
+    )
+    compare.add_argument("--reference-artifact-lock", type=Path, required=True)
+    compare.add_argument("--candidate-artifact-lock", type=Path, required=True)
+    compare.add_argument("--reference-runtime-identity", type=Path, required=True)
+    compare.add_argument("--reference-profile", type=Path, required=True)
+    compare.add_argument("--runtime-fixture", type=Path, required=True)
+    compare.add_argument("--model", type=Path, required=True)
+    compare.add_argument("--inference-script", type=Path, required=True)
+    compare.add_argument("--candidate-runtime-probe-script", type=Path, required=True)
+    compare.add_argument("--candidate-rscript", required=True)
+    compare.add_argument("--comparison-id", required=True)
+    compare.add_argument("--output", type=Path, required=True)
 
     features = subparsers.add_parser(
         "marlin-features", help="Build the locked MARLIN v1 feature vector"
@@ -238,6 +267,30 @@ def _run_freeze(args: argparse.Namespace) -> tuple[Path, Path]:
     return written_fixture, written_profile
 
 
+def _run_compare_runtimes(args: argparse.Namespace) -> Path:
+    output = _require_new_output(args.output, label="MARLIN dual-runtime comparison")
+    reference_lock = load_model(args.reference_artifact_lock, MarlinArtifactLock)
+    candidate_lock = load_model(args.candidate_artifact_lock, MarlinArtifactLock)
+    reference_identity = load_model(args.reference_runtime_identity, MarlinRuntimeIdentity)
+    reference_profile = load_model(args.reference_profile, MarlinRuntimeCompatibilityProfile)
+    report = execute_marlin_dual_runtime_comparison(
+        comparison_id=args.comparison_id,
+        reference_lock=reference_lock,
+        candidate_lock=candidate_lock,
+        reference_runtime_identity=reference_identity,
+        reference_profile=reference_profile,
+        runtime_fixture_path=args.runtime_fixture,
+        model_path=args.model,
+        inference_script=args.inference_script,
+        candidate_probe_script=args.candidate_runtime_probe_script,
+        runner=SubprocessRunner(),
+        work_dir=output.parent / ".marlin-runtime-compare",
+        candidate_rscript_path=args.candidate_rscript,
+        created_at=datetime.now(UTC),
+    )
+    return _write_model_atomic(report, output)
+
+
 def _load_locked_features(feature_list: Path, lock: MarlinArtifactLock) -> tuple[str, ...]:
     observed_hash = sha256_file(feature_list)
     if observed_hash != lock.canonical_feature_list_sha256:
@@ -298,6 +351,8 @@ def run_command(args: argparse.Namespace) -> None:
     elif args.command == "marlin-freeze-runtime":
         for path in _run_freeze(args):
             print(path)
+    elif args.command == "marlin-compare-runtimes":
+        print(_run_compare_runtimes(args))
     elif args.command == "marlin-features":
         for path in _run_features(args):
             print(path)
