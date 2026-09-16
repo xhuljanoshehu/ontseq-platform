@@ -57,7 +57,9 @@ def verify_marlin_artifact_set_identity(identity: MarlinArtifactSetIdentity) -> 
     """Reject persisted artifact-set evidence whose digest was altered independently of fields."""
     observed = _artifact_set_digest(_artifact_set_payload(identity))
     if identity.artifact_set_sha256 != observed:
-        raise ValueError("MARLIN artifact-set identity digest is inconsistent with immutable fields")
+        raise ValueError(
+            "MARLIN artifact-set identity digest is inconsistent with immutable fields"
+        )
 
 
 def derive_marlin_artifact_set_identity(lock: MarlinArtifactLock) -> MarlinArtifactSetIdentity:
@@ -129,6 +131,17 @@ def _require_runtime_identity_matches_lock(
             )
 
 
+def verify_reference_runtime_identity_matches_profile(
+    identity: MarlinRuntimeIdentity,
+    profile: MarlinRuntimeCompatibilityProfile,
+) -> None:
+    """Bind persisted reference runtime identity to the exact freeze event that made the profile."""
+    if identity.created_at != profile.created_at:
+        raise ValueError(
+            "MARLIN reference runtime identity timestamp differs from frozen profile timestamp"
+        )
+
+
 def runtime_identity_from_probe(
     lock: MarlinArtifactLock,
     probe: MarlinRuntimeProbeReport,
@@ -184,10 +197,6 @@ def compare_marlin_runtime_results(
         raise ValueError("MARLIN reference profile belongs to a different reference execution lock")
     if reference_profile.execution_backend != reference_lock.execution_backend:
         raise ValueError("MARLIN reference profile backend differs from reference execution lock")
-    if reference_runtime_identity.created_at != reference_profile.created_at:
-        raise ValueError(
-            "MARLIN reference runtime identity timestamp differs from frozen profile timestamp"
-        )
     if candidate_result.artifact_lock_id != candidate_lock.lock_id:
         raise ValueError("MARLIN candidate result belongs to a different candidate execution lock")
     if candidate_result.execution_backend != candidate_lock.execution_backend:
@@ -269,10 +278,7 @@ def execute_marlin_dual_runtime_comparison(
         raise ValueError("MARLIN reference profile belongs to a different reference execution lock")
     if reference_profile.execution_backend != reference_lock.execution_backend:
         raise ValueError("MARLIN reference profile backend differs from reference execution lock")
-    if reference_runtime_identity.created_at != reference_profile.created_at:
-        raise ValueError(
-            "MARLIN reference runtime identity timestamp differs from frozen profile timestamp"
-        )
+    verify_reference_runtime_identity_matches_profile(reference_runtime_identity, reference_profile)
     verify_marlin_v1_runtime_profile_policy(reference_profile)
 
     fixture = load_frozen_runtime_fixture(runtime_fixture_path, reference_lock)
@@ -328,4 +334,5 @@ __all__ = [
     "require_same_marlin_artifact_set",
     "runtime_identity_from_probe",
     "verify_marlin_artifact_set_identity",
+    "verify_reference_runtime_identity_matches_profile",
 ]
