@@ -21,35 +21,49 @@ from .marlin_runtime import (
     probe_marlin_runtime,
     run_marlin_inference,
 )
+from .marlin_runtime_freeze import verify_marlin_v1_runtime_profile_policy
 from .reference import sha256_file
 
 
-def derive_marlin_artifact_set_identity(lock: MarlinArtifactLock) -> MarlinArtifactSetIdentity:
-    """Derive the immutable MARLIN classifier identity independent of execution runtime."""
-    payload: dict[str, object] = {
-        "model_version": lock.model_version,
-        "model_sha256": lock.model_sha256,
-        "code_version_or_commit": lock.code_version_or_commit,
-        "code_manifest_sha256": lock.code_manifest_sha256,
-        "feature_sha256": lock.feature_sha256,
-        "canonical_feature_list_sha256": lock.canonical_feature_list_sha256,
-        "class_annotation_sha256": lock.class_annotation_sha256,
-        "probe_resource_sha256": lock.probe_resource_sha256,
-        "genome_build": lock.genome_build.value,
-        "expected_feature_count": lock.expected_feature_count,
-        "expected_model_unit_count": lock.expected_model_unit_count,
-        "preprocessing_contract_version": lock.preprocessing_contract_version,
-        "runtime_contract_version": lock.runtime_contract_version,
+def _artifact_set_payload(identity: MarlinArtifactSetIdentity) -> dict[str, object]:
+    return {
+        "model_version": identity.model_version,
+        "model_sha256": identity.model_sha256,
+        "code_version_or_commit": identity.code_version_or_commit,
+        "code_manifest_sha256": identity.code_manifest_sha256,
+        "feature_sha256": identity.feature_sha256,
+        "canonical_feature_list_sha256": identity.canonical_feature_list_sha256,
+        "class_annotation_sha256": identity.class_annotation_sha256,
+        "probe_resource_sha256": identity.probe_resource_sha256,
+        "genome_build": identity.genome_build.value,
+        "expected_feature_count": identity.expected_feature_count,
+        "expected_model_unit_count": identity.expected_model_unit_count,
+        "preprocessing_contract_version": identity.preprocessing_contract_version,
+        "runtime_contract_version": identity.runtime_contract_version,
     }
+
+
+def _artifact_set_digest(payload: dict[str, object]) -> str:
     encoded = json.dumps(
         payload,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
     ).encode("ascii")
-    digest = hashlib.sha256(encoded).hexdigest()
-    return MarlinArtifactSetIdentity(
-        artifact_set_sha256=digest,
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def verify_marlin_artifact_set_identity(identity: MarlinArtifactSetIdentity) -> None:
+    """Reject persisted artifact-set evidence whose digest was altered independently of fields."""
+    observed = _artifact_set_digest(_artifact_set_payload(identity))
+    if identity.artifact_set_sha256 != observed:
+        raise ValueError("MARLIN artifact-set identity digest is inconsistent with immutable fields")
+
+
+def derive_marlin_artifact_set_identity(lock: MarlinArtifactLock) -> MarlinArtifactSetIdentity:
+    """Derive the immutable MARLIN classifier identity independent of execution runtime."""
+    identity = MarlinArtifactSetIdentity(
+        artifact_set_sha256="0" * 64,
         model_version=lock.model_version,
         model_sha256=lock.model_sha256,
         code_version_or_commit=lock.code_version_or_commit,
@@ -64,6 +78,8 @@ def derive_marlin_artifact_set_identity(lock: MarlinArtifactLock) -> MarlinArtif
         preprocessing_contract_version=lock.preprocessing_contract_version,
         runtime_contract_version=lock.runtime_contract_version,
     )
+    digest = _artifact_set_digest(_artifact_set_payload(identity))
+    return identity.model_copy(update={"artifact_set_sha256": digest})
 
 
 def require_same_marlin_artifact_set(
@@ -73,6 +89,8 @@ def require_same_marlin_artifact_set(
     """Require two runtime-specific execution locks to bind the same immutable artifacts."""
     reference = derive_marlin_artifact_set_identity(reference_lock)
     candidate = derive_marlin_artifact_set_identity(candidate_lock)
+    verify_marlin_artifact_set_identity(reference)
+    verify_marlin_artifact_set_identity(candidate)
     if reference.artifact_set_sha256 != candidate.artifact_set_sha256:
         raise ValueError(
             "MARLIN reference and candidate execution locks describe different artifact sets"
@@ -146,6 +164,7 @@ def compare_marlin_runtime_results(
     created_at: datetime,
 ) -> MarlinDualRuntimeCompatibilityReport:
     """Compare one candidate runtime result with a frozen reference numerical oracle."""
+    verify_marlin_artifact_set_identity(artifact_set_identity)
     expected_artifact_set = require_same_marlin_artifact_set(reference_lock, candidate_lock)
     if artifact_set_identity != expected_artifact_set:
         raise ValueError("MARLIN supplied artifact-set identity does not match execution locks")
@@ -165,6 +184,10 @@ def compare_marlin_runtime_results(
         raise ValueError("MARLIN reference profile belongs to a different reference execution lock")
     if reference_profile.execution_backend != reference_lock.execution_backend:
         raise ValueError("MARLIN reference profile backend differs from reference execution lock")
+    if reference_runtime_identity.created_at != reference_profile.created_at:
+        raise ValueError(
+            "MARLIN reference runtime identity timestamp differs from frozen profile timestamp"
+        )
     if candidate_result.artifact_lock_id != candidate_lock.lock_id:
         raise ValueError("MARLIN candidate result belongs to a different candidate execution lock")
     if candidate_result.execution_backend != candidate_lock.execution_backend:
@@ -246,6 +269,11 @@ def execute_marlin_dual_runtime_comparison(
         raise ValueError("MARLIN reference profile belongs to a different reference execution lock")
     if reference_profile.execution_backend != reference_lock.execution_backend:
         raise ValueError("MARLIN reference profile backend differs from reference execution lock")
+    if reference_runtime_identity.created_at != reference_profile.created_at:
+        raise ValueError(
+            "MARLIN reference runtime identity timestamp differs from frozen profile timestamp"
+        )
+    verify_marlin_v1_runtime_profile_policy(reference_profile)
 
     fixture = load_frozen_runtime_fixture(runtime_fixture_path, reference_lock)
     if fixture.summary.feature_vector_sha256 != reference_profile.feature_vector_sha256:
@@ -299,4 +327,5 @@ __all__ = [
     "execute_marlin_dual_runtime_comparison",
     "require_same_marlin_artifact_set",
     "runtime_identity_from_probe",
+    "verify_marlin_artifact_set_identity",
 ]
