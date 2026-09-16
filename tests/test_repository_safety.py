@@ -100,14 +100,14 @@ class RepositorySafetyTests(unittest.TestCase):
             Path("results/marlin-validation/marlin.onnx"),
         )
         for path in cases:
-            with self.subTest(path=path):
-                with (
-                    patch.object(safety, "_candidate_files", return_value=[path]),
-                    self.assertRaisesRegex(SystemExit, "MARLIN"),
-                ):
-                    safety.main()
+            with (
+                self.subTest(path=path),
+                patch.object(safety, "_candidate_files", return_value=[path]),
+                self.assertRaisesRegex(SystemExit, "MARLIN"),
+            ):
+                safety.main()
 
-    def test_marlin_code_and_nonbiological_fixture_names_remain_allowed() -> None:
+    def test_marlin_code_and_nonbiological_fixture_names_remain_allowed(self) -> None:
         allowed = (
             Path("src/ontseq_platform/marlin_runtime_compare.py"),
             Path("tests/fixtures/marlin/nonbiological-runtime-fixture.txt"),
