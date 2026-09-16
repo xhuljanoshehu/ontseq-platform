@@ -18,6 +18,7 @@ from .marlin_contracts import (
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
 from .marlin_runtime import MarlinRuntimeResult, run_marlin_inference
+from .marlin_runtime_freeze import verify_marlin_v1_runtime_profile_policy
 from .models import GenomeBuild
 
 
@@ -35,6 +36,7 @@ def verify_runtime_profile_identity(
         raise ValueError("MARLIN runtime profile belongs to a different artifact/runtime lock")
     if profile.execution_backend != lock.execution_backend:
         raise ValueError("MARLIN runtime profile execution backend differs from artifact lock")
+    verify_marlin_v1_runtime_profile_policy(profile)
 
 
 def run_precomputed_marlin_classification(
