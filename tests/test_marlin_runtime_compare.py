@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from ontseq_platform.execution import CommandResult
 from ontseq_platform.marlin_contracts import (
     MarlinArtifactLock,
     MarlinDualRuntimeVerdict,
@@ -15,8 +19,13 @@ from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport, MarlinRunti
 from ontseq_platform.marlin_runtime_compare import (
     compare_marlin_runtime_results,
     derive_marlin_artifact_set_identity,
+    execute_marlin_dual_runtime_comparison,
     require_same_marlin_artifact_set,
     runtime_identity_from_probe,
+)
+from ontseq_platform.marlin_runtime_freeze import (
+    generate_frozen_runtime_fixture,
+    render_frozen_runtime_fixture,
 )
 from ontseq_platform.models import GenomeBuild
 
@@ -28,6 +37,36 @@ SHA4 = "4" * 64
 SHA5 = "5" * 64
 SHA6 = "6" * 64
 FEATURE_VECTOR_SHA = "a" * 64
+
+
+class RecordingRunner:
+    def __init__(self, scores: Sequence[float]) -> None:
+        self.scores = tuple(scores)
+        self.calls: list[str] = []
+
+    def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
+        args = tuple(argv)
+        if len(args) == 3:
+            self.calls.append("probe")
+            Path(args[-1]).write_text(
+                "key\tvalue\n"
+                "R_version\t4.2.3\n"
+                "keras_version\t2.13.0\n"
+                "tensorflow_version\t2.13.0\n"
+                "python_version\t3.10.21\n"
+                "execution_backend\tcpu\n",
+                encoding="utf-8",
+            )
+        elif len(args) == 5:
+            self.calls.append("inference")
+            rows = ["model_id\tscore"]
+            rows.extend(
+                f"{index}\t{score:.17g}" for index, score in enumerate(self.scores, start=1)
+            )
+            Path(args[-1]).write_text("\n".join(rows) + "\n", encoding="utf-8")
+        else:
+            raise AssertionError(f"unexpected MARLIN runner argv: {args!r}")
+        return CommandResult(argv=args, returncode=0, stdout="", stderr="")
 
 
 def _lock(**updates: object) -> MarlinArtifactLock:
@@ -105,12 +144,13 @@ def _profile(
     *,
     absolute_score_tolerance: float = 1e-7,
     score_sum_tolerance: float = 1e-5,
+    feature_vector_sha256: str = FEATURE_VECTOR_SHA,
 ) -> MarlinRuntimeCompatibilityProfile:
     values = scores or _reference_scores()
     return MarlinRuntimeCompatibilityProfile(
         profile_id="MARLIN_REFERENCE_PROFILE",
         reference_runtime_lock_id="MARLIN_REFERENCE_LOCK",
-        feature_vector_sha256=FEATURE_VECTOR_SHA,
+        feature_vector_sha256=feature_vector_sha256,
         reference_scores=values,
         absolute_score_tolerance=absolute_score_tolerance,
         score_sum_tolerance=score_sum_tolerance,
@@ -168,6 +208,29 @@ def _compare(
         candidate_result=result,
         created_at=datetime(2026, 9, 16, 5, 20, tzinfo=UTC),
     )
+
+
+def _orchestration_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+    model = tmp_path / "model.hdf5"
+    model.write_bytes(b"model")
+    inference = tmp_path / "infer.R"
+    inference.write_text("# inference fixture\n", encoding="utf-8")
+    probe = tmp_path / "probe.R"
+    probe.write_text("# runtime probe fixture\n", encoding="utf-8")
+    return model, inference, probe
+
+
+def _orchestration_locks(model_sha256: str) -> tuple[MarlinArtifactLock, MarlinArtifactLock]:
+    reference = _lock(model_sha256=model_sha256)
+    candidate = _candidate_lock(model_sha256=model_sha256)
+    return reference, candidate
+
+
+def _write_frozen_fixture(tmp_path: Path, reference_lock: MarlinArtifactLock) -> tuple[Path, str]:
+    vector = generate_frozen_runtime_fixture(reference_lock)
+    fixture = tmp_path / "runtime-fixture.txt"
+    fixture.write_text(render_frozen_runtime_fixture(vector), encoding="utf-8", newline="\n")
+    return fixture, vector.summary.feature_vector_sha256
 
 
 def test_artifact_set_digest_ignores_execution_runtime_and_source_uri_formatting() -> None:
@@ -364,3 +427,94 @@ def test_dual_runtime_rejects_candidate_fixture_digest_mismatch() -> None:
             ),
             created_at=datetime(2026, 9, 16, 5, 20, tzinfo=UTC),
         )
+
+
+def test_dual_runtime_orchestration_rejects_artifact_mismatch_before_runner(
+    tmp_path: Path,
+) -> None:
+    model, inference, probe = _orchestration_paths(tmp_path)
+    model_sha = hashlib.sha256(model.read_bytes()).hexdigest()
+    reference_lock, candidate_lock = _orchestration_locks(model_sha)
+    candidate_lock = candidate_lock.model_copy(update={"feature_sha256": SHA6})
+    fixture, fixture_sha = _write_frozen_fixture(tmp_path, reference_lock)
+    runner = RecordingRunner(_reference_scores())
+
+    with pytest.raises(ValueError, match="artifact set"):
+        execute_marlin_dual_runtime_comparison(
+            comparison_id="MARLIN_DUAL_RUNTIME_ORCHESTRATION",
+            reference_lock=reference_lock,
+            candidate_lock=candidate_lock,
+            reference_runtime_identity=_identity_for_lock(
+                reference_lock, "MARLIN_REFERENCE_RUNTIME"
+            ),
+            reference_profile=_profile(feature_vector_sha256=fixture_sha),
+            runtime_fixture_path=fixture,
+            model_path=model,
+            inference_script=inference,
+            candidate_probe_script=probe,
+            runner=runner,
+            work_dir=tmp_path / "work",
+            candidate_rscript_path="candidate-Rscript",
+            created_at=datetime(2026, 9, 16, 5, 30, tzinfo=UTC),
+        )
+
+    assert runner.calls == []
+
+
+def test_dual_runtime_orchestration_rejects_fixture_mismatch_before_runner(
+    tmp_path: Path,
+) -> None:
+    model, inference, probe = _orchestration_paths(tmp_path)
+    model_sha = hashlib.sha256(model.read_bytes()).hexdigest()
+    reference_lock, candidate_lock = _orchestration_locks(model_sha)
+    fixture, _ = _write_frozen_fixture(tmp_path, reference_lock)
+    runner = RecordingRunner(_reference_scores())
+
+    with pytest.raises(ValueError, match="fixture.*profile"):
+        execute_marlin_dual_runtime_comparison(
+            comparison_id="MARLIN_DUAL_RUNTIME_ORCHESTRATION",
+            reference_lock=reference_lock,
+            candidate_lock=candidate_lock,
+            reference_runtime_identity=_identity_for_lock(
+                reference_lock, "MARLIN_REFERENCE_RUNTIME"
+            ),
+            reference_profile=_profile(feature_vector_sha256=FEATURE_VECTOR_SHA),
+            runtime_fixture_path=fixture,
+            model_path=model,
+            inference_script=inference,
+            candidate_probe_script=probe,
+            runner=runner,
+            work_dir=tmp_path / "work",
+            candidate_rscript_path="candidate-Rscript",
+            created_at=datetime(2026, 9, 16, 5, 30, tzinfo=UTC),
+        )
+
+    assert runner.calls == []
+
+
+def test_dual_runtime_orchestration_probes_before_candidate_inference(tmp_path: Path) -> None:
+    model, inference, probe = _orchestration_paths(tmp_path)
+    model_sha = hashlib.sha256(model.read_bytes()).hexdigest()
+    reference_lock, candidate_lock = _orchestration_locks(model_sha)
+    fixture, fixture_sha = _write_frozen_fixture(tmp_path, reference_lock)
+    runner = RecordingRunner(_reference_scores())
+
+    report = execute_marlin_dual_runtime_comparison(
+        comparison_id="MARLIN_DUAL_RUNTIME_ORCHESTRATION",
+        reference_lock=reference_lock,
+        candidate_lock=candidate_lock,
+        reference_runtime_identity=_identity_for_lock(reference_lock, "MARLIN_REFERENCE_RUNTIME"),
+        reference_profile=_profile(feature_vector_sha256=fixture_sha),
+        runtime_fixture_path=fixture,
+        model_path=model,
+        inference_script=inference,
+        candidate_probe_script=probe,
+        runner=runner,
+        work_dir=tmp_path / "work",
+        candidate_rscript_path="candidate-Rscript",
+        created_at=datetime(2026, 9, 16, 5, 30, tzinfo=UTC),
+    )
+
+    assert runner.calls == ["probe", "inference"]
+    assert report.verdict is MarlinDualRuntimeVerdict.PASS
+    assert report.candidate_runtime_identity.R_version == "4.2.3"
