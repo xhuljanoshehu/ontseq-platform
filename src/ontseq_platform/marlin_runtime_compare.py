@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from pathlib import Path
 
+from .execution import CommandRunner
 from .marlin_contracts import (
     MarlinArtifactLock,
     MarlinArtifactSetIdentity,
@@ -12,7 +14,14 @@ from .marlin_contracts import (
     MarlinRuntimeCompatibilityProfile,
     MarlinRuntimeIdentity,
 )
-from .marlin_runtime import MarlinRuntimeProbeReport, MarlinRuntimeResult
+from .marlin_runtime import (
+    MarlinRuntimeProbeReport,
+    MarlinRuntimeResult,
+    load_frozen_runtime_fixture,
+    probe_marlin_runtime,
+    run_marlin_inference,
+)
+from .reference import sha256_file
 
 
 def derive_marlin_artifact_set_identity(lock: MarlinArtifactLock) -> MarlinArtifactSetIdentity:
@@ -210,9 +219,84 @@ def compare_marlin_runtime_results(
     )
 
 
+def execute_marlin_dual_runtime_comparison(
+    *,
+    comparison_id: str,
+    reference_lock: MarlinArtifactLock,
+    candidate_lock: MarlinArtifactLock,
+    reference_runtime_identity: MarlinRuntimeIdentity,
+    reference_profile: MarlinRuntimeCompatibilityProfile,
+    runtime_fixture_path: Path,
+    model_path: Path,
+    inference_script: Path,
+    candidate_probe_script: Path,
+    runner: CommandRunner,
+    work_dir: Path,
+    candidate_rscript_path: str,
+    created_at: datetime,
+) -> MarlinDualRuntimeCompatibilityReport:
+    """Qualify one live candidate runtime against a frozen MARLIN reference profile."""
+    artifact_set_identity = require_same_marlin_artifact_set(reference_lock, candidate_lock)
+    _require_runtime_identity_matches_lock(
+        reference_runtime_identity,
+        reference_lock,
+        role="reference",
+    )
+    if reference_profile.reference_runtime_lock_id != reference_lock.lock_id:
+        raise ValueError("MARLIN reference profile belongs to a different reference execution lock")
+    if reference_profile.execution_backend != reference_lock.execution_backend:
+        raise ValueError("MARLIN reference profile backend differs from reference execution lock")
+
+    fixture = load_frozen_runtime_fixture(runtime_fixture_path, reference_lock)
+    if fixture.summary.feature_vector_sha256 != reference_profile.feature_vector_sha256:
+        raise ValueError("MARLIN runtime fixture feature vector differs from reference profile")
+
+    model = Path(model_path)
+    if not model.is_file():
+        raise ValueError(f"MARLIN model file is missing: {model}")
+    if sha256_file(model) != artifact_set_identity.model_sha256:
+        raise ValueError("MARLIN model SHA-256 differs from shared artifact set")
+
+    live_probe = probe_marlin_runtime(
+        probe_script=candidate_probe_script,
+        runner=runner,
+        rscript_path=candidate_rscript_path,
+        timeout_seconds=120,
+    )
+    candidate_runtime_identity = runtime_identity_from_probe(
+        candidate_lock,
+        live_probe,
+        runtime_id=f"{candidate_lock.lock_id}:live",
+        created_at=created_at,
+    )
+    candidate_result = run_marlin_inference(
+        fixture,
+        candidate_lock,
+        model_path=model,
+        class_labels=tuple(f"model-unit-{index}" for index in range(1, 43)),
+        inference_script=inference_script,
+        runner=runner,
+        work_dir=Path(work_dir) / "candidate-runtime",
+        rscript_path=candidate_rscript_path,
+        timeout_seconds=300,
+    )
+    return compare_marlin_runtime_results(
+        comparison_id=comparison_id,
+        artifact_set_identity=artifact_set_identity,
+        reference_lock=reference_lock,
+        candidate_lock=candidate_lock,
+        reference_runtime_identity=reference_runtime_identity,
+        candidate_runtime_identity=candidate_runtime_identity,
+        reference_profile=reference_profile,
+        candidate_result=candidate_result,
+        created_at=created_at,
+    )
+
+
 __all__ = [
     "compare_marlin_runtime_results",
     "derive_marlin_artifact_set_identity",
+    "execute_marlin_dual_runtime_comparison",
     "require_same_marlin_artifact_set",
     "runtime_identity_from_probe",
 ]
