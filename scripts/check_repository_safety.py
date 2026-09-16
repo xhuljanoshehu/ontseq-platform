@@ -78,6 +78,7 @@ CHECKSUM_PINNED_PATTERNS = (
     "tests/fixtures/reference_cache/**/*",
     "tests/fixtures/reference_catalog/**/*",
 )
+MARLIN_LOCAL_VALIDATION_PREFIX = "results/marlin-validation/"
 
 
 def _candidate_files() -> list[Path]:
@@ -189,6 +190,9 @@ def main() -> None:
     failures: list[str] = []
     for path in _candidate_files():
         lowered = path.name.lower()
+        normalized_path = path.as_posix().lower()
+        if normalized_path.startswith(MARLIN_LOCAL_VALIDATION_PREFIX):
+            failures.append(f"prohibited MARLIN local validation artifact: {path}")
         if any(lowered.endswith(suffix) for suffix in BANNED_SUFFIXES):
             failures.append(f"prohibited genomic-data extension: {path}")
         if any(fnmatchcase(lowered, pattern) for pattern in SENSITIVE_PATTERNS):
