@@ -392,7 +392,7 @@ def _valid_dual_runtime_report_payload() -> dict[str, object]:
     }
 
 
-def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
+def test_dual_runtime_report_rejects_inconsistent_score_gate_evidence() -> None:
     from ontseq_platform.marlin_contracts import MarlinDualRuntimeCompatibilityReport
 
     payload = _valid_dual_runtime_report_payload()
@@ -402,6 +402,15 @@ def test_dual_runtime_report_rejects_pass_when_score_gate_failed() -> None:
     payload["candidate_top_model_unit_index"] = 1
     payload["all_scores_within_tolerance"] = False
     payload["top_model_unit_matches"] = False
+    with pytest.raises(ValidationError, match="inconsistent"):
+        MarlinDualRuntimeCompatibilityReport.model_validate(payload)
+
+
+def test_dual_runtime_report_rejects_fail_verdict_when_all_gates_pass() -> None:
+    from ontseq_platform.marlin_contracts import MarlinDualRuntimeCompatibilityReport
+
+    payload = _valid_dual_runtime_report_payload()
+    payload["verdict"] = "FAIL"
     with pytest.raises(ValidationError, match="PASS"):
         MarlinDualRuntimeCompatibilityReport.model_validate(payload)
 
