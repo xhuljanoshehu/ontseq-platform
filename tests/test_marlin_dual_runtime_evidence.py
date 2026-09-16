@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from pydantic import ValidationError
+
+from ontseq_platform.marlin_contracts import (
+    MarlinArtifactLock,
+    MarlinModelUnitScore,
+    MarlinRuntimeCompatibilityProfile,
+)
+from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport, MarlinRuntimeResult
+from ontseq_platform.marlin_runtime_compare import (
+    compare_marlin_runtime_results,
+    derive_marlin_artifact_set_identity,
+    require_same_marlin_artifact_set,
+    runtime_identity_from_probe,
+)
+from ontseq_platform.models import GenomeBuild
+
+SHA0 = "0" * 64
+SHA1 = "1" * 64
+SHA2 = "2" * 64
+SHA3 = "3" * 64
+SHA4 = "4" * 64
+SHA5 = "5" * 64
+SHA6 = "6" * 64
+FEATURE_SHA = "a" * 64
+
+
+def _lock(*, candidate: bool = False) -> MarlinArtifactLock:
+    return MarlinArtifactLock(
+        lock_id="CANDIDATE_LOCK" if candidate else "REFERENCE_LOCK",
+        model_version="1.0.0",
+        model_source_uri="model",
+        model_sha256=SHA0,
+        code_source_uri="code",
+        code_version_or_commit="442aa603415a54f62e7367794f9a31c6bc20fc2d",
+        code_manifest_sha256=SHA1,
+        feature_source_uri="features",
+        feature_sha256=SHA2,
+        canonical_feature_list_sha256=SHA3,
+        class_annotation_source_uri="classes",
+        class_annotation_sha256=SHA4,
+        probe_resource_source_uri="probes",
+        probe_resource_sha256=SHA5,
+        genome_build=GenomeBuild.GRCH37,
+        R_version="4.2.3" if candidate else "4.1.3",
+        keras_version="2.13.0",
+        tensorflow_version="2.13.0",
+        python_version_if_used="3.10.21",
+        execution_backend="cpu",
+        created_at=datetime(2026, 9, 16, tzinfo=UTC),
+    )
+
+
+def _probe(lock: MarlinArtifactLock) -> MarlinRuntimeProbeReport:
+    return MarlinRuntimeProbeReport(
+        R_version=lock.R_version,
+        keras_version=lock.keras_version,
+        tensorflow_version=lock.tensorflow_version,
+        python_version=lock.python_version_if_used or "3.10.21",
+        execution_backend="cpu",
+    )
+
+
+def _profile(created_at: datetime) -> MarlinRuntimeCompatibilityProfile:
+    return MarlinRuntimeCompatibilityProfile(
+        profile_id="REFERENCE_PROFILE",
+        reference_runtime_lock_id="REFERENCE_LOCK",
+        feature_vector_sha256=FEATURE_SHA,
+        reference_scores=[0.6, 0.4] + [0.0] * 40,
+        absolute_score_tolerance=1e-7,
+        score_sum_tolerance=1e-5,
+        top_model_unit_index=0,
+        execution_backend="cpu",
+        created_at=created_at,
+    )
+
+
+def _candidate_result() -> MarlinRuntimeResult:
+    scores = [0.6, 0.4] + [0.0] * 40
+    return MarlinRuntimeResult(
+        artifact_lock_id="CANDIDATE_LOCK",
+        feature_vector_sha256=FEATURE_SHA,
+        model_scores=[
+            MarlinModelUnitScore(model_id=index + 1, label=f"unit-{index + 1}", score=score)
+            for index, score in enumerate(scores)
+        ],
+        raw_score_sha256=SHA6,
+        execution_backend="cpu",
+    )
+
+
+def test_artifact_set_identity_rejects_tampered_digest() -> None:
+    identity = derive_marlin_artifact_set_identity(_lock())
+    payload = identity.model_dump()
+    payload["artifact_set_sha256"] = "f" * 64
+
+    with pytest.raises(ValidationError, match="digest"):
+        type(identity).model_validate(payload)
+
+
+def test_reference_runtime_identity_must_share_reference_freeze_timestamp() -> None:
+    reference_lock = _lock()
+    candidate_lock = _lock(candidate=True)
+    frozen_at = datetime(2026, 9, 16, 4, 0, tzinfo=UTC)
+    profile = _profile(frozen_at)
+    stale_reference_identity = runtime_identity_from_probe(
+        reference_lock,
+        _probe(reference_lock),
+        runtime_id="REFERENCE_LOCK:runtime",
+        created_at=frozen_at - timedelta(minutes=1),
+    )
+    candidate_identity = runtime_identity_from_probe(
+        candidate_lock,
+        _probe(candidate_lock),
+        runtime_id="CANDIDATE_LOCK:live",
+        created_at=datetime(2026, 9, 16, 5, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValueError, match="timestamp"):
+        compare_marlin_runtime_results(
+            comparison_id="DUAL_RUNTIME_EVIDENCE_TEST",
+            artifact_set_identity=require_same_marlin_artifact_set(
+                reference_lock, candidate_lock
+            ),
+            reference_lock=reference_lock,
+            candidate_lock=candidate_lock,
+            reference_runtime_identity=stale_reference_identity,
+            candidate_runtime_identity=candidate_identity,
+            reference_profile=profile,
+            candidate_result=_candidate_result(),
+            created_at=datetime(2026, 9, 16, 5, 0, tzinfo=UTC),
+        )
+
+
+def test_marlin_v1_runtime_profile_policy_rejects_widened_tolerance() -> None:
+    from ontseq_platform.marlin_runtime_freeze import verify_marlin_v1_runtime_profile_policy
+
+    profile = _profile(datetime(2026, 9, 16, 4, 0, tzinfo=UTC)).model_copy(
+        update={"absolute_score_tolerance": 2e-7}
+    )
+
+    with pytest.raises(ValueError, match="absolute score tolerance"):
+        verify_marlin_v1_runtime_profile_policy(profile)
+
+
+def test_marlin_v1_runtime_profile_policy_accepts_frozen_policy() -> None:
+    from ontseq_platform.marlin_runtime_freeze import verify_marlin_v1_runtime_profile_policy
+
+    verify_marlin_v1_runtime_profile_policy(
+        _profile(datetime(2026, 9, 16, 4, 0, tzinfo=UTC))
+    )
