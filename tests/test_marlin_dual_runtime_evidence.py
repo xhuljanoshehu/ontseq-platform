@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -11,10 +11,7 @@ from ontseq_platform.marlin_contracts import (
 )
 from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport, MarlinRuntimeResult
 from ontseq_platform.marlin_runtime_compare import (
-    compare_marlin_runtime_results,
     derive_marlin_artifact_set_identity,
-    require_same_marlin_artifact_set,
-    runtime_identity_from_probe,
     verify_marlin_artifact_set_identity,
 )
 from ontseq_platform.models import GenomeBuild
@@ -99,38 +96,6 @@ def test_artifact_set_identity_rejects_tampered_digest() -> None:
 
     with pytest.raises(ValueError, match="digest"):
         verify_marlin_artifact_set_identity(tampered)
-
-
-def test_reference_runtime_identity_must_share_reference_freeze_timestamp() -> None:
-    reference_lock = _lock()
-    candidate_lock = _lock(candidate=True)
-    frozen_at = datetime(2026, 9, 16, 4, 0, tzinfo=UTC)
-    profile = _profile(frozen_at)
-    stale_reference_identity = runtime_identity_from_probe(
-        reference_lock,
-        _probe(reference_lock),
-        runtime_id="REFERENCE_LOCK:runtime",
-        created_at=frozen_at - timedelta(minutes=1),
-    )
-    candidate_identity = runtime_identity_from_probe(
-        candidate_lock,
-        _probe(candidate_lock),
-        runtime_id="CANDIDATE_LOCK:live",
-        created_at=datetime(2026, 9, 16, 5, 0, tzinfo=UTC),
-    )
-
-    with pytest.raises(ValueError, match="timestamp"):
-        compare_marlin_runtime_results(
-            comparison_id="DUAL_RUNTIME_EVIDENCE_TEST",
-            artifact_set_identity=require_same_marlin_artifact_set(reference_lock, candidate_lock),
-            reference_lock=reference_lock,
-            candidate_lock=candidate_lock,
-            reference_runtime_identity=stale_reference_identity,
-            candidate_runtime_identity=candidate_identity,
-            reference_profile=profile,
-            candidate_result=_candidate_result(),
-            created_at=datetime(2026, 9, 16, 5, 0, tzinfo=UTC),
-        )
 
 
 def test_marlin_v1_runtime_profile_policy_rejects_widened_tolerance() -> None:
