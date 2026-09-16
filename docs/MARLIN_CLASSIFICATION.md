@@ -32,9 +32,9 @@ The external GSE280090 / `GSM8587229_AL_001.txt.gz` validation gate has **not** 
 this repository state. Public/patient-derived validation payloads are not committed to Git.
 
 The runtime-freeze and dual-runtime comparison implementations are present, but this repository
-does **not** contain a generated compatibility profile or dual-runtime PASS report from the real
-Zenodo MARLIN model. Those remain local controlled validation artifacts and must be established
-before biological validation begins.
+does **not** contain a generated compatibility profile, dual-runtime PASS report, or candidate
+self-baseline from the real Zenodo MARLIN model. Those remain local controlled validation
+artifacts and must be established before biological validation begins.
 
 ## Scientific reference
 
@@ -74,6 +74,8 @@ single-runtime frozen reproducibility baseline
         <
 dual-runtime numerical compatibility
         <
+candidate same-lock frozen reproducibility baseline
+        <
 GSE processed-CpG downstream reproduction
         <
 same-specimen native modkit bridge comparison
@@ -100,6 +102,8 @@ In particular:
   it does not by itself prove equivalence between two different runtime environments.
 - A dual-runtime PASS proves only that the live candidate reproduced the frozen reference model
   output on the fixed non-biological fixture within the predeclared engineering tolerances.
+- The candidate same-lock freeze after dual-runtime PASS is a reproducibility prerequisite for
+  `marlin-validate`, not a new biological-validation claim.
 
 ## Architecture
 
@@ -296,9 +300,10 @@ contain the trained MARLIN model, GSE280090 payloads or patient-derived data.
 ## Runtime compatibility gates
 
 External biological validation requires more than a successful runtime import or a stored profile.
-ONTSeq therefore uses two engineering gates before AL_001/GSE280090.
+ONTSeq therefore uses a reference reproducibility gate, a cross-runtime numerical gate, and a
+candidate same-lock reproducibility gate before AL_001/GSE280090.
 
-### Single-runtime frozen reproducibility baseline
+### Single-runtime reference baseline
 
 ONTSeq executes a fixed, non-biological 357,340-value `-1/0/+1` feature fixture through the
 reference locked model/runtime. The canonical generator is `sha256-index-mod3-v1`; its feature
@@ -336,12 +341,22 @@ index, and both softmax sums within `1e-5`. A structurally valid numerical incom
 `verdict=FAIL`; malformed/inconsistent evidence fails the command. Neither state is a biological
 `UNKNOWN` or `NO_CALL`.
 
-The tolerance is frozen before biological validation. It must not be tuned from AL_001 or
-GSE280090 outcomes.
+### Candidate same-lock validation baseline
 
-`ontseq marlin-validate` therefore remains downstream of these engineering gates and still requires
-an explicit `--runtime-fixture` path. A direct `marlin-classify` invocation is not a substitute for
-external validation.
+A dual-runtime PASS does not change the existing `marlin-validate` identity rule. Biological
+validation still requires a `MarlinRuntimeCompatibilityProfile` whose
+`reference_runtime_lock_id` equals the **candidate** execution lock ID. Therefore, after the
+cross-runtime report is PASS, run `marlin-freeze-runtime` once under the candidate execution lock
+to create the candidate fixture/profile self-baseline. This second freeze uses the same
+deterministic generator and fixed tolerances; it is not a biological qualification and must not be
+used to retune any policy.
+
+`marlin-validate` then uses the candidate execution lock, candidate profile and candidate fixture.
+A reference profile supplied with the candidate lock remains a hard failure by design.
+
+The tolerances are frozen before biological validation. They must not be tuned from AL_001 or
+GSE280090 outcomes. A direct `marlin-classify` invocation is not a substitute for external
+validation.
 
 ## Classification semantics
 
@@ -468,8 +483,8 @@ ontseq marlin-freeze-runtime \
   --runtime-probe-script scripts/marlin_runtime_probe.R \
   --profile-id MARLIN_V1_REFERENCE_FROZEN \
   --rscript /reference-runtime/bin/Rscript \
-  --output-fixture results/marlin-validation/marlin-runtime-fixture.txt \
-  --output-profile results/marlin-validation/marlin-runtime-profile.json \
+  --output-fixture results/marlin-validation/reference-runtime-fixture.txt \
+  --output-profile results/marlin-validation/reference-runtime-profile.json \
   --output-runtime-identity results/marlin-validation/reference-runtime-identity.json
 ```
 
@@ -481,8 +496,8 @@ ontseq marlin-compare-runtimes \
   --reference-artifact-lock results/marlin-validation/reference-artifact-lock.json \
   --candidate-artifact-lock results/marlin-validation/candidate-artifact-lock.json \
   --reference-runtime-identity results/marlin-validation/reference-runtime-identity.json \
-  --reference-profile results/marlin-validation/marlin-runtime-profile.json \
-  --runtime-fixture results/marlin-validation/marlin-runtime-fixture.txt \
+  --reference-profile results/marlin-validation/reference-runtime-profile.json \
+  --runtime-fixture results/marlin-validation/reference-runtime-fixture.txt \
   --model /path/to/marlin_v1.model.hdf5 \
   --inference-script scripts/marlin_infer_locked.R \
   --candidate-runtime-probe-script scripts/marlin_runtime_probe.R \
@@ -491,21 +506,36 @@ ontseq marlin-compare-runtimes \
   --output results/marlin-validation/runtime-comparison.json
 ```
 
+After and only after `runtime-comparison.json` reports `PASS`, freeze the candidate runtime under
+its own execution lock to create the same-lock validation baseline:
+
+```bash
+ontseq marlin-freeze-runtime \
+  --artifact-lock results/marlin-validation/candidate-artifact-lock.json \
+  --model /path/to/marlin_v1.model.hdf5 \
+  --inference-script scripts/marlin_infer_locked.R \
+  --runtime-probe-script scripts/marlin_runtime_probe.R \
+  --profile-id MARLIN_V1_CANDIDATE_FROZEN \
+  --rscript /candidate-runtime/bin/Rscript \
+  --output-fixture results/marlin-validation/candidate-runtime-fixture.txt \
+  --output-profile results/marlin-validation/candidate-runtime-profile.json
+```
+
 The generated fixture/profile/runtime-identity/comparison files are local engineering evidence and
 are not repository assets. AL_001/GSE validation begins only after the controlled real-model
-comparison report is `PASS`.
+dual-runtime comparison is PASS and the candidate same-lock profile has been frozen.
 
 ### External validation
 
-The validation runner requires a checksummed manifest, a locked artifact/runtime identity and the
-frozen runtime fixture:
+The validation runner requires a checksummed manifest, the candidate execution lock/profile and the
+candidate frozen runtime fixture:
 
 ```bash
 ontseq marlin-validate \
   --manifest results/marlin-validation/gse280090-v1/manifest.json \
   --artifact-lock results/marlin-validation/candidate-artifact-lock.json \
-  --runtime-profile results/marlin-validation/marlin-runtime-profile.json \
-  --runtime-fixture results/marlin-validation/marlin-runtime-fixture.txt \
+  --runtime-profile results/marlin-validation/candidate-runtime-profile.json \
+  --runtime-fixture results/marlin-validation/candidate-runtime-fixture.txt \
   --model /path/to/marlin_v1.model.hdf5 \
   --feature-rdata /path/to/marlin_v1.features.RData \
   --feature-list /path/to/marlin_v1.features.txt \
@@ -516,8 +546,8 @@ ontseq marlin-validate \
 ```
 
 Paths above are examples. Artifact identities are accepted only when they match their locks. The
-controlled validation procedure must retain the dual-runtime PASS report as the preceding
-engineering qualification evidence.
+controlled validation procedure retains the dual-runtime PASS report as preceding engineering
+evidence while `marlin-validate` enforces the candidate's own same-lock profile.
 
 ## First external validation target
 
@@ -536,13 +566,13 @@ Before classification:
 1. calculate and register the exact local file SHA-256;
 2. verify the file matches the supported five-column processed-probe schema;
 3. lock the expected publication-supported comparison target before inspecting ONTSeq output;
-4. pass the single-runtime frozen reproducibility gate and the dual-runtime numerical
-   compatibility gate;
-5. register AL_001 as a one-sample validation manifest and execute it once through
+4. require the dual-runtime comparison report to be `PASS`;
+5. freeze and verify the candidate same-lock runtime fixture/profile;
+6. register AL_001 as a one-sample validation manifest and execute it once through
    `ontseq marlin-validate`;
-6. let the validation harness perform its required repeated classifications and require
-   deterministic input/feature identity, decision and score agreement within the frozen runtime
-   tolerance.
+7. let the validation harness perform its required repeated classifications and require
+   deterministic input/feature identity, decision and score agreement within the frozen candidate
+   runtime tolerance.
 
 The repository currently contains no claim that this gate has passed.
 
@@ -550,8 +580,8 @@ The repository currently contains no claim that this gate has passed.
 
 When the available restricted processed files are run, all samples must share the same:
 
-- artifact lock;
-- runtime compatibility profile;
+- candidate artifact lock;
+- candidate runtime compatibility profile;
 - build;
 - fixed `0.8` confidence policy;
 - preprocessing contract.
