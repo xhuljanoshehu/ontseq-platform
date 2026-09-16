@@ -328,7 +328,7 @@ def verify_runtime_compatibility(
             )
 
 
-def _load_frozen_runtime_fixture(
+def load_frozen_runtime_fixture(
     fixture_path: Path,
     lock: MarlinArtifactLock,
 ) -> MarlinFeatureVector:
@@ -385,7 +385,7 @@ def verify_frozen_runtime_fixture(
     if profile.execution_backend != lock.execution_backend:
         raise ValueError("MARLIN runtime profile execution backend differs from artifact lock")
 
-    vector = _load_frozen_runtime_fixture(fixture_path, lock)
+    vector = load_frozen_runtime_fixture(fixture_path, lock)
     if vector.summary.feature_vector_sha256 != profile.feature_vector_sha256:
         raise ValueError(
             "MARLIN runtime fixture feature vector differs from frozen compatibility profile"
