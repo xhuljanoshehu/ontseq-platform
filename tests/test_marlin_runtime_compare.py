@@ -3,15 +3,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
-
-from ontseq_platform.marlin_contracts import MarlinArtifactLock
-from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport
 from ontseq_platform.marlin_runtime_compare import (
     derive_marlin_artifact_set_identity,
     require_same_marlin_artifact_set,
     runtime_identity_from_probe,
 )
+from pydantic import ValidationError
+
+from ontseq_platform.marlin_contracts import MarlinArtifactLock
+from ontseq_platform.marlin_runtime import MarlinRuntimeProbeReport
 from ontseq_platform.models import GenomeBuild
 
 SHA0 = "0" * 64
