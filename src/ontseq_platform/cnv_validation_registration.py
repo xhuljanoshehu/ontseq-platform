@@ -43,21 +43,13 @@ def cnv_cohort_eligibility_reasons(
                 f"{specimen.specimen_id}: genome build is outside the registered matrix."
             )
         if specimen.data_basis not in matrix.data_bases:
-            reasons.append(
-                f"{specimen.specimen_id}: data basis is outside the registered matrix."
-            )
-        if (
-            CnvStratificationDimension.COVERAGE in primary
-            and specimen.coverage_x is None
-        ):
+            reasons.append(f"{specimen.specimen_id}: data basis is outside the registered matrix.")
+        if CnvStratificationDimension.COVERAGE in primary and specimen.coverage_x is None:
             reasons.append(
                 f"{specimen.specimen_id}: primary coverage stratification requires "
                 "measured coverage."
             )
-        if (
-            CnvStratificationDimension.TUMOR_FRACTION in primary
-            and specimen.tumor_fraction is None
-        ):
+        if CnvStratificationDimension.TUMOR_FRACTION in primary and specimen.tumor_fraction is None:
             reasons.append(
                 f"{specimen.specimen_id}: primary tumour fraction stratification requires "
                 "an explicit tumour fraction."
@@ -102,9 +94,7 @@ class CnvValidationRegistration(StrictModel):
             raise ValueError("Matrix content does not match registration checksum")
         if canonical_content_sha256(self.cohort) != self.cohort_sha256:
             raise ValueError("Cohort content does not match registration checksum")
-        expected = canonical_content_sha256(
-            self.model_dump(mode="json", exclude={"lock_sha256"})
-        )
+        expected = canonical_content_sha256(self.model_dump(mode="json", exclude={"lock_sha256"}))
         if expected != self.lock_sha256:
             raise ValueError("Registration content does not match its lock")
         return self
