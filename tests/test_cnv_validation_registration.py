@@ -100,8 +100,12 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
         coverage_x=5.0,
         coverage_definition="synthetic mean autosomal depth",
         tumor_fraction=tumor_fraction,
-        tumor_fraction_method=("synthetic orthogonal fraction" if tumor_fraction is not None else None),
-        tumor_fraction_timepoint=("synthetic same aliquot" if tumor_fraction is not None else None),
+        tumor_fraction_method=(
+            "synthetic orthogonal fraction" if tumor_fraction is not None else None
+        ),
+        tumor_fraction_timepoint=(
+            "synthetic same aliquot" if tumor_fraction is not None else None
+        ),
         truth_sources=[
             CnvTruthSource(
                 method_name="synthetic-karyotype",
