@@ -2,7 +2,9 @@
 
 Research Use Only.
 
-Current phase: implementation complete; final same-head verification pending.
+Implementation status: complete.
+
+Acceptance rule: Block 2 is a technical PASS only when the exact current implementation head has successful same-head CI, MARLIN runtime smoke, Desktop bundle contract and Desktop CI evidence recorded in PR #79. Workflow run IDs are recorded in the PR conversation so recording them does not mutate the verified repository head.
 
 Block 2 implements Full Evidence + Traceability only. It does not calculate validation performance metrics.
 
@@ -43,4 +45,4 @@ Out of scope for Block 2:
 - production caller selection or clinical reportability decisions;
 - merge or version bump.
 
-Package version remains `0.8.2`. PR #79 remains Draft and unmerged. Technical PASS after final same-head verification will establish only the engineering evidence/traceability contract, not analytical or clinical validity.
+Package version remains `0.8.2`. PR #79 remains Draft and unmerged. A technical PASS establishes only the engineering evidence/traceability contract, not analytical or clinical validity.
