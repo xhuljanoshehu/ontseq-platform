@@ -99,6 +99,7 @@ def _truth_event() -> GenomicEvent:
 
 
 def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
+    assessability_sha256 = _sha("synthetic-assessability")
     return CnvValidationSpecimen(
         specimen_id="SYNTHETIC_CNV_001",
         biological_specimen_id="SYNTHETIC_BIO_001",
@@ -128,7 +129,7 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
         ],
         assessability_mask=CnvAssessabilityMask(
             resource_id="synthetic-assessability-v1",
-            resource_sha256=_sha("synthetic-assessability"),
+            resource_sha256=assessability_sha256,
             unit="regions",
             definition="Synthetic locked assessable territory for software-contract tests.",
         ),
@@ -138,6 +139,7 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
             unit="genomic_bins",
             assessable_units=100,
             resource_sha256=_sha("synthetic-negative-universe"),
+            assessability_mask_sha256=assessability_sha256,
             definition="Synthetic non-event bins after a locked mask.",
         ),
     )
@@ -235,6 +237,12 @@ class CnvValidationContractTests(unittest.TestCase):
         payload["negative_universe"] = None
         specimen = CnvValidationSpecimen.model_validate(payload)
         self.assertIsNone(specimen.negative_universe)
+
+    def test_negative_universe_is_bound_to_same_assessability_mask(self) -> None:
+        payload = _specimen().model_dump()
+        payload["negative_universe"]["assessability_mask_sha256"] = _sha("different-mask")
+        with self.assertRaises(ValidationError):
+            CnvValidationSpecimen.model_validate(payload)
 
     def test_assessability_mask_is_required(self) -> None:
         payload = _specimen().model_dump()
