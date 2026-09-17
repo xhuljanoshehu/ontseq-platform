@@ -166,6 +166,7 @@ def compare_marlin_runtime_results(
     created_at: datetime,
 ) -> MarlinDualRuntimeCompatibilityReport:
     """Compare one candidate runtime result with a frozen reference numerical oracle."""
+    verify_marlin_v1_runtime_profile_policy(reference_profile)
     verify_marlin_artifact_set_identity(artifact_set_identity)
     expected_artifact_set = require_same_marlin_artifact_set(reference_lock, candidate_lock)
     if artifact_set_identity != expected_artifact_set:
