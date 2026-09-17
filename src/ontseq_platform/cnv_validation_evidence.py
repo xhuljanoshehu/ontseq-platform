@@ -506,3 +506,164 @@ def seal_cnv_validation_evidence(
     }
     payload["manifest_sha256"] = canonical_evidence_sha256(payload)
     return CnvValidationEvidenceManifest.model_validate(payload)
+
+
+class CnvAggregateEvidenceTrace(StrictModel):
+    """Membership-only provenance for a future aggregate; no metric value is stored here."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    trace_id: str = Field(pattern=ID)
+    aggregate_id: str = Field(pattern=ID)
+    question_id: str = Field(pattern=ID)
+    stratum_key: dict[str, str | int | float | bool] = Field(min_length=1)
+    numerator_full_evidence_ids: list[str] = Field(default_factory=list)
+    denominator_full_evidence_ids: list[str] = Field(default_factory=list)
+    excluded_full_evidence_ids: list[str] = Field(default_factory=list)
+    normalized_event_ids: list[str] = Field(default_factory=list)
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @property
+    def address_key(self) -> str:
+        payload = {
+            "aggregate_id": self.aggregate_id,
+            "question_id": self.question_id,
+            "stratum_key": self.stratum_key,
+        }
+        return canonical_evidence_sha256(payload)
+
+    @field_validator(
+        "numerator_full_evidence_ids",
+        "denominator_full_evidence_ids",
+        "excluded_full_evidence_ids",
+        "normalized_event_ids",
+    )
+    @classmethod
+    def unique_membership_ids(cls, value: list[str]) -> list[str]:
+        _require_unique(value, label="Trace membership IDs")
+        return value
+
+    @field_validator("stratum_key")
+    @classmethod
+    def valid_stratum_key(
+        cls, value: dict[str, str | int | float | bool]
+    ) -> dict[str, str | int | float | bool]:
+        if any(not key for key in value):
+            raise ValueError("Stratum-key names must be non-empty")
+        _validate_json_tree(value, path="$.stratum_key")
+        return value
+
+    @model_validator(mode="after")
+    def coherent_trace_membership(self) -> CnvAggregateEvidenceTrace:
+        numerator = set(self.numerator_full_evidence_ids)
+        denominator = set(self.denominator_full_evidence_ids)
+        excluded = set(self.excluded_full_evidence_ids)
+        if not (
+            numerator
+            or denominator
+            or excluded
+            or self.normalized_event_ids
+        ):
+            raise ValueError("Traceability record requires at least one evidence reference")
+        if not numerator.issubset(denominator):
+            raise ValueError("Numerator full-evidence IDs must be a subset of the denominator")
+        if numerator & excluded:
+            raise ValueError("Numerator and excluded full-evidence memberships cannot overlap")
+        if denominator & excluded:
+            raise ValueError("Denominator and excluded full-evidence memberships cannot overlap")
+        return self
+
+
+class CnvTraceabilityIndex(StrictModel):
+    """Tamper-evident map from future aggregates to retained CNV evidence."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    index_id: str = Field(pattern=ID)
+    evidence_manifest_sha256: str = Field(pattern=SHA256)
+    traces: list[CnvAggregateEvidenceTrace] = Field(min_length=1)
+    index_sha256: str = Field(pattern=SHA256)
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_index(self) -> CnvTraceabilityIndex:
+        trace_ids = [item.trace_id for item in self.traces]
+        _require_unique(trace_ids, label="Trace IDs")
+        addresses = [item.address_key for item in self.traces]
+        _require_unique(addresses, label="Analytical trace addresses")
+        expected_sha256 = canonical_evidence_sha256(
+            self.model_dump(mode="json", exclude={"index_sha256"})
+        )
+        if self.index_sha256 != expected_sha256:
+            raise ValueError("Traceability index content does not match index_sha256")
+        return self
+
+
+def seal_cnv_traceability_index(
+    *,
+    index_id: str,
+    evidence_manifest_sha256: str,
+    traces: list[CnvAggregateEvidenceTrace],
+) -> CnvTraceabilityIndex:
+    """Seal aggregate membership provenance without computing aggregate metrics."""
+    payload: dict[str, Any] = {
+        "schema_version": "0.1.0",
+        "index_id": index_id,
+        "evidence_manifest_sha256": evidence_manifest_sha256,
+        "traces": [item.model_dump(mode="json") for item in traces],
+        "sensitive_output": True,
+        "research_only": True,
+    }
+    payload["index_sha256"] = canonical_evidence_sha256(payload)
+    return CnvTraceabilityIndex.model_validate(payload)
+
+
+def verify_cnv_traceability(
+    evidence: CnvValidationEvidenceManifest,
+    index: CnvTraceabilityIndex,
+) -> None:
+    """Verify every trace can be walked to retained full evidence and native artifacts."""
+    if index.evidence_manifest_sha256 != evidence.manifest_sha256:
+        raise ValueError("Traceability index is bound to a different evidence manifest")
+
+    full_by_id = {item.record_id: item for item in evidence.full_evidence}
+    normalized_by_id = {
+        item.normalized_event_id: item for item in evidence.normalized_events
+    }
+    artifact_ids = {item.artifact_id for item in evidence.native_artifacts}
+
+    for trace in index.traces:
+        direct_full_ids = set(trace.numerator_full_evidence_ids)
+        direct_full_ids.update(trace.denominator_full_evidence_ids)
+        direct_full_ids.update(trace.excluded_full_evidence_ids)
+
+        missing_full_ids = direct_full_ids - set(full_by_id)
+        if missing_full_ids:
+            raise ValueError(
+                "Trace references missing full evidence: "
+                + ", ".join(sorted(missing_full_ids))
+            )
+
+        missing_normalized_ids = set(trace.normalized_event_ids) - set(normalized_by_id)
+        if missing_normalized_ids:
+            raise ValueError(
+                "Trace references missing normalized events: "
+                + ", ".join(sorted(missing_normalized_ids))
+            )
+
+        for normalized_id in trace.normalized_event_ids:
+            normalized = normalized_by_id[normalized_id]
+            normalized_sources = set(normalized.source_full_evidence_ids)
+            if not normalized_sources.issubset(direct_full_ids):
+                raise ValueError(
+                    "Normalized-event sources must be present in the same trace membership: "
+                    + normalized_id
+                )
+
+        for full_id in direct_full_ids:
+            missing_artifacts = set(full_by_id[full_id].native_artifact_ids) - artifact_ids
+            if missing_artifacts:
+                raise ValueError(
+                    "Trace source references missing native artifacts: "
+                    + ", ".join(sorted(missing_artifacts))
+                )
