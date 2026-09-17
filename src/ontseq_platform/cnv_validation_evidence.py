@@ -466,6 +466,30 @@ class CnvValidationEvidenceManifest(StrictModel):
                     "Normalized event references missing full evidence: "
                     + ", ".join(sorted(missing_sources))
                 )
+            sources = [full_by_id[source_id] for source_id in normalized.source_full_evidence_ids]
+            locus_source_kinds = {
+                CnvEvidenceRecordKind.CALLER_BIN,
+                CnvEvidenceRecordKind.CALLER_SEGMENT,
+                CnvEvidenceRecordKind.CALLER_EVENT,
+                CnvEvidenceRecordKind.CHROMOSOME_SUMMARY,
+            }
+            if not any(
+                source.record_kind in locus_source_kinds and source.primary is not None
+                for source in sources
+            ):
+                raise ValueError(
+                    "Normalized positive event requires at least one locus-bearing caller source"
+                )
+            if (
+                normalized.contribution_status == CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+                and not any(
+                    source.contribution_status == CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+                    for source in sources
+                )
+            ):
+                raise ValueError(
+                    "Primary normalized event requires at least one primary source-evidence record"
+                )
             for source_id in normalized.source_full_evidence_ids:
                 source = full_by_id[source_id]
                 if source.run_outcome != CnvRunOutcomeState.OBSERVED:
