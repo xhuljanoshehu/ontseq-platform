@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 
 from ontseq_platform.cnv_validation_contracts import CnvValidationCohort, CnvValidationMatrix
+from ontseq_platform.cnv_validation_evidence import (
+    CnvTraceabilityIndex,
+    CnvValidationEvidenceManifest,
+)
 from ontseq_platform.cnv_validation_registration import CnvValidationRegistration
 from ontseq_platform.dilution import (
     DilutionPolicy,
@@ -74,6 +78,8 @@ def _render() -> dict[Path, str]:
                 "cnv-validation-matrix": CnvValidationMatrix,
                 "cnv-validation-cohort": CnvValidationCohort,
                 "cnv-validation-registration": CnvValidationRegistration,
+                "cnv-validation-evidence": CnvValidationEvidenceManifest,
+                "cnv-validation-traceability": CnvTraceabilityIndex,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
                 "modbam-source-summary": ModbamSourceSummary,
