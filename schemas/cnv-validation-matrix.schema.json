@@ -1,0 +1,357 @@
+{
+  "$defs": {
+    "BenchmarkThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_number_tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number Tolerance"
+        },
+        "maximum_breakpoint_distance_bp": {
+          "default": 500,
+          "minimum": 0,
+          "title": "Maximum Breakpoint Distance Bp",
+          "type": "integer"
+        },
+        "minimum_reciprocal_overlap": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        }
+      },
+      "title": "BenchmarkThresholds",
+      "type": "object"
+    },
+    "CnvAcceptanceMetric": {
+      "enum": [
+        "sensitivity",
+        "precision",
+        "f1",
+        "false_positive_burden",
+        "no_call_rate",
+        "technical_failure_rate",
+        "not_assessable_rate",
+        "specificity",
+        "copy_number_error",
+        "cellularity_error",
+        "ploidy_error",
+        "reproducibility"
+      ],
+      "title": "CnvAcceptanceMetric",
+      "type": "string"
+    },
+    "CnvAcceptanceQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "filters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Filters",
+          "type": "object"
+        },
+        "maximum_acceptable": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum Acceptable"
+        },
+        "metric": {
+          "$ref": "#/$defs/CnvAcceptanceMetric"
+        },
+        "minimum_acceptable": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Acceptable"
+        },
+        "minimum_evaluable_denominator": {
+          "minimum": 1,
+          "title": "Minimum Evaluable Denominator",
+          "type": "integer"
+        },
+        "question_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+          "title": "Question Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question_id",
+        "metric",
+        "minimum_evaluable_denominator"
+      ],
+      "title": "CnvAcceptanceQuestion",
+      "type": "object"
+    },
+    "CnvCallerLock": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Adapter Policy Sha256",
+          "type": "string"
+        },
+        "caller_id": {
+          "pattern": "^[a-z][a-z0-9_]{1,63}$",
+          "title": "Caller Id",
+          "type": "string"
+        },
+        "caller_version": {
+          "minLength": 1,
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "execution_identity_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Execution Identity Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "caller_id",
+        "caller_version",
+        "adapter_policy_sha256",
+        "execution_identity_sha256"
+      ],
+      "title": "CnvCallerLock",
+      "type": "object"
+    },
+    "CnvDataBasis": {
+      "enum": [
+        "lcwgs_genome_wide",
+        "adaptive_sampling_off_target",
+        "adaptive_sampling_on_target"
+      ],
+      "title": "CnvDataBasis",
+      "type": "string"
+    },
+    "CnvStratificationDimension": {
+      "enum": [
+        "caller",
+        "genome_build",
+        "data_basis",
+        "coverage",
+        "tumor_fraction",
+        "event_class",
+        "event_size",
+        "bin_size"
+      ],
+      "title": "CnvStratificationDimension",
+      "type": "string"
+    },
+    "CnvStratificationPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage_cutpoints_x": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Coverage Cutpoints X",
+          "type": "array"
+        },
+        "event_size_cutpoints_bp": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Event Size Cutpoints Bp",
+          "type": "array"
+        },
+        "exploratory_dimensions": {
+          "items": {
+            "$ref": "#/$defs/CnvStratificationDimension"
+          },
+          "title": "Exploratory Dimensions",
+          "type": "array"
+        },
+        "primary_dimensions": {
+          "items": {
+            "$ref": "#/$defs/CnvStratificationDimension"
+          },
+          "minItems": 1,
+          "title": "Primary Dimensions",
+          "type": "array"
+        },
+        "secondary_dimensions": {
+          "items": {
+            "$ref": "#/$defs/CnvStratificationDimension"
+          },
+          "title": "Secondary Dimensions",
+          "type": "array"
+        },
+        "tumor_fraction_cutpoints": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Tumor Fraction Cutpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "primary_dimensions"
+      ],
+      "title": "CnvStratificationPlan",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance": {
+      "items": {
+        "$ref": "#/$defs/CnvAcceptanceQuestion"
+      },
+      "minItems": 1,
+      "title": "Acceptance",
+      "type": "array"
+    },
+    "callers": {
+      "items": {
+        "$ref": "#/$defs/CnvCallerLock"
+      },
+      "minItems": 1,
+      "title": "Callers",
+      "type": "array"
+    },
+    "data_bases": {
+      "items": {
+        "$ref": "#/$defs/CnvDataBasis"
+      },
+      "minItems": 1,
+      "title": "Data Bases",
+      "type": "array"
+    },
+    "event_classes": {
+      "items": {
+        "$ref": "#/$defs/EventType"
+      },
+      "minItems": 1,
+      "title": "Event Classes",
+      "type": "array"
+    },
+    "genome_builds": {
+      "items": {
+        "$ref": "#/$defs/GenomeBuild"
+      },
+      "minItems": 1,
+      "title": "Genome Builds",
+      "type": "array"
+    },
+    "matching_thresholds": {
+      "$ref": "#/$defs/BenchmarkThresholds"
+    },
+    "matrix_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Matrix Id",
+      "type": "string"
+    },
+    "qdnaseq_bin_sizes_kbp": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Qdnaseq Bin Sizes Kbp",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 20,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "retain_all_evidence": {
+      "const": true,
+      "default": true,
+      "title": "Retain All Evidence",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "research_acceptance_candidate_unvalidated",
+      "default": "research_acceptance_candidate_unvalidated",
+      "title": "Status",
+      "type": "string"
+    },
+    "stratification": {
+      "$ref": "#/$defs/CnvStratificationPlan"
+    }
+  },
+  "required": [
+    "matrix_id",
+    "callers",
+    "genome_builds",
+    "data_bases",
+    "stratification",
+    "event_classes",
+    "acceptance",
+    "rationale"
+  ],
+  "title": "CnvValidationMatrix",
+  "type": "object"
+}
