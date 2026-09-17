@@ -12,11 +12,14 @@ from ontseq_platform.cnv_validation_evidence import (
     CnvEvidenceRecordKind,
     CnvFullEvidenceRecord,
     CnvNativeArtifactReference,
+    CnvNormalizedEventRecord,
     CnvNumericMeasurement,
     CnvRunOutcomeState,
+    CnvValidationEvidenceManifest,
     canonical_evidence_sha256,
+    seal_cnv_validation_evidence,
 )
-from ontseq_platform.models import GenomeBuild
+from ontseq_platform.models import EventType, GenomeBuild, Locus
 
 
 def _sha(value: str) -> str:
@@ -79,6 +82,88 @@ def _full_record(**updates: object) -> CnvFullEvidenceRecord:
     }
     payload.update(updates)
     return CnvFullEvidenceRecord.model_validate(payload)
+
+
+def _artifact(artifact_id: str = "segments-500", **updates: object) -> CnvNativeArtifactReference:
+    payload: dict[str, object] = {
+        "artifact_id": artifact_id,
+        "role": "caller_segments",
+        "relative_path": f"cnv/qdnaseq/500/{artifact_id}.tsv",
+        "sha256": _sha(artifact_id),
+        "size_bytes": 321,
+        "media_type": "text/tab-separated-values",
+    }
+    payload.update(updates)
+    return CnvNativeArtifactReference.model_validate(payload)
+
+
+def _event_source(**updates: object) -> CnvFullEvidenceRecord:
+    payload: dict[str, object] = {
+        "record_id": "full-segment-500-1",
+        "native_record_id": "segment-1",
+        "record_kind": CnvEvidenceRecordKind.CALLER_SEGMENT,
+        "native_artifact_ids": ["segments-500"],
+        "fit_group_id": None,
+        "selected_fit": None,
+        "cellularity": None,
+        "ploidy": None,
+        "fit_error": None,
+        "event_type": EventType.DELETION,
+        "primary": Locus(chromosome="7", start=1_000_000, end=6_000_000),
+        "copy_number": 1.0,
+        "log2_ratio": -0.52,
+    }
+    payload.update(updates)
+    return _full_record(**payload)
+
+
+def _normalized_event(**updates: object) -> CnvNormalizedEventRecord:
+    payload: dict[str, object] = {
+        "normalized_event_id": "normalized-del-7-1",
+        "registration_sha256": _sha("registration"),
+        "specimen_id": "SYNTHETIC_CNV_001",
+        "biological_specimen_id": "SYNTHETIC_BIO_001",
+        "caller_id": "qdnaseq_ace",
+        "caller_version": "synthetic-1",
+        "adapter_policy_sha256": _sha("qdnaseq-policy"),
+        "execution_identity_sha256": _sha("qdnaseq-runtime"),
+        "normalization_policy_sha256": _sha("normalization-policy"),
+        "genome_build": GenomeBuild.GRCH38,
+        "data_basis": CnvDataBasis.LCWGS_GENOME_WIDE,
+        "reference_id": "synthetic-grch38",
+        "reference_sha256": _sha("reference"),
+        "input_sha256": _sha("input"),
+        "coverage_x": 5.25,
+        "coverage_definition": "synthetic mean autosomal depth",
+        "tumor_fraction": 0.21,
+        "tumor_fraction_method": "synthetic orthogonal fraction",
+        "tumor_fraction_timepoint": "same synthetic aliquot",
+        "bin_size_kbp": 500,
+        "repeat_kind": CnvRepeatKind.INDEPENDENT,
+        "replicate_id": "replicate-1",
+        "source_full_evidence_ids": ["full-segment-500-1"],
+        "event_type": EventType.DELETION,
+        "primary": Locus(chromosome="7", start=1_000_000, end=6_000_000),
+        "normalized_copy_number": 1.0,
+        "contribution_status": CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
+    }
+    payload.update(updates)
+    return CnvNormalizedEventRecord.model_validate(payload)
+
+
+def _sealed_manifest(
+    *,
+    artifacts: list[CnvNativeArtifactReference] | None = None,
+    full_evidence: list[CnvFullEvidenceRecord] | None = None,
+    normalized_events: list[CnvNormalizedEventRecord] | None = None,
+) -> CnvValidationEvidenceManifest:
+    return seal_cnv_validation_evidence(
+        manifest_id="SYNTHETIC_CNV_EVIDENCE_001",
+        registration_sha256=_sha("registration"),
+        native_artifacts=[_artifact()] if artifacts is None else artifacts,
+        full_evidence=[_event_source()] if full_evidence is None else full_evidence,
+        normalized_events=[_normalized_event()] if normalized_events is None else normalized_events,
+    )
 
 
 class CnvFullEvidenceContractTests(unittest.TestCase):
@@ -261,6 +346,94 @@ class CnvFullEvidenceContractTests(unittest.TestCase):
             CnvContributionStatus.EXCLUDED_FROM_PRIMARY_METRIC,
         )
         self.assertEqual(excluded.run_outcome, CnvRunOutcomeState.OBSERVED)
+
+
+class CnvEvidenceManifestContractTests(unittest.TestCase):
+    def test_normalized_event_requires_unique_source_full_evidence_ids(self) -> None:
+        with self.assertRaises(ValidationError):
+            _normalized_event(source_full_evidence_ids=[])
+        with self.assertRaises(ValidationError):
+            _normalized_event(
+                source_full_evidence_ids=["full-segment-500-1", "full-segment-500-1"]
+            )
+
+    def test_manifest_rejects_dangling_source_full_evidence_id(self) -> None:
+        with self.assertRaises(ValueError):
+            _sealed_manifest(
+                normalized_events=[_normalized_event(source_full_evidence_ids=["missing-source"])]
+            )
+
+    def test_manifest_rejects_cross_identity_normalization(self) -> None:
+        mismatches: dict[str, object] = {
+            "specimen_id": "SYNTHETIC_CNV_999",
+            "caller_version": "synthetic-2",
+            "genome_build": GenomeBuild.GRCH37,
+            "data_basis": CnvDataBasis.ADAPTIVE_SAMPLING_OFF_TARGET,
+            "reference_id": "synthetic-other-reference",
+            "reference_sha256": _sha("other-reference"),
+            "bin_size_kbp": 1000,
+            "replicate_id": "replicate-2",
+        }
+        for field, value in mismatches.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                _sealed_manifest(full_evidence=[_event_source(**{field: value})])
+
+    def test_terminal_source_cannot_become_positive_normalized_event(self) -> None:
+        terminal_states = (
+            (CnvRunOutcomeState.FAILED, CnvContributionStatus.FAILED),
+            (CnvRunOutcomeState.NO_CALL, CnvContributionStatus.NO_CALL),
+            (CnvRunOutcomeState.NOT_ASSESSABLE, CnvContributionStatus.NOT_ASSESSABLE),
+        )
+        for outcome, contribution in terminal_states:
+            with self.subTest(outcome=outcome), self.assertRaises(ValueError):
+                _sealed_manifest(
+                    full_evidence=[
+                        _event_source(
+                            run_outcome=outcome,
+                            contribution_status=contribution,
+                            outcome_reason="Synthetic terminal evidence state.",
+                        )
+                    ]
+                )
+
+    def test_manifest_rejects_dangling_and_orphan_artifacts(self) -> None:
+        with self.assertRaises(ValueError):
+            _sealed_manifest(
+                full_evidence=[_event_source(native_artifact_ids=["missing-artifact"])]
+            )
+        with self.assertRaises(ValueError):
+            _sealed_manifest(artifacts=[_artifact(), _artifact("orphan-artifact")])
+
+    def test_manifest_rejects_duplicate_full_evidence_address(self) -> None:
+        duplicate = _event_source(record_id="different-record-id")
+        with self.assertRaises(ValueError):
+            _sealed_manifest(full_evidence=[_event_source(), duplicate])
+
+    def test_manifest_rejects_duplicate_ids_in_each_namespace(self) -> None:
+        with self.assertRaises(ValueError):
+            _sealed_manifest(artifacts=[_artifact(), _artifact()])
+        with self.assertRaises(ValueError):
+            _sealed_manifest(full_evidence=[_event_source(), _event_source()])
+        with self.assertRaises(ValueError):
+            _sealed_manifest(
+                normalized_events=[_normalized_event(), _normalized_event()]
+            )
+
+    def test_excluded_full_evidence_remains_when_not_normalized(self) -> None:
+        excluded = _event_source(
+            contribution_status=CnvContributionStatus.EXCLUDED_FROM_PRIMARY_METRIC,
+            contribution_reason="Synthetic preregistered exclusion classification.",
+        )
+        manifest = _sealed_manifest(full_evidence=[excluded], normalized_events=[])
+        self.assertEqual([item.record_id for item in manifest.full_evidence], [excluded.record_id])
+        self.assertEqual(manifest.normalized_events, [])
+
+    def test_sealed_manifest_is_tamper_evident(self) -> None:
+        manifest = _sealed_manifest()
+        payload = manifest.model_dump(mode="json")
+        payload["full_evidence"][0]["copy_number"] = 2.0
+        with self.assertRaises(ValidationError):
+            CnvValidationEvidenceManifest.model_validate(payload)
 
 
 if __name__ == "__main__":
