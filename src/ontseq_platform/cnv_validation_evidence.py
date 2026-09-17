@@ -41,11 +41,7 @@ def _validate_json_tree(value: object, *, path: str = "$") -> None:
 
 def canonical_evidence_sha256(value: StrictModel | Mapping[str, Any]) -> str:
     """Hash canonical JSON while refusing NaN/Inf and arbitrary Python objects."""
-    payload: object
-    if isinstance(value, StrictModel):
-        payload = value.model_dump(mode="json")
-    else:
-        payload = dict(value)
+    payload: object = value.model_dump(mode="json") if isinstance(value, StrictModel) else dict(value)
     _validate_json_tree(payload)
     rendered = json.dumps(
         payload,
@@ -283,12 +279,16 @@ class CnvFullEvidenceRecord(StrictModel):
             if not self.outcome_reason:
                 raise ValueError("Orthogonal biological negative requires an explicit reason")
 
-        if self.contribution_status == CnvContributionStatus.EXCLUDED_FROM_PRIMARY_METRIC:
-            if not self.contribution_reason:
-                raise ValueError("Excluded evidence requires an explicit contribution reason")
+        if (
+            self.contribution_status == CnvContributionStatus.EXCLUDED_FROM_PRIMARY_METRIC
+            and not self.contribution_reason
+        ):
+            raise ValueError("Excluded evidence requires an explicit contribution reason")
 
-        if self.record_kind == CnvEvidenceRecordKind.CALLER_FIT:
-            if self.fit_group_id is None or self.selected_fit is None:
-                raise ValueError("Caller-fit evidence requires fit_group_id and selected_fit")
+        if (
+            self.record_kind == CnvEvidenceRecordKind.CALLER_FIT
+            and (self.fit_group_id is None or self.selected_fit is None)
+        ):
+            raise ValueError("Caller-fit evidence requires fit_group_id and selected_fit")
 
         return self
