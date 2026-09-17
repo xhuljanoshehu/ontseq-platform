@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import unittest
 
 from pydantic import ValidationError
@@ -143,7 +144,10 @@ def _trace(**updates: object) -> CnvAggregateEvidenceTrace:
     return CnvAggregateEvidenceTrace.model_validate(payload)
 
 
-def _index(evidence: CnvValidationEvidenceManifest, *traces: CnvAggregateEvidenceTrace) -> CnvTraceabilityIndex:
+def _index(
+    evidence: CnvValidationEvidenceManifest,
+    *traces: CnvAggregateEvidenceTrace,
+) -> CnvTraceabilityIndex:
     selected = list(traces) if traces else [_trace()]
     return seal_cnv_traceability_index(
         index_id="SYNTHETIC_CNV_TRACEABILITY_001",
@@ -189,9 +193,18 @@ class CnvAggregateEvidenceTraceContractTests(unittest.TestCase):
                 excluded_full_evidence_ids=["full-segment-500-1"],
             )
 
-    def test_numerator_may_be_a_subset_of_denominator(self) -> None:
+    def test_numerator_must_be_a_subset_of_denominator(self) -> None:
         trace = _trace()
         self.assertEqual(trace.numerator_full_evidence_ids, trace.denominator_full_evidence_ids)
+        with self.assertRaises(ValidationError):
+            _trace(
+                numerator_full_evidence_ids=["full-segment-500-1"],
+                denominator_full_evidence_ids=["different-denominator-record"],
+            )
+
+    def test_stratum_key_rejects_nonfinite_values(self) -> None:
+        with self.assertRaises(ValidationError):
+            _trace(stratum_key={"coverage": math.nan})
 
 
 class CnvTraceabilityIndexContractTests(unittest.TestCase):
@@ -223,10 +236,28 @@ class CnvTraceabilityIndexContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_cnv_traceability(evidence, index)
 
+    def test_verifier_requires_normalized_sources_in_trace_membership(self) -> None:
+        evidence = _manifest()
+        index = _index(
+            evidence,
+            _trace(
+                numerator_full_evidence_ids=[],
+                denominator_full_evidence_ids=[],
+                excluded_full_evidence_ids=[],
+            ),
+        )
+        with self.assertRaises(ValueError):
+            verify_cnv_traceability(evidence, index)
+
     def test_index_rejects_duplicate_trace_ids(self) -> None:
         evidence = _manifest()
         with self.assertRaises(ValidationError):
             _index(evidence, _trace(), _trace(aggregate_id="aggregate-other"))
+
+    def test_index_rejects_duplicate_analytical_trace_addresses(self) -> None:
+        evidence = _manifest()
+        with self.assertRaises(ValidationError):
+            _index(evidence, _trace(), _trace(trace_id="trace-second-copy"))
 
     def test_index_is_tamper_evident(self) -> None:
         evidence = _manifest()
