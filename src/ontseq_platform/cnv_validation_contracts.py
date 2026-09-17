@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from .models import BenchmarkThresholds, EventType, GenomeBuild, StrictModel
+from .models import BenchmarkThresholds, EventType, GenomeBuild, GenomicEvent, StrictModel
 
 SHA256 = r"^[0-9a-f]{64}$"
 CNV_EVENT_TYPES = frozenset(
@@ -28,11 +28,18 @@ class CnvStratificationRole(StrEnum):
 class CnvStratificationDimension(StrEnum):
     CALLER = "caller"
     GENOME_BUILD = "genome_build"
+    DATA_BASIS = "data_basis"
     COVERAGE = "coverage"
     TUMOR_FRACTION = "tumor_fraction"
     EVENT_CLASS = "event_class"
     EVENT_SIZE = "event_size"
     BIN_SIZE = "bin_size"
+
+
+class CnvDataBasis(StrEnum):
+    LCWGS_GENOME_WIDE = "lcwgs_genome_wide"
+    ADAPTIVE_SAMPLING_OFF_TARGET = "adaptive_sampling_off_target"
+    ADAPTIVE_SAMPLING_ON_TARGET = "adaptive_sampling_on_target"
 
 
 class CnvCallerLock(StrictModel):
@@ -122,6 +129,7 @@ class CnvValidationMatrix(StrictModel):
     )
     callers: list[CnvCallerLock] = Field(min_length=1)
     genome_builds: list[GenomeBuild] = Field(min_length=1)
+    data_bases: list[CnvDataBasis] = Field(min_length=1)
     stratification: CnvStratificationPlan
     event_classes: list[EventType] = Field(min_length=1)
     qdnaseq_bin_sizes_kbp: list[int] = Field(default_factory=list)
@@ -138,6 +146,8 @@ class CnvValidationMatrix(StrictModel):
             raise ValueError("Caller IDs must be unique")
         if len(self.genome_builds) != len(set(self.genome_builds)):
             raise ValueError("Genome builds must be unique")
+        if len(self.data_bases) != len(set(self.data_bases)):
+            raise ValueError("CNV data bases must be unique")
         if any(event not in CNV_EVENT_TYPES for event in self.event_classes):
             raise ValueError("CNV validation matrix contains a non-CNV event class")
         if len(self.event_classes) != len(set(self.event_classes)):
@@ -149,4 +159,101 @@ class CnvValidationMatrix(StrictModel):
         question_ids = [item.question_id for item in self.acceptance]
         if len(question_ids) != len(set(question_ids)):
             raise ValueError("Acceptance question IDs must be unique")
+        return self
+
+
+class CnvRepeatKind(StrEnum):
+    INDEPENDENT = "independent"
+    WITHIN_RUN = "within_run"
+    BETWEEN_RUN = "between_run"
+
+
+class CnvTruthSource(StrictModel):
+    method_name: str = Field(min_length=1)
+    method_version: str = Field(min_length=1)
+    resource_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+    resource_sha256: str = Field(pattern=SHA256)
+    provenance_reference: str = Field(min_length=3)
+    orthogonal_to_evaluated_caller: Literal[True] = True
+
+
+class CnvAssessabilityMask(StrictModel):
+    resource_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+    resource_sha256: str = Field(pattern=SHA256)
+    unit: Literal["base_pairs", "genomic_bins", "regions"]
+    definition: str = Field(min_length=20)
+
+
+class CnvNegativeUniverse(StrictModel):
+    universe_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+    unit: Literal["genomic_bins", "regions"]
+    assessable_units: int = Field(ge=1)
+    resource_sha256: str = Field(pattern=SHA256)
+    definition: str = Field(min_length=20)
+
+
+class CnvValidationSpecimen(StrictModel):
+    specimen_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$")
+    biological_specimen_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$")
+    repeat_kind: CnvRepeatKind
+    repeat_group_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+    )
+    access_basis: Literal["public", "institutionally_authorized"]
+    pseudonymized: Literal[True] = True
+    material_type: str = Field(min_length=3)
+    genome_build: GenomeBuild
+    data_basis: CnvDataBasis
+    reference_id: str = Field(min_length=1)
+    reference_sha256: str = Field(pattern=SHA256)
+    input_sha256: str = Field(pattern=SHA256)
+    coverage_x: float | None = Field(default=None, ge=0)
+    coverage_definition: str | None = None
+    tumor_fraction: float | None = Field(default=None, ge=0, le=1)
+    tumor_fraction_method: str | None = None
+    tumor_fraction_timepoint: str | None = None
+    truth_sources: list[CnvTruthSource] = Field(min_length=1)
+    assessability_mask: CnvAssessabilityMask
+    truth_events: list[GenomicEvent] = Field(default_factory=list)
+    negative_universe: CnvNegativeUniverse | None = None
+
+    @model_validator(mode="after")
+    def coherent_specimen(self) -> CnvValidationSpecimen:
+        if self.coverage_x is not None and not math.isfinite(self.coverage_x):
+            raise ValueError("Coverage must be finite")
+        if self.coverage_x is None and self.coverage_definition is not None:
+            raise ValueError("Coverage definition cannot exist without a measured coverage value")
+        if self.coverage_x is not None and not self.coverage_definition:
+            raise ValueError("Measured coverage requires its definition")
+        if self.tumor_fraction is not None and not math.isfinite(self.tumor_fraction):
+            raise ValueError("Tumour fraction must be finite")
+        fraction_metadata = [self.tumor_fraction_method, self.tumor_fraction_timepoint]
+        if self.tumor_fraction is None and any(value is not None for value in fraction_metadata):
+            raise ValueError("Tumour-fraction metadata cannot imply a missing fraction")
+        if self.tumor_fraction is not None and any(not value for value in fraction_metadata):
+            raise ValueError("Measured tumour fraction requires method and timepoint")
+        if any(event.event_type not in CNV_EVENT_TYPES for event in self.truth_events):
+            raise ValueError("Truth events must be CNV event types")
+        event_ids = [event.event_id for event in self.truth_events]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("Truth event IDs must be unique within a specimen")
+        if self.repeat_kind == CnvRepeatKind.INDEPENDENT and self.repeat_group_id is not None:
+            raise ValueError("Independent specimens cannot declare a repeat group")
+        if self.repeat_kind != CnvRepeatKind.INDEPENDENT and self.repeat_group_id is None:
+            raise ValueError("Repeat specimens require repeat_group_id")
+        return self
+
+
+class CnvValidationCohort(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    specimens: list[CnvValidationSpecimen] = Field(min_length=1)
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def unique_specimens(self) -> CnvValidationCohort:
+        ids = [item.specimen_id for item in self.specimens]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Validation specimen IDs must be unique")
         return self
