@@ -558,12 +558,7 @@ class CnvAggregateEvidenceTrace(StrictModel):
         numerator = set(self.numerator_full_evidence_ids)
         denominator = set(self.denominator_full_evidence_ids)
         excluded = set(self.excluded_full_evidence_ids)
-        if not (
-            numerator
-            or denominator
-            or excluded
-            or self.normalized_event_ids
-        ):
+        if not (numerator or denominator or excluded or self.normalized_event_ids):
             raise ValueError("Traceability record requires at least one evidence reference")
         if not numerator.issubset(denominator):
             raise ValueError("Numerator full-evidence IDs must be a subset of the denominator")
@@ -627,9 +622,7 @@ def verify_cnv_traceability(
         raise ValueError("Traceability index is bound to a different evidence manifest")
 
     full_by_id = {item.record_id: item for item in evidence.full_evidence}
-    normalized_by_id = {
-        item.normalized_event_id: item for item in evidence.normalized_events
-    }
+    normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
     artifact_ids = {item.artifact_id for item in evidence.native_artifacts}
 
     for trace in index.traces:
@@ -640,8 +633,7 @@ def verify_cnv_traceability(
         missing_full_ids = direct_full_ids - set(full_by_id)
         if missing_full_ids:
             raise ValueError(
-                "Trace references missing full evidence: "
-                + ", ".join(sorted(missing_full_ids))
+                "Trace references missing full evidence: " + ", ".join(sorted(missing_full_ids))
             )
 
         missing_normalized_ids = set(trace.normalized_event_ids) - set(normalized_by_id)
