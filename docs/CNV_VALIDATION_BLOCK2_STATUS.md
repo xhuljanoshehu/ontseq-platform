@@ -20,6 +20,8 @@ Implemented on the isolated `feat/cnv-validation-program` branch:
 - contribution states that preserve excluded, secondary and exploratory evidence rather than deleting it;
 - derived normalized CNV events with mandatory source full-evidence IDs;
 - fail-closed identity binding between normalized events and source evidence across specimen, caller/runtime, build, data basis, reference, input, coverage, tumour fraction, bin size and replicate context;
+- every positive normalized CNV requires at least one locus-bearing caller source (`CALLER_BIN`, `CALLER_SEGMENT`, `CALLER_EVENT` or `CHROMOSOME_SUMMARY` with a genomic locus); fit-only or run-summary-only evidence cannot create a positive normalized event;
+- every normalized event admitted to `USED_FOR_PRIMARY_ANALYSIS` requires at least one source full-evidence record that is itself `USED_FOR_PRIMARY_ANALYSIS`; excluded-only, secondary-only or exploratory-only evidence cannot be promoted back into the primary analysis, while secondary fit evidence may remain attached as additional provenance;
 - a sealed evidence manifest with `retain_all_evidence=true`, duplicate-address rejection, dangling-reference rejection, orphan-artifact rejection and canonical SHA-256 content locking;
 - aggregate traceability records that store numerator, denominator, excluded and normalized-event memberships without storing or computing the future metric value;
 - numerator membership constrained to the denominator, with exclusion memberships kept disjoint;
