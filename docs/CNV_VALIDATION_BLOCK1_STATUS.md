@@ -2,7 +2,9 @@
 
 Research Use Only.
 
-Current phase: implementation complete; final same-head verification pending.
+Status: PASS.
+
+Final verified Block 1 head: `afb721396f6f880290861dfd3abeaf81c794beef`.
 
 Implemented on the isolated `feat/cnv-validation-program` branch:
 
@@ -19,6 +21,13 @@ Implemented on the isolated `feat/cnv-validation-program` branch:
 - versioned JSON schemas for matrix, cohort and registration;
 - synthetic contract tests only; no real biological data are committed.
 
-The matrix retains `retain_all_evidence=true` as a non-negotiable study rule. Block 1 does not yet create full-evidence rows; full caller evidence, contribution/exclusion states and aggregate-to-source traceability are Block 2.
+The matrix retains `retain_all_evidence=true` as a non-negotiable study rule. Block 2 extends that rule with full caller evidence, derived normalized events and aggregate-to-source traceability without reopening the verified Block 1 contracts.
 
-No caller is selected as a production default. No biological or clinical performance claim is made. The package version remains unchanged. The draft PR must remain unmerged until the final same-head CI/review evidence is recorded.
+Final same-head Block 1 verification on `afb721396f6f880290861dfd3abeaf81c794beef`:
+
+- CI #732 — SUCCESS on Python 3.11, 3.12 and 3.13; 1716 passed, 6 skipped, 407 subtests; Ruff, mypy, schema freshness, repository safety, version agreement, wheel-resource checks, Snakemake DAGs and synthetic report generation passed;
+- MARLIN runtime smoke #118 — SUCCESS;
+- Desktop bundle contract #218 — SUCCESS;
+- Desktop CI #492 — SUCCESS, including relocatable Linux runtime, stock-Ubuntu system smoke, WPF build, BAM-index/reference-identity tests, self-contained `win-x64` publish and first-run bundle verification.
+
+No caller is selected as a production default. No biological or clinical performance claim is made. Package version remains `0.8.2`. Block 1 did not merge the draft PR.
