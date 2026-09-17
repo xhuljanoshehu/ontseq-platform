@@ -121,6 +121,12 @@ class RepositorySafetyTests(unittest.TestCase):
             wheel_resources.REQUIRED_SUFFIXES,
         )
 
+    def test_wheel_contract_requires_marlin_runtime_probe_script(self) -> None:
+        self.assertIn(
+            "share/ontseq/scripts/marlin_runtime_probe.R",
+            wheel_resources.REQUIRED_SUFFIXES,
+        )
+
     def test_unreadable_gzip_and_oversized_expansion_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "calls.tsv.gz"
