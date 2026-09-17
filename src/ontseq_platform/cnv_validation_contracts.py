@@ -156,6 +156,32 @@ class CnvValidationMatrix(StrictModel):
             raise ValueError("QDNAseq bin sizes must be unique and sorted")
         if any(value <= 0 for value in self.qdnaseq_bin_sizes_kbp):
             raise ValueError("QDNAseq bin sizes must be positive")
+
+        dimensions = {
+            *self.stratification.primary_dimensions,
+            *self.stratification.secondary_dimensions,
+            *self.stratification.exploratory_dimensions,
+        }
+        if (
+            CnvStratificationDimension.COVERAGE in dimensions
+            and not self.stratification.coverage_cutpoints_x
+        ):
+            raise ValueError("Registered coverage stratification requires explicit cutpoints")
+        if (
+            CnvStratificationDimension.TUMOR_FRACTION in dimensions
+            and not self.stratification.tumor_fraction_cutpoints
+        ):
+            raise ValueError(
+                "Registered tumour-fraction stratification requires explicit cutpoints"
+            )
+        if (
+            CnvStratificationDimension.EVENT_SIZE in dimensions
+            and not self.stratification.event_size_cutpoints_bp
+        ):
+            raise ValueError("Registered event-size stratification requires explicit cutpoints")
+        if "qdnaseq_ace" in caller_ids and not self.qdnaseq_bin_sizes_kbp:
+            raise ValueError("QDNAseq+ACE validation requires explicit registered bin sizes")
+
         question_ids = [item.question_id for item in self.acceptance]
         if len(question_ids) != len(set(question_ids)):
             raise ValueError("Acceptance question IDs must be unique")
