@@ -270,7 +270,9 @@ class CnvValidationSpecimen(StrictModel):
             and self.negative_universe.assessability_mask_sha256
             != self.assessability_mask.resource_sha256
         ):
-            raise ValueError("Negative universe must be derived from the registered assessability mask")
+            raise ValueError(
+                "Negative universe must be derived from the registered assessability mask"
+            )
         if self.repeat_kind == CnvRepeatKind.INDEPENDENT and self.repeat_group_id is not None:
             raise ValueError("Independent specimens cannot declare a repeat group")
         if self.repeat_kind != CnvRepeatKind.INDEPENDENT and self.repeat_group_id is None:
