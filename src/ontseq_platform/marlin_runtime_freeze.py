@@ -28,6 +28,18 @@ MARLIN_RUNTIME_FIXTURE_ABSOLUTE_SCORE_TOLERANCE = 1e-7
 MARLIN_RUNTIME_FIXTURE_SCORE_SUM_TOLERANCE = 1e-5
 
 
+def verify_marlin_v1_runtime_profile_policy(
+    profile: MarlinRuntimeCompatibilityProfile,
+) -> None:
+    """Require the prospectively frozen MARLIN v1 numerical-tolerance policy."""
+    if profile.absolute_score_tolerance != MARLIN_RUNTIME_FIXTURE_ABSOLUTE_SCORE_TOLERANCE:
+        raise ValueError(
+            "MARLIN v1 runtime profile absolute score tolerance differs from frozen policy"
+        )
+    if profile.score_sum_tolerance != MARLIN_RUNTIME_FIXTURE_SCORE_SUM_TOLERANCE:
+        raise ValueError("MARLIN v1 runtime profile score-sum tolerance differs from frozen policy")
+
+
 def generate_frozen_runtime_fixture(lock: MarlinArtifactLock) -> MarlinFeatureVector:
     """Generate the canonical non-biological MARLIN runtime fixture.
 
@@ -133,6 +145,7 @@ def freeze_runtime_compatibility(
         score_sum_tolerance=MARLIN_RUNTIME_FIXTURE_SCORE_SUM_TOLERANCE,
         created_at=created_at,
     )
+    verify_marlin_v1_runtime_profile_policy(profile)
     return vector, result, profile
 
 
@@ -143,5 +156,6 @@ __all__ = [
     "freeze_runtime_compatibility",
     "generate_frozen_runtime_fixture",
     "render_frozen_runtime_fixture",
+    "verify_marlin_v1_runtime_profile_policy",
     "verify_runtime_probe_matches_lock",
 ]

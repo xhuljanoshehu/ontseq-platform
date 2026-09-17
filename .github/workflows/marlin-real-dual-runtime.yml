@@ -1,0 +1,415 @@
+name: MARLIN real dual-runtime qualification
+
+"on":
+  pull_request:
+    paths:
+      - ".github/workflows/marlin-real-dual-runtime.yml"
+      - "src/ontseq_platform/marlin_*.py"
+      - "src/ontseq_platform/entrypoint.py"
+      - "scripts/marlin_*.R"
+      - "workflow/envs/marlin_runtime.yaml"
+      - "workflow/envs/marlin_reference_runtime.yaml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marlin-real-dual-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-dual-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      UPSTREAM_COMMIT: 442aa603415a54f62e7367794f9a31c6bc20fc2d
+      ZENODO_RECORD_ID: "15565404"
+      MODEL_FILENAME: marlin_v1.model.hdf5
+      CONTROLLED_DIR: .marlin-controlled
+      EVIDENCE_DIR: results/marlin-real-dual-runtime
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ONTSeq control plane
+        run: python -m pip install -e .
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/marlin_runtime.yaml
+          cache-environment: true
+          cache-downloads: true
+
+      - name: Create historical reference runtime
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          micromamba create --yes --file workflow/envs/marlin_reference_runtime.yaml
+          REF_PREFIX="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime"
+          test -x "$REF_PREFIX/bin/Rscript"
+          test -x "$REF_PREFIX/bin/python"
+
+      - name: Install historical R keras and tensorflow interfaces
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          REF_PREFIX="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime"
+          export RETICULATE_PYTHON="$REF_PREFIX/bin/python"
+          "$REF_PREFIX/bin/Rscript" - <<'RS'
+          options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2023-08-16/"))
+          install.packages(c("tensorflow", "keras"), dependencies = NA)
+          stopifnot(as.character(packageVersion("tensorflow")) == "2.13.0")
+          stopifnot(as.character(packageVersion("keras")) == "2.13.0")
+          RS
+
+      - name: Materialize pinned upstream MARLIN resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CONTROLLED_DIR" "$EVIDENCE_DIR"
+          git init "$CONTROLLED_DIR/upstream-marlin"
+          git -C "$CONTROLLED_DIR/upstream-marlin" remote add origin https://github.com/hovestadt/MARLIN.git
+          git -C "$CONTROLLED_DIR/upstream-marlin" fetch --depth=1 origin "$UPSTREAM_COMMIT"
+          git -C "$CONTROLLED_DIR/upstream-marlin" checkout --detach FETCH_HEAD
+          test "$(git -C "$CONTROLLED_DIR/upstream-marlin" rev-parse HEAD)" = "$UPSTREAM_COMMIT"
+          git -C "$CONTROLLED_DIR/upstream-marlin" archive --format=tar HEAD \
+            | sha256sum | awk '{print $1}' > "$EVIDENCE_DIR/upstream-code-manifest.sha256"
+          cp "$CONTROLLED_DIR/upstream-marlin/MARLIN_realtime/files/marlin_v1.features.RData" "$CONTROLLED_DIR/"
+          cp "$CONTROLLED_DIR/upstream-marlin/MARLIN_realtime/files/marlin_v1.class_annotations.xlsx" "$CONTROLLED_DIR/"
+          cp "$CONTROLLED_DIR/upstream-marlin/MARLIN_realtime/files/marlin_v1.probes_hg19.bed.gz" "$CONTROLLED_DIR/"
+
+      - name: Download immutable Zenodo MARLIN v1 model and verify published checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$pythonLocation/bin/python" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          record_id = os.environ["ZENODO_RECORD_ID"]
+          filename = os.environ["MODEL_FILENAME"]
+          controlled = Path(os.environ["CONTROLLED_DIR"])
+          evidence = Path(os.environ["EVIDENCE_DIR"])
+          controlled.mkdir(parents=True, exist_ok=True)
+          evidence.mkdir(parents=True, exist_ok=True)
+
+          api_url = f"https://zenodo.org/api/records/{record_id}"
+          request = urllib.request.Request(
+              api_url,
+              headers={"User-Agent": "ONTSeq-RUO-MARLIN-qualification/0.8.2"},
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              record = json.load(response)
+
+          raw_files = record.get("files")
+          entries = []
+          if isinstance(raw_files, list):
+              entries = raw_files
+          elif isinstance(raw_files, dict):
+              mapping = raw_files.get("entries", {})
+              if isinstance(mapping, dict):
+                  for key, value in mapping.items():
+                      item = dict(value)
+                      item.setdefault("key", key)
+                      entries.append(item)
+
+          matches = [item for item in entries if item.get("key") == filename]
+          if len(matches) != 1:
+              available = sorted(str(item.get("key")) for item in entries)
+              raise SystemExit(
+                  f"Zenodo record {record_id} must expose exactly {filename!r}; found {available!r}"
+              )
+          entry = matches[0]
+          links = entry.get("links") or {}
+          download_url = links.get("content") or links.get("self")
+          if not download_url:
+              raise SystemExit("Zenodo model entry does not expose a download URL")
+
+          checksum = str(entry.get("checksum") or "")
+          if ":" not in checksum:
+              raise SystemExit(f"Zenodo model entry lacks an algorithm-qualified checksum: {checksum!r}")
+          algorithm, expected_digest = checksum.split(":", 1)
+          try:
+              published_hasher = hashlib.new(algorithm)
+          except ValueError as exc:
+              raise SystemExit(f"unsupported Zenodo checksum algorithm: {algorithm}") from exc
+          sha256 = hashlib.sha256()
+
+          model_path = controlled / filename
+          download_request = urllib.request.Request(
+              download_url,
+              headers={"User-Agent": "ONTSeq-RUO-MARLIN-qualification/0.8.2"},
+          )
+          observed_size = 0
+          with urllib.request.urlopen(download_request, timeout=120) as source, model_path.open("wb") as sink:
+              while True:
+                  chunk = source.read(4 * 1024 * 1024)
+                  if not chunk:
+                      break
+                  sink.write(chunk)
+                  published_hasher.update(chunk)
+                  sha256.update(chunk)
+                  observed_size += len(chunk)
+
+          observed_published = published_hasher.hexdigest()
+          if observed_published.lower() != expected_digest.lower():
+              raise SystemExit(
+                  "Zenodo model checksum mismatch: "
+                  f"expected {checksum}, observed {algorithm}:{observed_published}"
+              )
+          declared_size = entry.get("size")
+          if declared_size is not None and int(declared_size) != observed_size:
+              raise SystemExit(
+                  f"Zenodo model size mismatch: expected {declared_size}, observed {observed_size}"
+              )
+
+          doi = record.get("doi")
+          if not doi:
+              doi = (((record.get("pids") or {}).get("doi") or {}).get("identifier"))
+          metadata = record.get("metadata") or {}
+          provenance = {
+              "record_id": str(record.get("id", record_id)),
+              "doi": doi,
+              "title": metadata.get("title"),
+              "version": metadata.get("version"),
+              "filename": filename,
+              "size_bytes": observed_size,
+              "published_checksum": checksum,
+              "sha256": sha256.hexdigest(),
+              "source": api_url,
+              "research_only": True,
+          }
+          (evidence / "model-provenance.json").write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(provenance, indent=2, sort_keys=True))
+          PY
+
+      - name: Export canonical MARLIN feature order and fingerprint immutable resources
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          CANDIDATE_PREFIX="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-runtime"
+          "$CANDIDATE_PREFIX/bin/Rscript" scripts/marlin_export_resources.R \
+            "$CONTROLLED_DIR/marlin_v1.features.RData" \
+            "$CONTROLLED_DIR/marlin_v1.features.txt"
+          test "$(wc -l < "$CONTROLLED_DIR/marlin_v1.features.txt")" -eq 357340
+          "$pythonLocation/bin/python" - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          controlled = Path(os.environ["CONTROLLED_DIR"])
+          evidence = Path(os.environ["EVIDENCE_DIR"])
+          names = (
+              "marlin_v1.model.hdf5",
+              "marlin_v1.features.RData",
+              "marlin_v1.features.txt",
+              "marlin_v1.class_annotations.xlsx",
+              "marlin_v1.probes_hg19.bed.gz",
+          )
+          payload = {}
+          for name in names:
+              path = controlled / name
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              payload[name] = {"sha256": digest, "size_bytes": path.stat().st_size}
+          payload["upstream_commit"] = os.environ["UPSTREAM_COMMIT"]
+          payload["upstream_code_manifest_sha256"] = (
+              evidence / "upstream-code-manifest.sha256"
+          ).read_text(encoding="utf-8").strip()
+          payload["research_only"] = True
+          (evidence / "artifact-provenance.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+
+      - name: Create reference and candidate execution locks from identical artifact bytes
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          CONTROL_PYTHON="$pythonLocation/bin/python"
+          REF_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime/bin/Rscript"
+          CAND_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-runtime/bin/Rscript"
+          CODE_MANIFEST_SHA256="$(cat "$EVIDENCE_DIR/upstream-code-manifest.sha256")"
+
+          COMMON=(
+            --model "$CONTROLLED_DIR/marlin_v1.model.hdf5"
+            --feature-rdata "$CONTROLLED_DIR/marlin_v1.features.RData"
+            --feature-list "$CONTROLLED_DIR/marlin_v1.features.txt"
+            --class-annotations "$CONTROLLED_DIR/marlin_v1.class_annotations.xlsx"
+            --probe-bed "$CONTROLLED_DIR/marlin_v1.probes_hg19.bed.gz"
+            --code-version "$UPSTREAM_COMMIT"
+            --code-manifest-sha256 "$CODE_MANIFEST_SHA256"
+            --genome-build GRCh37
+            --runtime-probe-script scripts/marlin_runtime_probe.R
+          )
+
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-lock \
+            "${COMMON[@]}" \
+            --lock-id MARLIN_V1_REFERENCE_R413 \
+            --rscript "$REF_RSCRIPT" \
+            --output "$EVIDENCE_DIR/reference-artifact-lock.json"
+
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-lock \
+            "${COMMON[@]}" \
+            --lock-id MARLIN_V1_CANDIDATE_R423 \
+            --rscript "$CAND_RSCRIPT" \
+            --output "$EVIDENCE_DIR/candidate-artifact-lock.json"
+
+      - name: Freeze real-model reference runtime oracle
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          CONTROL_PYTHON="$pythonLocation/bin/python"
+          REF_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-reference-runtime/bin/Rscript"
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-freeze-runtime \
+            --artifact-lock "$EVIDENCE_DIR/reference-artifact-lock.json" \
+            --model "$CONTROLLED_DIR/marlin_v1.model.hdf5" \
+            --inference-script scripts/marlin_infer_locked.R \
+            --runtime-probe-script scripts/marlin_runtime_probe.R \
+            --profile-id MARLIN_V1_REAL_REFERENCE_FROZEN \
+            --rscript "$REF_RSCRIPT" \
+            --work-dir "$RUNNER_TEMP/marlin-reference-freeze" \
+            --output-fixture "$EVIDENCE_DIR/reference-runtime-fixture.txt" \
+            --output-profile "$EVIDENCE_DIR/reference-runtime-profile.json" \
+            --output-runtime-identity "$EVIDENCE_DIR/reference-runtime-identity.json"
+
+      - name: Execute real-model dual-runtime comparison
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          CONTROL_PYTHON="$pythonLocation/bin/python"
+          CAND_RSCRIPT="$MAMBA_ROOT_PREFIX/envs/ontseq-marlin-runtime/bin/Rscript"
+          "$CONTROL_PYTHON" -m ontseq_platform marlin-compare-runtimes \
+            --reference-artifact-lock "$EVIDENCE_DIR/reference-artifact-lock.json" \
+            --candidate-artifact-lock "$EVIDENCE_DIR/candidate-artifact-lock.json" \
+            --reference-runtime-identity "$EVIDENCE_DIR/reference-runtime-identity.json" \
+            --reference-profile "$EVIDENCE_DIR/reference-runtime-profile.json" \
+            --runtime-fixture "$EVIDENCE_DIR/reference-runtime-fixture.txt" \
+            --model "$CONTROLLED_DIR/marlin_v1.model.hdf5" \
+            --inference-script scripts/marlin_infer_locked.R \
+            --candidate-runtime-probe-script scripts/marlin_runtime_probe.R \
+            --candidate-rscript "$CAND_RSCRIPT" \
+            --comparison-id MARLIN_V1_REAL_R413_VS_R423 \
+            --output "$EVIDENCE_DIR/runtime-comparison.json"
+
+      - name: Require real dual-runtime PASS and print all 42 deviations
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$pythonLocation/bin/python" - <<'PY'
+          import json
+          import math
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ["EVIDENCE_DIR"])
+          report = json.loads((evidence / "runtime-comparison.json").read_text(encoding="utf-8"))
+          provenance = json.loads((evidence / "model-provenance.json").read_text(encoding="utf-8"))
+          artifact = json.loads((evidence / "artifact-provenance.json").read_text(encoding="utf-8"))
+
+          reference = report["reference_scores"]
+          candidate = report["candidate_scores"]
+          differences = report["absolute_differences"]
+          if not (len(reference) == len(candidate) == len(differences) == 42):
+              raise SystemExit("real MARLIN dual-runtime report does not contain exactly 42 scores")
+          if report["absolute_score_tolerance"] != 1e-7:
+              raise SystemExit("absolute score tolerance changed from 1e-7")
+          if report["score_sum_tolerance"] != 1e-5:
+              raise SystemExit("score-sum tolerance changed from 1e-5")
+          if report["artifact_set_identity"]["model_sha256"] != provenance["sha256"]:
+              raise SystemExit("report model SHA-256 differs from downloaded Zenodo model")
+          if artifact["marlin_v1.model.hdf5"]["sha256"] != provenance["sha256"]:
+              raise SystemExit("artifact provenance model SHA-256 is inconsistent")
+          if report["reference_runtime_identity"]["R_version"] != "4.1.3":
+              raise SystemExit("reference runtime is not R 4.1.3")
+          if report["candidate_runtime_identity"]["R_version"] != "4.2.3":
+              raise SystemExit("candidate runtime is not R 4.2.3")
+          if report["reference_runtime_identity"]["keras_version"] != "2.13.0":
+              raise SystemExit("reference R-Keras is not 2.13.0")
+          if report["candidate_runtime_identity"]["keras_version"] != "2.13.0":
+              raise SystemExit("candidate R-Keras is not 2.13.0")
+          if report["reference_runtime_identity"]["tensorflow_version"] != "2.13.0":
+              raise SystemExit("reference TensorFlow is not 2.13.0")
+          if report["candidate_runtime_identity"]["tensorflow_version"] != "2.13.0":
+              raise SystemExit("candidate TensorFlow is not 2.13.0")
+          if report["reference_runtime_identity"]["execution_backend"] != "cpu":
+              raise SystemExit("reference runtime is not CPU")
+          if report["candidate_runtime_identity"]["execution_backend"] != "cpu":
+              raise SystemExit("candidate runtime is not CPU")
+
+          for index, (ref, cand, diff) in enumerate(zip(reference, candidate, differences, strict=True), 1):
+              expected = abs(ref - cand)
+              if not math.isclose(diff, expected, rel_tol=0, abs_tol=1e-15):
+                  raise SystemExit(f"difference {index} is inconsistent")
+              print(f"model_unit={index:02d}\treference={ref:.17g}\tcandidate={cand:.17g}\tabs_diff={diff:.17g}")
+
+          required_true = (
+              "all_scores_within_tolerance",
+              "top_model_unit_matches",
+              "softmax_invariants_pass",
+          )
+          for key in required_true:
+              if report[key] is not True:
+                  raise SystemExit(f"real MARLIN dual-runtime gate failed: {key}=false")
+          if report["verdict"] != "PASS":
+              raise SystemExit(f"real MARLIN dual-runtime verdict is {report['verdict']!r}, expected PASS")
+
+          summary = {
+              "comparison_id": report["comparison_id"],
+              "verdict": report["verdict"],
+              "artifact_set_sha256": report["artifact_set_identity"]["artifact_set_sha256"],
+              "model_sha256": provenance["sha256"],
+              "model_published_checksum": provenance["published_checksum"],
+              "reference_runtime": report["reference_runtime_identity"],
+              "candidate_runtime": report["candidate_runtime_identity"],
+              "max_absolute_difference": report["max_absolute_difference"],
+              "reference_top_model_unit_index": report["reference_top_model_unit_index"],
+              "candidate_top_model_unit_index": report["candidate_top_model_unit_index"],
+              "absolute_score_tolerance": report["absolute_score_tolerance"],
+              "score_sum_tolerance": report["score_sum_tolerance"],
+              "score_count": 42,
+              "research_only": True,
+          }
+          (evidence / "qualification-summary.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove model and upstream payload before evidence upload
+        if: always()
+        shell: bash
+        run: rm -rf "$CONTROLLED_DIR"
+
+      - name: Upload non-biological real dual-runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: marlin-real-dual-runtime-evidence
+          path: |
+            results/marlin-real-dual-runtime/reference-artifact-lock.json
+            results/marlin-real-dual-runtime/candidate-artifact-lock.json
+            results/marlin-real-dual-runtime/reference-runtime-profile.json
+            results/marlin-real-dual-runtime/reference-runtime-identity.json
+            results/marlin-real-dual-runtime/runtime-comparison.json
+            results/marlin-real-dual-runtime/model-provenance.json
+            results/marlin-real-dual-runtime/artifact-provenance.json
+            results/marlin-real-dual-runtime/upstream-code-manifest.sha256
+            results/marlin-real-dual-runtime/qualification-summary.json
+          if-no-files-found: error
+          retention-days: 14

@@ -17,6 +17,8 @@ Current implementation scope:
 - locked R/Keras/TensorFlow inference boundary returning exactly 42 softmax scores;
 - live runtime probing of R, R-Keras, Python TensorFlow, Python and CPU/GPU backend identity;
 - deterministic non-biological runtime-fixture generation and one-time reference-profile freeze;
+- explicit dual-runtime numerical compatibility qualification using separate reference and
+  candidate execution locks over one identical immutable MARLIN artifact set;
 - grouped current-class, methylation-family and lineage summaries with explicit deterministic
   score/label tie ordering;
 - published `0.8` high-confidence threshold with explicit `UNKNOWN` below threshold;
@@ -29,9 +31,10 @@ Current implementation scope:
 The external GSE280090 / `GSM8587229_AL_001.txt.gz` validation gate has **not** been completed in
 this repository state. Public/patient-derived validation payloads are not committed to Git.
 
-The runtime-freeze implementation is present, but this repository does **not** contain a generated
-compatibility profile from the real Zenodo MARLIN model. That profile remains a local controlled
-validation artifact and must be created before biological validation begins.
+The runtime-freeze and dual-runtime comparison implementations are present, but this repository
+does **not** contain a generated compatibility profile, dual-runtime PASS report, or candidate
+self-baseline from the real Zenodo MARLIN model. Those remain local controlled validation
+artifacts and must be established before biological validation begins.
 
 ## Scientific reference
 
@@ -67,7 +70,11 @@ synthetic parser / contract / feature tests
         <
 real R/Keras/TensorFlow import and backend smoke
         <
-locked non-biological runtime compatibility
+single-runtime frozen reproducibility baseline
+        <
+dual-runtime numerical compatibility
+        <
+candidate same-lock frozen reproducibility baseline
         <
 GSE processed-CpG downstream reproduction
         <
@@ -91,6 +98,12 @@ In particular:
 - A successful runtime smoke proves that the selected R/Keras/TensorFlow stack imports and
   initializes. It does **not** prove numerical equivalence to the published MARLIN runtime or
   correct classification of biological samples.
+- A single-runtime frozen profile proves reproducibility against its own frozen numerical oracle;
+  it does not by itself prove equivalence between two different runtime environments.
+- A dual-runtime PASS proves only that the live candidate reproduced the frozen reference model
+  output on the fixed non-biological fixture within the predeclared engineering tolerances.
+- The candidate same-lock freeze after dual-runtime PASS is a reproducibility prerequisite for
+  `marlin-validate`, not a new biological-validation claim.
 
 ## Architecture
 
@@ -224,6 +237,12 @@ Inference performs no automatic artifact download. Hash mismatch is a hard failu
 runtime probe script and the `Rscript` executable that will identify the actual candidate runtime.
 This prevents a lock from claiming one software stack while executing another.
 
+For dual-runtime qualification, reference and candidate environments receive separate execution
+locks. ONTSeq derives a canonical `MarlinArtifactSetIdentity` from each lock and requires the same
+artifact-set SHA-256 before candidate inference. The canonical identity includes immutable
+model/code/feature/annotation/probe/build/contract fields but excludes runtime versions, backend,
+lock IDs, timestamps, local paths and source-URI formatting.
+
 ## Engineering runtime and live probe
 
 ONTSeq deliberately keeps the control plane and the legacy MARLIN model runtime in separate Python
@@ -272,22 +291,24 @@ backend            CPU
 This is an **engineering runtime identity**, not a biological validation result. The inspected
 upstream MARLIN repository documents R 4.1.3 as its tested R version. ONTSeq therefore does not
 assume that R 4.2.3 is numerically equivalent. Numerical compatibility with the locked trained
-model must be established independently by the frozen non-biological runtime fixture before any
-biological validation is permitted.
+model must be established independently by the frozen non-biological runtime fixture and the
+dual-runtime comparison before any biological validation is permitted.
 
 The smoke workflow stores only a small non-biological runtime-identity JSON artifact. It does not
 contain the trained MARLIN model, GSE280090 payloads or patient-derived data.
 
-## Runtime compatibility gate
+## Runtime compatibility gates
 
 External biological validation requires more than a successful runtime import or a stored profile.
-Before any validation sample is run, ONTSeq re-executes a fixed, non-biological 357,340-value
-`-1/0/+1` feature fixture through the current locked model/runtime.
+ONTSeq therefore uses a reference reproducibility gate, a cross-runtime numerical gate, and a
+candidate same-lock reproducibility gate before AL_001/GSE280090.
 
-The canonical ONTSeq generator is `sha256-index-mod3-v1`. It deterministically maps each feature
-index to `-1`, `0`, or `+1` under a fixed SHA-256 salt. The generated vector and text
-representation have regression-locked SHA-256 identities. Full generator details and the locked
-hashes are documented in `docs/MARLIN_RUNTIME_FREEZE.md`.
+### Single-runtime reference baseline
+
+ONTSeq executes a fixed, non-biological 357,340-value `-1/0/+1` feature fixture through the
+reference locked model/runtime. The canonical generator is `sha256-index-mod3-v1`; its feature
+vector and text representation have regression-locked SHA-256 identities documented in
+`docs/MARLIN_RUNTIME_FREEZE.md`.
 
 The engineering tolerances are fixed before biological validation:
 
@@ -296,26 +317,46 @@ absolute tolerance per raw model score: 1e-7
 softmax-sum tolerance:                  1e-5
 ```
 
-`ontseq marlin-freeze-runtime` first probes the same live `Rscript` environment that will run
-model inference and requires exact agreement with the artifact lock for R, R-Keras, Python
-TensorFlow, full Python patch version and CPU/GPU backend. It then runs the fixed vector exactly
-once through the locked model and writes the local fixture plus the 42-score compatibility
-profile. Existing output paths are refused rather than overwritten.
+`ontseq marlin-freeze-runtime` probes the same live `Rscript` environment used for inference,
+requires exact agreement with the reference execution lock, runs the fixed vector once, and writes
+the local fixture plus 42-score profile. With `--output-runtime-identity`, it also persists the
+`MarlinRuntimeIdentity` created from that same live probe and freeze timestamp. Existing output
+paths are refused rather than overwritten.
 
-The candidate runtime later must match the frozen `MarlinRuntimeCompatibilityProfile` for:
+### Dual-runtime numerical compatibility
 
-- artifact/runtime lock identity;
-- execution backend;
-- feature-vector digest;
-- top model-unit identity;
-- all 42 scores within the predeclared absolute tolerance;
-- softmax-sum tolerance.
+A separate `ontseq marlin-compare-runtimes` command qualifies the live candidate environment
+against the frozen reference oracle. Before candidate inference it requires:
 
-The tolerance is frozen before biological validation. It must not be tuned from AL_001 or
-GSE280090 outcomes.
+- reference and candidate execution locks with identical canonical artifact-set SHA-256;
+- reference runtime identity consistent with the reference execution lock;
+- reference profile bound to the reference execution lock;
+- frozen fixture digest matching the reference profile;
+- model bytes matching the shared artifact-set model SHA-256;
+- a live candidate runtime probe consistent with the candidate execution lock.
 
-`ontseq marlin-validate` therefore requires an explicit `--runtime-fixture` path. A direct
-`marlin-classify` invocation is not a substitute for this external-validation gate.
+The candidate then executes the same fixed fixture once. A machine-readable PASS requires all 42
+candidate scores to differ from the frozen reference by `<= 1e-7`, the same top raw model-unit
+index, and both softmax sums within `1e-5`. A structurally valid numerical incompatibility produces
+`verdict=FAIL`; malformed/inconsistent evidence fails the command. Neither state is a biological
+`UNKNOWN` or `NO_CALL`.
+
+### Candidate same-lock validation baseline
+
+A dual-runtime PASS does not change the existing `marlin-validate` identity rule. Biological
+validation still requires a `MarlinRuntimeCompatibilityProfile` whose
+`reference_runtime_lock_id` equals the **candidate** execution lock ID. Therefore, after the
+cross-runtime report is PASS, run `marlin-freeze-runtime` once under the candidate execution lock
+to create the candidate fixture/profile self-baseline. This second freeze uses the same
+deterministic generator and fixed tolerances; it is not a biological qualification and must not be
+used to retune any policy.
+
+`marlin-validate` then uses the candidate execution lock, candidate profile and candidate fixture.
+A reference profile supplied with the candidate lock remains a hard failure by design.
+
+The tolerances are frozen before biological validation. They must not be tuned from AL_001 or
+GSE280090 outcomes. A direct `marlin-classify` invocation is not a substitute for external
+validation.
 
 ## Classification semantics
 
@@ -399,6 +440,7 @@ Available engineering commands:
 ontseq marlin-lock
 ontseq marlin-runtime-probe
 ontseq marlin-freeze-runtime
+ontseq marlin-compare-runtimes
 ontseq marlin-features
 ontseq marlin-classify
 ontseq marlin-validate
@@ -431,34 +473,69 @@ ontseq marlin-lock \
   --output results/marlin-artifact-lock.json
 ```
 
-After the artifact lock has been created and before any biological validation, freeze the local
-runtime compatibility reference:
+Freeze the **reference** runtime before biological validation and persist its live identity:
 
 ```bash
 ontseq marlin-freeze-runtime \
-  --artifact-lock results/marlin-validation/marlin-artifact-lock.json \
+  --artifact-lock results/marlin-validation/reference-artifact-lock.json \
   --model /path/to/marlin_v1.model.hdf5 \
   --inference-script scripts/marlin_infer_locked.R \
   --runtime-probe-script scripts/marlin_runtime_probe.R \
-  --profile-id MARLIN_V1_CPU_FROZEN \
-  --rscript /path/to/ontseq-marlin-runtime/bin/Rscript \
-  --output-fixture results/marlin-validation/marlin-runtime-fixture.txt \
-  --output-profile results/marlin-validation/marlin-runtime-profile.json
+  --profile-id MARLIN_V1_REFERENCE_FROZEN \
+  --rscript /reference-runtime/bin/Rscript \
+  --output-fixture results/marlin-validation/reference-runtime-fixture.txt \
+  --output-profile results/marlin-validation/reference-runtime-profile.json \
+  --output-runtime-identity results/marlin-validation/reference-runtime-identity.json
 ```
 
-The fixture/profile files are generated locally and are not repository assets.
+Then create the candidate execution lock over the **same artifact bytes** and qualify its live
+runtime against the frozen reference:
+
+```bash
+ontseq marlin-compare-runtimes \
+  --reference-artifact-lock results/marlin-validation/reference-artifact-lock.json \
+  --candidate-artifact-lock results/marlin-validation/candidate-artifact-lock.json \
+  --reference-runtime-identity results/marlin-validation/reference-runtime-identity.json \
+  --reference-profile results/marlin-validation/reference-runtime-profile.json \
+  --runtime-fixture results/marlin-validation/reference-runtime-fixture.txt \
+  --model /path/to/marlin_v1.model.hdf5 \
+  --inference-script scripts/marlin_infer_locked.R \
+  --candidate-runtime-probe-script scripts/marlin_runtime_probe.R \
+  --candidate-rscript /candidate-runtime/bin/Rscript \
+  --comparison-id MARLIN_V1_REFERENCE_VS_ONTSEQ_CPU \
+  --output results/marlin-validation/runtime-comparison.json
+```
+
+After and only after `runtime-comparison.json` reports `PASS`, freeze the candidate runtime under
+its own execution lock to create the same-lock validation baseline:
+
+```bash
+ontseq marlin-freeze-runtime \
+  --artifact-lock results/marlin-validation/candidate-artifact-lock.json \
+  --model /path/to/marlin_v1.model.hdf5 \
+  --inference-script scripts/marlin_infer_locked.R \
+  --runtime-probe-script scripts/marlin_runtime_probe.R \
+  --profile-id MARLIN_V1_CANDIDATE_FROZEN \
+  --rscript /candidate-runtime/bin/Rscript \
+  --output-fixture results/marlin-validation/candidate-runtime-fixture.txt \
+  --output-profile results/marlin-validation/candidate-runtime-profile.json
+```
+
+The generated fixture/profile/runtime-identity/comparison files are local engineering evidence and
+are not repository assets. AL_001/GSE validation begins only after the controlled real-model
+dual-runtime comparison is PASS and the candidate same-lock profile has been frozen.
 
 ### External validation
 
-The validation runner requires a checksummed manifest, a locked artifact/runtime identity and the
-frozen runtime fixture:
+The validation runner requires a checksummed manifest, the candidate execution lock/profile and the
+candidate frozen runtime fixture:
 
 ```bash
 ontseq marlin-validate \
   --manifest results/marlin-validation/gse280090-v1/manifest.json \
-  --artifact-lock results/marlin-validation/marlin-artifact-lock.json \
-  --runtime-profile results/marlin-validation/marlin-runtime-profile.json \
-  --runtime-fixture results/marlin-validation/marlin-runtime-fixture.txt \
+  --artifact-lock results/marlin-validation/candidate-artifact-lock.json \
+  --runtime-profile results/marlin-validation/candidate-runtime-profile.json \
+  --runtime-fixture results/marlin-validation/candidate-runtime-fixture.txt \
   --model /path/to/marlin_v1.model.hdf5 \
   --feature-rdata /path/to/marlin_v1.features.RData \
   --feature-list /path/to/marlin_v1.features.txt \
@@ -468,7 +545,9 @@ ontseq marlin-validate \
   --output results/marlin-validation/gse280090-v1/report.json
 ```
 
-Paths above are examples. Artifact identities are accepted only when they match their locks.
+Paths above are examples. Artifact identities are accepted only when they match their locks. The
+controlled validation procedure retains the dual-runtime PASS report as preceding engineering
+evidence while `marlin-validate` enforces the candidate's own same-lock profile.
 
 ## First external validation target
 
@@ -487,12 +566,13 @@ Before classification:
 1. calculate and register the exact local file SHA-256;
 2. verify the file matches the supported five-column processed-probe schema;
 3. lock the expected publication-supported comparison target before inspecting ONTSeq output;
-4. pass the non-biological runtime compatibility fixture;
-5. register AL_001 as a one-sample validation manifest and execute it once through
+4. require the dual-runtime comparison report to be `PASS`;
+5. freeze and verify the candidate same-lock runtime fixture/profile;
+6. register AL_001 as a one-sample validation manifest and execute it once through
    `ontseq marlin-validate`;
-6. let the validation harness perform its required repeated classifications and require
-   deterministic input/feature identity, decision and score agreement within the frozen runtime
-   tolerance.
+7. let the validation harness perform its required repeated classifications and require
+   deterministic input/feature identity, decision and score agreement within the frozen candidate
+   runtime tolerance.
 
 The repository currently contains no claim that this gate has passed.
 
@@ -500,8 +580,8 @@ The repository currently contains no claim that this gate has passed.
 
 When the available restricted processed files are run, all samples must share the same:
 
-- artifact lock;
-- runtime compatibility profile;
+- candidate artifact lock;
+- candidate runtime compatibility profile;
 - build;
 - fixed `0.8` confidence policy;
 - preprocessing contract.
@@ -527,7 +607,7 @@ not include:
 
 - the trained MARLIN model unless distribution rights and packaging policy are separately
   reviewed and explicitly approved;
-- generated runtime fixture/profile outputs from a local model freeze;
+- generated runtime fixture/profile/runtime-identity/comparison outputs from local qualification;
 - GSE280090 patient-derived processed payloads;
 - local validation outputs containing sample-level data;
 - private/institutional methylation datasets.

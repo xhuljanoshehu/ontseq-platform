@@ -16,11 +16,19 @@ from .marlin_artifacts import (
     create_marlin_artifact_lock,
     load_exported_feature_ids,
 )
-from .marlin_contracts import MarlinArtifactLock, MarlinRuntimeCompatibilityProfile
+from .marlin_contracts import (
+    MarlinArtifactLock,
+    MarlinRuntimeCompatibilityProfile,
+    MarlinRuntimeIdentity,
+)
 from .marlin_features import build_marlin_feature_vector
 from .marlin_input import parse_marlin_probe_bed
 from .marlin_runner import MarlinRunResources, run_precomputed_marlin_classification
 from .marlin_runtime import probe_marlin_runtime
+from .marlin_runtime_compare import (
+    execute_marlin_dual_runtime_comparison,
+    runtime_identity_from_probe,
+)
 from .marlin_runtime_freeze import (
     freeze_runtime_compatibility,
     render_frozen_runtime_fixture,
@@ -34,6 +42,7 @@ COMMANDS = frozenset(
         "marlin-lock",
         "marlin-runtime-probe",
         "marlin-freeze-runtime",
+        "marlin-compare-runtimes",
         "marlin-features",
         "marlin-classify",
         "marlin-validate",
@@ -64,15 +73,28 @@ def _write_model_atomic(model: BaseModel, path: Path) -> Path:
     return _write_text_atomic(path, model.model_dump_json(indent=2) + "\n")
 
 
-def _require_new_freeze_outputs(fixture_path: Path, profile_path: Path) -> tuple[Path, Path]:
-    fixture = Path(fixture_path)
-    profile = Path(profile_path)
-    if fixture.resolve(strict=False) == profile.resolve(strict=False):
-        raise ValueError("MARLIN runtime fixture/profile outputs must use different paths")
-    for path in (fixture, profile):
+def _require_new_output(path: Path, *, label: str) -> Path:
+    candidate = Path(path)
+    if candidate.exists():
+        raise FileExistsError(f"{label} output already exists: {candidate}")
+    return candidate
+
+
+def _require_new_freeze_outputs(
+    fixture_path: Path,
+    profile_path: Path,
+    runtime_identity_path: Path | None = None,
+) -> tuple[Path, ...]:
+    paths = [Path(fixture_path), Path(profile_path)]
+    if runtime_identity_path is not None:
+        paths.append(Path(runtime_identity_path))
+    resolved = [path.resolve(strict=False) for path in paths]
+    if len(resolved) != len(set(resolved)):
+        raise ValueError("MARLIN runtime freeze outputs must use different paths")
+    for path in paths:
         if path.exists():
             raise FileExistsError(f"MARLIN runtime freeze output already exists: {path}")
-    return fixture, profile
+    return tuple(paths)
 
 
 def _add_common_artifact_paths(parser: argparse.ArgumentParser) -> None:
@@ -117,6 +139,23 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("--work-dir", type=Path)
     freeze.add_argument("--output-fixture", type=Path, required=True)
     freeze.add_argument("--output-profile", type=Path, required=True)
+    freeze.add_argument("--output-runtime-identity", type=Path)
+
+    compare = subparsers.add_parser(
+        "marlin-compare-runtimes",
+        help="Compare a live MARLIN runtime against a frozen reference",
+    )
+    compare.add_argument("--reference-artifact-lock", type=Path, required=True)
+    compare.add_argument("--candidate-artifact-lock", type=Path, required=True)
+    compare.add_argument("--reference-runtime-identity", type=Path, required=True)
+    compare.add_argument("--reference-profile", type=Path, required=True)
+    compare.add_argument("--runtime-fixture", type=Path, required=True)
+    compare.add_argument("--model", type=Path, required=True)
+    compare.add_argument("--inference-script", type=Path, required=True)
+    compare.add_argument("--candidate-runtime-probe-script", type=Path, required=True)
+    compare.add_argument("--candidate-rscript", required=True)
+    compare.add_argument("--comparison-id", required=True)
+    compare.add_argument("--output", type=Path, required=True)
 
     features = subparsers.add_parser(
         "marlin-features", help="Build the locked MARLIN v1 feature vector"
@@ -198,11 +237,15 @@ def _run_lock(args: argparse.Namespace) -> Path:
     return _write_model_atomic(lock, args.output)
 
 
-def _run_freeze(args: argparse.Namespace) -> tuple[Path, Path]:
-    fixture_path, profile_path = _require_new_freeze_outputs(
+def _run_freeze(args: argparse.Namespace) -> tuple[Path, ...]:
+    output_paths = _require_new_freeze_outputs(
         args.output_fixture,
         args.output_profile,
+        args.output_runtime_identity,
     )
+    fixture_path = output_paths[0]
+    profile_path = output_paths[1]
+    identity_path = output_paths[2] if len(output_paths) == 3 else None
     lock = load_model(args.artifact_lock, MarlinArtifactLock)
     runner = SubprocessRunner()
     live_runtime = probe_marlin_runtime(
@@ -212,6 +255,7 @@ def _run_freeze(args: argparse.Namespace) -> tuple[Path, Path]:
         timeout_seconds=120,
     )
     verify_runtime_probe_matches_lock(lock, live_runtime)
+    frozen_at = datetime.now(UTC)
     work_dir = args.work_dir or (profile_path.parent / ".marlin-freeze-runtime")
     vector, _runtime_result, profile = freeze_runtime_compatibility(
         lock,
@@ -220,22 +264,60 @@ def _run_freeze(args: argparse.Namespace) -> tuple[Path, Path]:
         runner=runner,
         work_dir=work_dir,
         profile_id=args.profile_id,
-        created_at=datetime.now(UTC),
+        created_at=frozen_at,
         rscript_path=args.rscript,
     )
-    written_fixture: Path | None = None
-    try:
-        written_fixture = _write_text_atomic(
-            fixture_path,
-            render_frozen_runtime_fixture(vector),
+    runtime_identity = (
+        runtime_identity_from_probe(
+            lock,
+            live_runtime,
+            runtime_id=f"{lock.lock_id}:runtime",
+            created_at=frozen_at,
         )
-        written_profile = _write_model_atomic(profile, profile_path)
+        if identity_path is not None
+        else None
+    )
+
+    written: list[Path] = []
+    try:
+        written.append(
+            _write_text_atomic(
+                fixture_path,
+                render_frozen_runtime_fixture(vector),
+            )
+        )
+        written.append(_write_model_atomic(profile, profile_path))
+        if identity_path is not None and runtime_identity is not None:
+            written.append(_write_model_atomic(runtime_identity, identity_path))
     except BaseException:
-        if written_fixture is not None:
-            written_fixture.unlink(missing_ok=True)
-        profile_path.unlink(missing_ok=True)
+        for path in output_paths:
+            path.unlink(missing_ok=True)
         raise
-    return written_fixture, written_profile
+    return tuple(written)
+
+
+def _run_compare_runtimes(args: argparse.Namespace) -> Path:
+    output = _require_new_output(args.output, label="MARLIN dual-runtime comparison")
+    reference_lock = load_model(args.reference_artifact_lock, MarlinArtifactLock)
+    candidate_lock = load_model(args.candidate_artifact_lock, MarlinArtifactLock)
+    reference_identity = load_model(args.reference_runtime_identity, MarlinRuntimeIdentity)
+    reference_profile = load_model(args.reference_profile, MarlinRuntimeCompatibilityProfile)
+    report = execute_marlin_dual_runtime_comparison(
+        comparison_id=args.comparison_id,
+        reference_lock=reference_lock,
+        candidate_lock=candidate_lock,
+        reference_runtime_identity=reference_identity,
+        reference_profile=reference_profile,
+        runtime_fixture_path=args.runtime_fixture,
+        model_path=args.model,
+        inference_script=args.inference_script,
+        candidate_probe_script=args.candidate_runtime_probe_script,
+        runner=SubprocessRunner(),
+        work_dir=output.parent / ".marlin-runtime-compare",
+        candidate_rscript_path=args.candidate_rscript,
+        created_at=datetime.now(UTC),
+    )
+    return _write_model_atomic(report, output)
 
 
 def _load_locked_features(feature_list: Path, lock: MarlinArtifactLock) -> tuple[str, ...]:
@@ -298,6 +380,8 @@ def run_command(args: argparse.Namespace) -> None:
     elif args.command == "marlin-freeze-runtime":
         for path in _run_freeze(args):
             print(path)
+    elif args.command == "marlin-compare-runtimes":
+        print(_run_compare_runtimes(args))
     elif args.command == "marlin-features":
         for path in _run_features(args):
             print(path)
