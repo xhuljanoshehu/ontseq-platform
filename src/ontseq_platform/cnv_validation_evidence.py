@@ -431,8 +431,7 @@ class CnvValidationEvidenceManifest(StrictModel):
         orphan_artifacts = artifact_id_set - referenced_artifacts
         if orphan_artifacts:
             raise ValueError(
-                "Manifest contains orphan native artifacts: "
-                + ", ".join(sorted(orphan_artifacts))
+                "Manifest contains orphan native artifacts: " + ", ".join(sorted(orphan_artifacts))
             )
 
         identity_fields = (
