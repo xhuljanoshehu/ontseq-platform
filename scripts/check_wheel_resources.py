@@ -64,6 +64,7 @@ REQUIRED_SUFFIXES = (
     "share/ontseq/scripts/run_qdnaseq_ace.R",
     "share/ontseq/scripts/marlin_export_resources.R",
     "share/ontseq/scripts/marlin_infer_locked.R",
+    "share/ontseq/scripts/marlin_runtime_probe.R",
 )
 
 FORBIDDEN_PARTS = ("share/ontseq/configs/configs/",)

@@ -71,6 +71,7 @@ where = ["src"]
   "scripts/run_qdnaseq_ace.R",
   "scripts/marlin_export_resources.R",
   "scripts/marlin_infer_locked.R",
+  "scripts/marlin_runtime_probe.R",
 ]
 
 [tool.ruff]

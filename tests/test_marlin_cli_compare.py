@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -82,3 +83,38 @@ def test_dual_runtime_comparison_refuses_existing_output(tmp_path: Path) -> None
 
     with pytest.raises(FileExistsError, match="already exists"):
         _require_new_output(output, label="MARLIN dual-runtime comparison")
+
+
+def test_dual_runtime_cli_failure_is_nonzero_and_leaves_no_result(tmp_path: Path) -> None:
+    args = _compare_args()
+    output = tmp_path / "runtime-comparison.json"
+    args[args.index("--reference-artifact-lock") + 1] = str(tmp_path / "missing-lock.json")
+    args[args.index("--output") + 1] = str(output)
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "ontseq_platform", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert not output.exists()
+
+
+def test_dual_runtime_cli_refuses_to_clobber_existing_result(tmp_path: Path) -> None:
+    args = _compare_args()
+    output = tmp_path / "runtime-comparison.json"
+    original = "existing-result\n"
+    output.write_text(original, encoding="utf-8")
+    args[args.index("--output") + 1] = str(output)
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "ontseq_platform", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert output.read_text(encoding="utf-8") == original
