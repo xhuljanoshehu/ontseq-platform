@@ -158,6 +158,28 @@ class CnvValidationContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CnvValidationMatrix.model_validate(payload)
 
+    def test_registered_numeric_dimension_requires_cutpoints(self) -> None:
+        payload = _matrix().model_dump()
+        payload["stratification"]["coverage_cutpoints_x"] = []
+        with self.assertRaises(ValidationError):
+            CnvValidationMatrix.model_validate(payload)
+
+        payload = _matrix().model_dump()
+        payload["stratification"]["tumor_fraction_cutpoints"] = []
+        with self.assertRaises(ValidationError):
+            CnvValidationMatrix.model_validate(payload)
+
+        payload = _matrix().model_dump()
+        payload["stratification"]["event_size_cutpoints_bp"] = []
+        with self.assertRaises(ValidationError):
+            CnvValidationMatrix.model_validate(payload)
+
+    def test_qdnaseq_caller_requires_registered_bin_sizes(self) -> None:
+        payload = _matrix().model_dump()
+        payload["qdnaseq_bin_sizes_kbp"] = []
+        with self.assertRaises(ValidationError):
+            CnvValidationMatrix.model_validate(payload)
+
     def test_primary_secondary_exploratory_dimensions_cannot_overlap(self) -> None:
         payload = _matrix().model_dump()
         payload["stratification"]["exploratory_dimensions"] = ["coverage"]
