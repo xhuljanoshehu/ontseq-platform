@@ -353,9 +353,7 @@ class CnvEvidenceManifestContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             _normalized_event(source_full_evidence_ids=[])
         with self.assertRaises(ValidationError):
-            _normalized_event(
-                source_full_evidence_ids=["full-segment-500-1", "full-segment-500-1"]
-            )
+            _normalized_event(source_full_evidence_ids=["full-segment-500-1", "full-segment-500-1"])
 
     def test_manifest_rejects_dangling_source_full_evidence_id(self) -> None:
         with self.assertRaises(ValueError):
@@ -415,9 +413,7 @@ class CnvEvidenceManifestContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _sealed_manifest(full_evidence=[_event_source(), _event_source()])
         with self.assertRaises(ValueError):
-            _sealed_manifest(
-                normalized_events=[_normalized_event(), _normalized_event()]
-            )
+            _sealed_manifest(normalized_events=[_normalized_event(), _normalized_event()])
 
     def test_excluded_full_evidence_remains_when_not_normalized(self) -> None:
         excluded = _event_source(
