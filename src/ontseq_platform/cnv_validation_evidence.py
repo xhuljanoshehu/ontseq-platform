@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from .cnv_validation_contracts import CnvDataBasis, CnvRepeatKind
+from .cnv_validation_contracts import CNV_EVENT_TYPES, CnvDataBasis, CnvRepeatKind
 from .models import EventType, GenomeBuild, Locus, StrictModel
 
 SHA256 = r"^[0-9a-f]{64}$"
@@ -65,6 +65,11 @@ def _safe_relative_path(value: str) -> str:
     if ".." in posix.parts or ".." in windows.parts:
         raise ValueError("Evidence artifact path cannot traverse outside its bundle")
     return posix.as_posix()
+
+
+def _require_unique(values: list[str], *, label: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(f"{label} must be unique")
 
 
 class CnvEvidenceRecordKind(StrEnum):
@@ -293,3 +298,212 @@ class CnvFullEvidenceRecord(StrictModel):
             raise ValueError("Caller-fit evidence requires fit_group_id and selected_fit")
 
         return self
+
+
+class CnvNormalizedEventRecord(StrictModel):
+    """Derived comparison event that never replaces its caller-native source records."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    normalized_event_id: str = Field(pattern=ID)
+    registration_sha256: str = Field(pattern=SHA256)
+
+    specimen_id: str = Field(pattern=ID)
+    biological_specimen_id: str = Field(pattern=ID)
+    caller_id: str = Field(pattern=r"^[a-z][a-z0-9_]{1,63}$")
+    caller_version: str = Field(min_length=1)
+    adapter_policy_sha256: str = Field(pattern=SHA256)
+    execution_identity_sha256: str = Field(pattern=SHA256)
+    normalization_policy_sha256: str = Field(pattern=SHA256)
+
+    genome_build: GenomeBuild
+    data_basis: CnvDataBasis
+    reference_id: str = Field(min_length=1)
+    reference_sha256: str = Field(pattern=SHA256)
+    input_sha256: str = Field(pattern=SHA256)
+
+    coverage_x: float | None = Field(default=None, ge=0)
+    coverage_definition: str | None = None
+    tumor_fraction: float | None = Field(default=None, ge=0, le=1)
+    tumor_fraction_method: str | None = None
+    tumor_fraction_timepoint: str | None = None
+    bin_size_kbp: int | None = Field(default=None, gt=0)
+
+    repeat_kind: CnvRepeatKind
+    replicate_id: str = Field(pattern=ID)
+    repeat_group_id: str | None = Field(default=None, pattern=ID)
+
+    source_full_evidence_ids: list[str] = Field(min_length=1)
+    event_type: EventType
+    primary: Locus
+    normalized_copy_number: float | None = Field(default=None, ge=0)
+    contribution_status: CnvContributionStatus
+    contribution_reason: str | None = Field(default=None, min_length=3)
+
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @field_validator("source_full_evidence_ids")
+    @classmethod
+    def unique_sources(cls, value: list[str]) -> list[str]:
+        _require_unique(value, label="Normalized event source evidence IDs")
+        return value
+
+    @model_validator(mode="after")
+    def coherent_normalized_event(self) -> CnvNormalizedEventRecord:
+        if self.event_type not in CNV_EVENT_TYPES:
+            raise ValueError("Normalized CNV event must use a registered CNV event class")
+        if self.coverage_x is not None and not math.isfinite(self.coverage_x):
+            raise ValueError("Coverage must be finite")
+        if self.coverage_x is None and self.coverage_definition is not None:
+            raise ValueError("Coverage definition cannot exist without measured coverage")
+        if self.coverage_x is not None and not self.coverage_definition:
+            raise ValueError("Measured coverage requires its definition")
+        if self.tumor_fraction is not None and not math.isfinite(self.tumor_fraction):
+            raise ValueError("Tumour fraction must be finite")
+        fraction_metadata = [self.tumor_fraction_method, self.tumor_fraction_timepoint]
+        if self.tumor_fraction is None and any(item is not None for item in fraction_metadata):
+            raise ValueError("Tumour-fraction metadata cannot imply a missing fraction")
+        if self.tumor_fraction is not None and any(not item for item in fraction_metadata):
+            raise ValueError("Measured tumour fraction requires method and timepoint")
+        if self.normalized_copy_number is not None and not math.isfinite(
+            self.normalized_copy_number
+        ):
+            raise ValueError("Normalized copy number must be finite")
+        if self.repeat_kind == CnvRepeatKind.INDEPENDENT and self.repeat_group_id is not None:
+            raise ValueError("Independent normalized event cannot declare a repeat group")
+        if self.repeat_kind != CnvRepeatKind.INDEPENDENT and self.repeat_group_id is None:
+            raise ValueError("Repeated normalized event requires repeat_group_id")
+        terminal = {
+            CnvContributionStatus.FAILED,
+            CnvContributionStatus.NO_CALL,
+            CnvContributionStatus.NOT_ASSESSABLE,
+        }
+        if self.contribution_status in terminal:
+            raise ValueError("Positive normalized events cannot use terminal contribution states")
+        if (
+            self.contribution_status == CnvContributionStatus.EXCLUDED_FROM_PRIMARY_METRIC
+            and not self.contribution_reason
+        ):
+            raise ValueError("Excluded normalized event requires a contribution reason")
+        return self
+
+
+class CnvValidationEvidenceManifest(StrictModel):
+    """Tamper-evident collection of caller-native and normalized CNV evidence."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    manifest_id: str = Field(pattern=ID)
+    registration_sha256: str = Field(pattern=SHA256)
+    native_artifacts: list[CnvNativeArtifactReference] = Field(default_factory=list)
+    full_evidence: list[CnvFullEvidenceRecord] = Field(min_length=1)
+    normalized_events: list[CnvNormalizedEventRecord] = Field(default_factory=list)
+    manifest_sha256: str = Field(pattern=SHA256)
+    retain_all_evidence: Literal[True] = True
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_manifest(self) -> CnvValidationEvidenceManifest:
+        artifact_ids = [item.artifact_id for item in self.native_artifacts]
+        full_ids = [item.record_id for item in self.full_evidence]
+        normalized_ids = [item.normalized_event_id for item in self.normalized_events]
+        _require_unique(artifact_ids, label="Native artifact IDs")
+        _require_unique(full_ids, label="Full evidence record IDs")
+        _require_unique(normalized_ids, label="Normalized event IDs")
+
+        addresses = [item.address_key for item in self.full_evidence]
+        _require_unique(addresses, label="Full evidence analytical addresses")
+
+        artifact_id_set = set(artifact_ids)
+        referenced_artifacts: set[str] = set()
+        full_by_id = {item.record_id: item for item in self.full_evidence}
+        for record in self.full_evidence:
+            if record.registration_sha256 != self.registration_sha256:
+                raise ValueError("Full evidence registration does not match manifest")
+            missing_artifacts = set(record.native_artifact_ids) - artifact_id_set
+            if missing_artifacts:
+                raise ValueError(
+                    "Full evidence references missing native artifacts: "
+                    + ", ".join(sorted(missing_artifacts))
+                )
+            referenced_artifacts.update(record.native_artifact_ids)
+
+        orphan_artifacts = artifact_id_set - referenced_artifacts
+        if orphan_artifacts:
+            raise ValueError(
+                "Manifest contains orphan native artifacts: "
+                + ", ".join(sorted(orphan_artifacts))
+            )
+
+        identity_fields = (
+            "registration_sha256",
+            "specimen_id",
+            "biological_specimen_id",
+            "caller_id",
+            "caller_version",
+            "adapter_policy_sha256",
+            "execution_identity_sha256",
+            "genome_build",
+            "data_basis",
+            "reference_id",
+            "reference_sha256",
+            "input_sha256",
+            "coverage_x",
+            "coverage_definition",
+            "tumor_fraction",
+            "tumor_fraction_method",
+            "tumor_fraction_timepoint",
+            "bin_size_kbp",
+            "repeat_kind",
+            "replicate_id",
+            "repeat_group_id",
+        )
+        for normalized in self.normalized_events:
+            if normalized.registration_sha256 != self.registration_sha256:
+                raise ValueError("Normalized event registration does not match manifest")
+            missing_sources = set(normalized.source_full_evidence_ids) - set(full_ids)
+            if missing_sources:
+                raise ValueError(
+                    "Normalized event references missing full evidence: "
+                    + ", ".join(sorted(missing_sources))
+                )
+            for source_id in normalized.source_full_evidence_ids:
+                source = full_by_id[source_id]
+                if source.run_outcome != CnvRunOutcomeState.OBSERVED:
+                    raise ValueError("Only observed full evidence can source a normalized event")
+                for field in identity_fields:
+                    if getattr(source, field) != getattr(normalized, field):
+                        raise ValueError(
+                            f"Normalized event identity mismatch for {field}: {source_id}"
+                        )
+
+        expected_manifest_sha256 = canonical_evidence_sha256(
+            self.model_dump(mode="json", exclude={"manifest_sha256"})
+        )
+        if self.manifest_sha256 != expected_manifest_sha256:
+            raise ValueError("Evidence manifest content does not match manifest_sha256")
+        return self
+
+
+def seal_cnv_validation_evidence(
+    *,
+    manifest_id: str,
+    registration_sha256: str,
+    native_artifacts: list[CnvNativeArtifactReference],
+    full_evidence: list[CnvFullEvidenceRecord],
+    normalized_events: list[CnvNormalizedEventRecord],
+) -> CnvValidationEvidenceManifest:
+    """Seal a complete CNV evidence manifest without dropping non-contributing records."""
+    payload: dict[str, Any] = {
+        "schema_version": "0.1.0",
+        "manifest_id": manifest_id,
+        "registration_sha256": registration_sha256,
+        "native_artifacts": [item.model_dump(mode="json") for item in native_artifacts],
+        "full_evidence": [item.model_dump(mode="json") for item in full_evidence],
+        "normalized_events": [item.model_dump(mode="json") for item in normalized_events],
+        "retain_all_evidence": True,
+        "sensitive_output": True,
+        "research_only": True,
+    }
+    payload["manifest_sha256"] = canonical_evidence_sha256(payload)
+    return CnvValidationEvidenceManifest.model_validate(payload)
