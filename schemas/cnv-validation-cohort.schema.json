@@ -249,6 +249,11 @@
     "CnvNegativeUniverse": {
       "additionalProperties": false,
       "properties": {
+        "assessability_mask_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Assessability Mask Sha256",
+          "type": "string"
+        },
         "assessable_units": {
           "minimum": 1,
           "title": "Assessable Units",
@@ -283,6 +288,7 @@
         "unit",
         "assessable_units",
         "resource_sha256",
+        "assessability_mask_sha256",
         "definition"
       ],
       "title": "CnvNegativeUniverse",
