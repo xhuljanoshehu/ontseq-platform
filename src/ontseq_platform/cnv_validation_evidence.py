@@ -287,9 +287,8 @@ class CnvFullEvidenceRecord(StrictModel):
         ):
             raise ValueError("Excluded evidence requires an explicit contribution reason")
 
-        if (
-            self.record_kind == CnvEvidenceRecordKind.CALLER_FIT
-            and (self.fit_group_id is None or self.selected_fit is None)
+        if self.record_kind == CnvEvidenceRecordKind.CALLER_FIT and (
+            self.fit_group_id is None or self.selected_fit is None
         ):
             raise ValueError("Caller-fit evidence requires fit_group_id and selected_fit")
 
