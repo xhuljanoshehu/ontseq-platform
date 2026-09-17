@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+from ontseq_platform.cnv_validation_contracts import CnvValidationCohort, CnvValidationMatrix
+from ontseq_platform.cnv_validation_registration import CnvValidationRegistration
 from ontseq_platform.dilution import (
     DilutionPolicy,
     DilutionSeriesPlan,
@@ -69,6 +71,9 @@ def _render() -> dict[Path, str]:
             )
             + "\n"
             for name, model in {
+                "cnv-validation-matrix": CnvValidationMatrix,
+                "cnv-validation-cohort": CnvValidationCohort,
+                "cnv-validation-registration": CnvValidationRegistration,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
                 "modbam-source-summary": ModbamSourceSummary,
