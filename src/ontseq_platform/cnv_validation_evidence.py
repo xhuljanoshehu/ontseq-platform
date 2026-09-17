@@ -41,7 +41,9 @@ def _validate_json_tree(value: object, *, path: str = "$") -> None:
 
 def canonical_evidence_sha256(value: StrictModel | Mapping[str, Any]) -> str:
     """Hash canonical JSON while refusing NaN/Inf and arbitrary Python objects."""
-    payload: object = value.model_dump(mode="json") if isinstance(value, StrictModel) else dict(value)
+    payload: object = (
+        value.model_dump(mode="json") if isinstance(value, StrictModel) else dict(value)
+    )
     _validate_json_tree(payload)
     rendered = json.dumps(
         payload,
