@@ -8,7 +8,9 @@ from pydantic import ValidationError
 from ontseq_platform.cnv_validation_contracts import (
     CnvAcceptanceMetric,
     CnvAcceptanceQuestion,
+    CnvAssessabilityMask,
     CnvCallerLock,
+    CnvDataBasis,
     CnvNegativeUniverse,
     CnvRepeatKind,
     CnvStratificationDimension,
@@ -49,6 +51,7 @@ def _matrix() -> CnvValidationMatrix:
             ),
         ],
         genome_builds=[GenomeBuild.GRCH37, GenomeBuild.GRCH38],
+        data_bases=[CnvDataBasis.LCWGS_GENOME_WIDE],
         stratification=CnvStratificationPlan(
             primary_dimensions=[
                 CnvStratificationDimension.COVERAGE,
@@ -59,6 +62,7 @@ def _matrix() -> CnvValidationMatrix:
             secondary_dimensions=[
                 CnvStratificationDimension.CALLER,
                 CnvStratificationDimension.GENOME_BUILD,
+                CnvStratificationDimension.DATA_BASIS,
                 CnvStratificationDimension.BIN_SIZE,
             ],
             coverage_cutpoints_x=[2.0, 5.0, 10.0],
@@ -102,6 +106,7 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
         access_basis="public",
         material_type="synthetic-DNA",
         genome_build=GenomeBuild.GRCH38,
+        data_basis=CnvDataBasis.LCWGS_GENOME_WIDE,
         reference_id="synthetic-grch38",
         reference_sha256=_sha("synthetic-reference"),
         input_sha256=_sha("synthetic-input"),
@@ -111,9 +116,7 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
         tumor_fraction_method=(
             "synthetic orthogonal fraction" if tumor_fraction is not None else None
         ),
-        tumor_fraction_timepoint=(
-            "synthetic same aliquot" if tumor_fraction is not None else None
-        ),
+        tumor_fraction_timepoint=("synthetic same aliquot" if tumor_fraction is not None else None),
         truth_sources=[
             CnvTruthSource(
                 method_name="synthetic-karyotype",
@@ -123,6 +126,12 @@ def _specimen(*, tumor_fraction: float | None = 0.25) -> CnvValidationSpecimen:
                 provenance_reference="synthetic fixture only",
             )
         ],
+        assessability_mask=CnvAssessabilityMask(
+            resource_id="synthetic-assessability-v1",
+            resource_sha256=_sha("synthetic-assessability"),
+            unit="regions",
+            definition="Synthetic locked assessable territory for software-contract tests.",
+        ),
         truth_events=[_truth_event()],
         negative_universe=CnvNegativeUniverse(
             universe_id="synthetic-negative-bins",
@@ -140,6 +149,7 @@ class CnvValidationContractTests(unittest.TestCase):
         self.assertEqual(matrix.stratification.coverage_cutpoints_x, [2.0, 5.0, 10.0])
         self.assertEqual(matrix.stratification.tumor_fraction_cutpoints, [0.1, 0.2, 0.5])
         self.assertEqual(matrix.qdnaseq_bin_sizes_kbp, [100, 500, 1000])
+        self.assertEqual(matrix.data_bases, [CnvDataBasis.LCWGS_GENOME_WIDE])
         self.assertTrue(matrix.retain_all_evidence)
 
     def test_cutpoints_must_be_unique_and_strictly_sorted(self) -> None:
@@ -203,6 +213,16 @@ class CnvValidationContractTests(unittest.TestCase):
         payload["negative_universe"] = None
         specimen = CnvValidationSpecimen.model_validate(payload)
         self.assertIsNone(specimen.negative_universe)
+
+    def test_assessability_mask_is_required(self) -> None:
+        payload = _specimen().model_dump()
+        payload.pop("assessability_mask")
+        with self.assertRaises(ValidationError):
+            CnvValidationSpecimen.model_validate(payload)
+
+    def test_data_basis_is_preserved_explicitly(self) -> None:
+        specimen = _specimen()
+        self.assertEqual(specimen.data_basis, CnvDataBasis.LCWGS_GENOME_WIDE)
 
     def test_cohort_requires_unique_specimen_ids(self) -> None:
         with self.assertRaises(ValidationError):
