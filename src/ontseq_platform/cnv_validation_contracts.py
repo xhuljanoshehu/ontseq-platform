@@ -215,6 +215,7 @@ class CnvNegativeUniverse(StrictModel):
     unit: Literal["genomic_bins", "regions"]
     assessable_units: int = Field(ge=1)
     resource_sha256: str = Field(pattern=SHA256)
+    assessability_mask_sha256: str = Field(pattern=SHA256)
     definition: str = Field(min_length=20)
 
 
@@ -264,6 +265,12 @@ class CnvValidationSpecimen(StrictModel):
         event_ids = [event.event_id for event in self.truth_events]
         if len(event_ids) != len(set(event_ids)):
             raise ValueError("Truth event IDs must be unique within a specimen")
+        if (
+            self.negative_universe is not None
+            and self.negative_universe.assessability_mask_sha256
+            != self.assessability_mask.resource_sha256
+        ):
+            raise ValueError("Negative universe must be derived from the registered assessability mask")
         if self.repeat_kind == CnvRepeatKind.INDEPENDENT and self.repeat_group_id is not None:
             raise ValueError("Independent specimens cannot declare a repeat group")
         if self.repeat_kind != CnvRepeatKind.INDEPENDENT and self.repeat_group_id is None:
