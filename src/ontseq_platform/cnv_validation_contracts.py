@@ -66,10 +66,7 @@ class CnvStratificationPlan(StrictModel):
             raise ValueError("Coverage cutpoints must be finite and greater than zero")
         if self.tumor_fraction_cutpoints != sorted(set(self.tumor_fraction_cutpoints)):
             raise ValueError("Tumour-fraction cutpoints must be unique and strictly sorted")
-        if any(
-            not math.isfinite(x) or x <= 0 or x >= 1
-            for x in self.tumor_fraction_cutpoints
-        ):
+        if any(not math.isfinite(x) or x <= 0 or x >= 1 for x in self.tumor_fraction_cutpoints):
             raise ValueError("Tumour-fraction cutpoints must lie strictly between zero and one")
         if self.event_size_cutpoints_bp != sorted(set(self.event_size_cutpoints_bp)):
             raise ValueError("Event-size cutpoints must be unique and strictly sorted")
