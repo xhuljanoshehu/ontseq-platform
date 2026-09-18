@@ -12,6 +12,7 @@ from ontseq_platform.cnv_validation_contracts import (
     CnvCallerLock,
     CnvDataBasis,
     CnvNegativeUniverse,
+    CnvQuantitativeTruth,
     CnvRepeatKind,
     CnvStratificationDimension,
     CnvStratificationPlan,
@@ -263,6 +264,52 @@ class CnvValidationContractTests(unittest.TestCase):
         payload["repeat_kind"] = CnvRepeatKind.BETWEEN_RUN
         with self.assertRaises(ValidationError):
             CnvValidationSpecimen.model_validate(payload)
+
+
+    def test_quantitative_truth_requires_at_least_one_value(self) -> None:
+        with self.assertRaises(ValidationError):
+            CnvQuantitativeTruth(
+                truth_source_resource_id="synthetic-truth-v1",
+                note="Synthetic quantitative truth.",
+            )
+
+    def test_quantitative_truth_bounds_cellularity_and_ploidy(self) -> None:
+        truth = CnvQuantitativeTruth(
+            truth_source_resource_id="synthetic-truth-v1",
+            cellularity=0.35,
+            ploidy=2.4,
+            note="Synthetic quantitative truth.",
+        )
+        self.assertEqual(truth.cellularity, 0.35)
+        self.assertEqual(truth.ploidy, 2.4)
+
+        with self.assertRaises(ValidationError):
+            CnvQuantitativeTruth(
+                truth_source_resource_id="synthetic-truth-v1",
+                cellularity=1.1,
+                note="Synthetic invalid cellularity.",
+            )
+        with self.assertRaises(ValidationError):
+            CnvQuantitativeTruth(
+                truth_source_resource_id="synthetic-truth-v1",
+                ploidy=0.0,
+                note="Synthetic invalid ploidy.",
+            )
+
+    def test_quantitative_truth_source_must_be_registered_on_specimen(self) -> None:
+        payload = _specimen().model_dump()
+        payload["quantitative_truth"] = {
+            "truth_source_resource_id": "missing-truth-source",
+            "cellularity": 0.35,
+            "ploidy": 2.4,
+            "note": "Synthetic quantitative truth.",
+        }
+        with self.assertRaises(ValidationError):
+            CnvValidationSpecimen.model_validate(payload)
+
+    def test_absent_quantitative_truth_is_valid_and_not_imputed(self) -> None:
+        specimen = _specimen()
+        self.assertIsNone(specimen.quantitative_truth)
 
 
 if __name__ == "__main__":
