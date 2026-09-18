@@ -203,6 +203,24 @@ class CnvTruthSource(StrictModel):
     orthogonal_to_evaluated_caller: Literal[True] = True
 
 
+class CnvQuantitativeTruth(StrictModel):
+    truth_source_resource_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+    )
+    cellularity: float | None = Field(default=None, ge=0, le=1)
+    ploidy: float | None = Field(default=None, gt=0)
+    note: str = Field(min_length=3)
+
+    @model_validator(mode="after")
+    def coherent_quantitative_truth(self) -> CnvQuantitativeTruth:
+        values = [self.cellularity, self.ploidy]
+        if all(value is None for value in values):
+            raise ValueError("Quantitative truth requires cellularity or ploidy")
+        if any(value is not None and not math.isfinite(value) for value in values):
+            raise ValueError("Quantitative truth values must be finite")
+        return self
+
+
 class CnvAssessabilityMask(StrictModel):
     resource_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
     resource_sha256: str = Field(pattern=SHA256)
@@ -241,6 +259,7 @@ class CnvValidationSpecimen(StrictModel):
     tumor_fraction_method: str | None = None
     tumor_fraction_timepoint: str | None = None
     truth_sources: list[CnvTruthSource] = Field(min_length=1)
+    quantitative_truth: CnvQuantitativeTruth | None = None
     assessability_mask: CnvAssessabilityMask
     truth_events: list[GenomicEvent] = Field(default_factory=list)
     negative_universe: CnvNegativeUniverse | None = None
@@ -260,6 +279,12 @@ class CnvValidationSpecimen(StrictModel):
             raise ValueError("Tumour-fraction metadata cannot imply a missing fraction")
         if self.tumor_fraction is not None and any(not value for value in fraction_metadata):
             raise ValueError("Measured tumour fraction requires method and timepoint")
+        if self.quantitative_truth is not None:
+            truth_resource_ids = {item.resource_id for item in self.truth_sources}
+            if self.quantitative_truth.truth_source_resource_id not in truth_resource_ids:
+                raise ValueError(
+                    "Quantitative truth must reference a registered specimen truth source"
+                )
         if any(event.event_type not in CNV_EVENT_TYPES for event in self.truth_events):
             raise ValueError("Truth events must be CNV event types")
         event_ids = [event.event_id for event in self.truth_events]
