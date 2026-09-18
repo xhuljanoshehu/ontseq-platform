@@ -348,9 +348,7 @@ class CnvLaneAssignmentTests(unittest.TestCase):
                 _run_summary(registration, caller_version="synthetic-2"),
                 _event_source(registration, caller_version="synthetic-2"),
             ],
-            normalized_events=[
-                _normalized_event(registration, caller_version="synthetic-2")
-            ],
+            normalized_events=[_normalized_event(registration, caller_version="synthetic-2")],
         )
         with self.assertRaises(ValueError):
             assign_cnv_validation_lanes(registration, evidence)
