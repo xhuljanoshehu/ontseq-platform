@@ -1160,10 +1160,13 @@ def aggregate_cnv_quantitative_metrics(
         if not selected_fits or specimen.quantitative_truth is None:
             continue
         selected = selected_fits[0]
-        truth = specimen.quantitative_truth
+        quantitative_truth = specimen.quantitative_truth
 
-        if truth.cellularity is not None and selected.cellularity is not None:
-            signed_error = selected.cellularity - truth.cellularity
+        if (
+            quantitative_truth.cellularity is not None
+            and selected.cellularity is not None
+        ):
+            signed_error = selected.cellularity - quantitative_truth.cellularity
             for accumulator in (overall_cellularity, cellularity_acc[technical_address]):
                 accumulator.absolute_errors.append(abs(signed_error))
                 accumulator.signed_errors.append(signed_error)
@@ -1172,8 +1175,8 @@ def aggregate_cnv_quantitative_metrics(
                 )
                 accumulator.lane_ids.add(assignment.lane_id)
 
-        if truth.ploidy is not None and selected.ploidy is not None:
-            signed_error = selected.ploidy - truth.ploidy
+        if quantitative_truth.ploidy is not None and selected.ploidy is not None:
+            signed_error = selected.ploidy - quantitative_truth.ploidy
             for accumulator in (overall_ploidy, ploidy_acc[technical_address]):
                 accumulator.absolute_errors.append(abs(signed_error))
                 accumulator.signed_errors.append(signed_error)
@@ -1319,7 +1322,14 @@ def aggregate_cnv_reproducibility_metrics(
         full_by_lane[_lane_key(record).lane_id].add(record.record_id)
 
     for group_key in sorted(grouped, key=str):
-        members = sorted(grouped[group_key], key=lambda item: item.lane_id)
+        members = sorted(
+            grouped[group_key],
+            key=lambda item: (
+                item.lane.specimen_id,
+                item.lane.replicate_id,
+                item.lane_id,
+            ),
+        )
         biological_ids = {item.lane.biological_specimen_id for item in members}
         if len(biological_ids) != 1:
             raise ValueError("CNV repeat group mixes different biological specimens")
