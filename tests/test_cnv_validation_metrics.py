@@ -649,6 +649,8 @@ class CnvProspectiveMetricAggregationTests(unittest.TestCase):
             scope="overall",
         )
         self.assertEqual(evidence.manifest_sha256, locked_sha)
+        self.assertEqual(result.registration_sha256, registration.lock_sha256)
+        self.assertEqual(result.evidence_manifest_sha256, evidence.manifest_sha256)
         self.assertEqual(result.truth_event_ids, ["truth-del-1"])
         self.assertEqual(result.normalized_event_ids, ["normalized-del-1"])
         self.assertIn("run-summary-500", result.full_evidence_ids)
