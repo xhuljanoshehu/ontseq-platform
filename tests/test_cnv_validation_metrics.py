@@ -11,6 +11,7 @@ from ontseq_platform.cnv_validation_contracts import (
     CnvCallerLock,
     CnvDataBasis,
     CnvNegativeUniverse,
+    CnvQuantitativeTruth,
     CnvRepeatKind,
     CnvStratificationDimension,
     CnvStratificationPlan,
@@ -35,7 +36,10 @@ from ontseq_platform.cnv_validation_metrics import (
     CnvMetricEvaluationState,
     CnvMetricResult,
     CnvNegativeUnitAssessment,
+    CnvReproducibilityPair,
     aggregate_cnv_event_metrics,
+    aggregate_cnv_quantitative_metrics,
+    aggregate_cnv_reproducibility_metrics,
     aggregate_cnv_run_state_metrics,
     assign_cnv_validation_lanes,
     cnv_numeric_band,
@@ -200,8 +204,19 @@ def _full_record(
     copy_number: float | None = None,
     caller_version: str = "synthetic-1",
     truth_support_resource_ids: list[str] | None = None,
+    specimen_id: str | None = None,
+    replicate_id: str = "replicate-1",
+    fit_group_id: str | None = None,
+    selected_fit: bool | None = None,
+    cellularity: float | None = None,
+    ploidy: float | None = None,
+    fit_error: float | None = None,
 ) -> CnvFullEvidenceRecord:
-    specimen = registration.cohort.specimens[0]
+    specimen = (
+        registration.cohort.specimens[0]
+        if specimen_id is None
+        else next(item for item in registration.cohort.specimens if item.specimen_id == specimen_id)
+    )
     parameters = _parameters()
     return CnvFullEvidenceRecord(
         record_id=record_id,
@@ -224,7 +239,8 @@ def _full_record(
         tumor_fraction_timepoint=specimen.tumor_fraction_timepoint,
         bin_size_kbp=500,
         repeat_kind=specimen.repeat_kind,
-        replicate_id="replicate-1",
+        replicate_id=replicate_id,
+        repeat_group_id=specimen.repeat_group_id,
         record_kind=record_kind,
         native_record_id=native_record_id,
         run_outcome=run_outcome,
@@ -235,6 +251,11 @@ def _full_record(
         caller_parameters_sha256=canonical_evidence_sha256(parameters),
         dependency_versions={"QDNAseq": "synthetic-1", "ACE": "synthetic-1"},
         native_artifact_ids=native_artifact_ids or [],
+        fit_group_id=fit_group_id,
+        selected_fit=selected_fit,
+        cellularity=cellularity,
+        ploidy=ploidy,
+        fit_error=fit_error,
         event_type=event_type,
         primary=primary,
         copy_number=copy_number,
@@ -273,9 +294,16 @@ def _event_source(
 
 def _normalized_event(
     registration: CnvValidationRegistration,
+    *,
+    specimen_id: str | None = None,
+    replicate_id: str = "replicate-1",
     **updates: object,
 ) -> CnvNormalizedEventRecord:
-    specimen = registration.cohort.specimens[0]
+    specimen = (
+        registration.cohort.specimens[0]
+        if specimen_id is None
+        else next(item for item in registration.cohort.specimens if item.specimen_id == specimen_id)
+    )
     values: dict[str, object] = {
         "normalized_event_id": "normalized-del-1",
         "registration_sha256": registration.lock_sha256,
@@ -298,7 +326,8 @@ def _normalized_event(
         "tumor_fraction_timepoint": specimen.tumor_fraction_timepoint,
         "bin_size_kbp": 500,
         "repeat_kind": specimen.repeat_kind,
-        "replicate_id": "replicate-1",
+        "replicate_id": replicate_id,
+        "repeat_group_id": specimen.repeat_group_id,
         "source_full_evidence_ids": ["segment-500-1"],
         "event_type": EventType.DELETION,
         "primary": Locus(chromosome="7", start=1_100_000, end=6_100_000),
@@ -881,6 +910,263 @@ class CnvRunStateAndSpecificityTests(unittest.TestCase):
             and "event_class" in item.stratum_key
         ]
         self.assertEqual(event_specific, [])
+
+
+def _registration_with_quantitative_truth() -> CnvValidationRegistration:
+    specimen = _specimen().model_copy(
+        update={
+            "quantitative_truth": CnvQuantitativeTruth(
+                truth_source_resource_id="synthetic-truth-v1",
+                cellularity=0.40,
+                ploidy=2.20,
+                note="Synthetic orthogonal quantitative truth.",
+            )
+        }
+    )
+    return preregister_cnv_validation(
+        _matrix(),
+        CnvValidationCohort(specimens=[specimen]),
+        registration_id="synthetic-cnv-quantitative-registration",
+        registered_at=datetime(2026, 9, 18, tzinfo=UTC),
+        code_sha256=_sha("code"),
+        software_version="0.8.2",
+    )
+
+
+def _selected_fit(
+    registration: CnvValidationRegistration,
+    *,
+    record_id: str = "fit-500-selected",
+    specimen_id: str | None = None,
+    replicate_id: str = "replicate-1",
+    selected_fit: bool = True,
+    contribution_status: CnvContributionStatus = CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
+    cellularity: float = 0.35,
+    ploidy: float = 2.30,
+) -> CnvFullEvidenceRecord:
+    return _full_record(
+        registration,
+        record_id=record_id,
+        native_record_id=record_id,
+        record_kind=CnvEvidenceRecordKind.CALLER_FIT,
+        contribution_status=contribution_status,
+        specimen_id=specimen_id,
+        replicate_id=replicate_id,
+        fit_group_id="ace-fit-grid-500",
+        selected_fit=selected_fit,
+        cellularity=cellularity,
+        ploidy=ploidy,
+        fit_error=0.1,
+    )
+
+
+def _repeat_registration(*, second_biological_id: str = "SYNTHETIC_BIO_REPEAT") -> CnvValidationRegistration:
+    first = _specimen().model_copy(
+        update={
+            "specimen_id": "SYNTHETIC_REPEAT_1",
+            "biological_specimen_id": "SYNTHETIC_BIO_REPEAT",
+            "repeat_kind": CnvRepeatKind.BETWEEN_RUN,
+            "repeat_group_id": "repeat-group-1",
+            "input_sha256": _sha("repeat-input-1"),
+        }
+    )
+    second = _specimen().model_copy(
+        update={
+            "specimen_id": "SYNTHETIC_REPEAT_2",
+            "biological_specimen_id": second_biological_id,
+            "repeat_kind": CnvRepeatKind.BETWEEN_RUN,
+            "repeat_group_id": "repeat-group-1",
+            "input_sha256": _sha("repeat-input-2"),
+        }
+    )
+    return preregister_cnv_validation(
+        _matrix(),
+        CnvValidationCohort(specimens=[first, second]),
+        registration_id="synthetic-cnv-repeat-registration",
+        registered_at=datetime(2026, 9, 18, tzinfo=UTC),
+        code_sha256=_sha("code"),
+        software_version="0.8.2",
+    )
+
+
+def _repeat_manifest(
+    registration: CnvValidationRegistration,
+    *,
+    with_events: bool = True,
+) -> CnvValidationEvidenceManifest:
+    records: list[CnvFullEvidenceRecord] = []
+    events: list[CnvNormalizedEventRecord] = []
+    for index, specimen in enumerate(registration.cohort.specimens, start=1):
+        replicate_id = f"repeat-{index}"
+        records.append(
+            _run_summary(
+                registration,
+                record_id=f"run-summary-repeat-{index}",
+                native_record_id=f"run-summary-repeat-{index}",
+                specimen_id=specimen.specimen_id,
+                replicate_id=replicate_id,
+            )
+        )
+        if with_events:
+            source_id = f"segment-repeat-{index}"
+            records.append(
+                _event_source(
+                    registration,
+                    record_id=source_id,
+                    native_record_id=source_id,
+                    specimen_id=specimen.specimen_id,
+                    replicate_id=replicate_id,
+                    native_artifact_ids=["segments-500"],
+                )
+            )
+            events.append(
+                _normalized_event(
+                    registration,
+                    specimen_id=specimen.specimen_id,
+                    replicate_id=replicate_id,
+                    normalized_event_id=f"normalized-repeat-{index}",
+                    source_full_evidence_ids=[source_id],
+                )
+            )
+    return _manifest(
+        registration,
+        full_evidence=records,
+        normalized_events=events,
+    )
+
+
+class CnvQuantitativeAndReproducibilityTests(unittest.TestCase):
+    def test_copy_number_error_reports_mae_and_signed_bias(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        metrics = aggregate_cnv_quantitative_metrics(registration, evidence)
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.COPY_NUMBER_ERROR,
+            scope="overall",
+        )
+        self.assertAlmostEqual(result.value or 0.0, 0.1)
+        self.assertAlmostEqual(result.summary_values["signed_bias"], 0.1)
+        self.assertEqual(result.evaluable_denominator, 1)
+        self.assertEqual(result.component_counts["eligible_pairs"], 1)
+
+    def test_cellularity_and_ploidy_require_explicit_quantitative_truth(self) -> None:
+        registration = _registration()
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(registration),
+                _event_source(registration),
+                _selected_fit(registration),
+            ],
+        )
+        metrics = aggregate_cnv_quantitative_metrics(registration, evidence)
+        self.assertEqual(
+            _find_metric(
+                metrics,
+                CnvAcceptanceMetric.CELLULARITY_ERROR,
+                scope="overall",
+            ).state,
+            CnvMetricEvaluationState.NOT_EVALUABLE,
+        )
+        self.assertEqual(
+            _find_metric(
+                metrics,
+                CnvAcceptanceMetric.PLOIDY_ERROR,
+                scope="overall",
+            ).state,
+            CnvMetricEvaluationState.NOT_EVALUABLE,
+        )
+
+    def test_selected_fit_quantitative_errors_do_not_promote_alternative_fits(self) -> None:
+        registration = _registration_with_quantitative_truth()
+        selected = _selected_fit(registration)
+        alternative = _selected_fit(
+            registration,
+            record_id="fit-500-alternative",
+            selected_fit=False,
+            contribution_status=CnvContributionStatus.SECONDARY,
+            cellularity=0.55,
+            ploidy=3.10,
+        )
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(registration),
+                _event_source(registration),
+                selected,
+                alternative,
+            ],
+        )
+        metrics = aggregate_cnv_quantitative_metrics(registration, evidence)
+        cellularity = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.CELLULARITY_ERROR,
+            scope="overall",
+        )
+        ploidy = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.PLOIDY_ERROR,
+            scope="overall",
+        )
+        self.assertAlmostEqual(cellularity.value or 0.0, 0.05)
+        self.assertAlmostEqual(ploidy.value or 0.0, 0.10)
+        self.assertIn(selected.record_id, cellularity.full_evidence_ids)
+        self.assertNotIn(alternative.record_id, cellularity.full_evidence_ids)
+        self.assertIn(alternative.record_id, [item.record_id for item in evidence.full_evidence])
+
+    def test_multiple_selected_fits_in_one_lane_fail_closed(self) -> None:
+        registration = _registration_with_quantitative_truth()
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(registration),
+                _event_source(registration),
+                _selected_fit(registration),
+                _selected_fit(registration, record_id="fit-500-selected-2"),
+            ],
+        )
+        with self.assertRaises(ValueError):
+            aggregate_cnv_quantitative_metrics(registration, evidence)
+
+    def test_reproducibility_pairs_same_biological_specimen_and_matches_events(self) -> None:
+        registration = _repeat_registration()
+        evidence = _repeat_manifest(registration)
+        metrics, pairs = aggregate_cnv_reproducibility_metrics(registration, evidence)
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.REPRODUCIBILITY,
+            scope="overall",
+        )
+        self.assertEqual(result.value, 1.0)
+        self.assertEqual(result.evaluable_denominator, 1)
+        self.assertEqual(len(pairs), 1)
+        self.assertIsInstance(pairs[0], CnvReproducibilityPair)
+        self.assertEqual(pairs[0].concordance, 1.0)
+        self.assertEqual(
+            pairs[0].matched_normalized_event_pairs,
+            [["normalized-repeat-1", "normalized-repeat-2"]],
+        )
+
+    def test_repeat_group_cannot_mix_biological_specimens(self) -> None:
+        registration = _repeat_registration(second_biological_id="DIFFERENT_BIO")
+        evidence = _repeat_manifest(registration)
+        with self.assertRaises(ValueError):
+            aggregate_cnv_reproducibility_metrics(registration, evidence)
+
+    def test_two_empty_repeat_call_sets_are_not_artificial_perfect_concordance(self) -> None:
+        registration = _repeat_registration()
+        evidence = _repeat_manifest(registration, with_events=False)
+        metrics, pairs = aggregate_cnv_reproducibility_metrics(registration, evidence)
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.REPRODUCIBILITY,
+            scope="overall",
+        )
+        self.assertEqual(result.state, CnvMetricEvaluationState.NOT_EVALUABLE)
+        self.assertIsNone(result.value)
+        self.assertEqual(len(pairs), 1)
+        self.assertIsNone(pairs[0].concordance)
 
 
 if __name__ == "__main__":
