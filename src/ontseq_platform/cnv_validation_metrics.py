@@ -126,9 +126,9 @@ def _validate_registered_identity(
         "adapter_policy_sha256": caller.adapter_policy_sha256,
         "execution_identity_sha256": caller.execution_identity_sha256,
     }
-    for field, expected in expected_caller.items():
-        if getattr(record, field) != expected:
-            raise ValueError(f"Evidence caller identity mismatch for {field}")
+    for field_name, expected in expected_caller.items():
+        if getattr(record, field_name) != expected:
+            raise ValueError(f"Evidence caller identity mismatch for {field_name}")
 
     specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
     specimen = specimen_by_id.get(record.specimen_id)
@@ -149,9 +149,9 @@ def _validate_registered_identity(
         "repeat_kind": specimen.repeat_kind,
         "repeat_group_id": specimen.repeat_group_id,
     }
-    for field, expected_value in expected_specimen.items():
-        if getattr(record, field) != expected_value:
-            raise ValueError(f"Evidence specimen identity mismatch for {field}")
+    for field_name, expected_value in expected_specimen.items():
+        if getattr(record, field_name) != expected_value:
+            raise ValueError(f"Evidence specimen identity mismatch for {field_name}")
 
     if (
         record.caller_id == "qdnaseq_ace"
