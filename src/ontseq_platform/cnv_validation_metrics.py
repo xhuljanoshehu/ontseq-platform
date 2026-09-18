@@ -334,7 +334,7 @@ def cnv_numeric_band(value: float, cutpoints: Sequence[float | int]) -> str:
         raise ValueError("Stratification cutpoints must be unique and sorted")
     if value < points[0]:
         return f"<{_format_cutpoint(points[0])}"
-    for lower, upper in zip(points, points[1:], strict=True):
+    for lower, upper in zip(points[:-1], points[1:], strict=True):
         if lower <= value < upper:
             return f"[{_format_cutpoint(lower)},{_format_cutpoint(upper)})"
     return f">={_format_cutpoint(points[-1])}"
@@ -347,7 +347,7 @@ def _registered_numeric_bands(cutpoints: Sequence[float | int]) -> list[str]:
     bands = [f"<{_format_cutpoint(points[0])}"]
     bands.extend(
         f"[{_format_cutpoint(lower)},{_format_cutpoint(upper)})"
-        for lower, upper in zip(points, points[1:], strict=True)
+        for lower, upper in zip(points[:-1], points[1:], strict=True)
     )
     bands.append(f">={_format_cutpoint(points[-1])}")
     return bands
