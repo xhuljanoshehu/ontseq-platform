@@ -265,7 +265,6 @@ class CnvValidationContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CnvValidationSpecimen.model_validate(payload)
 
-
     def test_quantitative_truth_requires_at_least_one_value(self) -> None:
         with self.assertRaises(ValidationError):
             CnvQuantitativeTruth(
