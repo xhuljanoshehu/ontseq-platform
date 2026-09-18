@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from itertools import product
+from itertools import combinations, product
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -284,6 +284,7 @@ class CnvMetricResult(StrictModel):
     value: float | None = None
     evaluable_denominator: int = Field(ge=0)
     component_counts: dict[str, int] = Field(default_factory=dict)
+    summary_values: dict[str, float] = Field(default_factory=dict)
     registration_sha256: str
     evidence_manifest_sha256: str
     truth_event_ids: list[str] = Field(default_factory=list)
@@ -302,6 +303,8 @@ class CnvMetricResult(StrictModel):
             raise ValueError("Non-evaluable CNV metric cannot carry a value")
         if any(value < 0 for value in self.component_counts.values()):
             raise ValueError("CNV metric component counts cannot be negative")
+        if any(not math.isfinite(value) for value in self.summary_values.values()):
+            raise ValueError("CNV metric summary values must be finite")
         return self
 
 
@@ -1038,3 +1041,401 @@ def aggregate_cnv_run_state_metrics(
             )
         )
     return results
+
+
+@dataclass
+class _QuantitativeAccumulator:
+    absolute_errors: list[float] = field(default_factory=list)
+    signed_errors: list[float] = field(default_factory=list)
+    truth_event_ids: set[str] = field(default_factory=set)
+    normalized_event_ids: set[str] = field(default_factory=set)
+    full_evidence_ids: set[str] = field(default_factory=set)
+    lane_ids: set[str] = field(default_factory=set)
+
+
+def _quantitative_metric(
+    *,
+    metric: CnvAcceptanceMetric,
+    stratum_key: dict[str, str | int | float | bool],
+    accumulator: _QuantitativeAccumulator,
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+    denominator_label: str,
+) -> CnvMetricResult:
+    denominator = len(accumulator.absolute_errors)
+    if denominator == 0:
+        return CnvMetricResult(
+            metric=metric,
+            stratum_key=stratum_key,
+            state=CnvMetricEvaluationState.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            component_counts={denominator_label: 0},
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            truth_event_ids=sorted(accumulator.truth_event_ids),
+            normalized_event_ids=sorted(accumulator.normalized_event_ids),
+            full_evidence_ids=sorted(accumulator.full_evidence_ids),
+            lane_ids=sorted(accumulator.lane_ids),
+            reason="No eligible quantitative truth/caller pairs in this stratum.",
+        )
+    mean_absolute_error = sum(accumulator.absolute_errors) / denominator
+    signed_bias = sum(accumulator.signed_errors) / denominator
+    return CnvMetricResult(
+        metric=metric,
+        stratum_key=stratum_key,
+        state=CnvMetricEvaluationState.EVALUABLE,
+        value=mean_absolute_error,
+        evaluable_denominator=denominator,
+        component_counts={denominator_label: denominator},
+        summary_values={
+            "mean_absolute_error": mean_absolute_error,
+            "signed_bias": signed_bias,
+        },
+        registration_sha256=registration.lock_sha256,
+        evidence_manifest_sha256=evidence.manifest_sha256,
+        truth_event_ids=sorted(accumulator.truth_event_ids),
+        normalized_event_ids=sorted(accumulator.normalized_event_ids),
+        full_evidence_ids=sorted(accumulator.full_evidence_ids),
+        lane_ids=sorted(accumulator.lane_ids),
+    )
+
+
+def aggregate_cnv_quantitative_metrics(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+) -> list[CnvMetricResult]:
+    """Aggregate quantitative errors only where explicit orthogonal truth exists."""
+    assignments = assign_cnv_validation_lanes(registration, evidence)
+    normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
+    specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
+
+    technical_keys = _registered_technical_strata(registration)
+    key_by_address = {_stratum_address(key): key for key in technical_keys}
+    copy_acc = {_stratum_address(key): _QuantitativeAccumulator() for key in technical_keys}
+    cellularity_acc = {
+        _stratum_address(key): _QuantitativeAccumulator() for key in technical_keys
+    }
+    ploidy_acc = {_stratum_address(key): _QuantitativeAccumulator() for key in technical_keys}
+    overall_copy = _QuantitativeAccumulator()
+    overall_cellularity = _QuantitativeAccumulator()
+    overall_ploidy = _QuantitativeAccumulator()
+
+    fit_records_by_lane: dict[str, list[CnvFullEvidenceRecord]] = defaultdict(list)
+    for record in evidence.full_evidence:
+        if record.record_kind == CnvEvidenceRecordKind.CALLER_FIT:
+            fit_records_by_lane[_lane_key(record).lane_id].append(record)
+
+    for assignment in assignments:
+        if assignment.run_outcome != CnvRunOutcomeState.OBSERVED:
+            continue
+        lane = assignment.lane
+        technical_address = _stratum_address(_lane_technical_stratum(lane, registration))
+        if technical_address not in key_by_address:
+            raise ValueError("Observed quantitative lane falls outside registered strata")
+        specimen = specimen_by_id[lane.specimen_id]
+        truth_by_id = {item.event_id: item for item in specimen.truth_events}
+
+        for match in assignment.matches:
+            truth = truth_by_id[match.truth_event_id]
+            query = normalized_by_id[match.normalized_event_id]
+            if truth.copy_number is None or query.normalized_copy_number is None:
+                continue
+            signed_error = query.normalized_copy_number - truth.copy_number
+            for accumulator in (overall_copy, copy_acc[technical_address]):
+                accumulator.absolute_errors.append(abs(signed_error))
+                accumulator.signed_errors.append(signed_error)
+                accumulator.truth_event_ids.add(truth.event_id)
+                accumulator.normalized_event_ids.add(query.normalized_event_id)
+                accumulator.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
+                accumulator.full_evidence_ids.update(query.source_full_evidence_ids)
+                accumulator.lane_ids.add(assignment.lane_id)
+
+        selected_fits = [
+            record
+            for record in fit_records_by_lane.get(assignment.lane_id, [])
+            if record.selected_fit is True
+        ]
+        if len(selected_fits) > 1:
+            raise ValueError("Observed CNV lane has multiple selected caller fits")
+        if not selected_fits or specimen.quantitative_truth is None:
+            continue
+        selected = selected_fits[0]
+        truth = specimen.quantitative_truth
+
+        if truth.cellularity is not None and selected.cellularity is not None:
+            signed_error = selected.cellularity - truth.cellularity
+            for accumulator in (overall_cellularity, cellularity_acc[technical_address]):
+                accumulator.absolute_errors.append(abs(signed_error))
+                accumulator.signed_errors.append(signed_error)
+                accumulator.full_evidence_ids.update(
+                    {assignment.run_summary_full_evidence_id, selected.record_id}
+                )
+                accumulator.lane_ids.add(assignment.lane_id)
+
+        if truth.ploidy is not None and selected.ploidy is not None:
+            signed_error = selected.ploidy - truth.ploidy
+            for accumulator in (overall_ploidy, ploidy_acc[technical_address]):
+                accumulator.absolute_errors.append(abs(signed_error))
+                accumulator.signed_errors.append(signed_error)
+                accumulator.full_evidence_ids.update(
+                    {assignment.run_summary_full_evidence_id, selected.record_id}
+                )
+                accumulator.lane_ids.add(assignment.lane_id)
+
+    overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
+    results = [
+        _quantitative_metric(
+            metric=CnvAcceptanceMetric.COPY_NUMBER_ERROR,
+            stratum_key=overall_key,
+            accumulator=overall_copy,
+            registration=registration,
+            evidence=evidence,
+            denominator_label="eligible_pairs",
+        ),
+        _quantitative_metric(
+            metric=CnvAcceptanceMetric.CELLULARITY_ERROR,
+            stratum_key=overall_key,
+            accumulator=overall_cellularity,
+            registration=registration,
+            evidence=evidence,
+            denominator_label="eligible_lanes",
+        ),
+        _quantitative_metric(
+            metric=CnvAcceptanceMetric.PLOIDY_ERROR,
+            stratum_key=overall_key,
+            accumulator=overall_ploidy,
+            registration=registration,
+            evidence=evidence,
+            denominator_label="eligible_lanes",
+        ),
+    ]
+    for address in sorted(key_by_address, key=str):
+        key = key_by_address[address]
+        results.extend(
+            (
+                _quantitative_metric(
+                    metric=CnvAcceptanceMetric.COPY_NUMBER_ERROR,
+                    stratum_key=key,
+                    accumulator=copy_acc[address],
+                    registration=registration,
+                    evidence=evidence,
+                    denominator_label="eligible_pairs",
+                ),
+                _quantitative_metric(
+                    metric=CnvAcceptanceMetric.CELLULARITY_ERROR,
+                    stratum_key=key,
+                    accumulator=cellularity_acc[address],
+                    registration=registration,
+                    evidence=evidence,
+                    denominator_label="eligible_lanes",
+                ),
+                _quantitative_metric(
+                    metric=CnvAcceptanceMetric.PLOIDY_ERROR,
+                    stratum_key=key,
+                    accumulator=ploidy_acc[address],
+                    registration=registration,
+                    evidence=evidence,
+                    denominator_label="eligible_lanes",
+                ),
+            )
+        )
+    return results
+
+
+class CnvReproducibilityPair(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    pair_id: str
+    repeat_group_id: str
+    repeat_kind: CnvRepeatKind
+    biological_specimen_id: str
+    caller_id: str
+    genome_build: GenomeBuild
+    data_basis: CnvDataBasis
+    bin_size_kbp: int | None = None
+    left_lane_id: str
+    right_lane_id: str
+    left_run_outcome: CnvRunOutcomeState
+    right_run_outcome: CnvRunOutcomeState
+    left_normalized_event_ids: list[str] = Field(default_factory=list)
+    right_normalized_event_ids: list[str] = Field(default_factory=list)
+    matched_normalized_event_pairs: list[list[str]] = Field(default_factory=list)
+    concordance: float | None = Field(default=None, ge=0, le=1)
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_reproducibility_pair(self) -> CnvReproducibilityPair:
+        if any(len(pair) != 2 for pair in self.matched_normalized_event_pairs):
+            raise ValueError("Reproducibility match pairs must contain exactly two event IDs")
+        if (
+            not self.left_normalized_event_ids
+            and not self.right_normalized_event_ids
+            and self.concordance is not None
+        ):
+            raise ValueError("Two empty repeat call sets cannot have event concordance")
+        return self
+
+
+def _primary_events_by_lane(
+    evidence: CnvValidationEvidenceManifest,
+) -> dict[str, list[CnvNormalizedEventRecord]]:
+    events: dict[str, list[CnvNormalizedEventRecord]] = defaultdict(list)
+    for event in evidence.normalized_events:
+        if event.contribution_status == CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS:
+            events[_lane_key(event).lane_id].append(event)
+    for values in events.values():
+        values.sort(key=lambda item: item.normalized_event_id)
+    return events
+
+
+def aggregate_cnv_reproducibility_metrics(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+) -> tuple[list[CnvMetricResult], list[CnvReproducibilityPair]]:
+    """Compare repeated lanes symmetrically without treating two empty call sets as perfect."""
+    assignments = assign_cnv_validation_lanes(registration, evidence)
+    events_by_lane = _primary_events_by_lane(evidence)
+    grouped: dict[
+        tuple[str, str, str, str, str, int | None],
+        list[CnvLaneEventAssignment],
+    ] = defaultdict(list)
+
+    for assignment in assignments:
+        lane = assignment.lane
+        if lane.repeat_group_id is None:
+            continue
+        group_key = (
+            lane.repeat_group_id,
+            lane.caller_id,
+            lane.genome_build.value,
+            lane.data_basis.value,
+            lane.caller_version,
+            lane.bin_size_kbp,
+        )
+        grouped[group_key].append(assignment)
+
+    pairs: list[CnvReproducibilityPair] = []
+    full_by_lane: dict[str, set[str]] = defaultdict(set)
+    for record in evidence.full_evidence:
+        full_by_lane[_lane_key(record).lane_id].add(record.record_id)
+
+    for group_key in sorted(grouped, key=str):
+        members = sorted(grouped[group_key], key=lambda item: item.lane_id)
+        biological_ids = {item.lane.biological_specimen_id for item in members}
+        if len(biological_ids) != 1:
+            raise ValueError("CNV repeat group mixes different biological specimens")
+        repeat_kinds = {item.lane.repeat_kind for item in members}
+        if len(repeat_kinds) != 1 or CnvRepeatKind.INDEPENDENT in repeat_kinds:
+            raise ValueError("CNV repeat group has inconsistent repeat-kind semantics")
+        biological_id = next(iter(biological_ids))
+        repeat_kind = next(iter(repeat_kinds))
+
+        for left, right in combinations(members, 2):
+            left_events = events_by_lane.get(left.lane_id, [])
+            right_events = events_by_lane.get(right.lane_id, [])
+            concordance: float | None = None
+            matched_pairs: list[list[str]] = []
+            if (
+                left.run_outcome == CnvRunOutcomeState.OBSERVED
+                and right.run_outcome == CnvRunOutcomeState.OBSERVED
+                and (left_events or right_events)
+            ):
+                case = BenchmarkCase(
+                    case_id="repeat-" + canonical_evidence_sha256(
+                        {"left": left.lane_id, "right": right.lane_id}
+                    )[:24],
+                    kind=BenchmarkKind.CNV,
+                    genome_build=left.lane.genome_build,
+                    truth_events=[_query_event(event) for event in left_events],
+                    query_events=[_query_event(event) for event in right_events],
+                    thresholds=registration.matrix.matching_thresholds,
+                )
+                report = benchmark_case(case)
+                concordance = 2 * len(report.matches) / (len(left_events) + len(right_events))
+                matched_pairs = [
+                    [match.truth_event_id, match.query_event_id]
+                    for match in report.matches
+                ]
+
+            pair_id = "repeat-pair-" + canonical_evidence_sha256(
+                {"left": left.lane_id, "right": right.lane_id}
+            )[:24]
+            pairs.append(
+                CnvReproducibilityPair(
+                    pair_id=pair_id,
+                    repeat_group_id=group_key[0],
+                    repeat_kind=repeat_kind,
+                    biological_specimen_id=biological_id,
+                    caller_id=left.lane.caller_id,
+                    genome_build=left.lane.genome_build,
+                    data_basis=left.lane.data_basis,
+                    bin_size_kbp=left.lane.bin_size_kbp,
+                    left_lane_id=left.lane_id,
+                    right_lane_id=right.lane_id,
+                    left_run_outcome=left.run_outcome,
+                    right_run_outcome=right.run_outcome,
+                    left_normalized_event_ids=[
+                        item.normalized_event_id for item in left_events
+                    ],
+                    right_normalized_event_ids=[
+                        item.normalized_event_id for item in right_events
+                    ],
+                    matched_normalized_event_pairs=matched_pairs,
+                    concordance=concordance,
+                )
+            )
+
+    evaluable_pairs = [item for item in pairs if item.concordance is not None]
+    all_normalized_ids = {
+        event_id
+        for item in pairs
+        for event_id in item.left_normalized_event_ids + item.right_normalized_event_ids
+    }
+    all_lane_ids = {
+        lane_id
+        for item in pairs
+        for lane_id in (item.left_lane_id, item.right_lane_id)
+    }
+    all_full_ids = {
+        full_id
+        for lane_id in all_lane_ids
+        for full_id in full_by_lane.get(lane_id, set())
+    }
+    overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
+    if evaluable_pairs:
+        mean_concordance = sum(item.concordance or 0.0 for item in evaluable_pairs) / len(
+            evaluable_pairs
+        )
+        overall = CnvMetricResult(
+            metric=CnvAcceptanceMetric.REPRODUCIBILITY,
+            stratum_key=overall_key,
+            state=CnvMetricEvaluationState.EVALUABLE,
+            value=mean_concordance,
+            evaluable_denominator=len(evaluable_pairs),
+            component_counts={
+                "evaluable_pairs": len(evaluable_pairs),
+                "total_pairs": len(pairs),
+            },
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            normalized_event_ids=sorted(all_normalized_ids),
+            full_evidence_ids=sorted(all_full_ids),
+            lane_ids=sorted(all_lane_ids),
+        )
+    else:
+        overall = CnvMetricResult(
+            metric=CnvAcceptanceMetric.REPRODUCIBILITY,
+            stratum_key=overall_key,
+            state=CnvMetricEvaluationState.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            component_counts={
+                "evaluable_pairs": 0,
+                "total_pairs": len(pairs),
+            },
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            normalized_event_ids=sorted(all_normalized_ids),
+            full_evidence_ids=sorted(all_full_ids),
+            lane_ids=sorted(all_lane_ids),
+            reason="No evaluable repeated-lane event pairs.",
+        )
+    return [overall], pairs
