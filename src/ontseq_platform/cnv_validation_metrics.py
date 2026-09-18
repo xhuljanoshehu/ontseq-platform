@@ -270,6 +270,11 @@ def assign_cnv_validation_lanes(
     return assignments
 
 
+_MISSING_SPECIFICITY_ASSESSMENT_REASON = (
+    "Specificity requires an explicit negative-unit assessment for every observed lane."
+)
+
+
 class CnvMetricEvaluationState(StrEnum):
     EVALUABLE = "EVALUABLE"
     NOT_EVALUABLE = "NOT_EVALUABLE"
@@ -834,9 +839,7 @@ def _validate_negative_assessments(
         }
         for field_name, expected_value in expected.items():
             if getattr(assessment, field_name) != expected_value:
-                raise ValueError(
-                    f"Negative-unit assessment does not match registered {field_name}"
-                )
+                raise ValueError(f"Negative-unit assessment does not match registered {field_name}")
 
         if assignment.run_summary_full_evidence_id not in assessment.full_evidence_ids:
             raise ValueError("Negative-unit assessment must retain its run-summary evidence ID")
@@ -879,10 +882,7 @@ def _specificity_metric(
 
     missing = lane_ids - set(assessments_by_lane)
     if missing:
-        full_ids = {
-            item.run_summary_full_evidence_id
-            for item in observed_assignments
-        }
+        full_ids = {item.run_summary_full_evidence_id for item in observed_assignments}
         return CnvMetricResult(
             metric=CnvAcceptanceMetric.SPECIFICITY,
             stratum_key=stratum_key,
@@ -899,21 +899,14 @@ def _specificity_metric(
             evidence_manifest_sha256=evidence.manifest_sha256,
             full_evidence_ids=sorted(full_ids),
             lane_ids=sorted(lane_ids),
-            reason=(
-                "Specificity requires an explicit negative-unit assessment "
-                "for every observed lane."
-            ),
+            reason=_MISSING_SPECIFICITY_ASSESSMENT_REASON,
         )
 
     assessments = [assessments_by_lane[lane_id] for lane_id in sorted(lane_ids)]
     assessed_units = sum(item.assessed_units for item in assessments)
     false_positive_units = sum(item.false_positive_units for item in assessments)
     true_negative_units = assessed_units - false_positive_units
-    full_ids = {
-        full_id
-        for item in assessments
-        for full_id in item.full_evidence_ids
-    }
+    full_ids = {full_id for item in assessments for full_id in item.full_evidence_ids}
     return CnvMetricResult(
         metric=CnvAcceptanceMetric.SPECIFICITY,
         stratum_key=stratum_key,
@@ -1112,9 +1105,7 @@ def aggregate_cnv_quantitative_metrics(
     technical_keys = _registered_technical_strata(registration)
     key_by_address = {_stratum_address(key): key for key in technical_keys}
     copy_acc = {_stratum_address(key): _QuantitativeAccumulator() for key in technical_keys}
-    cellularity_acc = {
-        _stratum_address(key): _QuantitativeAccumulator() for key in technical_keys
-    }
+    cellularity_acc = {_stratum_address(key): _QuantitativeAccumulator() for key in technical_keys}
     ploidy_acc = {_stratum_address(key): _QuantitativeAccumulator() for key in technical_keys}
     overall_copy = _QuantitativeAccumulator()
     overall_cellularity = _QuantitativeAccumulator()
@@ -1162,10 +1153,7 @@ def aggregate_cnv_quantitative_metrics(
         selected = selected_fits[0]
         quantitative_truth = specimen.quantitative_truth
 
-        if (
-            quantitative_truth.cellularity is not None
-            and selected.cellularity is not None
-        ):
+        if quantitative_truth.cellularity is not None and selected.cellularity is not None:
             signed_error = selected.cellularity - quantitative_truth.cellularity
             for accumulator in (overall_cellularity, cellularity_acc[technical_address]):
                 accumulator.absolute_errors.append(abs(signed_error))
@@ -1350,9 +1338,10 @@ def aggregate_cnv_reproducibility_metrics(
                 and (left_events or right_events)
             ):
                 case = BenchmarkCase(
-                    case_id="repeat-" + canonical_evidence_sha256(
-                        {"left": left.lane_id, "right": right.lane_id}
-                    )[:24],
+                    case_id="repeat-"
+                    + canonical_evidence_sha256({"left": left.lane_id, "right": right.lane_id})[
+                        :24
+                    ],
                     kind=BenchmarkKind.CNV,
                     genome_build=left.lane.genome_build,
                     truth_events=[_query_event(event) for event in left_events],
@@ -1362,13 +1351,13 @@ def aggregate_cnv_reproducibility_metrics(
                 report = benchmark_case(case)
                 concordance = 2 * len(report.matches) / (len(left_events) + len(right_events))
                 matched_pairs = [
-                    [match.truth_event_id, match.query_event_id]
-                    for match in report.matches
+                    [match.truth_event_id, match.query_event_id] for match in report.matches
                 ]
 
-            pair_id = "repeat-pair-" + canonical_evidence_sha256(
-                {"left": left.lane_id, "right": right.lane_id}
-            )[:24]
+            pair_id = (
+                "repeat-pair-"
+                + canonical_evidence_sha256({"left": left.lane_id, "right": right.lane_id})[:24]
+            )
             pairs.append(
                 CnvReproducibilityPair(
                     pair_id=pair_id,
@@ -1383,12 +1372,8 @@ def aggregate_cnv_reproducibility_metrics(
                     right_lane_id=right.lane_id,
                     left_run_outcome=left.run_outcome,
                     right_run_outcome=right.run_outcome,
-                    left_normalized_event_ids=[
-                        item.normalized_event_id for item in left_events
-                    ],
-                    right_normalized_event_ids=[
-                        item.normalized_event_id for item in right_events
-                    ],
+                    left_normalized_event_ids=[item.normalized_event_id for item in left_events],
+                    right_normalized_event_ids=[item.normalized_event_id for item in right_events],
                     matched_normalized_event_pairs=matched_pairs,
                     concordance=concordance,
                 )
@@ -1401,14 +1386,10 @@ def aggregate_cnv_reproducibility_metrics(
         for event_id in item.left_normalized_event_ids + item.right_normalized_event_ids
     }
     all_lane_ids = {
-        lane_id
-        for item in pairs
-        for lane_id in (item.left_lane_id, item.right_lane_id)
+        lane_id for item in pairs for lane_id in (item.left_lane_id, item.right_lane_id)
     }
     all_full_ids = {
-        full_id
-        for lane_id in all_lane_ids
-        for full_id in full_by_lane.get(lane_id, set())
+        full_id for lane_id in all_lane_ids for full_id in full_by_lane.get(lane_id, set())
     }
     overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
     if evaluable_pairs:
