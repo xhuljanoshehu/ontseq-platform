@@ -32,7 +32,11 @@ from ontseq_platform.cnv_validation_evidence import (
 )
 from ontseq_platform.cnv_validation_metrics import (
     CnvLaneEventAssignment,
+    CnvMetricEvaluationState,
+    CnvMetricResult,
+    aggregate_cnv_event_metrics,
     assign_cnv_validation_lanes,
+    cnv_numeric_band,
 )
 from ontseq_platform.cnv_validation_registration import (
     CnvValidationRegistration,
@@ -488,6 +492,180 @@ class CnvLaneAssignmentTests(unittest.TestCase):
         )
         self.assertIsNone(assignment.true_positive)
         self.assertEqual(assignment.matches, [])
+
+
+def _registration_with_truth_event(event: GenomicEvent) -> CnvValidationRegistration:
+    specimen = _specimen().model_copy(update={"truth_events": [event]})
+    return preregister_cnv_validation(
+        _matrix(),
+        CnvValidationCohort(specimens=[specimen]),
+        registration_id="synthetic-cnv-metrics-registration-custom-truth",
+        registered_at=datetime(2026, 9, 18, tzinfo=UTC),
+        code_sha256=_sha("code"),
+        software_version="0.8.2",
+    )
+
+
+def _find_metric(
+    metrics: list[CnvMetricResult],
+    metric: CnvAcceptanceMetric,
+    **stratum: str | int | float | bool,
+) -> CnvMetricResult:
+    matches = [
+        item
+        for item in metrics
+        if item.metric == metric
+        and all(item.stratum_key.get(key) == value for key, value in stratum.items())
+    ]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"Expected exactly one {metric.value} metric for {stratum}, found {len(matches)}"
+        )
+    return matches[0]
+
+
+class CnvProspectiveMetricAggregationTests(unittest.TestCase):
+    def test_numeric_band_boundaries_are_left_closed_right_open(self) -> None:
+        cutpoints = [2.0, 5.0, 10.0]
+        self.assertEqual(cnv_numeric_band(1.999, cutpoints), "<2")
+        self.assertEqual(cnv_numeric_band(2.0, cutpoints), "[2,5)")
+        self.assertEqual(cnv_numeric_band(5.0, cutpoints), "[5,10)")
+        self.assertEqual(cnv_numeric_band(10.0, cutpoints), ">=10")
+
+    def test_overall_and_fully_stratified_event_metrics_are_emitted(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        metrics = aggregate_cnv_event_metrics(registration, evidence)
+
+        overall_sensitivity = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            scope="overall",
+        )
+        overall_precision = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.PRECISION,
+            scope="overall",
+        )
+        overall_f1 = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.F1,
+            scope="overall",
+        )
+        self.assertEqual(overall_sensitivity.value, 1.0)
+        self.assertEqual(overall_precision.value, 1.0)
+        self.assertEqual(overall_f1.value, 1.0)
+
+        stratified = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            caller="qdnaseq_ace",
+            genome_build="GRCh38",
+            data_basis="lcwgs_genome_wide",
+            coverage="[5,10)",
+            tumor_fraction="[0.2,0.5)",
+            event_class="deletion",
+            event_size="[5000000,10000000)",
+            bin_size=500,
+        )
+        self.assertEqual(stratified.value, 1.0)
+        self.assertEqual(stratified.evaluable_denominator, 1)
+
+    def test_registered_empty_event_stratum_is_not_evaluable_not_zero(self) -> None:
+        registration = _registration()
+        metrics = aggregate_cnv_event_metrics(registration, _manifest(registration))
+        empty = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            caller="qdnaseq_ace",
+            genome_build="GRCh38",
+            data_basis="lcwgs_genome_wide",
+            coverage="[5,10)",
+            tumor_fraction="[0.2,0.5)",
+            event_class="duplication",
+            event_size="[5000000,10000000)",
+            bin_size=500,
+        )
+        self.assertEqual(empty.state, CnvMetricEvaluationState.NOT_EVALUABLE)
+        self.assertIsNone(empty.value)
+        self.assertEqual(empty.evaluable_denominator, 0)
+
+    def test_matching_is_not_repeated_inside_event_size_strata(self) -> None:
+        truth = GenomicEvent(
+            event_id="truth-del-cross-boundary",
+            event_type=EventType.DELETION,
+            primary=Locus(chromosome="7", start=1_000_000, end=5_900_000),
+            copy_number=1.0,
+        )
+        registration = _registration_with_truth_event(truth)
+        source = _event_source(
+            registration,
+            primary=Locus(chromosome="7", start=900_000, end=6_000_000),
+            copy_number=1.0,
+        )
+        event = _normalized_event(
+            registration,
+            primary=Locus(chromosome="7", start=900_000, end=6_000_000),
+            normalized_copy_number=1.0,
+        )
+        evidence = _manifest(
+            registration,
+            full_evidence=[_run_summary(registration), source],
+            normalized_events=[event],
+        )
+        metrics = aggregate_cnv_event_metrics(registration, evidence)
+
+        recall_side = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            caller="qdnaseq_ace",
+            event_class="deletion",
+            event_size="[1000000,5000000)",
+            bin_size=500,
+        )
+        precision_side = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.PRECISION,
+            caller="qdnaseq_ace",
+            event_class="deletion",
+            event_size="[5000000,10000000)",
+            bin_size=500,
+        )
+        self.assertEqual(recall_side.value, 1.0)
+        self.assertEqual(precision_side.value, 1.0)
+        self.assertEqual(recall_side.component_counts["tp_truth"], 1)
+        self.assertEqual(recall_side.component_counts["fn"], 0)
+        self.assertEqual(precision_side.component_counts["tp_query"], 1)
+        self.assertEqual(precision_side.component_counts["fp"], 0)
+
+    def test_metric_provenance_keeps_source_ids_without_mutating_evidence(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        locked_sha = evidence.manifest_sha256
+        metrics = aggregate_cnv_event_metrics(registration, evidence)
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            scope="overall",
+        )
+        self.assertEqual(evidence.manifest_sha256, locked_sha)
+        self.assertEqual(result.truth_event_ids, ["truth-del-1"])
+        self.assertEqual(result.normalized_event_ids, ["normalized-del-1"])
+        self.assertIn("run-summary-500", result.full_evidence_ids)
+        self.assertIn("segment-500-1", result.full_evidence_ids)
+        self.assertEqual(len(result.lane_ids), 1)
+
+    def test_false_positive_burden_uses_observed_lane_denominator(self) -> None:
+        registration = _registration()
+        metrics = aggregate_cnv_event_metrics(registration, _manifest(registration))
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.FALSE_POSITIVE_BURDEN,
+            scope="overall",
+        )
+        self.assertEqual(result.value, 0.0)
+        self.assertEqual(result.evaluable_denominator, 1)
+        self.assertEqual(result.component_counts["fp"], 0)
 
 
 if __name__ == "__main__":
