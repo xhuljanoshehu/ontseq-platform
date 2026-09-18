@@ -34,7 +34,9 @@ from ontseq_platform.cnv_validation_metrics import (
     CnvLaneEventAssignment,
     CnvMetricEvaluationState,
     CnvMetricResult,
+    CnvNegativeUnitAssessment,
     aggregate_cnv_event_metrics,
+    aggregate_cnv_run_state_metrics,
     assign_cnv_validation_lanes,
     cnv_numeric_band,
 )
@@ -676,6 +678,209 @@ class CnvProspectiveMetricAggregationTests(unittest.TestCase):
         self.assertEqual(result.value, 0.0)
         self.assertEqual(result.evaluable_denominator, 1)
         self.assertEqual(result.component_counts["fp"], 0)
+
+
+class CnvRunStateAndSpecificityTests(unittest.TestCase):
+    def test_run_state_rates_keep_terminal_outcomes_separate(self) -> None:
+        registration = _registration()
+        cases = (
+            (
+                CnvRunOutcomeState.NO_CALL,
+                CnvContributionStatus.NO_CALL,
+                CnvAcceptanceMetric.NO_CALL_RATE,
+            ),
+            (
+                CnvRunOutcomeState.FAILED,
+                CnvContributionStatus.FAILED,
+                CnvAcceptanceMetric.TECHNICAL_FAILURE_RATE,
+            ),
+            (
+                CnvRunOutcomeState.NOT_ASSESSABLE,
+                CnvContributionStatus.NOT_ASSESSABLE,
+                CnvAcceptanceMetric.NOT_ASSESSABLE_RATE,
+            ),
+        )
+        for outcome, contribution, expected_metric in cases:
+            with self.subTest(outcome=outcome):
+                evidence = _manifest(
+                    registration,
+                    full_evidence=[
+                        _run_summary(
+                            registration,
+                            run_outcome=outcome,
+                            contribution_status=contribution,
+                            outcome_reason="Synthetic terminal lane state.",
+                        )
+                    ],
+                    normalized_events=[],
+                )
+                metrics = aggregate_cnv_run_state_metrics(registration, evidence)
+                result = _find_metric(metrics, expected_metric, scope="overall")
+                self.assertEqual(result.value, 1.0)
+                self.assertEqual(result.evaluable_denominator, 1)
+
+    def test_run_state_denominator_is_executed_lanes_not_matrix_cross_product(self) -> None:
+        registration = _registration()
+        metrics = aggregate_cnv_run_state_metrics(registration, _manifest(registration))
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.NO_CALL_RATE,
+            scope="overall",
+        )
+        self.assertEqual(result.value, 0.0)
+        self.assertEqual(result.evaluable_denominator, 1)
+        self.assertEqual(result.component_counts["executed_lanes"], 1)
+
+        missing_resolution = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.NO_CALL_RATE,
+            caller="qdnaseq_ace",
+            genome_build="GRCh38",
+            data_basis="lcwgs_genome_wide",
+            coverage="[5,10)",
+            tumor_fraction="[0.2,0.5)",
+            bin_size=100,
+        )
+        self.assertEqual(
+            missing_resolution.state,
+            CnvMetricEvaluationState.NOT_EVALUABLE,
+        )
+        self.assertIsNone(missing_resolution.value)
+        self.assertEqual(missing_resolution.evaluable_denominator, 0)
+
+    def test_specificity_requires_explicit_negative_unit_assessment(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        metrics = aggregate_cnv_run_state_metrics(registration, evidence)
+        result = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SPECIFICITY,
+            scope="overall",
+        )
+        self.assertEqual(result.state, CnvMetricEvaluationState.NOT_EVALUABLE)
+        self.assertIsNone(result.value)
+
+    def test_negative_unit_assessment_is_bound_to_registered_universe(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        assignment = assign_cnv_validation_lanes(registration, evidence)[0]
+        specimen = registration.cohort.specimens[0]
+        universe = specimen.negative_universe
+        assert universe is not None
+
+        assessment = CnvNegativeUnitAssessment(
+            assessment_id="negative-assessment-1",
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            lane_id=assignment.lane_id,
+            specimen_id=specimen.specimen_id,
+            universe_id=universe.universe_id,
+            universe_resource_sha256=universe.resource_sha256,
+            assessability_mask_sha256=specimen.assessability_mask.resource_sha256,
+            assessed_units=100,
+            false_positive_units=4,
+            full_evidence_ids=[assignment.run_summary_full_evidence_id],
+        )
+        metrics = aggregate_cnv_run_state_metrics(
+            registration,
+            evidence,
+            negative_assessments=[assessment],
+        )
+        specificity = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SPECIFICITY,
+            scope="overall",
+        )
+        self.assertEqual(specificity.value, 0.96)
+        self.assertEqual(specificity.evaluable_denominator, 100)
+        self.assertEqual(specificity.component_counts["true_negative_units"], 96)
+        self.assertEqual(specificity.component_counts["false_positive_units"], 4)
+
+        wrong_universe = assessment.model_copy(
+            update={"universe_resource_sha256": _sha("wrong-universe")}
+        )
+        with self.assertRaises(ValueError):
+            aggregate_cnv_run_state_metrics(
+                registration,
+                evidence,
+                negative_assessments=[wrong_universe],
+            )
+
+    def test_negative_unit_assessment_rejects_invalid_unit_counts(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        assignment = assign_cnv_validation_lanes(registration, evidence)[0]
+        specimen = registration.cohort.specimens[0]
+        universe = specimen.negative_universe
+        assert universe is not None
+
+        with self.assertRaises(ValueError):
+            CnvNegativeUnitAssessment(
+                assessment_id="negative-assessment-invalid",
+                registration_sha256=registration.lock_sha256,
+                evidence_manifest_sha256=evidence.manifest_sha256,
+                lane_id=assignment.lane_id,
+                specimen_id=specimen.specimen_id,
+                universe_id=universe.universe_id,
+                universe_resource_sha256=universe.resource_sha256,
+                assessability_mask_sha256=specimen.assessability_mask.resource_sha256,
+                assessed_units=100,
+                false_positive_units=101,
+                full_evidence_ids=[assignment.run_summary_full_evidence_id],
+            )
+
+        incomplete = CnvNegativeUnitAssessment(
+            assessment_id="negative-assessment-incomplete",
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            lane_id=assignment.lane_id,
+            specimen_id=specimen.specimen_id,
+            universe_id=universe.universe_id,
+            universe_resource_sha256=universe.resource_sha256,
+            assessability_mask_sha256=specimen.assessability_mask.resource_sha256,
+            assessed_units=99,
+            false_positive_units=0,
+            full_evidence_ids=[assignment.run_summary_full_evidence_id],
+        )
+        with self.assertRaises(ValueError):
+            aggregate_cnv_run_state_metrics(
+                registration,
+                evidence,
+                negative_assessments=[incomplete],
+            )
+
+    def test_specificity_is_not_event_class_specific_without_registered_unit_classes(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        assignment = assign_cnv_validation_lanes(registration, evidence)[0]
+        specimen = registration.cohort.specimens[0]
+        universe = specimen.negative_universe
+        assert universe is not None
+        assessment = CnvNegativeUnitAssessment(
+            assessment_id="negative-assessment-1",
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            lane_id=assignment.lane_id,
+            specimen_id=specimen.specimen_id,
+            universe_id=universe.universe_id,
+            universe_resource_sha256=universe.resource_sha256,
+            assessability_mask_sha256=specimen.assessability_mask.resource_sha256,
+            assessed_units=100,
+            false_positive_units=0,
+            full_evidence_ids=[assignment.run_summary_full_evidence_id],
+        )
+        metrics = aggregate_cnv_run_state_metrics(
+            registration,
+            evidence,
+            negative_assessments=[assessment],
+        )
+        event_specific = [
+            item
+            for item in metrics
+            if item.metric == CnvAcceptanceMetric.SPECIFICITY
+            and "event_class" in item.stratum_key
+        ]
+        self.assertEqual(event_specific, [])
 
 
 if __name__ == "__main__":
