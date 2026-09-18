@@ -906,8 +906,7 @@ class CnvRunStateAndSpecificityTests(unittest.TestCase):
         event_specific = [
             item
             for item in metrics
-            if item.metric == CnvAcceptanceMetric.SPECIFICITY
-            and "event_class" in item.stratum_key
+            if item.metric == CnvAcceptanceMetric.SPECIFICITY and "event_class" in item.stratum_key
         ]
         self.assertEqual(event_specific, [])
 
