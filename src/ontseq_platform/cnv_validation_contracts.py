@@ -204,9 +204,7 @@ class CnvTruthSource(StrictModel):
 
 
 class CnvQuantitativeTruth(StrictModel):
-    truth_source_resource_id: str = Field(
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
-    )
+    truth_source_resource_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
     cellularity: float | None = Field(default=None, ge=0, le=1)
     ploidy: float | None = Field(default=None, gt=0)
     note: str = Field(min_length=3)
