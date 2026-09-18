@@ -305,6 +305,42 @@ class CnvMetricResult(StrictModel):
         return self
 
 
+class CnvNegativeUnitAssessment(StrictModel):
+    """Explicit assessed negative universe for specificity; never inferred from event FPs."""
+
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    assessment_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
+    registration_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidence_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    lane_id: str = Field(min_length=1)
+    specimen_id: str = Field(min_length=1)
+    universe_id: str = Field(min_length=1)
+    universe_resource_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    assessability_mask_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    assessed_units: int = Field(ge=1)
+    false_positive_units: int = Field(ge=0)
+    full_evidence_ids: list[str] = Field(min_length=1)
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_negative_unit_assessment(self) -> CnvNegativeUnitAssessment:
+        if self.false_positive_units > self.assessed_units:
+            raise ValueError("False-positive negative units cannot exceed assessed units")
+        if len(self.full_evidence_ids) != len(set(self.full_evidence_ids)):
+            raise ValueError("Negative-unit assessment evidence IDs must be unique")
+        return self
+
+
+@dataclass
+class _RunStateAccumulator:
+    executed_lane_ids: set[str] = field(default_factory=set)
+    observed_lane_ids: set[str] = field(default_factory=set)
+    no_call_lane_ids: set[str] = field(default_factory=set)
+    failed_lane_ids: set[str] = field(default_factory=set)
+    not_assessable_lane_ids: set[str] = field(default_factory=set)
+    full_evidence_ids: set[str] = field(default_factory=set)
+
+
 @dataclass
 class _EventMetricAccumulator:
     tp_truth: int = 0
@@ -668,5 +704,334 @@ def aggregate_cnv_event_metrics(
                 evidence=evidence,
             )
             for metric in metrics_to_emit
+        )
+    return results
+
+
+def _registered_technical_strata(
+    registration: CnvValidationRegistration,
+) -> list[dict[str, str | int | float | bool]]:
+    matrix = registration.matrix
+    coverage_bands = _registered_numeric_bands(matrix.stratification.coverage_cutpoints_x)
+    tumor_bands = _registered_numeric_bands(matrix.stratification.tumor_fraction_cutpoints)
+    strata: list[dict[str, str | int | float | bool]] = []
+    for caller, build, data_basis, coverage, tumor in product(
+        matrix.callers,
+        matrix.genome_builds,
+        matrix.data_bases,
+        coverage_bands,
+        tumor_bands,
+    ):
+        bin_sizes: list[int | str]
+        if caller.caller_id == "qdnaseq_ace":
+            bin_sizes = list(matrix.qdnaseq_bin_sizes_kbp)
+        else:
+            bin_sizes = ["not_applicable"]
+        for bin_size in bin_sizes:
+            strata.append(
+                {
+                    "caller": caller.caller_id,
+                    "genome_build": build.value,
+                    "data_basis": data_basis.value,
+                    "coverage": coverage,
+                    "tumor_fraction": tumor,
+                    "bin_size": bin_size,
+                }
+            )
+    return strata
+
+
+def _run_state_metric(
+    *,
+    metric: CnvAcceptanceMetric,
+    stratum_key: dict[str, str | int | float | bool],
+    accumulator: _RunStateAccumulator,
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+) -> CnvMetricResult:
+    denominator = len(accumulator.executed_lane_ids)
+    counts = {
+        "executed_lanes": denominator,
+        "observed_lanes": len(accumulator.observed_lane_ids),
+        "no_call_lanes": len(accumulator.no_call_lane_ids),
+        "failed_lanes": len(accumulator.failed_lane_ids),
+        "not_assessable_lanes": len(accumulator.not_assessable_lane_ids),
+    }
+    numerator_by_metric = {
+        CnvAcceptanceMetric.NO_CALL_RATE: counts["no_call_lanes"],
+        CnvAcceptanceMetric.TECHNICAL_FAILURE_RATE: counts["failed_lanes"],
+        CnvAcceptanceMetric.NOT_ASSESSABLE_RATE: counts["not_assessable_lanes"],
+    }
+    numerator = numerator_by_metric[metric]
+    if denominator == 0:
+        return CnvMetricResult(
+            metric=metric,
+            stratum_key=stratum_key,
+            state=CnvMetricEvaluationState.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            component_counts=counts,
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            full_evidence_ids=sorted(accumulator.full_evidence_ids),
+            lane_ids=sorted(accumulator.executed_lane_ids),
+            reason="No executed caller lanes in the registered technical stratum.",
+        )
+    return CnvMetricResult(
+        metric=metric,
+        stratum_key=stratum_key,
+        state=CnvMetricEvaluationState.EVALUABLE,
+        value=numerator / denominator,
+        evaluable_denominator=denominator,
+        component_counts=counts,
+        registration_sha256=registration.lock_sha256,
+        evidence_manifest_sha256=evidence.manifest_sha256,
+        full_evidence_ids=sorted(accumulator.full_evidence_ids),
+        lane_ids=sorted(accumulator.executed_lane_ids),
+    )
+
+
+def _validate_negative_assessments(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+    assignments: list[CnvLaneEventAssignment],
+    negative_assessments: Sequence[CnvNegativeUnitAssessment],
+) -> dict[str, CnvNegativeUnitAssessment]:
+    assignment_by_lane = {item.lane_id: item for item in assignments}
+    specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
+    full_by_id = {item.record_id: item for item in evidence.full_evidence}
+    assessment_ids = [item.assessment_id for item in negative_assessments]
+    if len(assessment_ids) != len(set(assessment_ids)):
+        raise ValueError("Negative-unit assessment IDs must be unique")
+
+    by_lane: dict[str, CnvNegativeUnitAssessment] = {}
+    for assessment in negative_assessments:
+        if assessment.registration_sha256 != registration.lock_sha256:
+            raise ValueError("Negative-unit assessment registration lock mismatch")
+        if assessment.evidence_manifest_sha256 != evidence.manifest_sha256:
+            raise ValueError("Negative-unit assessment evidence-manifest lock mismatch")
+        assignment = assignment_by_lane.get(assessment.lane_id)
+        if assignment is None:
+            raise ValueError("Negative-unit assessment references an unknown lane")
+        if assessment.lane_id in by_lane:
+            raise ValueError("At most one negative-unit assessment is allowed per lane")
+        if assignment.run_outcome != CnvRunOutcomeState.OBSERVED:
+            raise ValueError("Specificity assessment requires an observed caller lane")
+        if assessment.specimen_id != assignment.lane.specimen_id:
+            raise ValueError("Negative-unit assessment specimen does not match its lane")
+
+        specimen = specimen_by_id[assessment.specimen_id]
+        universe = specimen.negative_universe
+        if universe is None:
+            raise ValueError("Negative-unit assessment requires a registered negative universe")
+        expected = {
+            "universe_id": universe.universe_id,
+            "universe_resource_sha256": universe.resource_sha256,
+            "assessability_mask_sha256": specimen.assessability_mask.resource_sha256,
+            "assessed_units": universe.assessable_units,
+        }
+        for field_name, expected_value in expected.items():
+            if getattr(assessment, field_name) != expected_value:
+                raise ValueError(
+                    f"Negative-unit assessment does not match registered {field_name}"
+                )
+
+        if assignment.run_summary_full_evidence_id not in assessment.full_evidence_ids:
+            raise ValueError("Negative-unit assessment must retain its run-summary evidence ID")
+        for full_id in assessment.full_evidence_ids:
+            record = full_by_id.get(full_id)
+            if record is None:
+                raise ValueError("Negative-unit assessment references missing full evidence")
+            if _lane_key(record).lane_id != assessment.lane_id:
+                raise ValueError("Negative-unit assessment evidence must belong to the same lane")
+        by_lane[assessment.lane_id] = assessment
+    return by_lane
+
+
+def _specificity_metric(
+    *,
+    stratum_key: dict[str, str | int | float | bool],
+    observed_assignments: Sequence[CnvLaneEventAssignment],
+    assessments_by_lane: dict[str, CnvNegativeUnitAssessment],
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+) -> CnvMetricResult:
+    lane_ids = {item.lane_id for item in observed_assignments}
+    if not lane_ids:
+        return CnvMetricResult(
+            metric=CnvAcceptanceMetric.SPECIFICITY,
+            stratum_key=stratum_key,
+            state=CnvMetricEvaluationState.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            component_counts={
+                "observed_lanes": 0,
+                "assessed_lanes": 0,
+                "assessed_units": 0,
+                "true_negative_units": 0,
+                "false_positive_units": 0,
+            },
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            reason="No observed caller lanes in the registered technical stratum.",
+        )
+
+    missing = lane_ids - set(assessments_by_lane)
+    if missing:
+        full_ids = {
+            item.run_summary_full_evidence_id
+            for item in observed_assignments
+        }
+        return CnvMetricResult(
+            metric=CnvAcceptanceMetric.SPECIFICITY,
+            stratum_key=stratum_key,
+            state=CnvMetricEvaluationState.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            component_counts={
+                "observed_lanes": len(lane_ids),
+                "assessed_lanes": len(lane_ids) - len(missing),
+                "assessed_units": 0,
+                "true_negative_units": 0,
+                "false_positive_units": 0,
+            },
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            full_evidence_ids=sorted(full_ids),
+            lane_ids=sorted(lane_ids),
+            reason="Specificity requires an explicit negative-unit assessment for every observed lane.",
+        )
+
+    assessments = [assessments_by_lane[lane_id] for lane_id in sorted(lane_ids)]
+    assessed_units = sum(item.assessed_units for item in assessments)
+    false_positive_units = sum(item.false_positive_units for item in assessments)
+    true_negative_units = assessed_units - false_positive_units
+    full_ids = {
+        full_id
+        for item in assessments
+        for full_id in item.full_evidence_ids
+    }
+    return CnvMetricResult(
+        metric=CnvAcceptanceMetric.SPECIFICITY,
+        stratum_key=stratum_key,
+        state=CnvMetricEvaluationState.EVALUABLE,
+        value=true_negative_units / assessed_units,
+        evaluable_denominator=assessed_units,
+        component_counts={
+            "observed_lanes": len(lane_ids),
+            "assessed_lanes": len(assessments),
+            "assessed_units": assessed_units,
+            "true_negative_units": true_negative_units,
+            "false_positive_units": false_positive_units,
+        },
+        registration_sha256=registration.lock_sha256,
+        evidence_manifest_sha256=evidence.manifest_sha256,
+        full_evidence_ids=sorted(full_ids),
+        lane_ids=sorted(lane_ids),
+    )
+
+
+def aggregate_cnv_run_state_metrics(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+    *,
+    negative_assessments: Sequence[CnvNegativeUnitAssessment] = (),
+) -> list[CnvMetricResult]:
+    """Aggregate lane outcomes and specificity without inferring negative genomic units."""
+    assignments = assign_cnv_validation_lanes(registration, evidence)
+    assessments_by_lane = _validate_negative_assessments(
+        registration,
+        evidence,
+        assignments,
+        negative_assessments,
+    )
+
+    registered_keys = _registered_technical_strata(registration)
+    accumulators = {_stratum_address(key): _RunStateAccumulator() for key in registered_keys}
+    keys_by_address = {_stratum_address(key): key for key in registered_keys}
+    overall = _RunStateAccumulator()
+    overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
+    executed_outcomes = {
+        CnvRunOutcomeState.OBSERVED,
+        CnvRunOutcomeState.NO_CALL,
+        CnvRunOutcomeState.FAILED,
+        CnvRunOutcomeState.NOT_ASSESSABLE,
+    }
+
+    for assignment in assignments:
+        if assignment.run_outcome not in executed_outcomes:
+            continue
+        technical = _lane_technical_stratum(assignment.lane, registration)
+        address = _stratum_address(technical)
+        accumulator = accumulators.get(address)
+        if accumulator is None:
+            raise ValueError("Executed lane falls outside the registered technical strata")
+        for target in (overall, accumulator):
+            target.executed_lane_ids.add(assignment.lane_id)
+            target.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
+            if assignment.run_outcome == CnvRunOutcomeState.OBSERVED:
+                target.observed_lane_ids.add(assignment.lane_id)
+            elif assignment.run_outcome == CnvRunOutcomeState.NO_CALL:
+                target.no_call_lane_ids.add(assignment.lane_id)
+            elif assignment.run_outcome == CnvRunOutcomeState.FAILED:
+                target.failed_lane_ids.add(assignment.lane_id)
+            elif assignment.run_outcome == CnvRunOutcomeState.NOT_ASSESSABLE:
+                target.not_assessable_lane_ids.add(assignment.lane_id)
+
+    rate_metrics = (
+        CnvAcceptanceMetric.NO_CALL_RATE,
+        CnvAcceptanceMetric.TECHNICAL_FAILURE_RATE,
+        CnvAcceptanceMetric.NOT_ASSESSABLE_RATE,
+    )
+    results = [
+        _run_state_metric(
+            metric=metric,
+            stratum_key=overall_key,
+            accumulator=overall,
+            registration=registration,
+            evidence=evidence,
+        )
+        for metric in rate_metrics
+    ]
+
+    observed_overall = [
+        assignment
+        for assignment in assignments
+        if assignment.run_outcome == CnvRunOutcomeState.OBSERVED
+    ]
+    results.append(
+        _specificity_metric(
+            stratum_key=overall_key,
+            observed_assignments=observed_overall,
+            assessments_by_lane=assessments_by_lane,
+            registration=registration,
+            evidence=evidence,
+        )
+    )
+
+    for address in sorted(keys_by_address, key=str):
+        key = keys_by_address[address]
+        accumulator = accumulators[address]
+        results.extend(
+            _run_state_metric(
+                metric=metric,
+                stratum_key=key,
+                accumulator=accumulator,
+                registration=registration,
+                evidence=evidence,
+            )
+            for metric in rate_metrics
+        )
+        observed = [
+            assignment
+            for assignment in assignments
+            if assignment.run_outcome == CnvRunOutcomeState.OBSERVED
+            and _stratum_address(_lane_technical_stratum(assignment.lane, registration)) == address
+        ]
+        results.append(
+            _specificity_metric(
+                stratum_key=key,
+                observed_assignments=observed,
+                assessments_by_lane=assessments_by_lane,
+                registration=registration,
+                evidence=evidence,
+            )
         )
     return results
