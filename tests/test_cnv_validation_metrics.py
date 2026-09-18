@@ -193,6 +193,7 @@ def _full_record(
     primary: Locus | None = None,
     copy_number: float | None = None,
     caller_version: str = "synthetic-1",
+    truth_support_resource_ids: list[str] | None = None,
 ) -> CnvFullEvidenceRecord:
     specimen = registration.cohort.specimens[0]
     parameters = _parameters()
@@ -223,6 +224,7 @@ def _full_record(
         run_outcome=run_outcome,
         contribution_status=contribution_status,
         outcome_reason=outcome_reason,
+        truth_support_resource_ids=truth_support_resource_ids or [],
         caller_parameters=parameters,
         caller_parameters_sha256=canonical_evidence_sha256(parameters),
         dependency_versions={"QDNAseq": "synthetic-1", "ACE": "synthetic-1"},
@@ -325,7 +327,12 @@ class CnvLaneAssignmentTests(unittest.TestCase):
         registration = _registration()
         evidence = _manifest(registration)
         payload = evidence.model_dump(mode="json")
-        payload["registration_sha256"] = _sha("different-registration")
+        different_registration = _sha("different-registration")
+        payload["registration_sha256"] = different_registration
+        for record in payload["full_evidence"]:
+            record["registration_sha256"] = different_registration
+        for event in payload["normalized_events"]:
+            event["registration_sha256"] = different_registration
         payload["manifest_sha256"] = canonical_evidence_sha256(
             {key: value for key, value in payload.items() if key != "manifest_sha256"}
         )
