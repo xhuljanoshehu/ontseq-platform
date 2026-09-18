@@ -896,7 +896,10 @@ def _specificity_metric(
             evidence_manifest_sha256=evidence.manifest_sha256,
             full_evidence_ids=sorted(full_ids),
             lane_ids=sorted(lane_ids),
-            reason="Specificity requires an explicit negative-unit assessment for every observed lane.",
+            reason=(
+                "Specificity requires an explicit negative-unit assessment "
+                "for every observed lane."
+            ),
         )
 
     assessments = [assessments_by_lane[lane_id] for lane_id in sorted(lane_ids)]
