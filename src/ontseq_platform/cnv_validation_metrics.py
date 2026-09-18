@@ -414,9 +414,7 @@ def _lane_technical_stratum(
 ) -> dict[str, str | int | float | bool]:
     if lane.coverage_x is None or lane.tumor_fraction is None:
         raise ValueError("Prospective event metrics require registered continuous lane strata")
-    bin_size: int | str = (
-        lane.bin_size_kbp if lane.bin_size_kbp is not None else "not_applicable"
-    )
+    bin_size: int | str = lane.bin_size_kbp if lane.bin_size_kbp is not None else "not_applicable"
     return {
         "caller": lane.caller_id,
         "genome_build": lane.genome_build.value,
@@ -538,17 +536,11 @@ def aggregate_cnv_event_metrics(
 ) -> list[CnvMetricResult]:
     """Aggregate locked lane assignments without re-matching inside strata."""
     assignments = assign_cnv_validation_lanes(registration, evidence)
-    normalized_by_id = {
-        item.normalized_event_id: item for item in evidence.normalized_events
-    }
-    specimen_by_id = {
-        item.specimen_id: item for item in registration.cohort.specimens
-    }
+    normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
+    specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
 
     registered_keys = _registered_event_strata(registration)
-    accumulators = {
-        _stratum_address(key): _EventMetricAccumulator() for key in registered_keys
-    }
+    accumulators = {_stratum_address(key): _EventMetricAccumulator() for key in registered_keys}
     keys_by_address = {_stratum_address(key): key for key in registered_keys}
     overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
     overall = _EventMetricAccumulator()
@@ -567,9 +559,7 @@ def aggregate_cnv_event_metrics(
             if all(key.get(name) == value for name, value in technical.items()):
                 accumulators[address].observed_lane_ids.add(assignment.lane_id)
                 accumulators[address].lane_ids.add(assignment.lane_id)
-                accumulators[address].full_evidence_ids.add(
-                    assignment.run_summary_full_evidence_id
-                )
+                accumulators[address].full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
         specimen = specimen_by_id[lane.specimen_id]
         truth_by_id = {item.event_id: item for item in specimen.truth_events}
