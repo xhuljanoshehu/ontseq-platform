@@ -206,17 +206,17 @@ def assign_cnv_validation_lanes(
         if any(record.run_outcome != summary.run_outcome for record in records):
             raise ValueError("CNV lane contains inconsistent run-outcome states")
 
-        common = {
-            "lane_id": lane_id,
-            "lane": lane,
-            "run_summary_full_evidence_id": summary.record_id,
-            "run_outcome": summary.run_outcome,
-            "minimum_reciprocal_overlap": thresholds.minimum_reciprocal_overlap,
-            "copy_number_tolerance": thresholds.copy_number_tolerance,
-        }
-
         if summary.run_outcome != CnvRunOutcomeState.OBSERVED:
-            assignments.append(CnvLaneEventAssignment(**common))
+            assignments.append(
+                CnvLaneEventAssignment(
+                    lane_id=lane_id,
+                    lane=lane,
+                    run_summary_full_evidence_id=summary.record_id,
+                    run_outcome=summary.run_outcome,
+                    minimum_reciprocal_overlap=thresholds.minimum_reciprocal_overlap,
+                    copy_number_tolerance=thresholds.copy_number_tolerance,
+                )
+            )
             continue
 
         primary_events = [
@@ -246,7 +246,12 @@ def assign_cnv_validation_lanes(
         ]
         assignments.append(
             CnvLaneEventAssignment(
-                **common,
+                lane_id=lane_id,
+                lane=lane,
+                run_summary_full_evidence_id=summary.record_id,
+                run_outcome=summary.run_outcome,
+                minimum_reciprocal_overlap=thresholds.minimum_reciprocal_overlap,
+                copy_number_tolerance=thresholds.copy_number_tolerance,
                 true_positive=report.metrics.true_positive,
                 false_positive=report.metrics.false_positive,
                 false_negative=report.metrics.false_negative,
