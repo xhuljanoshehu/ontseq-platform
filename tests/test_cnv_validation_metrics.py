@@ -960,7 +960,9 @@ def _selected_fit(
     )
 
 
-def _repeat_registration(*, second_biological_id: str = "SYNTHETIC_BIO_REPEAT") -> CnvValidationRegistration:
+def _repeat_registration(
+    *, second_biological_id: str = "SYNTHETIC_BIO_REPEAT"
+) -> CnvValidationRegistration:
     first = _specimen().model_copy(
         update={
             "specimen_id": "SYNTHETIC_REPEAT_1",
