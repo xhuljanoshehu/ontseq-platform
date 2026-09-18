@@ -403,6 +403,44 @@ class CnvLaneAssignmentTests(unittest.TestCase):
             registration.matrix.matching_thresholds.minimum_reciprocal_overlap,
         )
 
+    def test_secondary_event_cannot_steal_primary_truth_match(self) -> None:
+        registration = _registration()
+        secondary_source = _event_source(
+            registration,
+            record_id="segment-500-secondary",
+            native_record_id="segment-500-secondary",
+            contribution_status=CnvContributionStatus.SECONDARY,
+            primary=Locus(chromosome="7", start=1_000_000, end=6_000_000),
+            copy_number=1.0,
+        )
+        secondary_event = _normalized_event(
+            registration,
+            normalized_event_id="normalized-del-secondary",
+            source_full_evidence_ids=["segment-500-secondary"],
+            contribution_status=CnvContributionStatus.SECONDARY,
+            primary=Locus(chromosome="7", start=1_000_000, end=6_000_000),
+            normalized_copy_number=1.0,
+        )
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(registration),
+                _event_source(registration),
+                secondary_source,
+            ],
+            normalized_events=[
+                _normalized_event(registration),
+                secondary_event,
+            ],
+        )
+        assignment = assign_cnv_validation_lanes(registration, evidence)[0]
+        self.assertEqual(assignment.true_positive, 1)
+        self.assertEqual(assignment.false_positive, 0)
+        self.assertEqual(
+            [item.normalized_event_id for item in assignment.matches],
+            ["normalized-del-1"],
+        )
+
     def test_terminal_lane_does_not_fabricate_event_assignments(self) -> None:
         registration = _registration()
         for outcome, contribution in (
