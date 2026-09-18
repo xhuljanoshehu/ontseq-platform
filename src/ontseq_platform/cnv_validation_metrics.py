@@ -124,13 +124,11 @@ def _validate_registered_identity(
         if getattr(record, field) != expected:
             raise ValueError(f"Evidence caller identity mismatch for {field}")
 
-    specimen_by_id = {
-        item.specimen_id: item for item in registration.cohort.specimens
-    }
+    specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
     specimen = specimen_by_id.get(record.specimen_id)
     if specimen is None:
         raise ValueError(f"Evidence specimen is not registered: {record.specimen_id}")
-    expected_specimen = {
+    expected_specimen: dict[str, object] = {
         "biological_specimen_id": specimen.biological_specimen_id,
         "genome_build": specimen.genome_build,
         "data_basis": specimen.data_basis,
@@ -192,9 +190,7 @@ def assign_cnv_validation_lanes(
             raise ValueError("Normalized CNV event has no retained full-evidence lane")
         normalized_by_lane[lane.lane_id].append(event)
 
-    specimen_by_id = {
-        item.specimen_id: item for item in registration.cohort.specimens
-    }
+    specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
     thresholds = registration.matrix.matching_thresholds
     assignments: list[CnvLaneEventAssignment] = []
 
@@ -202,9 +198,7 @@ def assign_cnv_validation_lanes(
         lane = lane_keys[lane_id]
         records = records_by_lane[lane_id]
         summaries = [
-            record
-            for record in records
-            if record.record_kind == CnvEvidenceRecordKind.RUN_SUMMARY
+            record for record in records if record.record_kind == CnvEvidenceRecordKind.RUN_SUMMARY
         ]
         if len(summaries) != 1:
             raise ValueError("Each analytical CNV lane requires exactly one run-summary record")
@@ -228,8 +222,7 @@ def assign_cnv_validation_lanes(
         primary_events = [
             event
             for event in normalized_by_lane.get(lane_id, [])
-            if event.contribution_status
-            == CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+            if event.contribution_status == CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
         ]
         specimen = specimen_by_id[lane.specimen_id]
         case = BenchmarkCase(
