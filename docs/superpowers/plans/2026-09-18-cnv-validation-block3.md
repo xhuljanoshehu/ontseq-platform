@@ -62,8 +62,7 @@
       note: str = Field(min_length=3)
 
       @model_validator(mode="after")
-      def at_least_one_value(self) -> "CnvQuantitativeTruth":
-          ...
+      def at_least_one_value(self) -> "CnvQuantitativeTruth": ...
   ```
   Add `quantitative_truth: CnvQuantitativeTruth | None = None` to `CnvValidationSpecimen` and validate source-ID linkage.
 
