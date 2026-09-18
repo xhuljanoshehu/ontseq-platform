@@ -143,8 +143,8 @@ def _validate_registered_identity(
         "repeat_kind": specimen.repeat_kind,
         "repeat_group_id": specimen.repeat_group_id,
     }
-    for field, expected in expected_specimen.items():
-        if getattr(record, field) != expected:
+    for field, expected_value in expected_specimen.items():
+        if getattr(record, field) != expected_value:
             raise ValueError(f"Evidence specimen identity mismatch for {field}")
 
     if (
