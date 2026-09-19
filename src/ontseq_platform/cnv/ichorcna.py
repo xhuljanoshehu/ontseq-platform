@@ -90,9 +90,11 @@ class IchorCnaResourceBundle(StrictModel):
         for resource in self.resources:
             if resource.genome_build != self.genome_build:
                 raise ValueError("ichorCNA resource genome build does not match bundle")
-            if resource.role != IchorCnaResourceRole.CENTROMERE:
-                if resource.bin_size_bp != self.bin_size_bp:
-                    raise ValueError("ichorCNA resource bin size does not match bundle")
+            if (
+                resource.role != IchorCnaResourceRole.CENTROMERE
+                and resource.bin_size_bp != self.bin_size_bp
+            ):
+                raise ValueError("ichorCNA resource bin size does not match bundle")
         return self
 
     def resource_for(self, role: IchorCnaResourceRole) -> IchorCnaResourceArtifact:
@@ -386,7 +388,9 @@ def _validate_resources(
         None,
     )
     if (normal_panel is None) != (panel_resource is None):
-        raise ValueError("ichorCNA normal panel path and registered resource must be declared together")
+        raise ValueError(
+            "ichorCNA normal panel path and registered resource must be declared together"
+        )
     panel_fp = None
     if normal_panel is not None and panel_resource is not None:
         panel_fp = _validate_registered_path(
@@ -430,9 +434,9 @@ def _parse_parameters(
         if not line:
             continue
         if table_header is not None:
-            row = line.split()
-            if len(row) == len(table_header):
-                table_rows.append(row)
+            table_values = line.split()
+            if len(table_values) == len(table_header):
+                table_rows.append(table_values)
             continue
         if line.startswith("init "):
             table_header = line.split()
@@ -457,29 +461,38 @@ def _parse_parameters(
     solutions: list[IchorCnaSolution] = []
     if table_header is not None:
         for values in table_rows:
-            row = dict(zip(table_header, values, strict=True))
-            normal_fraction = _required_number(row["n_est"], label="solution n_est")
-            solution_ploidy = _required_number(row["phi_est"], label="solution phi_est")
+            solution_row = dict(zip(table_header, values, strict=True))
+            normal_fraction = _required_number(
+                solution_row["n_est"],
+                label="solution n_est",
+            )
+            solution_ploidy = _required_number(
+                solution_row["phi_est"],
+                label="solution phi_est",
+            )
             if not 0 <= normal_fraction <= 1:
                 raise ValueError("ichorCNA solution normal fraction is outside zero to one")
             if solution_ploidy <= 0:
                 raise ValueError("ichorCNA solution ploidy must be positive")
             solutions.append(
                 IchorCnaSolution(
-                    initialization=row["init"],
+                    initialization=solution_row["init"],
                     normal_fraction=normal_fraction,
                     ploidy=solution_ploidy,
-                    bic=_parse_optional_number(row["BIC"], label="solution BIC"),
+                    bic=_parse_optional_number(
+                        solution_row["BIC"],
+                        label="solution BIC",
+                    ),
                     fraction_genome_subclonal=_parse_optional_number(
-                        row["Frac_genome_subclonal"],
+                        solution_row["Frac_genome_subclonal"],
                         label="solution fraction genome subclonal",
                     ),
                     fraction_cna_subclonal=_parse_optional_number(
-                        row["Frac_CNA_subclonal"],
+                        solution_row["Frac_CNA_subclonal"],
                         label="solution fraction CNA subclonal",
                     ),
                     log_likelihood=_parse_optional_number(
-                        row["loglik"],
+                        solution_row["loglik"],
                         label="solution log likelihood",
                     ),
                 )
