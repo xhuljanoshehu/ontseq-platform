@@ -149,6 +149,20 @@ class FakeIchorRunner:
 
 
 class IchorCnaRuntimeTests(unittest.TestCase):
+    def test_policy_pins_active_upstream_version_0_5_1(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "runIchorCNA.R"
+            _write(script, "# synthetic runIchorCNA.R\n")
+            payload = _policy(script).model_dump()
+            payload["expected_version"] = "0.5.1"
+
+            upgraded = IchorCnaUlpWgsPolicy.model_validate(payload)
+
+            self.assertEqual(upgraded.expected_version, "0.5.1")
+            payload["expected_version"] = "0.2.0"
+            with self.assertRaisesRegex(ValidationError, "0.5.1"):
+                IchorCnaUlpWgsPolicy.model_validate(payload)
+
     def test_command_uses_read_depth_resources_and_never_a_bam(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
