@@ -380,11 +380,7 @@ def _validate_resources(
     )
 
     panel_resource = next(
-        (
-            item
-            for item in resources.resources
-            if item.role == IchorCnaResourceRole.NORMAL_PANEL
-        ),
+        (item for item in resources.resources if item.role == IchorCnaResourceRole.NORMAL_PANEL),
         None,
     )
     if (normal_panel is None) != (panel_resource is None):
