@@ -33,6 +33,10 @@ class MultiCallerCatalogTests(unittest.TestCase):
             },
         )
 
+    def test_unknown_provider_mode_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            get_caller_catalog_entry("unknown:mode")
+
     def test_savana_paired_and_tumor_only_are_distinct_contracts(self) -> None:
         paired = get_caller_catalog_entry(CallerMode.SAVANA_PAIRED)
         tumor_only = get_caller_catalog_entry(CallerMode.SAVANA_TUMOR_ONLY)
