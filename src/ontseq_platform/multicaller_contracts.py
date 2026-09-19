@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from typing import Literal
+
 from pydantic import Field, model_validator
 
 from .models import StrictModel
+
+SHA256 = r"^[0-9a-f]{64}$"
+ID = r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$"
 
 
 class CallerProvider(StrEnum):
@@ -59,6 +64,63 @@ class CallerInputRole(StrEnum):
     PANEL_OF_NORMALS = "panel_of_normals"
     SNIFFLES_VCF = "sniffles_vcf"
     SEVERUS_BREAKPOINTS = "severus_breakpoints"
+
+
+class CallerPlanningDecision(StrEnum):
+    ELIGIBLE = "ELIGIBLE"
+    INELIGIBLE = "INELIGIBLE"
+    RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
+    NOT_REQUESTED = "NOT_REQUESTED"
+
+
+class CallerInputArtifact(StrictModel):
+    artifact_id: str = Field(pattern=ID)
+    role: CallerInputRole
+    sha256: str = Field(pattern=SHA256)
+    description: str = ""
+    research_only: Literal[True] = True
+
+
+class CallerLaneRequest(StrictModel):
+    lane_id: str = Field(pattern=ID)
+    mode_id: CallerMode
+    assay_regime: CallerAssayRegime
+    inputs: list[CallerInputArtifact] = Field(default_factory=list)
+    parent_lane_ids: list[str] = Field(default_factory=list)
+    requested: bool = True
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def unique_lane_inputs(self) -> CallerLaneRequest:
+        artifact_ids = [item.artifact_id for item in self.inputs]
+        input_roles = [item.role for item in self.inputs]
+        if len(artifact_ids) != len(set(artifact_ids)):
+            raise ValueError("Caller lane input artifact IDs must be unique")
+        if len(input_roles) != len(set(input_roles)):
+            raise ValueError("Caller lane input roles must be unique")
+        if len(self.parent_lane_ids) != len(set(self.parent_lane_ids)):
+            raise ValueError("Caller lane parent IDs must be unique")
+        if self.lane_id in self.parent_lane_ids:
+            raise ValueError("Caller lane cannot depend on itself")
+        return self
+
+
+class CallerLanePlan(StrictModel):
+    lane_id: str = Field(pattern=ID)
+    mode_id: CallerMode
+    decision: CallerPlanningDecision
+    reasons: list[str] = Field(default_factory=list)
+    input_artifact_ids: list[str] = Field(default_factory=list)
+    parent_lane_ids: list[str] = Field(default_factory=list)
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def explicit_noneligible_reason(self) -> CallerLanePlan:
+        if self.decision == CallerPlanningDecision.ELIGIBLE and self.reasons:
+            raise ValueError("Eligible caller lane cannot carry blocker reasons")
+        if self.decision != CallerPlanningDecision.ELIGIBLE and not self.reasons:
+            raise ValueError("Non-eligible caller lane requires an explicit reason")
+        return self
 
 
 class CallerCatalogEntry(StrictModel):
