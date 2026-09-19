@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import math
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -15,7 +17,7 @@ from .cnv_validation_evidence import (
     CnvRunOutcomeState,
     canonical_evidence_sha256,
 )
-from .models import ModuleRunStatus
+from .models import Locus, ModuleRunStatus
 from .pipeline.envelope import sha256_file
 
 
@@ -131,6 +133,298 @@ def _fit_artifact_ids(
             + ", ".join(sorted(missing))
         )
     return [artifact_id_by_path[path] for path in _fit_artifact_paths(fit)]
+
+
+def _read_tsv(path: Path) -> list[dict[str, str]]:
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"QDNAseq validation TSV is missing or empty: {path.name}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames is None:
+            raise ValueError(f"QDNAseq validation TSV has no header: {path.name}")
+        return [dict(row) for row in reader]
+
+
+def _finite_float(row: dict[str, str], key: str) -> float:
+    raw = row.get(key, "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid QDNAseq numeric value for {key}: {raw!r}") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"Non-finite QDNAseq numeric value for {key}: {raw!r}")
+    return value
+
+
+def _finite_int(row: dict[str, str], key: str) -> int:
+    value = _finite_float(row, key)
+    if not value.is_integer():
+        raise ValueError(f"Invalid QDNAseq integer value for {key}: {row.get(key)!r}")
+    return int(value)
+
+
+def _optional_measurement(
+    row: dict[str, str],
+    key: str,
+    *,
+    unit: str | None = None,
+) -> CnvNumericMeasurement | None:
+    raw = row.get(key)
+    if raw is None or raw == "":
+        return None
+    return CnvNumericMeasurement(
+        name=key,
+        value=_finite_float(row, key),
+        unit=unit,
+        source_field=key,
+    )
+
+
+def _chromosome(row: dict[str, str]) -> str:
+    value = row.get("chromosome") or row.get("chr")
+    if not value:
+        raise ValueError("QDNAseq validation row is missing chromosome")
+    return value if value.startswith("chr") else f"chr{value}"
+
+
+def _locus(row: dict[str, str]) -> Locus:
+    if row.get("coordinate_system") != "zero_based_half_open":
+        raise ValueError("QDNAseq validation row must declare zero_based_half_open coordinates")
+    start = _finite_int(row, "start")
+    end = _finite_int(row, "end")
+    if start < 0 or end <= start:
+        raise ValueError("QDNAseq validation row contains an invalid half-open interval")
+    return Locus(chromosome=_chromosome(row), start=start, end=end)
+
+
+def _resolution_contribution(
+    fit: CnvFit,
+    policy: QDNAseqPolicy,
+) -> CnvContributionStatus:
+    if fit.bin_size_kbp == policy.primary_bin_size_kbp:
+        return CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+    return CnvContributionStatus.SECONDARY
+
+
+def _bin_records(
+    *,
+    fit: CnvFit,
+    policy: QDNAseqPolicy,
+    common: dict[str, Any],
+    output_dir: Path,
+    artifact_id_by_path: dict[str, str],
+) -> list[CnvFullEvidenceRecord]:
+    if fit.bins_file is None:
+        return []
+    artifact_id = artifact_id_by_path.get(fit.bins_file)
+    if artifact_id is None:
+        raise ValueError("QDNAseq bin table is absent from retained native artifacts")
+
+    rows = _read_tsv(_artifact_path(output_dir, fit.bins_file))
+    result: list[CnvFullEvidenceRecord] = []
+    measurement_fields = (
+        ("reads", "count"),
+        ("bases", "count"),
+        ("gc", None),
+        ("mappability", None),
+        ("blacklist", None),
+        ("residual", None),
+        ("loess", None),
+        ("corrected", None),
+        ("copynumber", None),
+        ("segmented", None),
+    )
+    for index, row in enumerate(rows, start=1):
+        measurements = [
+            measurement
+            for key, unit in measurement_fields
+            if (measurement := _optional_measurement(row, key, unit=unit)) is not None
+        ]
+        result.append(
+            CnvFullEvidenceRecord.model_validate(
+                {
+                    **common,
+                    "record_id": f"qdnaseq-bin-{fit.bin_size_kbp}-{index}",
+                    "bin_size_kbp": fit.bin_size_kbp,
+                    "record_kind": CnvEvidenceRecordKind.CALLER_BIN,
+                    "native_record_id": f"bin-{fit.bin_size_kbp}-{index}",
+                    "run_outcome": CnvRunOutcomeState.OBSERVED,
+                    "contribution_status": _resolution_contribution(fit, policy),
+                    "native_artifact_ids": [artifact_id],
+                    "fit_group_id": f"ace-fit-{fit.bin_size_kbp}",
+                    "primary": _locus(row),
+                    "numeric_measurements": measurements,
+                }
+            )
+        )
+    return result
+
+
+def _segment_records(
+    *,
+    fit: CnvFit,
+    policy: QDNAseqPolicy,
+    common: dict[str, Any],
+    output_dir: Path,
+    artifact_id_by_path: dict[str, str],
+) -> list[CnvFullEvidenceRecord]:
+    artifact_id = artifact_id_by_path.get(fit.segment_file)
+    if artifact_id is None:
+        raise ValueError("QDNAseq segment table is absent from retained native artifacts")
+
+    rows = _read_tsv(_artifact_path(output_dir, fit.segment_file))
+    result: list[CnvFullEvidenceRecord] = []
+    for index, row in enumerate(rows, start=1):
+        measurements = [
+            CnvNumericMeasurement(
+                name="bin_count",
+                value=float(_finite_int(row, "bin_count")),
+                unit="count",
+                source_field="bin_count",
+            ),
+            CnvNumericMeasurement(
+                name="call",
+                value=_finite_float(row, "call"),
+                source_field="call",
+            ),
+        ]
+        raw_qnorm = row.get("qnorm_log10")
+        if raw_qnorm not in {None, "", "-Inf"}:
+            measurements.append(
+                CnvNumericMeasurement(
+                    name="qnorm_log10",
+                    value=_finite_float(row, "qnorm_log10"),
+                    source_field="qnorm_log10",
+                )
+            )
+
+        result.append(
+            CnvFullEvidenceRecord.model_validate(
+                {
+                    **common,
+                    "record_id": f"qdnaseq-segment-{fit.bin_size_kbp}-{index}",
+                    "bin_size_kbp": fit.bin_size_kbp,
+                    "record_kind": CnvEvidenceRecordKind.CALLER_SEGMENT,
+                    "native_record_id": f"segment-{fit.bin_size_kbp}-{index}",
+                    "run_outcome": CnvRunOutcomeState.OBSERVED,
+                    "contribution_status": _resolution_contribution(fit, policy),
+                    "native_artifact_ids": [artifact_id],
+                    "fit_group_id": f"ace-fit-{fit.bin_size_kbp}",
+                    "primary": _locus(row),
+                    "copy_number": _finite_float(row, "absolute_copy_number"),
+                    "numeric_measurements": measurements,
+                }
+            )
+        )
+    return result
+
+
+def _chromosome_records(
+    *,
+    fit: CnvFit,
+    policy: QDNAseqPolicy,
+    common: dict[str, Any],
+    output_dir: Path,
+    artifact_id_by_path: dict[str, str],
+) -> list[CnvFullEvidenceRecord]:
+    artifact_id = artifact_id_by_path.get(fit.chromosome_file)
+    if artifact_id is None:
+        raise ValueError("QDNAseq chromosome table is absent from retained native artifacts")
+
+    rows = _read_tsv(_artifact_path(output_dir, fit.chromosome_file))
+    seen: set[str] = set()
+    result: list[CnvFullEvidenceRecord] = []
+    for row in rows:
+        chromosome = _chromosome(row)
+        if chromosome in seen:
+            raise ValueError(
+                f"QDNAseq chromosome table contains duplicate row for {chromosome}"
+            )
+        seen.add(chromosome)
+        result.append(
+            CnvFullEvidenceRecord.model_validate(
+                {
+                    **common,
+                    "record_id": f"qdnaseq-chromosome-{fit.bin_size_kbp}-{chromosome}",
+                    "bin_size_kbp": fit.bin_size_kbp,
+                    "record_kind": CnvEvidenceRecordKind.CHROMOSOME_SUMMARY,
+                    "native_record_id": f"chromosome-{fit.bin_size_kbp}-{chromosome}",
+                    "run_outcome": CnvRunOutcomeState.OBSERVED,
+                    "contribution_status": _resolution_contribution(fit, policy),
+                    "native_artifact_ids": [artifact_id],
+                    "fit_group_id": f"ace-fit-{fit.bin_size_kbp}",
+                    "copy_number": _finite_float(row, "copy_number"),
+                }
+            )
+        )
+    return result
+
+
+def _consensus_records(
+    *,
+    report: QDNAseqCallReport,
+    common: dict[str, Any],
+    artifact_id_by_path: dict[str, str],
+) -> list[CnvFullEvidenceRecord]:
+    if not report.chromosome_consensus:
+        return []
+
+    paths = [
+        path
+        for path in artifact_id_by_path
+        if path.endswith(".consensus.chromosomes.tsv")
+    ]
+    if len(paths) != 1:
+        raise ValueError("QDNAseq chromosome consensus requires exactly one retained consensus TSV")
+    artifact_id = artifact_id_by_path[paths[0]]
+
+    result: list[CnvFullEvidenceRecord] = []
+    for item in report.chromosome_consensus:
+        result.append(
+            CnvFullEvidenceRecord.model_validate(
+                {
+                    **common,
+                    "record_id": f"qdnaseq-consensus-{item.chromosome}",
+                    "bin_size_kbp": None,
+                    "record_kind": CnvEvidenceRecordKind.CHROMOSOME_SUMMARY,
+                    "native_record_id": f"consensus-{item.chromosome}",
+                    "run_outcome": CnvRunOutcomeState.OBSERVED,
+                    "contribution_status": CnvContributionStatus.SECONDARY,
+                    "native_artifact_ids": [artifact_id],
+                    "copy_number": item.median_copy_number,
+                    "numeric_measurements": [
+                        CnvNumericMeasurement(
+                            name="rounded_copy_number",
+                            value=float(item.rounded_copy_number),
+                            source_field="rounded_copy_number",
+                        ),
+                        CnvNumericMeasurement(
+                            name="agreeing_bins",
+                            value=float(item.agreeing_bins),
+                            unit="count",
+                            source_field="agreeing_bins",
+                        ),
+                        CnvNumericMeasurement(
+                            name="contributing_bins",
+                            value=float(item.contributing_bins),
+                            unit="count",
+                            source_field="contributing_bins",
+                        ),
+                        CnvNumericMeasurement(
+                            name="min_copy_number",
+                            value=item.min_copy_number,
+                            source_field="min_copy_number",
+                        ),
+                        CnvNumericMeasurement(
+                            name="max_copy_number",
+                            value=item.max_copy_number,
+                            source_field="max_copy_number",
+                        ),
+                    ],
+                }
+            )
+        )
+    return result
 
 
 def _common_record_payload(
@@ -380,5 +674,39 @@ def map_qdnaseq_ace_full_evidence(
                 native_artifact_ids=fit_artifact_ids,
             )
         )
+        full_evidence.extend(
+            _bin_records(
+                fit=fit,
+                policy=policy,
+                common=common,
+                output_dir=output_dir,
+                artifact_id_by_path=artifact_id_by_path,
+            )
+        )
+        full_evidence.extend(
+            _segment_records(
+                fit=fit,
+                policy=policy,
+                common=common,
+                output_dir=output_dir,
+                artifact_id_by_path=artifact_id_by_path,
+            )
+        )
+        full_evidence.extend(
+            _chromosome_records(
+                fit=fit,
+                policy=policy,
+                common=common,
+                output_dir=output_dir,
+                artifact_id_by_path=artifact_id_by_path,
+            )
+        )
 
+    full_evidence.extend(
+        _consensus_records(
+            report=report,
+            common=common,
+            artifact_id_by_path=artifact_id_by_path,
+        )
+    )
     return artifacts, full_evidence
