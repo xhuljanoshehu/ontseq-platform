@@ -135,8 +135,8 @@ class IchorCnaUlpWgsPolicy(StrictModel):
 
     @model_validator(mode="after")
     def coherent_policy(self) -> IchorCnaUlpWgsPolicy:
-        if self.expected_version != "0.2.0":
-            raise ValueError("ichorCNA expected_version must match the pinned 0.2.0 contract")
+        if self.expected_version != "0.5.1":
+            raise ValueError("ichorCNA expected_version must match the pinned 0.5.1 contract")
         if self.assay_regime != CallerAssayRegime.CFDNA_ULP_WGS:
             raise ValueError("ichorCNA policy is restricted to cfDNA ULP-WGS")
         expected_label = "hg38" if self.genome_build == GenomeBuild.GRCH38 else "hg19"
