@@ -328,7 +328,9 @@ class MultiCallerRoutingTests(unittest.TestCase):
         selection = _selection("wakhan", ["allelic_cn"])
         lane = _lane(_plan(_request(selection)), "wakhan")
         for blocker in (
-            "PHASED_SNVS_REQUIRED", "HAPLOTAGGED_BAM_REQUIRED", "SEGMENTATION_UNDECLARED"
+            "PHASED_SNVS_REQUIRED",
+            "HAPLOTAGGED_BAM_REQUIRED",
+            "SEGMENTATION_UNDECLARED",
         ):
             self.assertIn(blocker, lane.blockers)
         selection["segmentation"] = "change_point"
@@ -441,7 +443,9 @@ class MultiCallerPlanLockTests(unittest.TestCase):
         from ontseq_platform.multicaller_plan import MultiCallerPlan
 
         for field, value in (
-            ("winner", "severus"), ("execution_enabled", True), ("timestamp", "now")
+            ("winner", "severus"),
+            ("execution_enabled", True),
+            ("timestamp", "now"),
         ):
             payload = _plan(_request(_selection())).model_dump(mode="json")
             payload[field] = value
@@ -522,7 +526,8 @@ class MultiCallerSchemaTests(unittest.TestCase):
 
         root = Path(__file__).resolve().parents[1]
         for name, model in (
-            ("multicaller-request", MultiCallerRequest), ("multicaller-plan", MultiCallerPlan)
+            ("multicaller-request", MultiCallerRequest),
+            ("multicaller-plan", MultiCallerPlan),
         ):
             path = root / "schemas" / f"{name}.schema.json"
             self.assertTrue(path.is_file(), f"Missing public schema: {path.name}")

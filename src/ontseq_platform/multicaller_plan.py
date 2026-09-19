@@ -133,7 +133,7 @@ class CallerPlanningContext(FrozenPlanningContract):
             if item.kind in _RESOURCE_KINDS:
                 continue
             if item.sample_id == self.sample_id:
-                expected_input = self.bam_sha256
+                expected_input: str | None = self.bam_sha256
             elif (
                 self.normal_sample_id is not None
                 and item.sample_id == self.normal_sample_id
@@ -346,7 +346,10 @@ def _scope_checks(
     if selection.mode == "tumour_normal" and caller_id not in {"savana", "severus", "wakhan"}:
         blockers.append("PAIRED_MODE_NOT_IMPLEMENTED_FOR_THIS_ROUTE")
     if selection.mode == "single_sample" and caller_id in {
-        "savana", "severus", "wakhan", "ichorcna"
+        "savana",
+        "severus",
+        "wakhan",
+        "ichorcna",
     }:
         blockers.append("EXPLICIT_TUMOUR_MODE_REQUIRED")
     if selection.mode == "tumour_only" and set(selection.analyses) & {"sv", "complex_sv"}:
@@ -430,7 +433,9 @@ def _derive_lanes(request: MultiCallerRequest) -> tuple[PlannedCaller, ...]:
                     "disposition": (
                         "BLOCKED"
                         if blockers
-                        else "PLANNED" if definition.existing_adapter else "ADAPTER_PENDING"
+                        else "PLANNED"
+                        if definition.existing_adapter
+                        else "ADAPTER_PENDING"
                     ),
                     "blockers": tuple(sorted(set(blockers))),
                     "warnings": tuple(sorted(set(warnings))),
