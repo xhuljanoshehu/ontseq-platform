@@ -64,7 +64,10 @@ class MultiCallerCatalogTests(unittest.TestCase):
                 self.assertGreaterEqual(len(entry.compatible_regimes), 1)
                 self.assertGreaterEqual(len(entry.required_input_roles), 1)
                 self.assertTrue(
-                    all(isinstance(item, CallerAnalyticalDomain) for item in entry.analytical_domains)
+                    all(
+                        isinstance(item, CallerAnalyticalDomain)
+                        for item in entry.analytical_domains
+                    )
                 )
                 self.assertTrue(
                     all(isinstance(item, CallerAssayRegime) for item in entry.compatible_regimes)
