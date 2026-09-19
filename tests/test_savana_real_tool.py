@@ -83,8 +83,7 @@ class SavanaBinaryTests(unittest.TestCase):
         header = {
             "HD": {"VN": "1.6", "SO": "coordinate"},
             "SQ": [
-                {"SN": chromosome, "LN": _CONTIG_LENGTHS[chromosome]}
-                for chromosome in _CONTIGS
+                {"SN": chromosome, "LN": _CONTIG_LENGTHS[chromosome]} for chromosome in _CONTIGS
             ],
             "RG": [{"ID": "rg1", "SM": sample_id}],
         }
@@ -98,11 +97,7 @@ class SavanaBinaryTests(unittest.TestCase):
                 for copy in range(copies):
                     read = self.pysam.AlignedSegment()
                     read.query_name = f"{sample_id}-read-{read_number:06d}"
-                    first_base = (
-                        "G"
-                        if start in heterozygous_starts and copy < alt_copies
-                        else "A"
-                    )
+                    first_base = "G" if start in heterozygous_starts and copy < alt_copies else "A"
                     read.query_sequence = first_base + ("A" * 499)
                     read.flag = 0
                     read.reference_id = _CONTIGS.index("chr7")
