@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ontseq_platform.cnv.qdnaseq import CnvFit, QDNAseqCallReport, QDNAseqPolicy
+from ontseq_platform.cnv.qdnaseq import (
+    CnvChromosomeConsensus,
+    CnvFit,
+    QDNAseqCallReport,
+    QDNAseqPolicy,
+)
 from ontseq_platform.cnv_validation_contracts import (
     CnvAssessabilityMask,
     CnvCallerLock,
@@ -95,7 +100,17 @@ def _report() -> QDNAseqCallReport:
         status=ModuleRunStatus.COMPLETED,
         primary_fit=fits[1],
         fits=fits,
-        chromosome_consensus=[],
+        chromosome_consensus=[
+            CnvChromosomeConsensus(
+                chromosome="chr7",
+                median_copy_number=1.0,
+                rounded_copy_number=1,
+                agreeing_bins=3,
+                contributing_bins=3,
+                min_copy_number=1.0,
+                max_copy_number=1.0,
+            )
+        ],
         events=[
             GenomicEvent(
                 event_id="CNV_SYNTHETIC_0001",
@@ -157,6 +172,50 @@ def _caller_lock() -> CnvCallerLock:
     )
 
 
+def _write_native_files(output_dir: Path, report: QDNAseqCallReport) -> None:
+    for fit in report.fits:
+        (output_dir / fit.segment_file).write_text(
+            "chromosome\tstart\tend\tcoordinate_system\tbin_count\t"
+            "absolute_copy_number\tcall\tqnorm_log10\n"
+            "chr7\t0\t950\tzero_based_half_open\t2\t1.0\t-1.0\t-5.0\n",
+            encoding="utf-8",
+        )
+        (output_dir / fit.chromosome_file).write_text(
+            "chromosome\tcopy_number\nchr7\t1.0\n",
+            encoding="utf-8",
+        )
+        assert fit.bins_file is not None
+        (output_dir / fit.bins_file).write_text(
+            "chromosome\tstart\tend\treads\tgc\tuse\tcoordinate_system\n"
+            "chr7\t0\t500\t12\t0.41\tTRUE\tzero_based_half_open\n",
+            encoding="utf-8",
+        )
+        assert fit.model_file is not None
+        (output_dir / fit.model_file).write_text(
+            "cellularity\tploidy\terror\n0.52\t2.2\t0.1\n",
+            encoding="utf-8",
+        )
+        (output_dir / fit.fit_plot).write_bytes(b"PNG-fit")
+        (output_dir / fit.copy_number_plot).write_bytes(b"PNG-copy")
+        (output_dir / fit.rds_file).write_bytes(b"RDS")
+
+    for relative_path in report.output_files:
+        path = output_dir / relative_path
+        if path.exists():
+            continue
+        if relative_path.endswith(".qdnaseq-ace.summary.json"):
+            path.write_text("{}\n", encoding="utf-8")
+        elif relative_path.endswith(".consensus.chromosomes.tsv"):
+            path.write_text(
+                "chromosome\tmedian_copy_number\trounded_copy_number\tagreeing_bins\t"
+                "contributing_bins\tmin_copy_number\tmax_copy_number\n"
+                "chr7\t1.0\t1\t3\t3\t1.0\t1.0\n",
+                encoding="utf-8",
+            )
+        else:
+            raise AssertionError(f"Unhandled synthetic QDNAseq artifact: {relative_path}")
+
+
 class QDNAseqValidationAdapterTests(unittest.TestCase):
     def test_maps_all_bin_sizes_and_retained_ace_alternatives_without_dropping_native_artifacts(
         self,
@@ -166,10 +225,7 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         report = _report()
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory)
-            for relative_path in report.output_files:
-                (output_dir / relative_path).write_bytes(
-                    f"synthetic-native-artifact:{relative_path}".encode()
-                )
+            _write_native_files(output_dir, report)
 
             artifacts, full_evidence = map_qdnaseq_ace_full_evidence(
                 report=report,
@@ -219,6 +275,81 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
             CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
         )
         self.assertTrue(all(record.research_only for record in full_evidence))
+
+
+    def test_maps_bins_segments_and_chromosome_summaries_for_every_resolution(self) -> None:
+        from ontseq_platform.cnv_validation_qdnaseq import map_qdnaseq_ace_full_evidence
+
+        report = _report()
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            _write_native_files(output_dir, report)
+
+            _artifacts, full_evidence = map_qdnaseq_ace_full_evidence(
+                report=report,
+                policy=_policy(),
+                output_dir=output_dir,
+                registration_sha256=_sha("registration"),
+                specimen=_specimen(),
+                caller_lock=_caller_lock(),
+                replicate_id="replicate-1",
+            )
+
+        bin_records = [
+            record
+            for record in full_evidence
+            if record.record_kind == CnvEvidenceRecordKind.CALLER_BIN
+        ]
+        segment_records = [
+            record
+            for record in full_evidence
+            if record.record_kind == CnvEvidenceRecordKind.CALLER_SEGMENT
+        ]
+        chromosome_records = [
+            record
+            for record in full_evidence
+            if record.record_kind == CnvEvidenceRecordKind.CHROMOSOME_SUMMARY
+        ]
+
+        self.assertEqual({record.bin_size_kbp for record in bin_records}, {100, 500, 1000})
+        self.assertEqual({record.bin_size_kbp for record in segment_records}, {100, 500, 1000})
+        self.assertEqual(len(bin_records), 3)
+        self.assertEqual(len(segment_records), 3)
+        self.assertEqual(len(chromosome_records), 4)
+
+        primary_segment = next(
+            record for record in segment_records if record.bin_size_kbp == 500
+        )
+        self.assertEqual(
+            primary_segment.contribution_status,
+            CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
+        )
+        self.assertIsNotNone(primary_segment.primary)
+        assert primary_segment.primary is not None
+        self.assertEqual(primary_segment.primary.chromosome, "chr7")
+        self.assertEqual(primary_segment.primary.start, 0)
+        self.assertEqual(primary_segment.primary.end, 950)
+        self.assertEqual(primary_segment.copy_number, 1.0)
+        segment_measurements = {
+            item.name: item.value for item in primary_segment.numeric_measurements
+        }
+        self.assertEqual(segment_measurements["bin_count"], 2.0)
+        self.assertEqual(segment_measurements["call"], -1.0)
+        self.assertEqual(segment_measurements["qnorm_log10"], -5.0)
+
+        primary_bin = next(record for record in bin_records if record.bin_size_kbp == 500)
+        bin_measurements = {item.name: item.value for item in primary_bin.numeric_measurements}
+        self.assertEqual(bin_measurements["reads"], 12.0)
+        self.assertEqual(bin_measurements["gc"], 0.41)
+
+        consensus = next(
+            record for record in chromosome_records if record.bin_size_kbp is None
+        )
+        consensus_measurements = {
+            item.name: item.value for item in consensus.numeric_measurements
+        }
+        self.assertEqual(consensus_measurements["agreeing_bins"], 3.0)
+        self.assertEqual(consensus_measurements["contributing_bins"], 3.0)
 
 
 if __name__ == "__main__":
