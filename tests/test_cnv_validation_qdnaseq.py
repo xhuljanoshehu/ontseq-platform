@@ -344,7 +344,6 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         self.assertEqual(consensus_measurements["agreeing_bins"], 3.0)
         self.assertEqual(consensus_measurements["contributing_bins"], 3.0)
 
-
     def test_seals_traceable_manifest_without_discarding_multiresolution_evidence(self) -> None:
         from ontseq_platform.cnv_validation_qdnaseq import (
             build_qdnaseq_ace_validation_manifest,
