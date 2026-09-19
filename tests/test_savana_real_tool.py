@@ -18,7 +18,10 @@ from ontseq_platform.tumor.savana import (
     run_savana_paired,
     run_savana_tumor_only,
 )
-from ontseq_platform.tumor_inputs import TumorAuxiliaryInputArtifact, TumorInputBundle
+from ontseq_platform.tumor_inputs import (
+    TumorAuxiliaryInputArtifact,
+    TumorInputBundle,
+)
 
 
 _CONTIGS = [*(f"chr{number}" for number in range(1, 23)), "chrX", "chrY"]
