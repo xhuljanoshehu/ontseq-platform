@@ -166,6 +166,7 @@ class CallerCatalogEntry(StrictModel):
     compatible_regimes: list[CallerAssayRegime] = Field(min_length=1)
     required_input_roles: list[CallerInputRole] = Field(min_length=1)
     required_parent_modes: list[CallerMode] = Field(default_factory=list)
+    optional_parent_modes: list[CallerMode] = Field(default_factory=list)
     rationale: str = Field(min_length=12)
     research_only: bool = True
 
@@ -178,11 +179,15 @@ class CallerCatalogEntry(StrictModel):
             ("compatible regimes", self.compatible_regimes),
             ("required inputs", self.required_input_roles),
             ("required parent modes", self.required_parent_modes),
+            ("optional parent modes", self.optional_parent_modes),
         ):
             if len(values) != len(set(values)):
                 raise ValueError(f"Caller catalog {label} must be unique")
-        if self.mode_id in self.required_parent_modes:
-            raise ValueError("Caller mode cannot require itself as a parent")
+        if self.mode_id in self.required_parent_modes or self.mode_id in self.optional_parent_modes:
+            raise ValueError("Caller mode cannot reference itself as a parent")
+        overlap = set(self.required_parent_modes).intersection(self.optional_parent_modes)
+        if overlap:
+            raise ValueError("Caller parent modes cannot be both required and optional")
         return self
 
 
@@ -194,6 +199,7 @@ def _entry(
     regimes: list[CallerAssayRegime],
     inputs: list[CallerInputRole],
     parents: list[CallerMode] | None = None,
+    optional_parents: list[CallerMode] | None = None,
     rationale: str,
 ) -> CallerCatalogEntry:
     return CallerCatalogEntry(
@@ -203,6 +209,7 @@ def _entry(
         compatible_regimes=regimes,
         required_input_roles=inputs,
         required_parent_modes=parents or [],
+        optional_parent_modes=optional_parents or [],
         rationale=rationale,
     )
 
@@ -327,6 +334,10 @@ CALLER_CATALOG: dict[CallerMode, CallerCatalogEntry] = {
         inputs=[
             CallerInputRole.TUMOR_BAM,
             CallerInputRole.PHASED_VARIANTS,
+        ],
+        optional_parents=[
+            CallerMode.SEVERUS_PAIRED,
+            CallerMode.SEVERUS_SINGLE_SAMPLE,
         ],
         rationale="Allele-aware CNA analysis requiring explicit phased evidence.",
     ),
