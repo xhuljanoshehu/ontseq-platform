@@ -138,7 +138,7 @@ class MultiCallerPlanSealingTests(unittest.TestCase):
             CallerAssayRegime.LCWGS,
             _input(CallerInputRole.COVERAGE_PROFILE),
             parents=("lane-sniffles",),
-        )
+        ).model_copy(update={"lane_id": "lane-spectre-sniffles-supported"})
 
         with self.assertRaisesRegex(ValueError, "cycle"):
             seal_multicaller_plan(
@@ -185,7 +185,7 @@ class MultiCallerPlanSealingTests(unittest.TestCase):
                 CallerAssayRegime.LCWGS,
                 _input(CallerInputRole.COVERAGE_PROFILE),
                 parents=("lane-sniffles",),
-            )
+            ).model_copy(update={"lane_id": "lane-spectre-sniffles-supported"})
             qdnaseq = _request(
                 CallerMode.QDNASEQ_ACE_MULTIBIN,
                 CallerAssayRegime.LCWGS,
