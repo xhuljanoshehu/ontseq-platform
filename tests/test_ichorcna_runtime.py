@@ -138,8 +138,7 @@ class FakeIchorRunner:
         )
         _write(
             out_dir / f"{sample}.cna.seg",
-            "chr\tstart\tend\tx1.copy.number\tx1.event\n"
-            "chr7\t1000001\t2000000\t1\tHETD\n",
+            "chr\tstart\tend\tx1.copy.number\tx1.event\nchr7\t1000001\t2000000\t1\tHETD\n",
         )
         _write(
             out_dir / f"{sample}.correctedDepth.txt",
