@@ -24,7 +24,9 @@ from ..models import (
 from ..reference import sha256_file
 
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+(?:\.\d+)?)(?!\d)")
-_COORDINATE_CONTRACT = "spectre-0.2.1-mosdepth-zero-based-native-v1"
+_COORDINATE_CONTRACT: Literal["spectre-0.2.1-mosdepth-zero-based-native-v1"] = (
+    "spectre-0.2.1-mosdepth-zero-based-native-v1"
+)
 _EVENT_TYPES = {
     "DEL": EventType.DELETION,
     "DUP": EventType.DUPLICATION,
@@ -210,9 +212,9 @@ def _normalize_record(
 ) -> GenomicEvent:
     if len(fields) < 8:
         raise _RejectedRecord("malformed_record")
-    chromosome, raw_start, native_id, _ref, alternate, raw_quality, raw_filter, raw_info = (
-        fields[:8]
-    )
+    chromosome, raw_start, native_id, _ref, alternate, raw_quality, raw_filter, raw_info = fields[
+        :8
+    ]
     try:
         start = int(raw_start)
     except ValueError as exc:
