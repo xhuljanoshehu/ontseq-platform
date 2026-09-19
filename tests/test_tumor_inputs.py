@@ -3,14 +3,14 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from pydantic import ValidationError
-
-from ontseq_platform.models import GenomeBuild
-from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor_inputs import (
     TumorAuxiliaryInputArtifact,
     TumorInputBundle,
 )
+from pydantic import ValidationError
+
+from ontseq_platform.models import GenomeBuild
+from ontseq_platform.multicaller_contracts import CallerInputRole
 
 
 def _sha(value: str) -> str:
