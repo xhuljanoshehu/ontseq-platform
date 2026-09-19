@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import gzip
 import math
+import os
 import re
+import shutil
+import tempfile
 from collections import Counter
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
+from ..execution import CommandRunner, SubprocessRunner
 from ..models import (
     EventType,
     Evidence,
@@ -31,6 +35,14 @@ _EVENT_TYPES = {
     "DEL": EventType.DELETION,
     "DUP": EventType.DUPLICATION,
 }
+_SAFE_SAMPLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_RUNTIME_PACKAGE: Literal["spectre-cnv==0.2.1"] = "spectre-cnv==0.2.1"
+_RUNTIME_WHEEL_SHA256: Literal[
+    "c50998798a33b22455f3681a69c5c61e82df3fe049224da6d2e54b068bc35510"
+] = "c50998798a33b22455f3681a69c5c61e82df3fe049224da6d2e54b068bc35510"
+_RUNTIME_SOURCE_COMMIT: Literal["b80fd32bd189c1689fc1031ff96433f2e79d1bed"] = (
+    "b80fd32bd189c1689fc1031ff96433f2e79d1bed"
+)
 
 
 class SpectrePolicy(StrictModel):
@@ -39,7 +51,17 @@ class SpectrePolicy(StrictModel):
     status: Literal["research_acceptance_candidate_unvalidated"] = (
         "research_acceptance_candidate_unvalidated"
     )
+    mode: Literal["depth_only"] = "depth_only"
     expected_version: str = Field(pattern=r"^\d+\.\d+(?:\.\d+)?$")
+    runtime_package: Literal["spectre-cnv==0.2.1"] = _RUNTIME_PACKAGE
+    runtime_wheel_sha256: Literal[
+        "c50998798a33b22455f3681a69c5c61e82df3fe049224da6d2e54b068bc35510"
+    ] = _RUNTIME_WHEEL_SHA256
+    runtime_source_commit: Literal["b80fd32bd189c1689fc1031ff96433f2e79d1bed"] = (
+        _RUNTIME_SOURCE_COMMIT
+    )
+    real_tool_qualified: bool = False
+    analytical_validation: Literal["not_validated"] = "not_validated"
     genome_build: GenomeBuild
     coordinate_contract: Literal["spectre-0.2.1-mosdepth-zero-based-native-v1"] = (
         _COORDINATE_CONTRACT
@@ -52,6 +74,29 @@ class SpectrePolicy(StrictModel):
     timeout_seconds: int = Field(ge=60)
     note: str = Field(min_length=12)
     research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def version_matches_pinned_runtime(self) -> SpectrePolicy:
+        if self.expected_version != "0.2.1":
+            raise ValueError("Spectre expected_version must match the pinned 0.2.1 runtime")
+        return self
+
+
+class SpectreNativeArtifact(StrictModel):
+    relative_path: str = Field(min_length=1)
+    media_type: str = Field(min_length=1)
+    fingerprint: FileFingerprint
+    research_only: Literal[True] = True
+
+    @field_validator("relative_path")
+    @classmethod
+    def safe_relative_path(cls, value: str) -> str:
+        if "\\" in value:
+            raise ValueError("Spectre artifact paths must use POSIX separators")
+        path = PurePosixPath(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("Spectre artifact path must remain inside the output directory")
+        return value
 
 
 class SpectreCallReport(StrictModel):
@@ -70,6 +115,13 @@ class SpectreCallReport(StrictModel):
     rejection_counts: dict[str, int] = Field(default_factory=dict)
     tool: ToolRecord
     vcf_fingerprint: FileFingerprint
+    coverage_fingerprint: FileFingerprint | None = None
+    coverage_index_fingerprint: FileFingerprint | None = None
+    reference_fingerprint: FileFingerprint | None = None
+    reference_index_fingerprint: FileFingerprint | None = None
+    metadata_input_fingerprint: FileFingerprint | None = None
+    blacklist_fingerprint: FileFingerprint | None = None
+    native_artifacts: list[SpectreNativeArtifact] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     research_only: Literal[True] = True
@@ -85,6 +137,20 @@ class SpectreCallReport(StrictModel):
         expected = ModuleRunStatus.COMPLETED if self.events else ModuleRunStatus.NO_CALL
         if self.status != expected:
             raise ValueError("Spectre status is inconsistent with normalized events")
+        paths = [artifact.relative_path for artifact in self.native_artifacts]
+        if len(paths) != len(set(paths)):
+            raise ValueError("Spectre native artifact paths must be unique")
+        if self.native_artifacts:
+            expected_vcfs = {f"{self.sample_id}.vcf", f"{self.sample_id}.vcf.gz"}
+            native_vcfs = [
+                artifact
+                for artifact in self.native_artifacts
+                if artifact.relative_path in expected_vcfs
+            ]
+            if len(native_vcfs) != 1:
+                raise ValueError("Spectre native artifacts must contain exactly one sample VCF")
+            if native_vcfs[0].fingerprint != self.vcf_fingerprint:
+                raise ValueError("Spectre VCF fingerprint must match the retained native artifact")
         return self
 
 
@@ -210,7 +276,7 @@ def _normalize_record(
     policy: SpectrePolicy,
     caller_version: str,
 ) -> GenomicEvent:
-    if len(fields) < 8:
+    if len(fields) != 10:
         raise _RejectedRecord("malformed_record")
     chromosome, raw_start, native_id, _ref, alternate, raw_quality, raw_filter, raw_info = fields[
         :8
@@ -222,8 +288,10 @@ def _normalize_record(
     if start < 0:
         raise _RejectedRecord("malformed_start")
 
-    filters = raw_filter.split(";") if raw_filter not in {"", "."} else []
-    if policy.pass_only and filters != ["PASS"]:
+    if raw_filter == "":
+        raise _RejectedRecord("malformed_filter")
+    filters = raw_filter.split(";") if raw_filter != "." else []
+    if policy.pass_only and raw_filter not in {".", "PASS"}:
         raise _RejectedRecord("filter_not_pass")
 
     info = _parse_info(raw_info)
@@ -287,6 +355,13 @@ def normalize_spectre_vcf(
     genome_build: GenomeBuild,
     policy: SpectrePolicy,
     tool: ToolRecord,
+    native_artifacts: list[SpectreNativeArtifact] | None = None,
+    coverage_fingerprint: FileFingerprint | None = None,
+    coverage_index_fingerprint: FileFingerprint | None = None,
+    reference_fingerprint: FileFingerprint | None = None,
+    reference_index_fingerprint: FileFingerprint | None = None,
+    metadata_input_fingerprint: FileFingerprint | None = None,
+    blacklist_fingerprint: FileFingerprint | None = None,
 ) -> SpectreCallReport:
     if not path.is_file():
         raise ValueError("Spectre VCF is missing or unreadable")
@@ -299,6 +374,7 @@ def normalize_spectre_vcf(
         )
 
     saw_fileformat = False
+    saw_spectre_source = False
     saw_columns = False
     raw_count = 0
     events: list[GenomicEvent] = []
@@ -308,7 +384,18 @@ def normalize_spectre_vcf(
         if line.startswith("##fileformat=VCF"):
             saw_fileformat = True
             continue
+        if line == "##source=Spectre":
+            saw_spectre_source = True
+            continue
         if line.startswith("#CHROM"):
+            if saw_columns:
+                raise ValueError("Spectre output contains duplicate VCF column headers")
+            columns = line.split("\t")
+            expected = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
+            if len(columns) != 10 or columns[:9] != expected:
+                raise ValueError("Spectre output has an unexpected single-sample VCF header")
+            if columns[9] != sample_id:
+                raise ValueError("Spectre VCF sample header does not match requested sample")
             saw_columns = True
             continue
         if not line or line.startswith("#"):
@@ -328,6 +415,8 @@ def normalize_spectre_vcf(
 
     if not saw_fileformat or not saw_columns:
         raise ValueError("Spectre output is not a complete VCF document")
+    if not saw_spectre_source:
+        raise ValueError("Spectre output lacks the pinned ##source=Spectre declaration")
 
     warnings = [policy.note]
     if rejections:
@@ -353,6 +442,13 @@ def normalize_spectre_vcf(
             size_bytes=path.stat().st_size,
             sha256=sha256_file(path),
         ),
+        coverage_fingerprint=coverage_fingerprint,
+        coverage_index_fingerprint=coverage_index_fingerprint,
+        reference_fingerprint=reference_fingerprint,
+        reference_index_fingerprint=reference_index_fingerprint,
+        metadata_input_fingerprint=metadata_input_fingerprint,
+        blacklist_fingerprint=blacklist_fingerprint,
+        native_artifacts=list(native_artifacts or []),
         warnings=warnings,
         limitations=[
             (
@@ -365,3 +461,172 @@ def normalize_spectre_vcf(
             ),
         ],
     )
+
+
+def _fingerprint(path: Path) -> FileFingerprint:
+    return FileFingerprint(size_bytes=path.stat().st_size, sha256=sha256_file(path))
+
+
+def _require_file(path: Path, *, label: str) -> FileFingerprint:
+    if not path.is_file():
+        raise ValueError(f"Spectre requires {label}: {path}")
+    return _fingerprint(path)
+
+
+def _artifact_media_type(relative_path: str) -> str:
+    if relative_path.endswith((".vcf", ".vcf.gz")):
+        return "text/vcf"
+    if relative_path.endswith(".bed.gz"):
+        return "application/gzip"
+    if relative_path.endswith(".png"):
+        return "image/png"
+    if relative_path.endswith(".mdr"):
+        return "text/plain"
+    return "application/octet-stream"
+
+
+def _native_artifacts(output_dir: Path) -> list[SpectreNativeArtifact]:
+    artifacts: list[SpectreNativeArtifact] = []
+    for path in sorted(output_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.is_symlink():
+            raise ValueError("Spectre native output must not contain symbolic links")
+        relative_path = path.relative_to(output_dir).as_posix()
+        artifacts.append(
+            SpectreNativeArtifact(
+                relative_path=relative_path,
+                media_type=_artifact_media_type(relative_path),
+                fingerprint=_fingerprint(path),
+            )
+        )
+    if not artifacts:
+        raise ValueError("Spectre returned success without any native artifacts")
+    return artifacts
+
+
+def run_spectre_depth_only(
+    *,
+    coverage_path: Path,
+    sample_id: str,
+    output_dir: Path,
+    reference_fasta: Path,
+    genome_build: GenomeBuild,
+    policy: SpectrePolicy,
+    runner: CommandRunner | None = None,
+    spectre: str = "spectre",
+    threads: int = 1,
+    metadata_path: Path | None = None,
+    blacklist_path: Path | None = None,
+) -> SpectreCallReport:
+    """Run pinned Spectre in independent depth-only mode and retain every native artifact."""
+    if genome_build != policy.genome_build:
+        raise ValueError("Spectre policy and requested genome build do not match")
+    if not _SAFE_SAMPLE_ID.fullmatch(sample_id) or sample_id in {".", ".."}:
+        raise ValueError("Spectre sample ID is unsafe for caller-native output paths")
+    if threads < 1:
+        raise ValueError("Spectre threads must be at least 1")
+    if output_dir.exists():
+        raise ValueError("Refusing to overwrite an existing Spectre output directory")
+
+    coverage_fingerprint = _require_file(coverage_path, label="Mosdepth regions BED.gz")
+    coverage_index = Path(f"{coverage_path}.csi")
+    coverage_index_fingerprint = _require_file(
+        coverage_index,
+        label="Mosdepth regions BED.gz CSI index",
+    )
+    reference_fingerprint = _require_file(reference_fasta, label="reference FASTA")
+    reference_index = Path(f"{reference_fasta}.fai")
+    reference_index_fingerprint = _require_file(reference_index, label="reference FASTA index")
+    metadata_input_fingerprint = (
+        _require_file(metadata_path, label="Spectre metadata")
+        if metadata_path is not None
+        else None
+    )
+    blacklist_fingerprint = (
+        _require_file(blacklist_path, label="Spectre blacklist")
+        if blacklist_path is not None
+        else None
+    )
+
+    command_runner = runner or SubprocessRunner()
+    probe = command_runner.run([spectre, "version"], timeout_seconds=30)
+    if probe.returncode != 0:
+        raise ValueError(f"Spectre version probe failed with exit code {probe.returncode}")
+    version = spectre_version(f"{probe.stdout}\n{probe.stderr}")
+    if version != policy.expected_version:
+        raise ValueError(
+            f"Spectre version {version!r} does not match policy lock {policy.expected_version!r}"
+        )
+
+    parameters: dict[str, str | int | bool | None] = {
+        "mode": policy.mode,
+        "threads": threads,
+        "ploidy": policy.ploidy,
+        "minimum_cnv_length_bp": policy.minimum_cnv_length_bp,
+        "mosdepth_bin_size_bp": policy.mosdepth_bin_size_bp,
+        "minimum_mapping_quality": policy.minimum_mapping_quality,
+        "coordinate_contract": policy.coordinate_contract,
+        "expected_version": policy.expected_version,
+        "runtime_package": policy.runtime_package,
+        "runtime_wheel_sha256": policy.runtime_wheel_sha256,
+        "runtime_source_commit": policy.runtime_source_commit,
+        "real_tool_qualified": policy.real_tool_qualified,
+        "analytical_validation": policy.analytical_validation,
+        "metadata_input": metadata_path is not None,
+        "blacklist_input": blacklist_path is not None,
+        "snfj_input": False,
+        "snv_input": False,
+        "population_mode": False,
+        "cancer_mode": False,
+    }
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    staged = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.", dir=output_dir.parent))
+    promoted = False
+    try:
+        argv = build_spectre_depth_only_argv(
+            spectre=spectre,
+            coverage_path=coverage_path,
+            sample_id=sample_id,
+            output_dir=staged,
+            reference_fasta=reference_fasta,
+            policy=policy,
+            threads=threads,
+            metadata_path=metadata_path,
+            blacklist_path=blacklist_path,
+        )
+        result = command_runner.run(argv, timeout_seconds=policy.timeout_seconds)
+        if result.returncode != 0:
+            diagnostic = result.stderr.strip()[-4000:]
+            suffix = f": {diagnostic}" if diagnostic else ""
+            raise ValueError(f"Spectre failed with exit code {result.returncode}{suffix}")
+
+        vcf_candidates = [
+            candidate
+            for candidate in (staged / f"{sample_id}.vcf", staged / f"{sample_id}.vcf.gz")
+            if candidate.is_file()
+        ]
+        if len(vcf_candidates) != 1:
+            raise ValueError("Spectre must produce exactly one native .vcf or .vcf.gz output")
+        artifacts = _native_artifacts(staged)
+        report = normalize_spectre_vcf(
+            vcf_candidates[0],
+            sample_id=sample_id,
+            genome_build=genome_build,
+            policy=policy,
+            tool=ToolRecord(name="Spectre", version=version, parameters=parameters),
+            native_artifacts=artifacts,
+            coverage_fingerprint=coverage_fingerprint,
+            coverage_index_fingerprint=coverage_index_fingerprint,
+            reference_fingerprint=reference_fingerprint,
+            reference_index_fingerprint=reference_index_fingerprint,
+            metadata_input_fingerprint=metadata_input_fingerprint,
+            blacklist_fingerprint=blacklist_fingerprint,
+        )
+        os.replace(staged, output_dir)
+        promoted = True
+        return report
+    finally:
+        if not promoted:
+            shutil.rmtree(staged, ignore_errors=True)

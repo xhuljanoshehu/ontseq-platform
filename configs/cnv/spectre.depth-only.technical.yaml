@@ -1,0 +1,24 @@
+schema_version: 0.1.0
+profile_id: spectre-0.2.1-depth-only-technical-v1
+status: research_acceptance_candidate_unvalidated
+mode: depth_only
+expected_version: 0.2.1
+runtime_package: spectre-cnv==0.2.1
+runtime_wheel_sha256: c50998798a33b22455f3681a69c5c61e82df3fe049224da6d2e54b068bc35510
+runtime_source_commit: b80fd32bd189c1689fc1031ff96433f2e79d1bed
+real_tool_qualified: true
+analytical_validation: not_validated
+genome_build: GRCh38
+coordinate_contract: spectre-0.2.1-mosdepth-zero-based-native-v1
+mosdepth_bin_size_bp: 1000
+minimum_mapping_quality: 20
+minimum_cnv_length_bp: 100000
+ploidy: 2
+pass_only: true
+timeout_seconds: 3600
+note: >-
+  Research Use Only Spectre 0.2.1 depth-only technical profile. Qualification means only
+  that the pinned real executable completes the repository's deterministic synthetic
+  interoperability smoke. It is not analytical or clinical validation. This mode consumes
+  Mosdepth coverage and never accepts Sniffles/SNFJ, SNV, population, or cancer-mode inputs.
+research_only: true

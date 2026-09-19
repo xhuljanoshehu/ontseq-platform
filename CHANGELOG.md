@@ -5,6 +5,18 @@ validated release.
 
 ## Unreleased
 
+- Add a pinned Spectre 0.2.1 `depth_only` CNV adapter that consumes only indexed
+  Mosdepth coverage and the locked reference. The shell-free runtime rejects version,
+  build, source and sample mismatches; never accepts Sniffles/SNFJ, SNV, population or
+  cancer-mode inputs; and promotes output only after fail-closed normalization.
+- Preserve every caller-native Spectre artifact with SHA-256 provenance, including empty
+  native VCF output as an explicit technical `NO_CALL`. Pin the upstream wheel hash and
+  source commit, and exercise both deterministic DEL/DUP calls and an empty result with
+  the real executable on generated synthetic depth data.
+- Validation impact: the Spectre lane is technically interoperability-qualified only.
+  It is not analytically or clinically validated, does not establish a biological
+  negative, remains Research Use Only and cannot make events reportable. No caller
+  selection, voting, winner, threshold-sharing or automatic ISCN logic is introduced.
 - Prevent CNV normalization from aborting when a segment covers all assessable bins but
   remains below the versioned chromosome-classification fraction. Such events remain
   duplications/deletions without whole-chromosome confirmation; thresholds are unchanged.
