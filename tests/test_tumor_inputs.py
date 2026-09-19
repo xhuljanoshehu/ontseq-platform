@@ -110,8 +110,9 @@ class TumorAuxiliaryInputContractTests(unittest.TestCase):
             {"reference_id": "different-reference"},
             {"reference_sha256": _sha("different-reference")},
         ):
-            with self.subTest(updates=updates), self.assertRaisesRegex(
-                ValidationError, "reference"
+            with (
+                self.subTest(updates=updates),
+                self.assertRaisesRegex(ValidationError, "reference"),
             ):
                 TumorInputBundle(
                     analysis_sample_id="TUMOR_001",
