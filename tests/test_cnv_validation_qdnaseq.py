@@ -187,9 +187,7 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         )
         artifact_ids = {item.artifact_id for item in artifacts}
         referenced_artifact_ids = {
-            artifact_id
-            for record in full_evidence
-            for artifact_id in record.native_artifact_ids
+            artifact_id for record in full_evidence for artifact_id in record.native_artifact_ids
         }
         self.assertEqual(referenced_artifact_ids, artifact_ids)
 
@@ -214,9 +212,7 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
             )
 
         primary = next(
-            record
-            for record in fit_records
-            if record.bin_size_kbp == 500 and record.selected_fit
+            record for record in fit_records if record.bin_size_kbp == 500 and record.selected_fit
         )
         self.assertEqual(
             primary.contribution_status,
