@@ -5,15 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ontseq_platform.execution import CommandResult
+from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus
+from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.sv.severus import (
     SeverusPairedPolicy,
     build_severus_paired_argv,
     run_severus_paired,
 )
-
-from ontseq_platform.execution import CommandResult
-from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus
-from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor_inputs import (
     TumorAuxiliaryInputArtifact,
     TumorInputBundle,
