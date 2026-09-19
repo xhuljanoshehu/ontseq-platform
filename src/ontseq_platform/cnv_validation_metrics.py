@@ -1503,9 +1503,11 @@ class CnvAcceptanceResult(StrictModel):
             expected_accepted = None
         if self.accepted != expected_accepted:
             raise ValueError("Acceptance decision and accepted flag disagree")
-        if self.decision in {CnvAcceptanceDecision.PASS, CnvAcceptanceDecision.FAIL}:
-            if self.metric_id is None or self.metric_value is None:
-                raise ValueError("PASS/FAIL acceptance requires a concrete metric")
+        if (
+            self.decision in {CnvAcceptanceDecision.PASS, CnvAcceptanceDecision.FAIL}
+            and (self.metric_id is None or self.metric_value is None)
+        ):
+            raise ValueError("PASS/FAIL acceptance requires a concrete metric")
         return self
 
 
