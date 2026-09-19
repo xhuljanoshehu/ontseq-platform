@@ -46,9 +46,7 @@ def _write_phased_vcf(path: Path) -> None:
 
 def _write_breakpoints(path: Path) -> None:
     path.write_text(
-        "##fileformat=VCFv4.2\n"
-        "##source=Severus\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+        "##fileformat=VCFv4.2\n##source=Severus\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
         encoding="utf-8",
     )
 
