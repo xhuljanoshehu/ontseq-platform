@@ -41,6 +41,7 @@ class SavanaBasePolicy(StrictModel):
         "research_acceptance_candidate_unvalidated"
     )
     expected_version: str = Field(pattern=r"^\d+\.\d+(?:\.\d+)?$")
+    mode: Literal["paired", "tumor_only"]
     real_tool_qualified: bool = False
     analytical_validation: Literal["not_validated"] = "not_validated"
     genome_build: GenomeBuild
@@ -175,9 +176,10 @@ class SavanaReport(StrictModel):
             raise ValueError("Completed SAVANA SV status requires at least one event")
         if self.sv_status == ModuleRunStatus.NO_CALL and self.events:
             raise ValueError("SAVANA SV NO_CALL cannot carry normalized events")
-        if self.cna_status == ModuleRunStatus.COMPLETED:
-            if self.selected_fit is None or not self.copy_number_segments:
-                raise ValueError("Completed SAVANA CNA status requires fit and segments")
+        if self.cna_status == ModuleRunStatus.COMPLETED and (
+            self.selected_fit is None or not self.copy_number_segments
+        ):
+            raise ValueError("Completed SAVANA CNA status requires fit and segments")
         if self.status == ModuleRunStatus.NO_CALL and (
             self.sv_status == ModuleRunStatus.COMPLETED
             or self.cna_status == ModuleRunStatus.COMPLETED
@@ -484,7 +486,11 @@ def _event_loci(
             )
         if svtype == "BND":
             try:
-                resolved = resolve_breakend(alternate)
+                resolved = resolve_breakend(
+                    alternate,
+                    declared_chromosome=info.get("CHR2"),
+                    declared_position=info.get("END"),
+                )
             except BreakendParseError as exc:
                 raise _RejectedRecord(exc.reason) from exc
             return (
@@ -983,7 +989,10 @@ def _build_report(
         limitations=[
             "SAVANA output is research evidence and does not authorize clinical release.",
             "Paired and tumor-only modes are separate analytical contracts without fallback.",
-            "Caller-native read identifiers and inserted sequences are retained only as sensitive artifacts.",
+            (
+                "Caller-native read identifiers and inserted sequences are retained only "
+                "as sensitive artifacts."
+            ),
             "Caller agreement must not be interpreted as biological truth.",
         ],
     )
