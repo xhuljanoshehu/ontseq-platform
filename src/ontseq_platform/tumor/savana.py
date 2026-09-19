@@ -706,6 +706,17 @@ def _parse_fit(row: dict[str, str]) -> SavanaFit:
     return SavanaFit(purity=purity, ploidy=ploidy, distance=distance, rank=rank)
 
 
+def _matching_outputs(
+    output_dir: Path,
+    *,
+    exact: str,
+    pattern: str,
+) -> list[Path]:
+    exact_path = output_dir / exact
+    candidates = [exact_path] if exact_path.is_file() else sorted(output_dir.glob(pattern))
+    return list(dict.fromkeys(candidates))
+
+
 def _find_output(
     output_dir: Path,
     *,
@@ -713,12 +724,41 @@ def _find_output(
     pattern: str,
     label: str,
 ) -> Path:
-    exact_path = output_dir / exact
-    candidates = [exact_path] if exact_path.is_file() else sorted(output_dir.glob(pattern))
-    unique = list(dict.fromkeys(candidates))
+    unique = _matching_outputs(output_dir, exact=exact, pattern=pattern)
     if len(unique) != 1:
         raise ValueError(f"SAVANA must produce exactly one {label}")
     return unique[0]
+
+
+def _has_complete_cna_output(output_dir: Path, sample_id: str) -> bool:
+    specifications = (
+        (
+            f"{sample_id}_ranked_solutions.tsv",
+            f"{sample_id}_*_ranked_solutions.tsv",
+            "ranked purity/ploidy solutions table",
+        ),
+        (
+            f"{sample_id}_fitted_purity_ploidy.tsv",
+            f"{sample_id}_*_fitted_purity_ploidy.tsv",
+            "selected purity/ploidy fit table",
+        ),
+        (
+            f"{sample_id}_segmented_absolute_copy_number.tsv",
+            f"{sample_id}_*_segmented_absolute_copy_number.tsv",
+            "segmented absolute copy-number table",
+        ),
+    )
+    present: list[bool] = []
+    for exact, pattern, label in specifications:
+        matches = _matching_outputs(output_dir, exact=exact, pattern=pattern)
+        if len(matches) > 1:
+            raise ValueError(f"SAVANA must produce at most one {label}")
+        present.append(bool(matches))
+    if not any(present):
+        return False
+    if not all(present):
+        raise ValueError("SAVANA CNA output is incomplete")
+    return True
 
 
 def _fit_outputs(output_dir: Path, sample_id: str) -> tuple[SavanaFit, list[SavanaFit]]:
@@ -933,10 +973,10 @@ def _build_report(
         policy=policy,
     )
 
-    try:
+    if _has_complete_cna_output(staged, sample_id):
         selected_fit, ranked_fits = _fit_outputs(staged, sample_id)
         segments = _copy_number_segments(staged, sample_id)
-    except ValueError:
+    else:
         selected_fit = None
         ranked_fits = []
         segments = []
