@@ -276,7 +276,6 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         )
         self.assertTrue(all(record.research_only for record in full_evidence))
 
-
     def test_maps_bins_segments_and_chromosome_summaries_for_every_resolution(self) -> None:
         from ontseq_platform.cnv_validation_qdnaseq import map_qdnaseq_ace_full_evidence
 
@@ -317,9 +316,7 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         self.assertEqual(len(segment_records), 3)
         self.assertEqual(len(chromosome_records), 4)
 
-        primary_segment = next(
-            record for record in segment_records if record.bin_size_kbp == 500
-        )
+        primary_segment = next(record for record in segment_records if record.bin_size_kbp == 500)
         self.assertEqual(
             primary_segment.contribution_status,
             CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
@@ -342,12 +339,8 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         self.assertEqual(bin_measurements["reads"], 12.0)
         self.assertEqual(bin_measurements["gc"], 0.41)
 
-        consensus = next(
-            record for record in chromosome_records if record.bin_size_kbp is None
-        )
-        consensus_measurements = {
-            item.name: item.value for item in consensus.numeric_measurements
-        }
+        consensus = next(record for record in chromosome_records if record.bin_size_kbp is None)
+        consensus_measurements = {item.name: item.value for item in consensus.numeric_measurements}
         self.assertEqual(consensus_measurements["agreeing_bins"], 3.0)
         self.assertEqual(consensus_measurements["contributing_bins"], 3.0)
 
