@@ -66,6 +66,7 @@ from ontseq_platform.models import (
     SvConsensusReport,
     SvEvidencePolicy,
 )
+from ontseq_platform.multicaller_plan import MultiCallerPlan, MultiCallerRequest
 
 
 def _render() -> dict[Path, str]:
@@ -76,6 +77,8 @@ def _render() -> dict[Path, str]:
             )
             + "\n"
             for name, model in {
+                "multicaller-request": MultiCallerRequest,
+                "multicaller-plan": MultiCallerPlan,
                 "cnv-validation-matrix": CnvValidationMatrix,
                 "cnv-validation-cohort": CnvValidationCohort,
                 "cnv-validation-registration": CnvValidationRegistration,
