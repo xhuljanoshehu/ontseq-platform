@@ -35,12 +35,12 @@ from ontseq_platform.cnv_validation_evidence import (
     seal_cnv_validation_evidence,
 )
 from ontseq_platform.cnv_validation_metrics import (
+    CnvAcceptanceDecision,
+    CnvAcceptanceResult,
     CnvLaneEventAssignment,
     CnvMetricEvaluationState,
     CnvMetricResult,
     CnvNegativeUnitAssessment,
-    CnvAcceptanceDecision,
-    CnvAcceptanceResult,
     CnvReproducibilityPair,
     CnvValidationMetricReport,
     aggregate_cnv_event_metrics,
@@ -1388,7 +1388,7 @@ class CnvAcceptanceAndReportTests(unittest.TestCase):
 
     def test_report_contains_no_timestamp_or_production_winner_surface(self) -> None:
         question = CnvAcceptanceQuestion(
-            question_id="overall-sensitivity-no-winner",
+            question_id="overall-sensitivity-surface",
             metric=CnvAcceptanceMetric.SENSITIVITY,
             minimum_evaluable_denominator=1,
             minimum_acceptable=0.9,
@@ -1398,7 +1398,7 @@ class CnvAcceptanceAndReportTests(unittest.TestCase):
         report = aggregate_cnv_validation(
             registration,
             _manifest(registration),
-            report_id="synthetic-cnv-report-no-winner",
+            report_id="synthetic-cnv-report-surface",
         )
         serialized = json.dumps(report.model_dump(mode="json"), sort_keys=True)
         self.assertNotIn("created_at", serialized)
