@@ -135,10 +135,13 @@ def _validate_parent_mode_contracts(
         if not request.parent_lane_ids:
             continue
         entry = get_caller_catalog_entry(request.mode_id)
-        if not entry.required_parent_modes:
+        allowed = set(entry.required_parent_modes).union(entry.optional_parent_modes)
+        if not allowed:
             raise ValueError(f"{request.mode_id.value} does not accept parent caller lanes")
-        allowed = set(entry.required_parent_modes)
-        parent_modes = {by_id[parent_id].mode_id for parent_id in request.parent_lane_ids}
+        parent_mode_list = [by_id[parent_id].mode_id for parent_id in request.parent_lane_ids]
+        if len(parent_mode_list) != len(set(parent_mode_list)):
+            raise ValueError(f"{request.mode_id.value} received duplicate parent caller modes")
+        parent_modes = set(parent_mode_list)
         unexpected = parent_modes - allowed
         if unexpected:
             rendered = ", ".join(sorted(item.value for item in unexpected))
@@ -167,10 +170,10 @@ def _planned_lane_with_dependencies(
             parent_id = parent_modes.get(required_mode)
             if parent_id is None:
                 reasons.append(f"Missing required parent caller mode: {required_mode.value}.")
-                continue
+        for parent_id in request.parent_lane_ids:
             parent_plan = sealed_by_id[parent_id]
             if parent_plan.decision != CallerPlanningDecision.ELIGIBLE:
-                reasons.append(f"Required parent lane {parent_id!r} is not eligible for execution.")
+                reasons.append(f"Declared parent lane {parent_id!r} is not eligible for execution.")
         if reasons:
             decision = CallerPlanningDecision.INELIGIBLE
 
