@@ -287,6 +287,43 @@ class CnvMetricEvaluationState(StrEnum):
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
+class CnvMetricEventPair(StrictModel):
+    truth_event_id: str
+    normalized_event_id: str
+
+
+class CnvMetricMembership(StrictModel):
+    """Typed mathematical membership for a metric numerator/denominator/exclusion."""
+
+    truth_event_ids: list[str] = Field(default_factory=list)
+    normalized_event_ids: list[str] = Field(default_factory=list)
+    full_evidence_ids: list[str] = Field(default_factory=list)
+    lane_ids: list[str] = Field(default_factory=list)
+    negative_assessment_ids: list[str] = Field(default_factory=list)
+    reproducibility_pair_ids: list[str] = Field(default_factory=list)
+    event_pairs: list[CnvMetricEventPair] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_membership(self) -> CnvMetricMembership:
+        for label, values in (
+            ("truth event IDs", self.truth_event_ids),
+            ("normalized event IDs", self.normalized_event_ids),
+            ("full-evidence IDs", self.full_evidence_ids),
+            ("lane IDs", self.lane_ids),
+            ("negative-assessment IDs", self.negative_assessment_ids),
+            ("reproducibility-pair IDs", self.reproducibility_pair_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"Metric membership {label} must be unique")
+        pairs = [
+            (item.truth_event_id, item.normalized_event_id)
+            for item in self.event_pairs
+        ]
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("Metric event-pair memberships must be unique")
+        return self
+
+
 class CnvMetricResult(StrictModel):
     schema_version: Literal["0.1.0"] = "0.1.0"
     metric: CnvAcceptanceMetric
@@ -302,6 +339,11 @@ class CnvMetricResult(StrictModel):
     normalized_event_ids: list[str] = Field(default_factory=list)
     full_evidence_ids: list[str] = Field(default_factory=list)
     lane_ids: list[str] = Field(default_factory=list)
+    negative_assessment_ids: list[str] = Field(default_factory=list)
+    reproducibility_pair_ids: list[str] = Field(default_factory=list)
+    numerator_membership: CnvMetricMembership = Field(default_factory=CnvMetricMembership)
+    denominator_membership: CnvMetricMembership = Field(default_factory=CnvMetricMembership)
+    excluded_membership: CnvMetricMembership = Field(default_factory=CnvMetricMembership)
     reason: str | None = None
     research_only: Literal[True] = True
 
@@ -321,6 +363,29 @@ class CnvMetricResult(StrictModel):
             raise ValueError("CNV metric component counts cannot be negative")
         if any(not math.isfinite(value) for value in self.summary_values.values()):
             raise ValueError("CNV metric summary values must be finite")
+        unions = {
+            "truth_event_ids": set(self.truth_event_ids),
+            "normalized_event_ids": set(self.normalized_event_ids),
+            "full_evidence_ids": set(self.full_evidence_ids),
+            "lane_ids": set(self.lane_ids),
+            "negative_assessment_ids": set(self.negative_assessment_ids),
+            "reproducibility_pair_ids": set(self.reproducibility_pair_ids),
+        }
+        for membership in (
+            self.numerator_membership,
+            self.denominator_membership,
+            self.excluded_membership,
+        ):
+            for field_name, allowed in unions.items():
+                if not set(getattr(membership, field_name)).issubset(allowed):
+                    raise ValueError(
+                        f"Metric {field_name} membership must be present in the metric provenance union"
+                    )
+            for pair in membership.event_pairs:
+                if pair.truth_event_id not in unions["truth_event_ids"]:
+                    raise ValueError("Metric event pair references unknown truth provenance")
+                if pair.normalized_event_id not in unions["normalized_event_ids"]:
+                    raise ValueError("Metric event pair references unknown normalized provenance")
         return self
 
 
