@@ -81,7 +81,7 @@ def _resources(
 def _policy(script: Path, *, bin_size_bp: int = 1_000_000) -> IchorCnaUlpWgsPolicy:
     return IchorCnaUlpWgsPolicy(
         profile_id="ichorcna-ulp-test",
-        expected_version="0.2.0",
+        expected_version="0.5.1",
         assay_regime=CallerAssayRegime.CFDNA_ULP_WGS,
         genome_build=GenomeBuild.GRCH38,
         genome_build_label="hg38",
@@ -104,7 +104,7 @@ def _policy(script: Path, *, bin_size_bp: int = 1_000_000) -> IchorCnaUlpWgsPoli
 
 
 class FakeIchorRunner:
-    def __init__(self, *, version: str = "0.2.0") -> None:
+    def __init__(self, *, version: str = "0.5.1") -> None:
         self.version = version
         self.calls: list[tuple[str, ...]] = []
 
@@ -347,7 +347,7 @@ class IchorCnaRuntimeTests(unittest.TestCase):
             script = root / "runIchorCNA.R"
             for path in (coverage, gc, mappability, centromere, script):
                 _write(path, "synthetic\n")
-            runner = FakeIchorRunner(version="0.1.0")
+            runner = FakeIchorRunner(version="0.5.0")
 
             with self.assertRaisesRegex(ValueError, "version"):
                 run_ichorcna_ulp_wgs(
