@@ -1423,5 +1423,134 @@ class CnvAcceptanceAndReportTests(unittest.TestCase):
         self.assertNotIn("selected_caller", keys)
 
 
+class CnvExactMetricProvenanceTests(unittest.TestCase):
+    def test_sensitivity_separates_numerator_pairs_from_truth_denominator(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        metrics = aggregate_cnv_event_metrics(registration, evidence)
+        sensitivity = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.SENSITIVITY,
+            scope="overall",
+        )
+        self.assertEqual(
+            [item.model_dump(mode="json") for item in sensitivity.numerator_membership.event_pairs],
+            [
+                {
+                    "truth_event_id": "truth-del-1",
+                    "normalized_event_id": "normalized-del-1",
+                }
+            ],
+        )
+        self.assertEqual(
+            sensitivity.denominator_membership.truth_event_ids,
+            ["truth-del-1"],
+        )
+        self.assertEqual(
+            sensitivity.numerator_membership.normalized_event_ids,
+            ["normalized-del-1"],
+        )
+
+    def test_no_call_rate_separates_numerator_lanes_from_executed_denominator(self) -> None:
+        registration = _registration()
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(
+                    registration,
+                    run_outcome=CnvRunOutcomeState.NO_CALL,
+                    contribution_status=CnvContributionStatus.NO_CALL,
+                    outcome_reason="Synthetic no-call lane.",
+                )
+            ],
+            normalized_events=[],
+        )
+        metric = _find_metric(
+            aggregate_cnv_run_state_metrics(registration, evidence),
+            CnvAcceptanceMetric.NO_CALL_RATE,
+            scope="overall",
+        )
+        self.assertEqual(
+            metric.numerator_membership.lane_ids,
+            metric.denominator_membership.lane_ids,
+        )
+        self.assertEqual(len(metric.denominator_membership.lane_ids), 1)
+        self.assertEqual(
+            metric.numerator_membership.full_evidence_ids,
+            ["run-summary-500"],
+        )
+
+    def test_specificity_traces_negative_unit_assessment_in_both_sides(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        assignment = assign_cnv_validation_lanes(registration, evidence)[0]
+        specimen = registration.cohort.specimens[0]
+        universe = specimen.negative_universe
+        assert universe is not None
+        assessment = CnvNegativeUnitAssessment(
+            assessment_id="negative-assessment-provenance",
+            registration_sha256=registration.lock_sha256,
+            evidence_manifest_sha256=evidence.manifest_sha256,
+            lane_id=assignment.lane_id,
+            specimen_id=specimen.specimen_id,
+            universe_id=universe.universe_id,
+            universe_resource_sha256=universe.resource_sha256,
+            assessability_mask_sha256=specimen.assessability_mask.resource_sha256,
+            assessed_units=100,
+            false_positive_units=4,
+            full_evidence_ids=[assignment.run_summary_full_evidence_id],
+        )
+        metric = _find_metric(
+            aggregate_cnv_run_state_metrics(
+                registration,
+                evidence,
+                negative_assessments=[assessment],
+            ),
+            CnvAcceptanceMetric.SPECIFICITY,
+            scope="overall",
+        )
+        self.assertEqual(
+            metric.numerator_membership.negative_assessment_ids,
+            ["negative-assessment-provenance"],
+        )
+        self.assertEqual(
+            metric.denominator_membership.negative_assessment_ids,
+            ["negative-assessment-provenance"],
+        )
+
+    def test_copy_number_error_denominator_retains_exact_matched_event_pair(self) -> None:
+        registration = _registration()
+        evidence = _manifest(registration)
+        metric = _find_metric(
+            aggregate_cnv_quantitative_metrics(registration, evidence),
+            CnvAcceptanceMetric.COPY_NUMBER_ERROR,
+            scope="overall",
+        )
+        self.assertEqual(
+            [item.model_dump(mode="json") for item in metric.denominator_membership.event_pairs],
+            [
+                {
+                    "truth_event_id": "truth-del-1",
+                    "normalized_event_id": "normalized-del-1",
+                }
+            ],
+        )
+
+    def test_reproducibility_denominator_retains_pair_identity(self) -> None:
+        registration = _repeat_registration()
+        evidence = _repeat_manifest(registration)
+        metrics, pairs = aggregate_cnv_reproducibility_metrics(registration, evidence)
+        metric = _find_metric(
+            metrics,
+            CnvAcceptanceMetric.REPRODUCIBILITY,
+            scope="overall",
+        )
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(
+            metric.denominator_membership.reproducibility_pair_ids,
+            [pairs[0].pair_id],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
