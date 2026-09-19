@@ -44,9 +44,7 @@ class TumorAuxiliaryInputArtifact(StrictModel):
         if self.role not in TUMOR_AUXILIARY_INPUT_ROLES:
             raise ValueError(f"{self.role.value} is not a tumor auxiliary input role")
         if (self.producer_lane_id is None) != (self.producer_lane_sha256 is None):
-            raise ValueError(
-                "Producer lane ID and producer lane SHA-256 must be declared together"
-            )
+            raise ValueError("Producer lane ID and producer lane SHA-256 must be declared together")
         return self
 
 
@@ -71,21 +69,13 @@ class TumorInputBundle(StrictModel):
 
         for artifact in self.artifacts:
             if artifact.analysis_sample_id != self.analysis_sample_id:
-                raise ValueError(
-                    "Tumor auxiliary input analysis sample does not match bundle"
-                )
+                raise ValueError("Tumor auxiliary input analysis sample does not match bundle")
             if artifact.genome_build != self.genome_build:
-                raise ValueError(
-                    "Tumor auxiliary input genome build does not match bundle"
-                )
+                raise ValueError("Tumor auxiliary input genome build does not match bundle")
             if artifact.reference_id != self.reference_id:
-                raise ValueError(
-                    "Tumor auxiliary input reference ID does not match bundle"
-                )
+                raise ValueError("Tumor auxiliary input reference ID does not match bundle")
             if artifact.reference_sha256 != self.reference_sha256:
-                raise ValueError(
-                    "Tumor auxiliary input reference SHA-256 does not match bundle"
-                )
+                raise ValueError("Tumor auxiliary input reference SHA-256 does not match bundle")
         return self
 
     def artifact_for(self, role: CallerInputRole) -> TumorAuxiliaryInputArtifact | None:
