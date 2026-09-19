@@ -5,8 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from ontseq_platform.cnv.ichorcna import (
     IchorCnaResourceArtifact,
     IchorCnaResourceBundle,
@@ -15,6 +13,8 @@ from ontseq_platform.cnv.ichorcna import (
     build_ichorcna_argv,
     run_ichorcna_ulp_wgs,
 )
+from pydantic import ValidationError
+
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus
 from ontseq_platform.multicaller_contracts import CallerAssayRegime
