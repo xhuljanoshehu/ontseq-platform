@@ -106,8 +106,7 @@ def _topological_order(requests: list[CallerLaneRequest]) -> list[str]:
         for parent_id in request.parent_lane_ids:
             if parent_id not in by_id:
                 raise ValueError(
-                    f"Caller lane {request.lane_id!r} references missing parent lane "
-                    f"{parent_id!r}"
+                    f"Caller lane {request.lane_id!r} references missing parent lane {parent_id!r}"
                 )
             indegree[request.lane_id] += 1
             children[parent_id].add(request.lane_id)
@@ -137,9 +136,7 @@ def _validate_parent_mode_contracts(
             continue
         entry = get_caller_catalog_entry(request.mode_id)
         if not entry.required_parent_modes:
-            raise ValueError(
-                f"{request.mode_id.value} does not accept parent caller lanes"
-            )
+            raise ValueError(f"{request.mode_id.value} does not accept parent caller lanes")
         allowed = set(entry.required_parent_modes)
         parent_modes = {by_id[parent_id].mode_id for parent_id in request.parent_lane_ids}
         unexpected = parent_modes - allowed
@@ -164,21 +161,16 @@ def _planned_lane_with_dependencies(
 
     if decision == CallerPlanningDecision.ELIGIBLE:
         parent_modes = {
-            request_by_id[parent_id].mode_id: parent_id
-            for parent_id in request.parent_lane_ids
+            request_by_id[parent_id].mode_id: parent_id for parent_id in request.parent_lane_ids
         }
         for required_mode in entry.required_parent_modes:
             parent_id = parent_modes.get(required_mode)
             if parent_id is None:
-                reasons.append(
-                    f"Missing required parent caller mode: {required_mode.value}."
-                )
+                reasons.append(f"Missing required parent caller mode: {required_mode.value}.")
                 continue
             parent_plan = sealed_by_id[parent_id]
             if parent_plan.decision != CallerPlanningDecision.ELIGIBLE:
-                reasons.append(
-                    f"Required parent lane {parent_id!r} is not eligible for execution."
-                )
+                reasons.append(f"Required parent lane {parent_id!r} is not eligible for execution.")
         if reasons:
             decision = CallerPlanningDecision.INELIGIBLE
 
