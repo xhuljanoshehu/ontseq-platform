@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from ontseq_platform.multicaller_planner import plan_caller_lane
-
 from ontseq_platform.multicaller_contracts import (
     CallerAssayRegime,
     CallerInputArtifact,
@@ -13,6 +11,7 @@ from ontseq_platform.multicaller_contracts import (
     CallerMode,
     CallerPlanningDecision,
 )
+from ontseq_platform.multicaller_planner import plan_caller_lane
 
 
 def _sha(value: str) -> str:
