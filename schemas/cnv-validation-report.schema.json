@@ -533,6 +533,82 @@
       "title": "CnvMetricEvaluationState",
       "type": "string"
     },
+    "CnvMetricEventPair": {
+      "additionalProperties": false,
+      "properties": {
+        "normalized_event_id": {
+          "title": "Normalized Event Id",
+          "type": "string"
+        },
+        "truth_event_id": {
+          "title": "Truth Event Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "truth_event_id",
+        "normalized_event_id"
+      ],
+      "title": "CnvMetricEventPair",
+      "type": "object"
+    },
+    "CnvMetricMembership": {
+      "additionalProperties": false,
+      "description": "Typed mathematical membership for a metric numerator/denominator/exclusion.",
+      "properties": {
+        "event_pairs": {
+          "items": {
+            "$ref": "#/$defs/CnvMetricEventPair"
+          },
+          "title": "Event Pairs",
+          "type": "array"
+        },
+        "full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Full Evidence Ids",
+          "type": "array"
+        },
+        "lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lane Ids",
+          "type": "array"
+        },
+        "negative_assessment_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negative Assessment Ids",
+          "type": "array"
+        },
+        "normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Normalized Event Ids",
+          "type": "array"
+        },
+        "reproducibility_pair_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reproducibility Pair Ids",
+          "type": "array"
+        },
+        "truth_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Truth Event Ids",
+          "type": "array"
+        }
+      },
+      "title": "CnvMetricMembership",
+      "type": "object"
+    },
     "CnvMetricResult": {
       "additionalProperties": false,
       "properties": {
@@ -543,6 +619,9 @@
           "title": "Component Counts",
           "type": "object"
         },
+        "denominator_membership": {
+          "$ref": "#/$defs/CnvMetricMembership"
+        },
         "evaluable_denominator": {
           "minimum": 0,
           "title": "Evaluable Denominator",
@@ -551,6 +630,9 @@
         "evidence_manifest_sha256": {
           "title": "Evidence Manifest Sha256",
           "type": "string"
+        },
+        "excluded_membership": {
+          "$ref": "#/$defs/CnvMetricMembership"
         },
         "full_evidence_ids": {
           "items": {
@@ -569,12 +651,22 @@
         "metric": {
           "$ref": "#/$defs/CnvAcceptanceMetric"
         },
+        "negative_assessment_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negative Assessment Ids",
+          "type": "array"
+        },
         "normalized_event_ids": {
           "items": {
             "type": "string"
           },
           "title": "Normalized Event Ids",
           "type": "array"
+        },
+        "numerator_membership": {
+          "$ref": "#/$defs/CnvMetricMembership"
         },
         "reason": {
           "anyOf": [
@@ -591,6 +683,13 @@
         "registration_sha256": {
           "title": "Registration Sha256",
           "type": "string"
+        },
+        "reproducibility_pair_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reproducibility Pair Ids",
+          "type": "array"
         },
         "research_only": {
           "const": true,
