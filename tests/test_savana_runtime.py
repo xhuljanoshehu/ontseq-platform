@@ -132,9 +132,16 @@ def _tumor_only_policy(reference_sha256: str) -> SavanaTumorOnlyPolicy:
 
 
 class FakeSavanaRunner:
-    def __init__(self, *, version: str = "1.3.8", empty_sv: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        version: str = "1.3.8",
+        empty_sv: bool = False,
+        malformed_cna: bool = False,
+    ) -> None:
         self.version = version
         self.empty_sv = empty_sv
+        self.malformed_cna = malformed_cna
         self.calls: list[tuple[str, ...]] = []
 
     def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
@@ -178,11 +185,12 @@ class FakeSavanaRunner:
             "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n",
             encoding="utf-8",
         )
+        copy_number = "not-a-number" if self.malformed_cna else "1.2"
         (outdir / f"{sample}_segmented_absolute_copy_number.tsv").write_text(
             "chromosome\tstart\tend\tsegment_id\tbin_count\t"
             "sum_of_bin_lengths\tweight\tcopyNumber\tminorAlleleCopyNumber\t"
             "meanBAF\tno_hetSNPs\n"
-            "chr7\t0\t1000000\tseg1\t100\t1000000\t1.0\t1.2\t0.4\t0.45\t20\n",
+            f"chr7\t0\t1000000\tseg1\t100\t1000000\t1.0\t{copy_number}\t0.4\t0.45\t20\n",
             encoding="utf-8",
         )
         (outdir / f"{sample}_10_raw_read_counts.tsv").write_text(
@@ -301,6 +309,37 @@ class SavanaRuntimeTests(unittest.TestCase):
         self.assertTrue(support.sensitive_output)
         self.assertFalse(support.exportable)
         self.assertNotIn("readA", report.model_dump_json())
+
+    def test_malformed_existing_cna_output_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            normal = root / "normal.bam"
+            snps = root / "snps.vcf"
+            ref = root / "ref.fa"
+            _write_bam(tumor, b"tumor")
+            _write_bam(normal, b"normal")
+            _write_snp_vcf(snps)
+            ref_sha = _write_reference(ref)
+
+            with self.assertRaisesRegex(ValueError, "copyNumber"):
+                run_savana_paired(
+                    tumor_bam=tumor,
+                    normal_bam=normal,
+                    snp_vcf=snps,
+                    reference_fasta=ref,
+                    sample_id="TUMOR_001",
+                    normal_sample_id="NORMAL_001",
+                    output_dir=root / "paired",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        normal_bam=normal,
+                        snp_vcf=snps,
+                        reference_sha256=ref_sha,
+                    ),
+                    policy=_paired_policy(ref_sha),
+                    runner=FakeSavanaRunner(malformed_cna=True),
+                )
 
     def test_tumor_only_runtime_stays_distinct_and_does_not_use_normal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
