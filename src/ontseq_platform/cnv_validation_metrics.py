@@ -1364,6 +1364,8 @@ class _QuantitativeAccumulator:
     normalized_event_ids: set[str] = field(default_factory=set)
     full_evidence_ids: set[str] = field(default_factory=set)
     lane_ids: set[str] = field(default_factory=set)
+    event_pairs: set[tuple[str, str]] = field(default_factory=set)
+    fit_full_evidence_ids: set[str] = field(default_factory=set)
 
 
 def _quantitative_metric(
@@ -1376,6 +1378,19 @@ def _quantitative_metric(
     denominator_label: str,
 ) -> CnvMetricResult:
     denominator = len(accumulator.absolute_errors)
+    if metric == CnvAcceptanceMetric.COPY_NUMBER_ERROR:
+        denominator_membership = CnvMetricMembership(
+            truth_event_ids=sorted(accumulator.truth_event_ids),
+            normalized_event_ids=sorted(accumulator.normalized_event_ids),
+            full_evidence_ids=sorted(accumulator.full_evidence_ids),
+            lane_ids=sorted(accumulator.lane_ids),
+            event_pairs=_event_pairs(accumulator.event_pairs),
+        )
+    else:
+        denominator_membership = CnvMetricMembership(
+            full_evidence_ids=sorted(accumulator.fit_full_evidence_ids),
+            lane_ids=sorted(accumulator.lane_ids),
+        )
     if denominator == 0:
         return CnvMetricResult(
             metric=metric,
@@ -1389,6 +1404,7 @@ def _quantitative_metric(
             normalized_event_ids=sorted(accumulator.normalized_event_ids),
             full_evidence_ids=sorted(accumulator.full_evidence_ids),
             lane_ids=sorted(accumulator.lane_ids),
+            denominator_membership=denominator_membership,
             reason="No eligible quantitative truth/caller pairs in this stratum.",
         )
     mean_absolute_error = sum(accumulator.absolute_errors) / denominator
@@ -1410,6 +1426,7 @@ def _quantitative_metric(
         normalized_event_ids=sorted(accumulator.normalized_event_ids),
         full_evidence_ids=sorted(accumulator.full_evidence_ids),
         lane_ids=sorted(accumulator.lane_ids),
+        denominator_membership=denominator_membership,
     )
 
 
@@ -1463,6 +1480,7 @@ def aggregate_cnv_quantitative_metrics(
                 accumulator.signed_errors.append(signed_error)
                 accumulator.truth_event_ids.add(truth.event_id)
                 accumulator.normalized_event_ids.add(query.normalized_event_id)
+                accumulator.event_pairs.add((truth.event_id, query.normalized_event_id))
                 accumulator.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
                 accumulator.full_evidence_ids.update(query.source_full_evidence_ids)
                 accumulator.lane_ids.add(assignment.lane_id)
@@ -1487,6 +1505,7 @@ def aggregate_cnv_quantitative_metrics(
                 accumulator.full_evidence_ids.update(
                     {assignment.run_summary_full_evidence_id, selected.record_id}
                 )
+                accumulator.fit_full_evidence_ids.add(selected.record_id)
                 accumulator.lane_ids.add(assignment.lane_id)
 
         if quantitative_truth.ploidy is not None and selected.ploidy is not None:
@@ -1497,6 +1516,7 @@ def aggregate_cnv_quantitative_metrics(
                 accumulator.full_evidence_ids.update(
                     {assignment.run_summary_full_evidence_id, selected.record_id}
                 )
+                accumulator.fit_full_evidence_ids.add(selected.record_id)
                 accumulator.lane_ids.add(assignment.lane_id)
 
     overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
@@ -1723,6 +1743,33 @@ def aggregate_cnv_reproducibility_metrics(
     all_full_ids = {
         full_id for lane_id in all_lane_ids for full_id in full_by_lane.get(lane_id, set())
     }
+    all_pair_ids = {item.pair_id for item in pairs}
+    evaluable_pair_ids = {item.pair_id for item in evaluable_pairs}
+    excluded_pair_ids = all_pair_ids - evaluable_pair_ids
+    evaluable_lane_ids = {
+        lane_id
+        for item in evaluable_pairs
+        for lane_id in (item.left_lane_id, item.right_lane_id)
+    }
+    evaluable_normalized_ids = {
+        event_id
+        for item in evaluable_pairs
+        for event_id in item.left_normalized_event_ids + item.right_normalized_event_ids
+    }
+    evaluable_full_ids = {
+        full_id
+        for lane_id in evaluable_lane_ids
+        for full_id in full_by_lane.get(lane_id, set())
+    }
+    denominator_membership = CnvMetricMembership(
+        normalized_event_ids=sorted(evaluable_normalized_ids),
+        full_evidence_ids=sorted(evaluable_full_ids),
+        lane_ids=sorted(evaluable_lane_ids),
+        reproducibility_pair_ids=sorted(evaluable_pair_ids),
+    )
+    excluded_membership = CnvMetricMembership(
+        reproducibility_pair_ids=sorted(excluded_pair_ids),
+    )
     overall_key: dict[str, str | int | float | bool] = {"scope": "overall"}
     if evaluable_pairs:
         mean_concordance = sum(item.concordance or 0.0 for item in evaluable_pairs) / len(
@@ -1743,6 +1790,9 @@ def aggregate_cnv_reproducibility_metrics(
             normalized_event_ids=sorted(all_normalized_ids),
             full_evidence_ids=sorted(all_full_ids),
             lane_ids=sorted(all_lane_ids),
+            reproducibility_pair_ids=sorted(all_pair_ids),
+            denominator_membership=denominator_membership,
+            excluded_membership=excluded_membership,
         )
     else:
         overall = CnvMetricResult(
@@ -1759,6 +1809,9 @@ def aggregate_cnv_reproducibility_metrics(
             normalized_event_ids=sorted(all_normalized_ids),
             full_evidence_ids=sorted(all_full_ids),
             lane_ids=sorted(all_lane_ids),
+            reproducibility_pair_ids=sorted(all_pair_ids),
+            denominator_membership=denominator_membership,
+            excluded_membership=excluded_membership,
             reason="No evaluable repeated-lane event pairs.",
         )
     return [overall], pairs
