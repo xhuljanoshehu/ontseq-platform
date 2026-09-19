@@ -10,6 +10,7 @@ from ontseq_platform.cnv.spectre import (
     normalize_spectre_vcf,
     spectre_version,
 )
+
 from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus, ToolRecord
 
 
@@ -134,7 +135,9 @@ class SpectreDepthOnlyContractTests(unittest.TestCase):
         self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
         self.assertEqual(report.raw_record_count, 0)
         self.assertEqual(report.accepted_record_count, 0)
-        self.assertTrue(any("not a biological negative" in item.lower() for item in report.warnings))
+        self.assertTrue(
+            any("not a biological negative" in item.lower() for item in report.warnings)
+        )
 
     def test_nonfinite_copy_number_is_rejected_not_normalized(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
