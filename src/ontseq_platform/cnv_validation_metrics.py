@@ -1979,6 +1979,8 @@ def _verify_metric_provenance(
     evidence: CnvValidationEvidenceManifest,
     assignments: Sequence[CnvLaneEventAssignment],
     metrics: Sequence[CnvMetricResult],
+    negative_assessments: Sequence[CnvNegativeUnitAssessment],
+    reproducibility_pairs: Sequence[CnvReproducibilityPair],
 ) -> None:
     expected_manifest_sha256 = canonical_evidence_sha256(
         evidence.model_dump(mode="json", exclude={"manifest_sha256"})
@@ -1994,6 +1996,8 @@ def _verify_metric_provenance(
         for event in specimen.truth_events
     }
     lane_ids = {item.lane_id for item in assignments}
+    negative_assessment_ids = {item.assessment_id for item in negative_assessments}
+    reproducibility_pair_ids = {item.pair_id for item in reproducibility_pairs}
 
     for metric in metrics:
         if metric.registration_sha256 != registration.lock_sha256:
@@ -2012,6 +2016,16 @@ def _verify_metric_provenance(
         missing_lanes = set(metric.lane_ids) - lane_ids
         if missing_lanes:
             raise ValueError("Metric references unknown analytical lanes")
+        missing_negative_assessments = (
+            set(metric.negative_assessment_ids) - negative_assessment_ids
+        )
+        if missing_negative_assessments:
+            raise ValueError("Metric references unknown negative-unit assessments")
+        missing_reproducibility_pairs = (
+            set(metric.reproducibility_pair_ids) - reproducibility_pair_ids
+        )
+        if missing_reproducibility_pairs:
+            raise ValueError("Metric references unknown reproducibility pairs")
         metric_full_ids = set(metric.full_evidence_ids)
         for normalized_id in metric.normalized_event_ids:
             sources = set(normalized_by_id[normalized_id].source_full_evidence_ids)
@@ -2050,6 +2064,12 @@ class CnvValidationMetricReport(StrictModel):
         if len(question_ids) != len(set(question_ids)):
             raise ValueError("Validation report acceptance question IDs must be unique")
         metric_id_set = set(metric_ids)
+        negative_assessment_ids = {
+            item.assessment_id for item in self.negative_unit_assessments
+        }
+        reproducibility_pair_ids = {
+            item.pair_id for item in self.reproducibility_pairs
+        }
         for result in self.acceptance_results:
             if result.metric_id is not None and result.metric_id not in metric_id_set:
                 raise ValueError("Acceptance result references a metric outside the report")
@@ -2058,6 +2078,12 @@ class CnvValidationMetricReport(StrictModel):
                 raise ValueError("Report contains metric from another registration")
             if metric.evidence_manifest_sha256 != self.evidence_manifest_sha256:
                 raise ValueError("Report contains metric from another evidence manifest")
+            if not set(metric.negative_assessment_ids).issubset(negative_assessment_ids):
+                raise ValueError("Report metric references absent negative-unit assessment")
+            if not set(metric.reproducibility_pair_ids).issubset(
+                reproducibility_pair_ids
+            ):
+                raise ValueError("Report metric references absent reproducibility pair")
         for assessment in self.negative_unit_assessments:
             if assessment.registration_sha256 != self.registration_sha256:
                 raise ValueError("Report contains specificity assessment from another registration")
@@ -2125,7 +2151,14 @@ def aggregate_cnv_validation(
         )
     )
 
-    _verify_metric_provenance(registration, evidence, assignments, metrics)
+    _verify_metric_provenance(
+        registration,
+        evidence,
+        assignments,
+        metrics,
+        negative_assessments,
+        reproducibility_pairs,
+    )
     acceptance_results = [
         _evaluate_acceptance_question(question, metrics)
         for question in registration.matrix.acceptance
