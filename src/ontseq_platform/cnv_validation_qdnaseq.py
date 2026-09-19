@@ -337,9 +337,7 @@ def _chromosome_records(
     for row in rows:
         chromosome = _chromosome(row)
         if chromosome in seen:
-            raise ValueError(
-                f"QDNAseq chromosome table contains duplicate row for {chromosome}"
-            )
+            raise ValueError(f"QDNAseq chromosome table contains duplicate row for {chromosome}")
         seen.add(chromosome)
         result.append(
             CnvFullEvidenceRecord.model_validate(
@@ -369,11 +367,7 @@ def _consensus_records(
     if not report.chromosome_consensus:
         return []
 
-    paths = [
-        path
-        for path in artifact_id_by_path
-        if path.endswith(".consensus.chromosomes.tsv")
-    ]
+    paths = [path for path in artifact_id_by_path if path.endswith(".consensus.chromosomes.tsv")]
     if len(paths) != 1:
         raise ValueError("QDNAseq chromosome consensus requires exactly one retained consensus TSV")
     artifact_id = artifact_id_by_path[paths[0]]
