@@ -122,6 +122,43 @@ class CallerLanePlan(StrictModel):
         return self
 
 
+class SealedCallerLanePlan(CallerLanePlan):
+    parent_lane_sha256s: dict[str, str] = Field(default_factory=dict)
+    lane_sha256: str = Field(pattern=SHA256)
+
+    @model_validator(mode="after")
+    def parent_hashes_match_parent_ids(self) -> SealedCallerLanePlan:
+        if set(self.parent_lane_sha256s) != set(self.parent_lane_ids):
+            raise ValueError("Sealed caller lane parent hashes must match parent lane IDs")
+        return self
+
+
+class MultiCallerPlan(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    plan_id: str = Field(pattern=ID)
+    requests: list[CallerLaneRequest] = Field(min_length=1)
+    lanes: list[SealedCallerLanePlan] = Field(min_length=1)
+    topological_order: list[str] = Field(min_length=1)
+    plan_sha256: str = Field(pattern=SHA256)
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_plan_membership(self) -> MultiCallerPlan:
+        request_ids = [item.lane_id for item in self.requests]
+        lane_ids = [item.lane_id for item in self.lanes]
+        if len(request_ids) != len(set(request_ids)):
+            raise ValueError("Multi-caller request lane IDs must be unique")
+        if len(lane_ids) != len(set(lane_ids)):
+            raise ValueError("Multi-caller planned lane IDs must be unique")
+        if set(request_ids) != set(lane_ids):
+            raise ValueError("Multi-caller requests and planned lanes must address the same lanes")
+        if len(self.topological_order) != len(set(self.topological_order)):
+            raise ValueError("Multi-caller topological order must be unique")
+        if set(self.topological_order) != set(lane_ids):
+            raise ValueError("Multi-caller topological order must contain every planned lane")
+        return self
+
+
 class CallerCatalogEntry(StrictModel):
     mode_id: CallerMode
     provider: CallerProvider
