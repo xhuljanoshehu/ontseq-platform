@@ -448,6 +448,10 @@ class _EventMetricAccumulator:
     fp_normalized_event_ids: set[str] = field(default_factory=set)
     tp_full_evidence_ids: set[str] = field(default_factory=set)
     fp_full_evidence_ids: set[str] = field(default_factory=set)
+    tp_truth_lane_ids: set[str] = field(default_factory=set)
+    tp_query_lane_ids: set[str] = field(default_factory=set)
+    fn_truth_lane_ids: set[str] = field(default_factory=set)
+    fp_query_lane_ids: set[str] = field(default_factory=set)
     truth_lane_ids: set[str] = field(default_factory=set)
     query_lane_ids: set[str] = field(default_factory=set)
     truth_run_summary_full_evidence_ids: set[str] = field(default_factory=set)
@@ -612,7 +616,7 @@ def _event_metric_memberships(
                 truth_event_ids=sorted(accumulator.tp_truth_event_ids),
                 normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
                 full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
-                lane_ids=sorted(accumulator.truth_lane_ids),
+                lane_ids=sorted(accumulator.tp_truth_lane_ids),
                 event_pairs=tp_pairs,
             ),
             CnvMetricMembership(
@@ -634,7 +638,7 @@ def _event_metric_memberships(
                 truth_event_ids=sorted(accumulator.tp_truth_event_ids),
                 normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
                 full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
-                lane_ids=sorted(accumulator.query_lane_ids),
+                lane_ids=sorted(accumulator.tp_query_lane_ids),
                 event_pairs=tp_pairs,
             ),
             CnvMetricMembership(
@@ -657,7 +661,9 @@ def _event_metric_memberships(
                 truth_event_ids=sorted(accumulator.tp_truth_event_ids),
                 normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
                 full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
-                lane_ids=sorted(accumulator.truth_lane_ids | accumulator.query_lane_ids),
+                lane_ids=sorted(
+                    accumulator.tp_truth_lane_ids | accumulator.tp_query_lane_ids
+                ),
                 event_pairs=tp_pairs,
             ),
             CnvMetricMembership(
@@ -682,7 +688,7 @@ def _event_metric_memberships(
             CnvMetricMembership(
                 normalized_event_ids=sorted(accumulator.fp_normalized_event_ids),
                 full_evidence_ids=sorted(accumulator.fp_full_evidence_ids),
-                lane_ids=sorted(accumulator.query_lane_ids),
+                lane_ids=sorted(accumulator.fp_query_lane_ids),
             ),
             CnvMetricMembership(
                 full_evidence_ids=sorted(accumulator.observed_run_summary_full_evidence_ids),
@@ -847,6 +853,8 @@ def aggregate_cnv_event_metrics(
             truth_acc.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
             truth_acc.tp_truth_event_ids.add(truth.event_id)
             truth_acc.tp_normalized_event_ids.add(query.normalized_event_id)
+            truth_acc.tp_truth_lane_ids.add(assignment.lane_id)
+            truth_acc.tp_query_lane_ids.add(assignment.lane_id)
             truth_acc.tp_full_evidence_ids.update(query.source_full_evidence_ids)
             truth_acc.truth_lane_ids.add(assignment.lane_id)
             truth_acc.query_lane_ids.add(assignment.lane_id)
@@ -867,6 +875,8 @@ def aggregate_cnv_event_metrics(
             query_acc.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
             query_acc.tp_truth_event_ids.add(truth.event_id)
             query_acc.tp_normalized_event_ids.add(query.normalized_event_id)
+            query_acc.tp_truth_lane_ids.add(assignment.lane_id)
+            query_acc.tp_query_lane_ids.add(assignment.lane_id)
             query_acc.tp_full_evidence_ids.update(query.source_full_evidence_ids)
             query_acc.truth_lane_ids.add(assignment.lane_id)
             query_acc.query_lane_ids.add(assignment.lane_id)
@@ -885,6 +895,8 @@ def aggregate_cnv_event_metrics(
             overall.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
             overall.tp_truth_event_ids.add(truth.event_id)
             overall.tp_normalized_event_ids.add(query.normalized_event_id)
+            overall.tp_truth_lane_ids.add(assignment.lane_id)
+            overall.tp_query_lane_ids.add(assignment.lane_id)
             overall.tp_full_evidence_ids.update(query.source_full_evidence_ids)
             overall.truth_lane_ids.add(assignment.lane_id)
             overall.query_lane_ids.add(assignment.lane_id)
@@ -908,6 +920,7 @@ def aggregate_cnv_event_metrics(
             accumulator.false_negative += 1
             accumulator.truth_event_ids.add(truth.event_id)
             accumulator.fn_truth_event_ids.add(truth.event_id)
+            accumulator.fn_truth_lane_ids.add(assignment.lane_id)
             accumulator.truth_lane_ids.add(assignment.lane_id)
             accumulator.truth_run_summary_full_evidence_ids.add(
                 assignment.run_summary_full_evidence_id
@@ -917,6 +930,7 @@ def aggregate_cnv_event_metrics(
             overall.false_negative += 1
             overall.truth_event_ids.add(truth.event_id)
             overall.fn_truth_event_ids.add(truth.event_id)
+            overall.fn_truth_lane_ids.add(assignment.lane_id)
             overall.truth_lane_ids.add(assignment.lane_id)
             overall.truth_run_summary_full_evidence_ids.add(
                 assignment.run_summary_full_evidence_id
@@ -936,6 +950,7 @@ def aggregate_cnv_event_metrics(
             accumulator.normalized_event_ids.add(query.normalized_event_id)
             accumulator.fp_normalized_event_ids.add(query.normalized_event_id)
             accumulator.fp_full_evidence_ids.update(query.source_full_evidence_ids)
+            accumulator.fp_query_lane_ids.add(assignment.lane_id)
             accumulator.query_lane_ids.add(assignment.lane_id)
             accumulator.query_run_summary_full_evidence_ids.add(
                 assignment.run_summary_full_evidence_id
@@ -947,6 +962,7 @@ def aggregate_cnv_event_metrics(
             overall.normalized_event_ids.add(query.normalized_event_id)
             overall.fp_normalized_event_ids.add(query.normalized_event_id)
             overall.fp_full_evidence_ids.update(query.source_full_evidence_ids)
+            overall.fp_query_lane_ids.add(assignment.lane_id)
             overall.query_lane_ids.add(assignment.lane_id)
             overall.query_run_summary_full_evidence_ids.add(
                 assignment.run_summary_full_evidence_id
@@ -1997,6 +2013,11 @@ def _verify_metric_provenance(
         for event in specimen.truth_events
     }
     lane_ids = {item.lane_id for item in assignments}
+    assignment_event_pairs = {
+        (match.truth_event_id, match.normalized_event_id)
+        for assignment in assignments
+        for match in assignment.matches
+    }
     negative_assessment_ids = {item.assessment_id for item in negative_assessments}
     reproducibility_pair_ids = {item.pair_id for item in reproducibility_pairs}
 
@@ -2027,6 +2048,19 @@ def _verify_metric_provenance(
         )
         if missing_reproducibility_pairs:
             raise ValueError("Metric references unknown reproducibility pairs")
+        for membership in (
+            metric.numerator_membership,
+            metric.denominator_membership,
+            metric.excluded_membership,
+        ):
+            for pair in membership.event_pairs:
+                if (
+                    pair.truth_event_id,
+                    pair.normalized_event_id,
+                ) not in assignment_event_pairs:
+                    raise ValueError(
+                        "Metric event-pair provenance is absent from locked lane assignments"
+                    )
         metric_full_ids = set(metric.full_evidence_ids)
         for normalized_id in metric.normalized_event_ids:
             sources = set(normalized_by_id[normalized_id].source_full_evidence_ids)
@@ -2065,6 +2099,11 @@ class CnvValidationMetricReport(StrictModel):
         if len(question_ids) != len(set(question_ids)):
             raise ValueError("Validation report acceptance question IDs must be unique")
         metric_id_set = set(metric_ids)
+        assignment_event_pairs = {
+            (match.truth_event_id, match.normalized_event_id)
+            for assignment in self.assignments
+            for match in assignment.matches
+        }
         negative_assessment_ids = {
             item.assessment_id for item in self.negative_unit_assessments
         }
@@ -2085,6 +2124,19 @@ class CnvValidationMetricReport(StrictModel):
                 reproducibility_pair_ids
             ):
                 raise ValueError("Report metric references absent reproducibility pair")
+            for membership in (
+                metric.numerator_membership,
+                metric.denominator_membership,
+                metric.excluded_membership,
+            ):
+                for pair in membership.event_pairs:
+                    if (
+                        pair.truth_event_id,
+                        pair.normalized_event_id,
+                    ) not in assignment_event_pairs:
+                        raise ValueError(
+                            "Report metric event pair is absent from locked lane assignments"
+                        )
         for assessment in self.negative_unit_assessments:
             if assessment.registration_sha256 != self.registration_sha256:
                 raise ValueError("Report contains specificity assessment from another registration")
