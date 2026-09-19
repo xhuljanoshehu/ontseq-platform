@@ -49,16 +49,12 @@ class IchorCnaBinaryTests(unittest.TestCase):
 
         self.gc_wig = self._system_file("gc_hg38_1000kb.wig")
         self.map_wig = self._system_file("map_hg38_1000kb.wig")
-        self.centromere = self._system_file(
-            "GRCh38.GCA_000001405.2_centromere_acen.txt"
-        )
+        self.centromere = self._system_file("GRCh38.GCA_000001405.2_centromere_acen.txt")
         self.coverage_wig = self.root / "synthetic.1mb.wig"
         self._write_synthetic_coverage()
 
     def _system_file(self, name: str) -> Path:
-        expression = (
-            f'cat(system.file("extdata", "{name}", package="ichorCNA"))'
-        )
+        expression = f'cat(system.file("extdata", "{name}", package="ichorCNA"))'
         completed = subprocess.run(
             [self.rscript, "-e", expression],
             check=True,
@@ -72,9 +68,10 @@ class IchorCnaBinaryTests(unittest.TestCase):
     def _write_synthetic_coverage(self) -> None:
         current_chromosome = ""
         bin_index = 0
-        with self.gc_wig.open("r", encoding="utf-8") as source, self.coverage_wig.open(
-            "w", encoding="utf-8"
-        ) as target:
+        with (
+            self.gc_wig.open("r", encoding="utf-8") as source,
+            self.coverage_wig.open("w", encoding="utf-8") as target,
+        ):
             for raw_line in source:
                 line = raw_line.rstrip("\n")
                 if line.startswith("fixedStep"):
