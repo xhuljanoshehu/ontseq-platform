@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unittest
 from datetime import UTC, datetime
+
+from pydantic import ValidationError
 
 from ontseq_platform.cnv_validation_contracts import (
     CnvAcceptanceMetric,
@@ -36,11 +39,15 @@ from ontseq_platform.cnv_validation_metrics import (
     CnvMetricEvaluationState,
     CnvMetricResult,
     CnvNegativeUnitAssessment,
+    CnvAcceptanceDecision,
+    CnvAcceptanceResult,
     CnvReproducibilityPair,
+    CnvValidationMetricReport,
     aggregate_cnv_event_metrics,
     aggregate_cnv_quantitative_metrics,
     aggregate_cnv_reproducibility_metrics,
     aggregate_cnv_run_state_metrics,
+    aggregate_cnv_validation,
     assign_cnv_validation_lanes,
     cnv_numeric_band,
 )
@@ -1168,6 +1175,236 @@ class CnvQuantitativeAndReproducibilityTests(unittest.TestCase):
         self.assertIsNone(result.value)
         self.assertEqual(len(pairs), 1)
         self.assertIsNone(pairs[0].concordance)
+
+
+def _registration_with_acceptance(
+    question: CnvAcceptanceQuestion,
+) -> CnvValidationRegistration:
+    matrix = _matrix().model_copy(update={"acceptance": [question]})
+    return preregister_cnv_validation(
+        matrix,
+        CnvValidationCohort(specimens=[_specimen()]),
+        registration_id="synthetic-cnv-acceptance-registration",
+        registered_at=datetime(2026, 9, 18, tzinfo=UTC),
+        code_sha256=_sha("code"),
+        software_version="0.8.2",
+    )
+
+
+def _event_sensitivity_stratum() -> dict[str, str | int | float | bool]:
+    return {
+        "caller": "qdnaseq_ace",
+        "genome_build": "GRCh38",
+        "data_basis": "lcwgs_genome_wide",
+        "coverage": "[5,10)",
+        "tumor_fraction": "[0.2,0.5)",
+        "event_class": "deletion",
+        "event_size": "[5000000,10000000)",
+        "bin_size": 500,
+    }
+
+
+class CnvAcceptanceAndReportTests(unittest.TestCase):
+    def test_acceptance_filters_match_metric_stratum_exactly(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-pass",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        report = aggregate_cnv_validation(
+            registration,
+            _manifest(registration),
+            report_id="synthetic-cnv-report-pass",
+        )
+        self.assertIsInstance(report, CnvValidationMetricReport)
+        self.assertEqual(len(report.acceptance_results), 1)
+        result = report.acceptance_results[0]
+        self.assertIsInstance(result, CnvAcceptanceResult)
+        self.assertEqual(result.decision, CnvAcceptanceDecision.PASS)
+        self.assertEqual(result.metric_value, 1.0)
+        self.assertIsNotNone(result.metric_id)
+
+    def test_acceptance_below_registered_denominator_is_not_evaluable(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-underpowered",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=2,
+            minimum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        report = aggregate_cnv_validation(
+            registration,
+            _manifest(registration),
+            report_id="synthetic-cnv-report-underpowered",
+        )
+        result = report.acceptance_results[0]
+        self.assertEqual(result.decision, CnvAcceptanceDecision.NOT_EVALUABLE)
+        self.assertEqual(result.evaluable_denominator, 1)
+        self.assertIsNone(result.accepted)
+
+    def test_acceptance_bounds_produce_fail_without_mutating_metric(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-fail",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            maximum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        report = aggregate_cnv_validation(
+            registration,
+            _manifest(registration),
+            report_id="synthetic-cnv-report-fail",
+        )
+        result = report.acceptance_results[0]
+        self.assertEqual(result.decision, CnvAcceptanceDecision.FAIL)
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.metric_value, 1.0)
+
+    def test_missing_exact_stratum_is_explicit_not_evaluable(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="missing-stratum",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters={"caller": "not-a-registered-caller"},
+        )
+        registration = _registration_with_acceptance(question)
+        report = aggregate_cnv_validation(
+            registration,
+            _manifest(registration),
+            report_id="synthetic-cnv-report-missing-stratum",
+        )
+        result = report.acceptance_results[0]
+        self.assertEqual(result.decision, CnvAcceptanceDecision.NOT_EVALUABLE)
+        self.assertIsNone(result.metric_id)
+        self.assertIsNone(result.metric_value)
+
+    def test_all_no_call_lane_maps_event_acceptance_to_no_call(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="event-sensitivity-no-call",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters=_event_sensitivity_stratum(),
+        )
+        registration = _registration_with_acceptance(question)
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(
+                    registration,
+                    run_outcome=CnvRunOutcomeState.NO_CALL,
+                    contribution_status=CnvContributionStatus.NO_CALL,
+                    outcome_reason="Synthetic no-call lane.",
+                )
+            ],
+            normalized_events=[],
+        )
+        report = aggregate_cnv_validation(
+            registration,
+            evidence,
+            report_id="synthetic-cnv-report-no-call",
+        )
+        result = report.acceptance_results[0]
+        self.assertEqual(result.decision, CnvAcceptanceDecision.NO_CALL)
+        self.assertIsNone(result.accepted)
+
+    def test_report_binds_registration_evidence_thresholds_and_metric_provenance(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-provenance",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        evidence = _manifest(registration)
+        report = aggregate_cnv_validation(
+            registration,
+            evidence,
+            report_id="synthetic-cnv-report-provenance",
+        )
+        self.assertEqual(report.registration_sha256, registration.lock_sha256)
+        self.assertEqual(report.evidence_manifest_sha256, evidence.manifest_sha256)
+        self.assertEqual(
+            report.matching_thresholds,
+            registration.matrix.matching_thresholds,
+        )
+        self.assertTrue(report.assignments)
+        self.assertTrue(report.metrics)
+        self.assertTrue(
+            all(
+                item.registration_sha256 == registration.lock_sha256
+                and item.evidence_manifest_sha256 == evidence.manifest_sha256
+                for item in report.metrics
+            )
+        )
+        metric_ids = [item.metric_id for item in report.metrics]
+        self.assertEqual(len(metric_ids), len(set(metric_ids)))
+
+    def test_report_lock_is_deterministic_and_rejects_metric_assignment_acceptance_tamper(
+        self,
+    ) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-lock",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        evidence = _manifest(registration)
+        first = aggregate_cnv_validation(
+            registration,
+            evidence,
+            report_id="synthetic-cnv-report-lock",
+        )
+        second = aggregate_cnv_validation(
+            registration,
+            evidence,
+            report_id="synthetic-cnv-report-lock",
+        )
+        self.assertEqual(first.report_sha256, second.report_sha256)
+
+        metric_payload = first.model_dump(mode="json")
+        metric_payload["metrics"][0]["reason"] = "tampered metric"
+        with self.assertRaises(ValidationError):
+            CnvValidationMetricReport.model_validate(metric_payload)
+
+        assignment_payload = first.model_dump(mode="json")
+        assignment_payload["assignments"][0]["minimum_reciprocal_overlap"] = 0.123
+        with self.assertRaises(ValidationError):
+            CnvValidationMetricReport.model_validate(assignment_payload)
+
+        acceptance_payload = first.model_dump(mode="json")
+        acceptance_payload["acceptance_results"][0]["decision"] = "FAIL"
+        with self.assertRaises(ValidationError):
+            CnvValidationMetricReport.model_validate(acceptance_payload)
+
+    def test_report_contains_no_timestamp_or_production_winner_surface(self) -> None:
+        question = CnvAcceptanceQuestion(
+            question_id="overall-sensitivity-no-winner",
+            metric=CnvAcceptanceMetric.SENSITIVITY,
+            minimum_evaluable_denominator=1,
+            minimum_acceptable=0.9,
+            filters={"scope": "overall"},
+        )
+        registration = _registration_with_acceptance(question)
+        report = aggregate_cnv_validation(
+            registration,
+            _manifest(registration),
+            report_id="synthetic-cnv-report-no-winner",
+        )
+        serialized = json.dumps(report.model_dump(mode="json"), sort_keys=True)
+        self.assertNotIn("created_at", serialized)
+        self.assertNotIn("registered_at", serialized)
+        self.assertNotIn("winner", serialized.lower())
+        self.assertNotIn("selected_caller", serialized.lower())
 
 
 if __name__ == "__main__":
