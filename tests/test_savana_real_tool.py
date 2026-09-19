@@ -23,7 +23,6 @@ from ontseq_platform.tumor_inputs import (
     TumorInputBundle,
 )
 
-
 _CONTIGS = [*(f"chr{number}" for number in range(1, 23)), "chrX", "chrY"]
 _CONTIG_LENGTHS = {chromosome: 10_000 for chromosome in _CONTIGS}
 _CONTIG_LENGTHS["chr7"] = 700_000
