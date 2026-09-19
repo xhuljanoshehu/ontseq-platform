@@ -1552,5 +1552,118 @@ class CnvExactMetricProvenanceTests(unittest.TestCase):
         )
 
 
+    def test_sensitivity_numerator_excludes_fn_only_lane(self) -> None:
+        registration = _repeat_registration()
+        first, second = registration.cohort.specimens
+        first_source = _event_source(
+            registration,
+            record_id="segment-repeat-tp",
+            native_record_id="segment-repeat-tp",
+            specimen_id=first.specimen_id,
+            replicate_id="repeat-1",
+        )
+        first_event = _normalized_event(
+            registration,
+            specimen_id=first.specimen_id,
+            replicate_id="repeat-1",
+            normalized_event_id="normalized-repeat-tp",
+            source_full_evidence_ids=["segment-repeat-tp"],
+        )
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(
+                    registration,
+                    record_id="run-summary-repeat-tp",
+                    native_record_id="run-summary-repeat-tp",
+                    specimen_id=first.specimen_id,
+                    replicate_id="repeat-1",
+                ),
+                first_source,
+                _run_summary(
+                    registration,
+                    record_id="run-summary-repeat-fn",
+                    native_record_id="run-summary-repeat-fn",
+                    specimen_id=second.specimen_id,
+                    replicate_id="repeat-2",
+                ),
+            ],
+            normalized_events=[first_event],
+        )
+        assignments = assign_cnv_validation_lanes(registration, evidence)
+        lane_by_specimen = {
+            item.lane.specimen_id: item.lane_id for item in assignments
+        }
+        metric = _find_metric(
+            aggregate_cnv_event_metrics(
+                registration,
+                evidence,
+                assignments=assignments,
+            ),
+            CnvAcceptanceMetric.SENSITIVITY,
+            scope="overall",
+        )
+        self.assertEqual(metric.value, 0.5)
+        self.assertEqual(
+            metric.numerator_membership.lane_ids,
+            [lane_by_specimen[first.specimen_id]],
+        )
+        self.assertEqual(
+            metric.denominator_membership.lane_ids,
+            sorted(lane_by_specimen.values()),
+        )
+
+    def test_report_rejects_metric_event_pair_not_present_in_lane_assignments(self) -> None:
+        registration = _registration()
+        fp_source = _event_source(
+            registration,
+            record_id="segment-fp",
+            native_record_id="segment-fp",
+            event_type=EventType.DELETION,
+            primary=Locus(chromosome="8", start=2_000_000, end=5_000_000),
+            copy_number=1.0,
+        )
+        fp_event = _normalized_event(
+            registration,
+            normalized_event_id="normalized-fp",
+            source_full_evidence_ids=["segment-fp"],
+            event_type=EventType.DELETION,
+            primary=Locus(chromosome="8", start=2_000_000, end=5_000_000),
+            normalized_copy_number=1.0,
+        )
+        evidence = _manifest(
+            registration,
+            full_evidence=[
+                _run_summary(registration),
+                _event_source(registration),
+                fp_source,
+            ],
+            normalized_events=[
+                _normalized_event(registration),
+                fp_event,
+            ],
+        )
+        report = aggregate_cnv_validation(
+            registration,
+            evidence,
+            report_id="synthetic-cnv-report-pair-tamper",
+        )
+        payload = report.model_dump(mode="json")
+        target = next(
+            item
+            for item in payload["metrics"]
+            if item["metric"] == "sensitivity"
+            and item["stratum_key"] == {"scope": "overall"}
+        )
+        target["numerator_membership"]["event_pairs"][0][
+            "normalized_event_id"
+        ] = "normalized-fp"
+        payload["report_sha256"] = canonical_evidence_sha256(
+            {key: value for key, value in payload.items() if key != "report_sha256"}
+        )
+        with self.assertRaises(ValidationError):
+            CnvValidationMetricReport.model_validate(payload)
+
+
 if __name__ == "__main__":
     unittest.main()
