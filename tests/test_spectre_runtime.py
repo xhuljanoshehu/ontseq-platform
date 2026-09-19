@@ -10,7 +10,6 @@ from ontseq_platform.cnv.spectre import (
     normalize_spectre_vcf,
     spectre_version,
 )
-
 from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus, ToolRecord
 
 
