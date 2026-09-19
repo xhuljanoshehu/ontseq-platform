@@ -294,6 +294,54 @@
       "title": "CnvNegativeUniverse",
       "type": "object"
     },
+    "CnvQuantitativeTruth": {
+      "additionalProperties": false,
+      "properties": {
+        "cellularity": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cellularity"
+        },
+        "note": {
+          "minLength": 3,
+          "title": "Note",
+          "type": "string"
+        },
+        "ploidy": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ploidy"
+        },
+        "truth_source_resource_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$",
+          "title": "Truth Source Resource Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "truth_source_resource_id",
+        "note"
+      ],
+      "title": "CnvQuantitativeTruth",
+      "type": "object"
+    },
     "CnvRepeatKind": {
       "enum": [
         "independent",
@@ -424,6 +472,17 @@
           "default": true,
           "title": "Pseudonymized",
           "type": "boolean"
+        },
+        "quantitative_truth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CnvQuantitativeTruth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "reference_id": {
           "minLength": 1,

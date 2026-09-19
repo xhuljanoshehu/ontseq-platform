@@ -1,0 +1,1013 @@
+{
+  "$defs": {
+    "BenchmarkThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_number_tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number Tolerance"
+        },
+        "maximum_breakpoint_distance_bp": {
+          "default": 500,
+          "minimum": 0,
+          "title": "Maximum Breakpoint Distance Bp",
+          "type": "integer"
+        },
+        "minimum_reciprocal_overlap": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        }
+      },
+      "title": "BenchmarkThresholds",
+      "type": "object"
+    },
+    "CnvAcceptanceDecision": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NO_CALL",
+        "NOT_EVALUABLE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "CnvAcceptanceDecision",
+      "type": "string"
+    },
+    "CnvAcceptanceMetric": {
+      "enum": [
+        "sensitivity",
+        "precision",
+        "f1",
+        "false_positive_burden",
+        "no_call_rate",
+        "technical_failure_rate",
+        "not_assessable_rate",
+        "specificity",
+        "copy_number_error",
+        "cellularity_error",
+        "ploidy_error",
+        "reproducibility"
+      ],
+      "title": "CnvAcceptanceMetric",
+      "type": "string"
+    },
+    "CnvAcceptanceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted"
+        },
+        "decision": {
+          "$ref": "#/$defs/CnvAcceptanceDecision"
+        },
+        "evaluable_denominator": {
+          "minimum": 0,
+          "title": "Evaluable Denominator",
+          "type": "integer"
+        },
+        "filters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Filters",
+          "type": "object"
+        },
+        "maximum_acceptable": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum Acceptable"
+        },
+        "metric": {
+          "$ref": "#/$defs/CnvAcceptanceMetric"
+        },
+        "metric_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Id"
+        },
+        "metric_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Value"
+        },
+        "minimum_acceptable": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Acceptable"
+        },
+        "minimum_evaluable_denominator": {
+          "minimum": 1,
+          "title": "Minimum Evaluable Denominator",
+          "type": "integer"
+        },
+        "question_id": {
+          "title": "Question Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question_id",
+        "metric",
+        "filters",
+        "decision",
+        "evaluable_denominator",
+        "minimum_evaluable_denominator"
+      ],
+      "title": "CnvAcceptanceResult",
+      "type": "object"
+    },
+    "CnvDataBasis": {
+      "enum": [
+        "lcwgs_genome_wide",
+        "adaptive_sampling_off_target",
+        "adaptive_sampling_on_target"
+      ],
+      "title": "CnvDataBasis",
+      "type": "string"
+    },
+    "CnvEvaluationLaneKey": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_policy_sha256": {
+          "title": "Adapter Policy Sha256",
+          "type": "string"
+        },
+        "bin_size_kbp": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bin Size Kbp"
+        },
+        "biological_specimen_id": {
+          "title": "Biological Specimen Id",
+          "type": "string"
+        },
+        "caller_id": {
+          "title": "Caller Id",
+          "type": "string"
+        },
+        "caller_version": {
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "coverage_definition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage Definition"
+        },
+        "coverage_x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage X"
+        },
+        "data_basis": {
+          "$ref": "#/$defs/CnvDataBasis"
+        },
+        "execution_identity_sha256": {
+          "title": "Execution Identity Sha256",
+          "type": "string"
+        },
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "input_sha256": {
+          "title": "Input Sha256",
+          "type": "string"
+        },
+        "reference_id": {
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "repeat_group_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat Group Id"
+        },
+        "repeat_kind": {
+          "$ref": "#/$defs/CnvRepeatKind"
+        },
+        "replicate_id": {
+          "title": "Replicate Id",
+          "type": "string"
+        },
+        "specimen_id": {
+          "title": "Specimen Id",
+          "type": "string"
+        },
+        "tumor_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction"
+        },
+        "tumor_fraction_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Method"
+        },
+        "tumor_fraction_timepoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Timepoint"
+        }
+      },
+      "required": [
+        "specimen_id",
+        "biological_specimen_id",
+        "caller_id",
+        "caller_version",
+        "adapter_policy_sha256",
+        "execution_identity_sha256",
+        "genome_build",
+        "data_basis",
+        "reference_id",
+        "reference_sha256",
+        "input_sha256",
+        "repeat_kind",
+        "replicate_id"
+      ],
+      "title": "CnvEvaluationLaneKey",
+      "type": "object"
+    },
+    "CnvLaneEventAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_number_tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number Tolerance"
+        },
+        "false_negative": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "False Negative"
+        },
+        "false_positive": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "False Positive"
+        },
+        "lane": {
+          "$ref": "#/$defs/CnvEvaluationLaneKey"
+        },
+        "lane_id": {
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/CnvMatchedEventAssignment"
+          },
+          "title": "Matches",
+          "type": "array"
+        },
+        "minimum_reciprocal_overlap": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Reciprocal Overlap",
+          "type": "number"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "run_outcome": {
+          "$ref": "#/$defs/CnvRunOutcomeState"
+        },
+        "run_summary_full_evidence_id": {
+          "title": "Run Summary Full Evidence Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "true_positive": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "True Positive"
+        },
+        "unmatched_normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unmatched Normalized Event Ids",
+          "type": "array"
+        },
+        "unmatched_truth_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unmatched Truth Event Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lane_id",
+        "lane",
+        "run_summary_full_evidence_id",
+        "run_outcome",
+        "minimum_reciprocal_overlap"
+      ],
+      "title": "CnvLaneEventAssignment",
+      "type": "object"
+    },
+    "CnvMatchedEventAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "normalized_event_id": {
+          "title": "Normalized Event Id",
+          "type": "string"
+        },
+        "reciprocal_overlap": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reciprocal Overlap"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "truth_event_id": {
+          "title": "Truth Event Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "truth_event_id",
+        "normalized_event_id",
+        "score"
+      ],
+      "title": "CnvMatchedEventAssignment",
+      "type": "object"
+    },
+    "CnvMetricEvaluationState": {
+      "enum": [
+        "EVALUABLE",
+        "NOT_EVALUABLE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "CnvMetricEvaluationState",
+      "type": "string"
+    },
+    "CnvMetricResult": {
+      "additionalProperties": false,
+      "properties": {
+        "component_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Component Counts",
+          "type": "object"
+        },
+        "evaluable_denominator": {
+          "minimum": 0,
+          "title": "Evaluable Denominator",
+          "type": "integer"
+        },
+        "evidence_manifest_sha256": {
+          "title": "Evidence Manifest Sha256",
+          "type": "string"
+        },
+        "full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Full Evidence Ids",
+          "type": "array"
+        },
+        "lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lane Ids",
+          "type": "array"
+        },
+        "metric": {
+          "$ref": "#/$defs/CnvAcceptanceMetric"
+        },
+        "normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Normalized Event Ids",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "registration_sha256": {
+          "title": "Registration Sha256",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/CnvMetricEvaluationState"
+        },
+        "stratum_key": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "minProperties": 1,
+          "title": "Stratum Key",
+          "type": "object"
+        },
+        "summary_values": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Summary Values",
+          "type": "object"
+        },
+        "truth_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Truth Event Ids",
+          "type": "array"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "metric",
+        "stratum_key",
+        "state",
+        "evaluable_denominator",
+        "registration_sha256",
+        "evidence_manifest_sha256"
+      ],
+      "title": "CnvMetricResult",
+      "type": "object"
+    },
+    "CnvNegativeUnitAssessment": {
+      "additionalProperties": false,
+      "description": "Explicit assessed negative universe for specificity; never inferred from event FPs.",
+      "properties": {
+        "assessability_mask_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Assessability Mask Sha256",
+          "type": "string"
+        },
+        "assessed_units": {
+          "minimum": 1,
+          "title": "Assessed Units",
+          "type": "integer"
+        },
+        "assessment_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Assessment Id",
+          "type": "string"
+        },
+        "evidence_manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evidence Manifest Sha256",
+          "type": "string"
+        },
+        "false_positive_units": {
+          "minimum": 0,
+          "title": "False Positive Units",
+          "type": "integer"
+        },
+        "full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Full Evidence Ids",
+          "type": "array"
+        },
+        "lane_id": {
+          "minLength": 1,
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "registration_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Registration Sha256",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "specimen_id": {
+          "minLength": 1,
+          "title": "Specimen Id",
+          "type": "string"
+        },
+        "universe_id": {
+          "minLength": 1,
+          "title": "Universe Id",
+          "type": "string"
+        },
+        "universe_resource_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Universe Resource Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assessment_id",
+        "registration_sha256",
+        "evidence_manifest_sha256",
+        "lane_id",
+        "specimen_id",
+        "universe_id",
+        "universe_resource_sha256",
+        "assessability_mask_sha256",
+        "assessed_units",
+        "false_positive_units",
+        "full_evidence_ids"
+      ],
+      "title": "CnvNegativeUnitAssessment",
+      "type": "object"
+    },
+    "CnvRepeatKind": {
+      "enum": [
+        "independent",
+        "within_run",
+        "between_run"
+      ],
+      "title": "CnvRepeatKind",
+      "type": "string"
+    },
+    "CnvReproducibilityPair": {
+      "additionalProperties": false,
+      "properties": {
+        "bin_size_kbp": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bin Size Kbp"
+        },
+        "biological_specimen_id": {
+          "title": "Biological Specimen Id",
+          "type": "string"
+        },
+        "caller_id": {
+          "title": "Caller Id",
+          "type": "string"
+        },
+        "concordance": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Concordance"
+        },
+        "data_basis": {
+          "$ref": "#/$defs/CnvDataBasis"
+        },
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "left_lane_id": {
+          "title": "Left Lane Id",
+          "type": "string"
+        },
+        "left_normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Left Normalized Event Ids",
+          "type": "array"
+        },
+        "left_run_outcome": {
+          "$ref": "#/$defs/CnvRunOutcomeState"
+        },
+        "matched_normalized_event_pairs": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Matched Normalized Event Pairs",
+          "type": "array"
+        },
+        "pair_id": {
+          "title": "Pair Id",
+          "type": "string"
+        },
+        "repeat_group_id": {
+          "title": "Repeat Group Id",
+          "type": "string"
+        },
+        "repeat_kind": {
+          "$ref": "#/$defs/CnvRepeatKind"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "right_lane_id": {
+          "title": "Right Lane Id",
+          "type": "string"
+        },
+        "right_normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Right Normalized Event Ids",
+          "type": "array"
+        },
+        "right_run_outcome": {
+          "$ref": "#/$defs/CnvRunOutcomeState"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pair_id",
+        "repeat_group_id",
+        "repeat_kind",
+        "biological_specimen_id",
+        "caller_id",
+        "genome_build",
+        "data_basis",
+        "left_lane_id",
+        "right_lane_id",
+        "left_run_outcome",
+        "right_run_outcome"
+      ],
+      "title": "CnvReproducibilityPair",
+      "type": "object"
+    },
+    "CnvRunOutcomeState": {
+      "enum": [
+        "OBSERVED",
+        "BIOLOGICAL_NEGATIVE_ORTHOGONAL_TRUTH",
+        "NO_CALL",
+        "NOT_ASSESSABLE",
+        "FAILED"
+      ],
+      "title": "CnvRunOutcomeState",
+      "type": "string"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance_results": {
+      "items": {
+        "$ref": "#/$defs/CnvAcceptanceResult"
+      },
+      "title": "Acceptance Results",
+      "type": "array"
+    },
+    "assignments": {
+      "items": {
+        "$ref": "#/$defs/CnvLaneEventAssignment"
+      },
+      "title": "Assignments",
+      "type": "array"
+    },
+    "clinical_validity_claimed": {
+      "const": false,
+      "default": false,
+      "title": "Clinical Validity Claimed",
+      "type": "boolean"
+    },
+    "evidence_manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evidence Manifest Sha256",
+      "type": "string"
+    },
+    "matching_thresholds": {
+      "$ref": "#/$defs/BenchmarkThresholds"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/CnvMetricResult"
+      },
+      "title": "Metrics",
+      "type": "array"
+    },
+    "negative_unit_assessments": {
+      "items": {
+        "$ref": "#/$defs/CnvNegativeUnitAssessment"
+      },
+      "title": "Negative Unit Assessments",
+      "type": "array"
+    },
+    "registration_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Registration Sha256",
+      "type": "string"
+    },
+    "report_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$",
+      "title": "Report Id",
+      "type": "string"
+    },
+    "report_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Report Sha256",
+      "type": "string"
+    },
+    "reproducibility_pairs": {
+      "items": {
+        "$ref": "#/$defs/CnvReproducibilityPair"
+      },
+      "title": "Reproducibility Pairs",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "retain_all_evidence": {
+      "const": true,
+      "default": true,
+      "title": "Retain All Evidence",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "report_id",
+    "registration_sha256",
+    "evidence_manifest_sha256",
+    "matching_thresholds",
+    "assignments",
+    "metrics",
+    "acceptance_results",
+    "report_sha256"
+  ],
+  "title": "CnvValidationMetricReport",
+  "type": "object"
+}
