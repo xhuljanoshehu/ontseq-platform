@@ -377,7 +377,10 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         )
         self.assertEqual(normalized.primary, report.events[0].primary)
         self.assertEqual(normalized.normalized_copy_number, report.events[0].copy_number)
-        self.assertEqual(normalized.normalization_policy_sha256, _caller_lock().adapter_policy_sha256)
+        self.assertEqual(
+            normalized.normalization_policy_sha256,
+            _caller_lock().adapter_policy_sha256,
+        )
 
         source_ids = set(normalized.source_full_evidence_ids)
         source_records = [
