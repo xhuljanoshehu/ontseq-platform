@@ -3,11 +3,11 @@ from __future__ import annotations
 import importlib
 import unittest
 
-from ontseq_platform.multicaller_contracts import CallerMode
 from ontseq_platform.multicaller_existing import (
     EXISTING_CALLER_BRIDGES,
     get_existing_caller_bridge,
 )
+from ontseq_platform.multicaller_contracts import CallerMode
 
 
 class ExistingMultiCallerBridgeTests(unittest.TestCase):
