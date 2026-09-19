@@ -271,7 +271,9 @@ def _validate_input_identity(
     if tumor.source_sample_id != tumor_sample_id:
         raise ValueError("Severus tumor BAM source sample does not match requested tumor sample")
     if normal.source_sample_id != normal_sample_id:
-        raise ValueError("Severus matched normal source sample does not match requested normal sample")
+        raise ValueError(
+            "Severus matched normal source sample does not match requested normal sample"
+        )
 
     tumor_fp = _validate_registered_file(tumor_bam, tumor, label="tumor BAM")
     normal_fp = _validate_registered_file(normal_bam, normal, label="matched normal BAM")
