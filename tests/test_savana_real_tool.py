@@ -22,6 +22,9 @@ from ontseq_platform.tumor_inputs import TumorAuxiliaryInputArtifact, TumorInput
 
 
 _CONTIGS = [*(f"chr{number}" for number in range(1, 23)), "chrX", "chrY"]
+_CONTIG_LENGTHS = {chromosome: 10_000 for chromosome in _CONTIGS}
+_CONTIG_LENGTHS["chr7"] = 700_000
+_SNP_STARTS = tuple(range(50_000, 600_001, 50_000))
 
 
 def _sha256(path: Path) -> str:
@@ -45,8 +48,12 @@ class SavanaBinaryTests(unittest.TestCase):
             sequence_line = "A" * 80
             for chromosome in _CONTIGS:
                 handle.write(f">{chromosome}\n")
-                for _ in range(200_000 // len(sequence_line)):
+                length = _CONTIG_LENGTHS[chromosome]
+                full_lines, remainder = divmod(length, len(sequence_line))
+                for _ in range(full_lines):
                     handle.write(f"{sequence_line}\n")
+                if remainder:
+                    handle.write(f"{'A' * remainder}\n")
         self.pysam.faidx(str(self.reference))
         self.reference_sha256 = _sha256(self.reference)
 
@@ -56,32 +63,43 @@ class SavanaBinaryTests(unittest.TestCase):
         self._write_bam(self.normal_bam, "SYNTHETIC_NORMAL")
 
         self.snp_vcf = self.root / "synthetic.snps.vcf"
+        vcf_rows = [
+            f"chr7\t{start + 1}\trs{index}\tA\tG\t60\tPASS\t.\tGT\t0/1"
+            for index, start in enumerate(_SNP_STARTS, start=1)
+        ]
         self.snp_vcf.write_text(
             "##fileformat=VCFv4.2\n"
-            "##contig=<ID=chr7,length=200000>\n"
+            f"##contig=<ID=chr7,length={_CONTIG_LENGTHS['chr7']}>\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC_NORMAL\n"
-            "chr7\t50001\trs1\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
-            "chr7\t100001\trs2\tA\tG\t60\tPASS\t.\tGT\t0/1\n",
+            + "\n".join(vcf_rows)
+            + "\n",
             encoding="utf-8",
         )
 
     def _write_bam(self, path: Path, sample_id: str) -> None:
         header = {
             "HD": {"VN": "1.6", "SO": "coordinate"},
-            "SQ": [{"SN": chromosome, "LN": 200_000} for chromosome in _CONTIGS],
+            "SQ": [
+                {"SN": chromosome, "LN": _CONTIG_LENGTHS[chromosome]}
+                for chromosome in _CONTIGS
+            ],
             "RG": [{"ID": "rg1", "SM": sample_id}],
         }
         with self.pysam.AlignmentFile(str(path), "wb", header=header) as handle:
             read_number = 0
-            heterozygous_starts = {50_000, 100_000}
-            for start in range(0, 199_000, 1_000):
-                copies = 20 if start in heterozygous_starts else 4
+            heterozygous_starts = set(_SNP_STARTS)
+            is_tumor = sample_id == "SYNTHETIC_TUMOR"
+            for start in range(0, _CONTIG_LENGTHS["chr7"] - 1_000, 5_000):
+                copies = 24 if start in heterozygous_starts else 4
+                alt_copies = 6 if is_tumor else 12
                 for copy in range(copies):
                     read = self.pysam.AlignedSegment()
                     read.query_name = f"{sample_id}-read-{read_number:06d}"
                     first_base = (
-                        "G" if start in heterozygous_starts and copy % 2 else "A"
+                        "G"
+                        if start in heterozygous_starts and copy < alt_copies
+                        else "A"
                     )
                     read.query_sequence = first_base + ("A" * 499)
                     read.flag = 0
