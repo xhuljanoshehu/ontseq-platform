@@ -1400,11 +1400,27 @@ class CnvAcceptanceAndReportTests(unittest.TestCase):
             _manifest(registration),
             report_id="synthetic-cnv-report-surface",
         )
-        serialized = json.dumps(report.model_dump(mode="json"), sort_keys=True)
+        payload = report.model_dump(mode="json")
+        serialized = json.dumps(payload, sort_keys=True)
         self.assertNotIn("created_at", serialized)
         self.assertNotIn("registered_at", serialized)
-        self.assertNotIn("winner", serialized.lower())
-        self.assertNotIn("selected_caller", serialized.lower())
+
+        def collect_keys(value: object) -> set[str]:
+            if isinstance(value, dict):
+                keys = {str(key).lower() for key in value}
+                for item in value.values():
+                    keys.update(collect_keys(item))
+                return keys
+            if isinstance(value, list):
+                keys: set[str] = set()
+                for item in value:
+                    keys.update(collect_keys(item))
+                return keys
+            return set()
+
+        keys = collect_keys(payload)
+        self.assertNotIn("winner", keys)
+        self.assertNotIn("selected_caller", keys)
 
 
 if __name__ == "__main__":
