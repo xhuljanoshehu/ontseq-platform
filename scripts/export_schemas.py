@@ -9,6 +9,7 @@ from ontseq_platform.cnv_validation_evidence import (
     CnvTraceabilityIndex,
     CnvValidationEvidenceManifest,
 )
+from ontseq_platform.cnv_validation_metrics import CnvValidationMetricReport
 from ontseq_platform.cnv_validation_registration import CnvValidationRegistration
 from ontseq_platform.dilution import (
     DilutionPolicy,
@@ -80,6 +81,7 @@ def _render() -> dict[Path, str]:
                 "cnv-validation-registration": CnvValidationRegistration,
                 "cnv-validation-evidence": CnvValidationEvidenceManifest,
                 "cnv-validation-traceability": CnvTraceabilityIndex,
+                "cnv-validation-report": CnvValidationMetricReport,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
                 "modbam-source-summary": ModbamSourceSummary,
