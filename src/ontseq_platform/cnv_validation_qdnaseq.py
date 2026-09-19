@@ -13,9 +13,12 @@ from .cnv_validation_evidence import (
     CnvEvidenceRecordKind,
     CnvFullEvidenceRecord,
     CnvNativeArtifactReference,
+    CnvNormalizedEventRecord,
     CnvNumericMeasurement,
     CnvRunOutcomeState,
+    CnvValidationEvidenceManifest,
     canonical_evidence_sha256,
+    seal_cnv_validation_evidence,
 )
 from .models import Locus, ModuleRunStatus
 from .pipeline.envelope import sha256_file
@@ -704,3 +707,150 @@ def map_qdnaseq_ace_full_evidence(
         )
     )
     return artifacts, full_evidence
+
+
+def _normalized_common_payload(
+    *,
+    registration_sha256: str,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    replicate_id: str,
+) -> dict[str, Any]:
+    return {
+        "registration_sha256": registration_sha256,
+        "specimen_id": specimen.specimen_id,
+        "biological_specimen_id": specimen.biological_specimen_id,
+        "caller_id": caller_lock.caller_id,
+        "caller_version": caller_lock.caller_version,
+        "adapter_policy_sha256": caller_lock.adapter_policy_sha256,
+        "execution_identity_sha256": caller_lock.execution_identity_sha256,
+        "normalization_policy_sha256": caller_lock.adapter_policy_sha256,
+        "genome_build": specimen.genome_build,
+        "data_basis": specimen.data_basis,
+        "reference_id": specimen.reference_id,
+        "reference_sha256": specimen.reference_sha256,
+        "input_sha256": specimen.input_sha256,
+        "coverage_x": specimen.coverage_x,
+        "coverage_definition": specimen.coverage_definition,
+        "tumor_fraction": specimen.tumor_fraction,
+        "tumor_fraction_method": specimen.tumor_fraction_method,
+        "tumor_fraction_timepoint": specimen.tumor_fraction_timepoint,
+        "repeat_kind": specimen.repeat_kind,
+        "replicate_id": replicate_id,
+        "repeat_group_id": specimen.repeat_group_id,
+    }
+
+
+def _normalized_event_records(
+    *,
+    report: QDNAseqCallReport,
+    policy: QDNAseqPolicy,
+    registration_sha256: str,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    replicate_id: str,
+    full_evidence: list[CnvFullEvidenceRecord],
+) -> list[CnvNormalizedEventRecord]:
+    primary_segments = [
+        record
+        for record in full_evidence
+        if record.record_kind == CnvEvidenceRecordKind.CALLER_SEGMENT
+        and record.bin_size_kbp == policy.primary_bin_size_kbp
+        and record.run_outcome == CnvRunOutcomeState.OBSERVED
+    ]
+    common = _normalized_common_payload(
+        registration_sha256=registration_sha256,
+        specimen=specimen,
+        caller_lock=caller_lock,
+        replicate_id=replicate_id,
+    )
+
+    result: list[CnvNormalizedEventRecord] = []
+    for event in report.events:
+        sources = [
+            record
+            for record in primary_segments
+            if record.primary == event.primary
+            and (
+                event.copy_number is None
+                or (
+                    record.copy_number is not None
+                    and math.isclose(
+                        record.copy_number,
+                        event.copy_number,
+                        rel_tol=0.0,
+                        abs_tol=1e-9,
+                    )
+                )
+            )
+        ]
+        if len(sources) != 1:
+            raise ValueError(
+                "Each normalized QDNAseq event must map to exactly one primary "
+                f"caller segment; {event.event_id} mapped to {len(sources)}"
+            )
+        source = sources[0]
+        result.append(
+            CnvNormalizedEventRecord.model_validate(
+                {
+                    **common,
+                    "normalized_event_id": _stable_id(
+                        "qdnaseq-normalized",
+                        event.event_id,
+                        event.primary.chromosome,
+                        event.primary.start,
+                        event.primary.end,
+                    ),
+                    "bin_size_kbp": policy.primary_bin_size_kbp,
+                    "source_full_evidence_ids": [source.record_id],
+                    "event_type": event.event_type,
+                    "primary": event.primary,
+                    "normalized_copy_number": event.copy_number,
+                    "contribution_status": CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
+                }
+            )
+        )
+    return result
+
+
+def build_qdnaseq_ace_validation_manifest(
+    *,
+    manifest_id: str,
+    report: QDNAseqCallReport,
+    policy: QDNAseqPolicy,
+    output_dir: Path,
+    registration_sha256: str,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    replicate_id: str,
+) -> CnvValidationEvidenceManifest:
+    """Build and seal complete retained QDNAseq+ACE validation evidence.
+
+    Native artifacts remain immutable sources. Normalized events are additive primary-view
+    records linked back to exactly one locus-bearing primary-resolution caller segment.
+    """
+    artifacts, full_evidence = map_qdnaseq_ace_full_evidence(
+        report=report,
+        policy=policy,
+        output_dir=output_dir,
+        registration_sha256=registration_sha256,
+        specimen=specimen,
+        caller_lock=caller_lock,
+        replicate_id=replicate_id,
+    )
+    normalized_events = _normalized_event_records(
+        report=report,
+        policy=policy,
+        registration_sha256=registration_sha256,
+        specimen=specimen,
+        caller_lock=caller_lock,
+        replicate_id=replicate_id,
+        full_evidence=full_evidence,
+    )
+    return seal_cnv_validation_evidence(
+        manifest_id=manifest_id,
+        registration_sha256=registration_sha256,
+        native_artifacts=artifacts,
+        full_evidence=full_evidence,
+        normalized_events=normalized_events,
+    )
