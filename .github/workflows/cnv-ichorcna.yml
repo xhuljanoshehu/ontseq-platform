@@ -1,0 +1,47 @@
+name: CNV ichorCNA ULP-WGS real-tool
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/cnv/ichorcna.py"
+      - "configs/cnv/ichorcna.ulp-wgs.technical.yaml"
+      - "workflow/envs/ichorcna_0_5_1.yaml"
+      - "tests/test_ichorcna_runtime.py"
+      - "tests/test_ichorcna_real_tool.py"
+      - ".github/workflows/cnv-ichorcna.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ichorcna-ulp-wgs-real-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ichorcna_0_5_1.yaml
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Verify the pinned ichorCNA runtime
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          test -n "$(command -v Rscript)"
+          test -n "$(command -v runIchorCNA.R)"
+          Rscript -e 'stopifnot(as.character(utils::packageVersion("ichorCNA")) == "0.5.1")'
+          Rscript "$(command -v runIchorCNA.R)" --help >/tmp/ichorcna-help.txt
+          grep -q -- '--WIG' /tmp/ichorcna-help.txt
+          grep -q -- '--gcWig' /tmp/ichorcna-help.txt
+          grep -q -- '--mapWig' /tmp/ichorcna-help.txt
+
+      - name: Run ichorCNA adapter contracts and synthetic real-tool smoke
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          ONTSEQ_ICHORCNA_REAL_TOOL=1 PYTHONPATH=src \
+            python -m pytest -q tests/test_ichorcna_runtime.py tests/test_ichorcna_real_tool.py
