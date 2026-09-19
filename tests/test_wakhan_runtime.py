@@ -5,14 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ontseq_platform.execution import CommandResult
-from ontseq_platform.models import GenomeBuild, ModuleRunStatus
-from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor.wakhan import (
     WakhanPhasedCnaPolicy,
     build_wakhan_argv,
     run_wakhan_phased_cna,
 )
+
+from ontseq_platform.execution import CommandResult
+from ontseq_platform.models import GenomeBuild, ModuleRunStatus
+from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor_inputs import (
     TumorAuxiliaryInputArtifact,
     TumorInputBundle,
