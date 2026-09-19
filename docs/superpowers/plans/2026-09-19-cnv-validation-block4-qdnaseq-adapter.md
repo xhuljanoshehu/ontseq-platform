@@ -53,7 +53,8 @@
 - Create: `tests/test_qdnaseq_validation_adapter.py`
 
 **Interfaces:**
-- Produces `QDNAseqValidationAdapterPolicy`, `QDNAseqValidationRunIdentity`, `canonical_qdnaseq_ace_version(report)`, and `qdnaseq_adapter_policy_sha256(policy)`.
+- Produces `QDNAseqValidationAdapterPolicy`, `QDNAseqValidationRunIdentity`, `canonical_qdnaseq_ace_version(report: QDNAseqCallReport) -> str`, `qdnaseq_adapter_policy_sha256(policy: QDNAseqValidationAdapterPolicy) -> str`, and `verify_qdnaseq_validation_identity(registration: CnvValidationRegistration, report: QDNAseqCallReport, reference_lock: ReferenceLock, policy: QDNAseqValidationAdapterPolicy, run_identity: QDNAseqValidationRunIdentity) -> None`.
+- `QDNAseqValidationRunIdentity` contains exactly `specimen_id`, `replicate_id`, `input_sha256`, `reference_id`, `reference_sha256`, and `execution_identity_sha256`; specimen biological identity, coverage, tumour fraction and repeat grouping remain authoritative in the preregistered cohort and are not re-entered as mutable adapter inputs.
 - Later tasks consume these types before reading any result file.
 
 - [ ] **Step 1: Write failing tests** that require:
@@ -68,7 +69,7 @@
 
 - [ ] **Step 2: Run focused tests** and confirm RED because the adapter module does not exist.
 
-- [ ] **Step 3: Implement minimal strict models and identity verification**. The adapter policy must carry the exact QDNAseq policy payload rather than merely copying the registration hash.
+- [ ] **Step 3: Implement minimal strict models and identity verification**. The adapter policy must carry the exact QDNAseq policy payload rather than merely copying the registration hash. Identity verification must compare the supplied run identity with the registered specimen/caller lock; compare `report.sample_id` and `report.genome_build`; require `reference_lock.reference_id`/build to match the registered reference; and reject any mismatch before artifact paths are opened.
 
 - [ ] **Step 4: Run focused tests + Block-1 registration tests** and confirm GREEN.
 
@@ -109,7 +110,7 @@
 - Modify: `tests/test_qdnaseq_validation_adapter.py`
 
 **Interfaces:**
-- Produces `qdnaseq_fit_evidence(...)->list[CnvFullEvidenceRecord]`.
+- Produces `qdnaseq_fit_evidence(registration: CnvValidationRegistration, report: QDNAseqCallReport, artifacts: list[CnvNativeArtifactReference], policy: QDNAseqValidationAdapterPolicy, run_identity: QDNAseqValidationRunIdentity) -> list[CnvFullEvidenceRecord]`.
 - Emits one selected `CALLER_FIT` per configured bin size plus every distinct alternative candidate.
 
 - [ ] **Step 1: Write failing tests**:
@@ -144,6 +145,7 @@
   - one observed run summary is emitted per registered bin size;
   - all rows from all 100/500/1000-kbp bin TSVs are retained, including `use=FALSE` rows;
   - `use=FALSE` rows become `EXCLUDED_FROM_PRIMARY_METRIC` with explicit reason, not deleted;
+  - if a legacy/synthetic bin TSV has no `use` column, every row is still retained as `SECONDARY` with an explicit "assessability flag unavailable" reason rather than being deleted or silently assumed assessable;
   - every segment row is retained, including neutral `call=0` segments;
   - event-producing segment rows are `USED_FOR_PRIMARY_ANALYSIS` independently within each validation lane;
   - neutral/below-threshold segments remain retained with explicit non-contributing status/reason;
@@ -168,8 +170,8 @@
 - Modify: `tests/test_qdnaseq_validation_adapter.py`
 
 **Interfaces:**
-- Produces one set of `CnvNormalizedEventRecord` objects per registered bin-size lane.
-- Reuses `_events_from_primary_segments()` and `_assessable_bin_extents()` from the existing QDNAseq implementation with the same QDNAseq policy, reference lock and tool records.
+- Produces `qdnaseq_normalized_events(registration: CnvValidationRegistration, report: QDNAseqCallReport, result_dir: Path, reference_lock: ReferenceLock, segment_evidence: list[CnvFullEvidenceRecord], policy: QDNAseqValidationAdapterPolicy, run_identity: QDNAseqValidationRunIdentity) -> list[CnvNormalizedEventRecord]`, one event set per registered bin-size lane.
+- Reuses `_events_from_primary_segments()` and `_assessable_bin_extents()` from the existing QDNAseq implementation with the same QDNAseq policy, supplied `ReferenceLock` and tool records.
 
 - [ ] **Step 1: Write failing tests**:
   - normalized events are generated independently for 100, 500 and 1000 kbp;
@@ -197,7 +199,7 @@
 - Modify: `tests/test_qdnaseq_validation_adapter.py`
 
 **Interfaces:**
-- Produces `adapt_qdnaseq_validation_evidence(...) -> CnvValidationEvidenceManifest`.
+- Produces `adapt_qdnaseq_validation_evidence(registration: CnvValidationRegistration, report: QDNAseqCallReport, result_dir: Path, reference_lock: ReferenceLock, policy: QDNAseqValidationAdapterPolicy, run_identity: QDNAseqValidationRunIdentity) -> CnvValidationEvidenceManifest`.
 
 - [ ] **Step 1: Write failing tests**:
   - a complete `QDNAseqCallReport.status=NO_CALL` with zero events still yields `CnvRunOutcomeState.OBSERVED` per bin and zero normalized events;
@@ -223,9 +225,10 @@
 **Files:**
 - Modify: `scripts/export_schemas.py`
 - Create: `schemas/qdnaseq-validation-adapter-policy.schema.json`
+- Create: `schemas/qdnaseq-validation-run-identity.schema.json`
 - Create: `docs/CNV_VALIDATION_BLOCK4_STATUS.md`
 
-- [ ] **Step 1: Export `QDNAseqValidationAdapterPolicy` schema** and verify `python scripts/export_schemas.py --check` is RED before the generated file exists.
+- [ ] **Step 1: Export both `QDNAseqValidationAdapterPolicy` and `QDNAseqValidationRunIdentity` schemas** and verify `python scripts/export_schemas.py --check` is RED before the generated files exist.
 
 - [ ] **Step 2: Generate the schema reproducibly**, commit only the expected schema output, and remove any temporary generator workflow.
 
