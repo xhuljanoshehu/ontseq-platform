@@ -1057,8 +1057,6 @@ def _run_state_metric(
     denominator_membership = CnvMetricMembership(
         full_evidence_ids=sorted(accumulator.full_evidence_ids),
         lane_ids=sorted(accumulator.executed_lane_ids),
-        numerator_membership=numerator_membership,
-        denominator_membership=denominator_membership,
     )
     if denominator == 0:
         return CnvMetricResult(
@@ -1086,6 +1084,8 @@ def _run_state_metric(
         evidence_manifest_sha256=evidence.manifest_sha256,
         full_evidence_ids=sorted(accumulator.full_evidence_ids),
         lane_ids=sorted(accumulator.executed_lane_ids),
+        numerator_membership=numerator_membership,
+        denominator_membership=denominator_membership,
     )
 
 
