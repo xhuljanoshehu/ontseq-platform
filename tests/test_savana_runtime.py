@@ -160,8 +160,7 @@ class FakeSavanaRunner:
         (outdir / f"{sample}.classified.somatic.vcf").write_text(
             "##fileformat=VCFv4.2\n"
             "##source=SAVANA\n"
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            + records,
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n" + records,
             encoding="utf-8",
         )
         (outdir / f"{sample}.classified.somatic.bedpe").write_text(
@@ -169,19 +168,15 @@ class FakeSavanaRunner:
             encoding="utf-8",
         )
         (outdir / f"{sample}_sv_breakpoints_read_support.tsv").write_text(
-            "variant_id\ttumour_read_ids\tnormal_read_ids\n"
-            "savana_1\treadA,readB\t\n",
+            "variant_id\ttumour_read_ids\tnormal_read_ids\nsavana_1\treadA,readB\t\n",
             encoding="utf-8",
         )
         (outdir / f"{sample}_ranked_solutions.tsv").write_text(
-            "purity\tploidy\tdistance\trank\n"
-            "0.45\t2.1\t0.12\t1\n"
-            "0.35\t2.6\t0.14\t2\n",
+            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n0.35\t2.6\t0.14\t2\n",
             encoding="utf-8",
         )
         (outdir / f"{sample}_fitted_purity_ploidy.tsv").write_text(
-            "purity\tploidy\tdistance\trank\n"
-            "0.45\t2.1\t0.12\t1\n",
+            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n",
             encoding="utf-8",
         )
         (outdir / f"{sample}_segmented_absolute_copy_number.tsv").write_text(
