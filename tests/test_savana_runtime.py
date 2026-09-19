@@ -5,9 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ontseq_platform.execution import CommandResult
-from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus
-from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor.savana import (
     SavanaPairedPolicy,
     SavanaTumorOnlyPolicy,
@@ -16,6 +13,10 @@ from ontseq_platform.tumor.savana import (
     run_savana_paired,
     run_savana_tumor_only,
 )
+
+from ontseq_platform.execution import CommandResult
+from ontseq_platform.models import EventType, GenomeBuild, ModuleRunStatus
+from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor_inputs import (
     TumorAuxiliaryInputArtifact,
     TumorInputBundle,
