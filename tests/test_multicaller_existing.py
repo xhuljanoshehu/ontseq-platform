@@ -7,7 +7,6 @@ from ontseq_platform.multicaller_existing import (
     EXISTING_CALLER_BRIDGES,
     get_existing_caller_bridge,
 )
-
 from ontseq_platform.multicaller_contracts import CallerMode
 
 
