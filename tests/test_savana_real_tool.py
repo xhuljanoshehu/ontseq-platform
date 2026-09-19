@@ -21,6 +21,9 @@ from ontseq_platform.tumor.savana import (
 from ontseq_platform.tumor_inputs import TumorAuxiliaryInputArtifact, TumorInputBundle
 
 
+_CONTIGS = [*(f"chr{number}" for number in range(1, 23)), "chrX", "chrY"]
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -39,10 +42,11 @@ class SavanaBinaryTests(unittest.TestCase):
 
         self.reference = self.root / "synthetic.reference.fa"
         with self.reference.open("w", encoding="ascii") as handle:
-            handle.write(">chr7\n")
             sequence_line = "A" * 80
-            for _ in range(200_000 // len(sequence_line)):
-                handle.write(f"{sequence_line}\n")
+            for chromosome in _CONTIGS:
+                handle.write(f">{chromosome}\n")
+                for _ in range(200_000 // len(sequence_line)):
+                    handle.write(f"{sequence_line}\n")
         self.pysam.faidx(str(self.reference))
         self.reference_sha256 = _sha256(self.reference)
 
@@ -65,7 +69,7 @@ class SavanaBinaryTests(unittest.TestCase):
     def _write_bam(self, path: Path, sample_id: str) -> None:
         header = {
             "HD": {"VN": "1.6", "SO": "coordinate"},
-            "SQ": [{"SN": "chr7", "LN": 200_000}],
+            "SQ": [{"SN": chromosome, "LN": 200_000} for chromosome in _CONTIGS],
             "RG": [{"ID": "rg1", "SM": sample_id}],
         }
         with self.pysam.AlignmentFile(str(path), "wb", header=header) as handle:
@@ -76,7 +80,7 @@ class SavanaBinaryTests(unittest.TestCase):
                     read.query_name = f"{sample_id}-read-{read_number:06d}"
                     read.query_sequence = "A" * 500
                     read.flag = 0
-                    read.reference_id = 0
+                    read.reference_id = _CONTIGS.index("chr7")
                     read.reference_start = start + offset
                     read.mapping_quality = 60
                     read.cigar = ((0, 500),)
