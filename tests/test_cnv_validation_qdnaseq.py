@@ -115,7 +115,7 @@ def _report() -> QDNAseqCallReport:
             GenomicEvent(
                 event_id="CNV_SYNTHETIC_0001",
                 event_type=EventType.DELETION,
-                primary=Locus(chromosome="chr7", start=1_000_000, end=6_000_000),
+                primary=Locus(chromosome="chr7", start=0, end=950),
                 copy_number=1.0,
             )
         ],
@@ -343,6 +343,83 @@ class QDNAseqValidationAdapterTests(unittest.TestCase):
         consensus_measurements = {item.name: item.value for item in consensus.numeric_measurements}
         self.assertEqual(consensus_measurements["agreeing_bins"], 3.0)
         self.assertEqual(consensus_measurements["contributing_bins"], 3.0)
+
+
+    def test_seals_traceable_manifest_without_discarding_multiresolution_evidence(self) -> None:
+        from ontseq_platform.cnv_validation_qdnaseq import (
+            build_qdnaseq_ace_validation_manifest,
+        )
+
+        report = _report()
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            _write_native_files(output_dir, report)
+
+            manifest = build_qdnaseq_ace_validation_manifest(
+                manifest_id="SYNTHETIC_QDNASEQ_EVIDENCE_001",
+                report=report,
+                policy=_policy(),
+                output_dir=output_dir,
+                registration_sha256=_sha("registration"),
+                specimen=_specimen(),
+                caller_lock=_caller_lock(),
+                replicate_id="replicate-1",
+            )
+
+        self.assertTrue(manifest.retain_all_evidence)
+        self.assertEqual(len(manifest.native_artifacts), len(report.output_files))
+        self.assertEqual(len(manifest.normalized_events), 1)
+        normalized = manifest.normalized_events[0]
+        self.assertEqual(normalized.bin_size_kbp, 500)
+        self.assertEqual(
+            normalized.contribution_status,
+            CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS,
+        )
+        self.assertEqual(normalized.primary, report.events[0].primary)
+        self.assertEqual(normalized.normalized_copy_number, report.events[0].copy_number)
+        self.assertEqual(normalized.normalization_policy_sha256, _caller_lock().adapter_policy_sha256)
+
+        source_ids = set(normalized.source_full_evidence_ids)
+        source_records = [
+            record for record in manifest.full_evidence if record.record_id in source_ids
+        ]
+        self.assertEqual(len(source_records), 1)
+        self.assertEqual(source_records[0].record_kind, CnvEvidenceRecordKind.CALLER_SEGMENT)
+        self.assertEqual(source_records[0].bin_size_kbp, 500)
+
+        referenced_artifacts = {
+            artifact_id
+            for record in manifest.full_evidence
+            for artifact_id in record.native_artifact_ids
+        }
+        self.assertEqual(
+            referenced_artifacts,
+            {artifact.artifact_id for artifact in manifest.native_artifacts},
+        )
+
+    def test_manifest_build_fails_closed_if_a_declared_native_artifact_is_missing(self) -> None:
+        from ontseq_platform.cnv_validation_qdnaseq import (
+            build_qdnaseq_ace_validation_manifest,
+        )
+
+        report = _report()
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            _write_native_files(output_dir, report)
+            missing = output_dir / report.primary_fit.segment_file
+            missing.unlink()
+
+            with self.assertRaisesRegex(ValueError, "artifact is missing"):
+                build_qdnaseq_ace_validation_manifest(
+                    manifest_id="SYNTHETIC_QDNASEQ_EVIDENCE_001",
+                    report=report,
+                    policy=_policy(),
+                    output_dir=output_dir,
+                    registration_sha256=_sha("registration"),
+                    specimen=_specimen(),
+                    caller_lock=_caller_lock(),
+                    replicate_id="replicate-1",
+                )
 
 
 if __name__ == "__main__":
