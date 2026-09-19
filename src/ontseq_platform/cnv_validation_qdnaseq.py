@@ -1,0 +1,382 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from .cnv.qdnaseq import CnvFit, QDNAseqCallReport, QDNAseqPolicy
+from .cnv_validation_contracts import CnvCallerLock, CnvValidationSpecimen
+from .cnv_validation_evidence import (
+    CnvContributionStatus,
+    CnvEvidenceRecordKind,
+    CnvFullEvidenceRecord,
+    CnvNativeArtifactReference,
+    CnvNumericMeasurement,
+    CnvRunOutcomeState,
+    canonical_evidence_sha256,
+)
+from .models import ModuleRunStatus
+from .pipeline.envelope import sha256_file
+
+
+def _stable_id(prefix: str, *parts: object) -> str:
+    rendered = "\x1f".join(str(part) for part in parts)
+    digest = hashlib.sha256(rendered.encode("utf-8")).hexdigest()[:24]
+    return f"{prefix}-{digest}"
+
+
+def _artifact_role_and_media_type(relative_path: str) -> tuple[str, str]:
+    name = PurePosixPath(relative_path).name
+    if name.endswith(".qdnaseq-ace.summary.json"):
+        return "run_summary", "application/json"
+    if name.endswith(".consensus.chromosomes.tsv"):
+        return "chromosome_consensus", "text/tab-separated-values"
+    if name.endswith(".segments.tsv"):
+        return "caller_segments", "text/tab-separated-values"
+    if name.endswith(".chromosomes.tsv"):
+        return "chromosome_summary", "text/tab-separated-values"
+    if name.endswith(".bins.tsv"):
+        return "caller_bins", "text/tab-separated-values"
+    if name.endswith(".ace-models.tsv"):
+        return "ace_models", "text/tab-separated-values"
+    if name.endswith(".ace-fit.png"):
+        return "ace_fit_plot", "image/png"
+    if name.endswith(".copy-number.png"):
+        return "copy_number_plot", "image/png"
+    if name.endswith(".segmented.rds"):
+        return "caller_rds", "application/octet-stream"
+    return "caller_artifact", "application/octet-stream"
+
+
+def _artifact_path(output_dir: Path, relative_path: str) -> Path:
+    if "\\" in relative_path:
+        raise ValueError("QDNAseq evidence artifact paths must use POSIX separators")
+    posix = PurePosixPath(relative_path)
+    if not relative_path or posix.is_absolute() or ".." in posix.parts:
+        raise ValueError(f"Unsafe QDNAseq evidence artifact path: {relative_path!r}")
+
+    root = output_dir.resolve()
+    path = (output_dir / Path(*posix.parts)).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"QDNAseq evidence artifact escapes output directory: {relative_path!r}")
+    if not path.is_file():
+        raise ValueError(f"QDNAseq evidence artifact is missing: {relative_path}")
+    return path
+
+
+def _native_artifacts(
+    report: QDNAseqCallReport,
+    output_dir: Path,
+) -> list[CnvNativeArtifactReference]:
+    if len(report.output_files) != len(set(report.output_files)):
+        raise ValueError("QDNAseq report output_files must be unique")
+
+    artifacts: list[CnvNativeArtifactReference] = []
+    for relative_path in report.output_files:
+        path = _artifact_path(output_dir, relative_path)
+        digest = sha256_file(path)
+        role, media_type = _artifact_role_and_media_type(relative_path)
+        artifacts.append(
+            CnvNativeArtifactReference(
+                artifact_id=_stable_id("qdnaseq-artifact", relative_path, digest),
+                role=role,
+                relative_path=relative_path,
+                sha256=digest,
+                size_bytes=path.stat().st_size,
+                media_type=media_type,
+                description="Retained caller-native QDNAseq+ACE validation artifact.",
+            )
+        )
+    return artifacts
+
+
+def _dependency_versions(report: QDNAseqCallReport) -> dict[str, str]:
+    names = [tool.name for tool in report.tools]
+    if len(names) != len(set(names)):
+        raise ValueError("QDNAseq report contains duplicate tool-version records")
+    versions = {tool.name: tool.version for tool in report.tools}
+    for required in ("QDNAseq", "ACE"):
+        if not versions.get(required):
+            raise ValueError(f"QDNAseq validation evidence requires {required} version provenance")
+    return versions
+
+
+def _caller_version(versions: dict[str, str]) -> str:
+    return f"QDNAseq={versions['QDNAseq']};ACE={versions['ACE']}"
+
+
+def _fit_artifact_paths(fit: CnvFit) -> list[str]:
+    result = [
+        fit.segment_file,
+        fit.chromosome_file,
+        fit.fit_plot,
+        fit.copy_number_plot,
+        fit.rds_file,
+    ]
+    if fit.bins_file is not None:
+        result.append(fit.bins_file)
+    if fit.model_file is not None:
+        result.append(fit.model_file)
+    return result
+
+
+def _fit_artifact_ids(
+    fit: CnvFit,
+    artifact_id_by_path: dict[str, str],
+) -> list[str]:
+    missing = [path for path in _fit_artifact_paths(fit) if path not in artifact_id_by_path]
+    if missing:
+        raise ValueError(
+            "QDNAseq fit references native artifacts absent from output_files: "
+            + ", ".join(sorted(missing))
+        )
+    return [artifact_id_by_path[path] for path in _fit_artifact_paths(fit)]
+
+
+def _common_record_payload(
+    *,
+    registration_sha256: str,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    replicate_id: str,
+    caller_parameters: dict[str, Any],
+    caller_parameters_sha256: str,
+    dependency_versions: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "registration_sha256": registration_sha256,
+        "specimen_id": specimen.specimen_id,
+        "biological_specimen_id": specimen.biological_specimen_id,
+        "caller_id": caller_lock.caller_id,
+        "caller_version": caller_lock.caller_version,
+        "adapter_policy_sha256": caller_lock.adapter_policy_sha256,
+        "execution_identity_sha256": caller_lock.execution_identity_sha256,
+        "genome_build": specimen.genome_build,
+        "data_basis": specimen.data_basis,
+        "reference_id": specimen.reference_id,
+        "reference_sha256": specimen.reference_sha256,
+        "input_sha256": specimen.input_sha256,
+        "coverage_x": specimen.coverage_x,
+        "coverage_definition": specimen.coverage_definition,
+        "tumor_fraction": specimen.tumor_fraction,
+        "tumor_fraction_method": specimen.tumor_fraction_method,
+        "tumor_fraction_timepoint": specimen.tumor_fraction_timepoint,
+        "repeat_kind": specimen.repeat_kind,
+        "replicate_id": replicate_id,
+        "repeat_group_id": specimen.repeat_group_id,
+        "caller_parameters": caller_parameters,
+        "caller_parameters_sha256": caller_parameters_sha256,
+        "dependency_versions": dependency_versions,
+    }
+
+
+def _validate_adapter_identity(
+    *,
+    report: QDNAseqCallReport,
+    policy: QDNAseqPolicy,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    dependency_versions: dict[str, str],
+) -> None:
+    if caller_lock.caller_id != "qdnaseq_ace":
+        raise ValueError("QDNAseq validation adapter requires caller_id='qdnaseq_ace'")
+    if report.sample_id != specimen.specimen_id:
+        raise ValueError("QDNAseq report sample does not match validation specimen")
+    if report.genome_build != specimen.genome_build:
+        raise ValueError("QDNAseq report build does not match validation specimen")
+
+    observed_bins = [fit.bin_size_kbp for fit in report.fits]
+    if len(observed_bins) != len(set(observed_bins)):
+        raise ValueError("QDNAseq report contains duplicate bin-size fits")
+    if set(observed_bins) != set(policy.bin_sizes_kbp):
+        raise ValueError("QDNAseq report bin sizes do not match the registered adapter policy")
+    if report.primary_fit.bin_size_kbp != policy.primary_bin_size_kbp:
+        raise ValueError("QDNAseq report primary fit does not match the adapter policy")
+
+    observed_caller_version = _caller_version(dependency_versions)
+    if caller_lock.caller_version != observed_caller_version:
+        raise ValueError(
+            "QDNAseq caller lock version does not match report provenance: "
+            f"{observed_caller_version}"
+        )
+
+
+def _selected_fit_record(
+    *,
+    fit: CnvFit,
+    policy: QDNAseqPolicy,
+    common: dict[str, Any],
+    native_artifact_ids: list[str],
+) -> CnvFullEvidenceRecord:
+    primary = fit.bin_size_kbp == policy.primary_bin_size_kbp
+    return CnvFullEvidenceRecord.model_validate(
+        {
+            **common,
+            "record_id": f"qdnaseq-fit-{fit.bin_size_kbp}-selected",
+            "bin_size_kbp": fit.bin_size_kbp,
+            "record_kind": CnvEvidenceRecordKind.CALLER_FIT,
+            "native_record_id": f"ace-fit-{fit.bin_size_kbp}-selected",
+            "run_outcome": CnvRunOutcomeState.OBSERVED,
+            "contribution_status": (
+                CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+                if primary
+                else CnvContributionStatus.SECONDARY
+            ),
+            "native_artifact_ids": native_artifact_ids,
+            "fit_group_id": f"ace-fit-{fit.bin_size_kbp}",
+            "selected_fit": True,
+            "cellularity": fit.cellularity,
+            "ploidy": fit.ploidy,
+            "fit_error": fit.fit_error,
+            "numeric_measurements": [
+                CnvNumericMeasurement(
+                    name="candidate_count",
+                    value=float(fit.candidate_count),
+                    unit="count",
+                    source_field="candidate_count",
+                ),
+                CnvNumericMeasurement(
+                    name="segment_count",
+                    value=float(fit.segment_count),
+                    unit="count",
+                    source_field="segment_count",
+                ),
+            ],
+        }
+    )
+
+
+def _alternative_fit_records(
+    *,
+    fit: CnvFit,
+    common: dict[str, Any],
+    native_artifact_ids: list[str],
+) -> list[CnvFullEvidenceRecord]:
+    required = {"cellularity", "ploidy", "fit_error"}
+    result: list[CnvFullEvidenceRecord] = []
+    for index, alternative in enumerate(fit.alternatives, start=1):
+        if set(alternative) != required:
+            raise ValueError(
+                "ACE alternative fit must contain exactly cellularity, ploidy and fit_error"
+            )
+        result.append(
+            CnvFullEvidenceRecord.model_validate(
+                {
+                    **common,
+                    "record_id": f"qdnaseq-fit-{fit.bin_size_kbp}-alternative-{index}",
+                    "bin_size_kbp": fit.bin_size_kbp,
+                    "record_kind": CnvEvidenceRecordKind.CALLER_FIT,
+                    "native_record_id": f"ace-fit-{fit.bin_size_kbp}-alternative-{index}",
+                    "run_outcome": CnvRunOutcomeState.OBSERVED,
+                    "contribution_status": CnvContributionStatus.SECONDARY,
+                    "native_artifact_ids": native_artifact_ids,
+                    "fit_group_id": f"ace-fit-{fit.bin_size_kbp}",
+                    "selected_fit": False,
+                    "cellularity": alternative["cellularity"],
+                    "ploidy": alternative["ploidy"],
+                    "fit_error": alternative["fit_error"],
+                }
+            )
+        )
+    return result
+
+
+def map_qdnaseq_ace_full_evidence(
+    *,
+    report: QDNAseqCallReport,
+    policy: QDNAseqPolicy,
+    output_dir: Path,
+    registration_sha256: str,
+    specimen: CnvValidationSpecimen,
+    caller_lock: CnvCallerLock,
+    replicate_id: str,
+) -> tuple[list[CnvNativeArtifactReference], list[CnvFullEvidenceRecord]]:
+    """Map retained QDNAseq+ACE multi-resolution results into Block-2 full evidence.
+
+    This adapter is additive: it fingerprints caller-native files and emits immutable
+    evidence rows. It does not alter QDNAseq/ACE execution, choose a new primary
+    resolution, normalize events, or discard non-primary fits.
+    """
+    artifacts = _native_artifacts(report, output_dir)
+    artifact_id_by_path = {item.relative_path: item.artifact_id for item in artifacts}
+    dependency_versions = _dependency_versions(report)
+    _validate_adapter_identity(
+        report=report,
+        policy=policy,
+        specimen=specimen,
+        caller_lock=caller_lock,
+        dependency_versions=dependency_versions,
+    )
+
+    caller_parameters = policy.model_dump(mode="json")
+    caller_parameters_sha256 = canonical_evidence_sha256(caller_parameters)
+    common = _common_record_payload(
+        registration_sha256=registration_sha256,
+        specimen=specimen,
+        caller_lock=caller_lock,
+        replicate_id=replicate_id,
+        caller_parameters=caller_parameters,
+        caller_parameters_sha256=caller_parameters_sha256,
+        dependency_versions=dependency_versions,
+    )
+
+    if report.status == ModuleRunStatus.COMPLETED:
+        run_outcome = CnvRunOutcomeState.OBSERVED
+        contribution_status = CnvContributionStatus.USED_FOR_PRIMARY_ANALYSIS
+        outcome_reason = None
+    elif report.status == ModuleRunStatus.NO_CALL:
+        run_outcome = CnvRunOutcomeState.NO_CALL
+        contribution_status = CnvContributionStatus.NO_CALL
+        outcome_reason = "QDNAseq+ACE completed without normalized CNV events."
+    else:
+        raise ValueError(f"Unsupported QDNAseq report status for validation evidence: {report.status}")
+
+    full_evidence: list[CnvFullEvidenceRecord] = [
+        CnvFullEvidenceRecord.model_validate(
+            {
+                **common,
+                "record_id": "qdnaseq-run-summary",
+                "bin_size_kbp": None,
+                "record_kind": CnvEvidenceRecordKind.RUN_SUMMARY,
+                "native_record_id": "qdnaseq-ace-run-summary",
+                "run_outcome": run_outcome,
+                "contribution_status": contribution_status,
+                "outcome_reason": outcome_reason,
+                "native_artifact_ids": [item.artifact_id for item in artifacts],
+                "numeric_measurements": [
+                    CnvNumericMeasurement(
+                        name="configured_bin_count",
+                        value=float(len(policy.bin_sizes_kbp)),
+                        unit="count",
+                        source_field="policy.bin_sizes_kbp",
+                    ),
+                    CnvNumericMeasurement(
+                        name="normalized_event_count",
+                        value=float(len(report.events)),
+                        unit="count",
+                        source_field="report.events",
+                    ),
+                ],
+            }
+        )
+    ]
+
+    for fit in sorted(report.fits, key=lambda item: item.bin_size_kbp):
+        fit_artifact_ids = _fit_artifact_ids(fit, artifact_id_by_path)
+        full_evidence.append(
+            _selected_fit_record(
+                fit=fit,
+                policy=policy,
+                common=common,
+                native_artifact_ids=fit_artifact_ids,
+            )
+        )
+        full_evidence.extend(
+            _alternative_fit_records(
+                fit=fit,
+                common=common,
+                native_artifact_ids=fit_artifact_ids,
+            )
+        )
+
+    return artifacts, full_evidence
