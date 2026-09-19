@@ -74,14 +74,19 @@ class SavanaBinaryTests(unittest.TestCase):
         }
         with self.pysam.AlignmentFile(str(path), "wb", header=header) as handle:
             read_number = 0
+            heterozygous_starts = {50_000, 100_000}
             for start in range(0, 199_000, 1_000):
-                for offset in range(4):
+                copies = 20 if start in heterozygous_starts else 4
+                for copy in range(copies):
                     read = self.pysam.AlignedSegment()
                     read.query_name = f"{sample_id}-read-{read_number:06d}"
-                    read.query_sequence = "A" * 500
+                    first_base = (
+                        "G" if start in heterozygous_starts and copy % 2 else "A"
+                    )
+                    read.query_sequence = first_base + ("A" * 499)
                     read.flag = 0
                     read.reference_id = _CONTIGS.index("chr7")
-                    read.reference_start = start + offset
+                    read.reference_start = start
                     read.mapping_quality = 60
                     read.cigar = ((0, 500),)
                     read.query_qualities = self.pysam.qualitystring_to_array("I" * 500)
