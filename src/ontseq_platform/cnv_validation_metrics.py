@@ -11,7 +11,12 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .benchmark import benchmark_case
-from .cnv_validation_contracts import CnvAcceptanceMetric, CnvDataBasis, CnvRepeatKind
+from .cnv_validation_contracts import (
+    CnvAcceptanceMetric,
+    CnvAcceptanceQuestion,
+    CnvDataBasis,
+    CnvRepeatKind,
+)
 from .cnv_validation_evidence import (
     CnvContributionStatus,
     CnvEvidenceRecordKind,
@@ -25,6 +30,7 @@ from .cnv_validation_registration import CnvValidationRegistration
 from .models import (
     BenchmarkCase,
     BenchmarkKind,
+    BenchmarkThresholds,
     EventType,
     GenomeBuild,
     GenomicEvent,
@@ -298,6 +304,11 @@ class CnvMetricResult(StrictModel):
     lane_ids: list[str] = Field(default_factory=list)
     reason: str | None = None
     research_only: Literal[True] = True
+
+    @property
+    def metric_id(self) -> str:
+        """Content-addressed metric identity including value, denominator and provenance."""
+        return "metric-" + canonical_evidence_sha256(self)[:24]
 
     @model_validator(mode="after")
     def coherent_metric(self) -> CnvMetricResult:
@@ -577,9 +588,15 @@ def _metric_from_accumulator(
 def aggregate_cnv_event_metrics(
     registration: CnvValidationRegistration,
     evidence: CnvValidationEvidenceManifest,
+    *,
+    assignments: Sequence[CnvLaneEventAssignment] | None = None,
 ) -> list[CnvMetricResult]:
     """Aggregate locked lane assignments without re-matching inside strata."""
-    assignments = assign_cnv_validation_lanes(registration, evidence)
+    assignments = (
+        assign_cnv_validation_lanes(registration, evidence)
+        if assignments is None
+        else list(assignments)
+    )
     normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
     specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
 
@@ -932,9 +949,14 @@ def aggregate_cnv_run_state_metrics(
     evidence: CnvValidationEvidenceManifest,
     *,
     negative_assessments: Sequence[CnvNegativeUnitAssessment] = (),
+    assignments: Sequence[CnvLaneEventAssignment] | None = None,
 ) -> list[CnvMetricResult]:
     """Aggregate lane outcomes and specificity without inferring negative genomic units."""
-    assignments = assign_cnv_validation_lanes(registration, evidence)
+    assignments = (
+        assign_cnv_validation_lanes(registration, evidence)
+        if assignments is None
+        else list(assignments)
+    )
     assessments_by_lane = _validate_negative_assessments(
         registration,
         evidence,
@@ -1096,9 +1118,15 @@ def _quantitative_metric(
 def aggregate_cnv_quantitative_metrics(
     registration: CnvValidationRegistration,
     evidence: CnvValidationEvidenceManifest,
+    *,
+    assignments: Sequence[CnvLaneEventAssignment] | None = None,
 ) -> list[CnvMetricResult]:
     """Aggregate quantitative errors only where explicit orthogonal truth exists."""
-    assignments = assign_cnv_validation_lanes(registration, evidence)
+    assignments = (
+        assign_cnv_validation_lanes(registration, evidence)
+        if assignments is None
+        else list(assignments)
+    )
     normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
     specimen_by_id = {item.specimen_id: item for item in registration.cohort.specimens}
 
@@ -1281,9 +1309,15 @@ def _primary_events_by_lane(
 def aggregate_cnv_reproducibility_metrics(
     registration: CnvValidationRegistration,
     evidence: CnvValidationEvidenceManifest,
+    *,
+    assignments: Sequence[CnvLaneEventAssignment] | None = None,
 ) -> tuple[list[CnvMetricResult], list[CnvReproducibilityPair]]:
     """Compare repeated lanes symmetrically without treating two empty call sets as perfect."""
-    assignments = assign_cnv_validation_lanes(registration, evidence)
+    assignments = (
+        assign_cnv_validation_lanes(registration, evidence)
+        if assignments is None
+        else list(assignments)
+    )
     events_by_lane = _primary_events_by_lane(evidence)
     grouped: dict[
         tuple[str, str, str, str, str, int | None],
@@ -1430,3 +1464,342 @@ def aggregate_cnv_reproducibility_metrics(
             reason="No evaluable repeated-lane event pairs.",
         )
     return [overall], pairs
+
+
+class CnvAcceptanceDecision(StrEnum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    NO_CALL = "NO_CALL"
+    NOT_EVALUABLE = "NOT_EVALUABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class CnvAcceptanceResult(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    question_id: str
+    metric: CnvAcceptanceMetric
+    filters: dict[str, str | int | float | bool]
+    decision: CnvAcceptanceDecision
+    accepted: bool | None = None
+    metric_id: str | None = None
+    metric_value: float | None = None
+    evaluable_denominator: int = Field(ge=0)
+    minimum_evaluable_denominator: int = Field(ge=1)
+    minimum_acceptable: float | None = None
+    maximum_acceptable: float | None = None
+    reason: str | None = None
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_acceptance(self) -> CnvAcceptanceResult:
+        if self.metric_value is not None and not math.isfinite(self.metric_value):
+            raise ValueError("Acceptance metric value must be finite")
+        expected_accepted: bool | None
+        if self.decision == CnvAcceptanceDecision.PASS:
+            expected_accepted = True
+        elif self.decision == CnvAcceptanceDecision.FAIL:
+            expected_accepted = False
+        else:
+            expected_accepted = None
+        if self.accepted != expected_accepted:
+            raise ValueError("Acceptance decision and accepted flag disagree")
+        if self.decision in {CnvAcceptanceDecision.PASS, CnvAcceptanceDecision.FAIL}:
+            if self.metric_id is None or self.metric_value is None:
+                raise ValueError("PASS/FAIL acceptance requires a concrete metric")
+        return self
+
+
+def _technical_acceptance_stratum(
+    filters: dict[str, str | int | float | bool],
+) -> dict[str, str | int | float | bool] | None:
+    if filters == {"scope": "overall"}:
+        return {"scope": "overall"}
+    names = (
+        "caller",
+        "genome_build",
+        "data_basis",
+        "coverage",
+        "tumor_fraction",
+        "bin_size",
+    )
+    if not all(name in filters for name in names):
+        return None
+    return {name: filters[name] for name in names}
+
+
+def _evaluate_acceptance_question(
+    question: CnvAcceptanceQuestion,
+    metrics: Sequence[CnvMetricResult],
+) -> CnvAcceptanceResult:
+    matches = [
+        item
+        for item in metrics
+        if item.metric == question.metric and item.stratum_key == question.filters
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Acceptance question {question.question_id} matches multiple metric views"
+        )
+    if not matches:
+        return CnvAcceptanceResult(
+            question_id=question.question_id,
+            metric=question.metric,
+            filters=question.filters,
+            decision=CnvAcceptanceDecision.NOT_EVALUABLE,
+            evaluable_denominator=0,
+            minimum_evaluable_denominator=question.minimum_evaluable_denominator,
+            minimum_acceptable=question.minimum_acceptable,
+            maximum_acceptable=question.maximum_acceptable,
+            reason="No metric view exactly matches the registered acceptance filters.",
+        )
+
+    metric = matches[0]
+    common = {
+        "question_id": question.question_id,
+        "metric": question.metric,
+        "filters": question.filters,
+        "metric_id": metric.metric_id,
+        "metric_value": metric.value,
+        "evaluable_denominator": metric.evaluable_denominator,
+        "minimum_evaluable_denominator": question.minimum_evaluable_denominator,
+        "minimum_acceptable": question.minimum_acceptable,
+        "maximum_acceptable": question.maximum_acceptable,
+    }
+
+    if metric.state == CnvMetricEvaluationState.NOT_APPLICABLE:
+        return CnvAcceptanceResult(
+            **common,
+            decision=CnvAcceptanceDecision.NOT_APPLICABLE,
+            reason=metric.reason or "Registered metric is not applicable.",
+        )
+
+    if metric.state == CnvMetricEvaluationState.NOT_EVALUABLE:
+        technical = _technical_acceptance_stratum(question.filters)
+        if technical is not None:
+            no_call_matches = [
+                item
+                for item in metrics
+                if item.metric == CnvAcceptanceMetric.NO_CALL_RATE
+                and item.stratum_key == technical
+                and item.state == CnvMetricEvaluationState.EVALUABLE
+                and item.evaluable_denominator > 0
+                and item.value == 1.0
+            ]
+            if len(no_call_matches) == 1:
+                return CnvAcceptanceResult(
+                    **common,
+                    decision=CnvAcceptanceDecision.NO_CALL,
+                    reason="All executed lanes for this technical stratum were NO_CALL.",
+                )
+        return CnvAcceptanceResult(
+            **common,
+            decision=CnvAcceptanceDecision.NOT_EVALUABLE,
+            reason=metric.reason or "Metric is not evaluable.",
+        )
+
+    if metric.evaluable_denominator < question.minimum_evaluable_denominator:
+        return CnvAcceptanceResult(
+            **common,
+            decision=CnvAcceptanceDecision.NOT_EVALUABLE,
+            reason=(
+                "Metric denominator is below the prospectively registered "
+                "minimum_evaluable_denominator."
+            ),
+        )
+
+    if metric.value is None:
+        raise ValueError("Evaluable metric unexpectedly lacks a value")
+
+    accepted = True
+    if question.minimum_acceptable is not None:
+        accepted = accepted and metric.value >= question.minimum_acceptable
+    if question.maximum_acceptable is not None:
+        accepted = accepted and metric.value <= question.maximum_acceptable
+    return CnvAcceptanceResult(
+        **common,
+        decision=CnvAcceptanceDecision.PASS if accepted else CnvAcceptanceDecision.FAIL,
+        accepted=accepted,
+    )
+
+
+def _verify_metric_provenance(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+    assignments: Sequence[CnvLaneEventAssignment],
+    metrics: Sequence[CnvMetricResult],
+) -> None:
+    expected_manifest_sha256 = canonical_evidence_sha256(
+        evidence.model_dump(mode="json", exclude={"manifest_sha256"})
+    )
+    if evidence.manifest_sha256 != expected_manifest_sha256:
+        raise ValueError("Evidence manifest changed after its Block-2 content lock")
+
+    full_by_id = {item.record_id: item for item in evidence.full_evidence}
+    normalized_by_id = {item.normalized_event_id: item for item in evidence.normalized_events}
+    truth_ids = {
+        event.event_id
+        for specimen in registration.cohort.specimens
+        for event in specimen.truth_events
+    }
+    lane_ids = {item.lane_id for item in assignments}
+
+    for metric in metrics:
+        if metric.registration_sha256 != registration.lock_sha256:
+            raise ValueError("Metric provenance references a different registration")
+        if metric.evidence_manifest_sha256 != evidence.manifest_sha256:
+            raise ValueError("Metric provenance references a different evidence manifest")
+        missing_truth = set(metric.truth_event_ids) - truth_ids
+        if missing_truth:
+            raise ValueError("Metric references unknown registered truth events")
+        missing_normalized = set(metric.normalized_event_ids) - set(normalized_by_id)
+        if missing_normalized:
+            raise ValueError("Metric references unknown normalized CNV events")
+        missing_full = set(metric.full_evidence_ids) - set(full_by_id)
+        if missing_full:
+            raise ValueError("Metric references unknown full-evidence records")
+        missing_lanes = set(metric.lane_ids) - lane_ids
+        if missing_lanes:
+            raise ValueError("Metric references unknown analytical lanes")
+        metric_full_ids = set(metric.full_evidence_ids)
+        for normalized_id in metric.normalized_event_ids:
+            sources = set(normalized_by_id[normalized_id].source_full_evidence_ids)
+            if not sources.issubset(metric_full_ids):
+                raise ValueError(
+                    "Metric normalized-event provenance is missing its Block-2 source evidence"
+                )
+
+
+class CnvValidationMetricReport(StrictModel):
+    schema_version: Literal["0.1.0"] = "0.1.0"
+    report_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+    registration_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidence_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    matching_thresholds: BenchmarkThresholds
+    assignments: list[CnvLaneEventAssignment]
+    metrics: list[CnvMetricResult]
+    acceptance_results: list[CnvAcceptanceResult]
+    negative_unit_assessments: list[CnvNegativeUnitAssessment] = Field(default_factory=list)
+    reproducibility_pairs: list[CnvReproducibilityPair] = Field(default_factory=list)
+    report_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    retain_all_evidence: Literal[True] = True
+    clinical_validity_claimed: Literal[False] = False
+    sensitive_output: Literal[True] = True
+    research_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_report(self) -> CnvValidationMetricReport:
+        lane_ids = [item.lane_id for item in self.assignments]
+        if len(lane_ids) != len(set(lane_ids)):
+            raise ValueError("Validation report lane assignments must be unique")
+        metric_ids = [item.metric_id for item in self.metrics]
+        if len(metric_ids) != len(set(metric_ids)):
+            raise ValueError("Validation report metric views must be unique")
+        question_ids = [item.question_id for item in self.acceptance_results]
+        if len(question_ids) != len(set(question_ids)):
+            raise ValueError("Validation report acceptance question IDs must be unique")
+        metric_id_set = set(metric_ids)
+        for result in self.acceptance_results:
+            if result.metric_id is not None and result.metric_id not in metric_id_set:
+                raise ValueError("Acceptance result references a metric outside the report")
+        for metric in self.metrics:
+            if metric.registration_sha256 != self.registration_sha256:
+                raise ValueError("Report contains metric from another registration")
+            if metric.evidence_manifest_sha256 != self.evidence_manifest_sha256:
+                raise ValueError("Report contains metric from another evidence manifest")
+        for assessment in self.negative_unit_assessments:
+            if assessment.registration_sha256 != self.registration_sha256:
+                raise ValueError("Report contains specificity assessment from another registration")
+            if assessment.evidence_manifest_sha256 != self.evidence_manifest_sha256:
+                raise ValueError(
+                    "Report contains specificity assessment from another evidence manifest"
+                )
+        for assignment in self.assignments:
+            if (
+                assignment.minimum_reciprocal_overlap
+                != self.matching_thresholds.minimum_reciprocal_overlap
+                or assignment.copy_number_tolerance
+                != self.matching_thresholds.copy_number_tolerance
+            ):
+                raise ValueError("Report assignment matching policy differs from report lock")
+
+        expected_sha256 = canonical_evidence_sha256(
+            self.model_dump(mode="json", exclude={"report_sha256"})
+        )
+        if self.report_sha256 != expected_sha256:
+            raise ValueError("Validation report content does not match report_sha256")
+        return self
+
+
+def aggregate_cnv_validation(
+    registration: CnvValidationRegistration,
+    evidence: CnvValidationEvidenceManifest,
+    *,
+    report_id: str,
+    negative_assessments: Sequence[CnvNegativeUnitAssessment] = (),
+) -> CnvValidationMetricReport:
+    """Build a deterministic RUO metric report from one locked registration/evidence pair."""
+    assignments = assign_cnv_validation_lanes(registration, evidence)
+    event_metrics = aggregate_cnv_event_metrics(
+        registration,
+        evidence,
+        assignments=assignments,
+    )
+    run_metrics = aggregate_cnv_run_state_metrics(
+        registration,
+        evidence,
+        negative_assessments=negative_assessments,
+        assignments=assignments,
+    )
+    quantitative_metrics = aggregate_cnv_quantitative_metrics(
+        registration,
+        evidence,
+        assignments=assignments,
+    )
+    reproducibility_metrics, reproducibility_pairs = aggregate_cnv_reproducibility_metrics(
+        registration,
+        evidence,
+        assignments=assignments,
+    )
+    metrics = [
+        *event_metrics,
+        *run_metrics,
+        *quantitative_metrics,
+        *reproducibility_metrics,
+    ]
+    metrics.sort(
+        key=lambda item: (
+            item.metric.value,
+            canonical_evidence_sha256(item.stratum_key),
+        )
+    )
+
+    _verify_metric_provenance(registration, evidence, assignments, metrics)
+    acceptance_results = [
+        _evaluate_acceptance_question(question, metrics)
+        for question in registration.matrix.acceptance
+    ]
+
+    payload = {
+        "schema_version": "0.1.0",
+        "report_id": report_id,
+        "registration_sha256": registration.lock_sha256,
+        "evidence_manifest_sha256": evidence.manifest_sha256,
+        "matching_thresholds": registration.matrix.matching_thresholds.model_dump(mode="json"),
+        "assignments": [item.model_dump(mode="json") for item in assignments],
+        "metrics": [item.model_dump(mode="json") for item in metrics],
+        "acceptance_results": [
+            item.model_dump(mode="json") for item in acceptance_results
+        ],
+        "negative_unit_assessments": [
+            item.model_dump(mode="json") for item in negative_assessments
+        ],
+        "reproducibility_pairs": [
+            item.model_dump(mode="json") for item in reproducibility_pairs
+        ],
+        "retain_all_evidence": True,
+        "clinical_validity_claimed": False,
+        "sensitive_output": True,
+        "research_only": True,
+    }
+    payload["report_sha256"] = canonical_evidence_sha256(payload)
+    return CnvValidationMetricReport.model_validate(payload)
