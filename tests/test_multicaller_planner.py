@@ -220,6 +220,82 @@ class MultiCallerPlanSealingTests(unittest.TestCase):
             second_lanes["lane-qdnaseq_ace-multibin"].lane_sha256,
         )
 
+    def test_wakhan_without_breakpoint_parent_is_independently_eligible(self) -> None:
+        wakhan = _request(
+            CallerMode.WAKHAN_PHASED_CNA,
+            CallerAssayRegime.TUMOR_NORMAL_LONG_READ,
+            _input(CallerInputRole.TUMOR_BAM, "wakhan-tumor"),
+            _input(CallerInputRole.PHASED_VARIANTS, "wakhan-phased"),
+        )
+
+        plan = seal_multicaller_plan(
+            plan_id="synthetic-wakhan-no-parent",
+            requests=[wakhan],
+            runtime_availability=self._runtime_map(CallerMode.WAKHAN_PHASED_CNA),
+        )
+
+        lane = plan.lanes[0]
+        self.assertEqual(lane.decision, CallerPlanningDecision.ELIGIBLE)
+        self.assertEqual(lane.parent_lane_sha256s, {})
+
+    def test_wakhan_accepts_optional_severus_parent_and_binds_exact_parent_lock(self) -> None:
+        severus = _request(
+            CallerMode.SEVERUS_PAIRED,
+            CallerAssayRegime.TUMOR_NORMAL_LONG_READ,
+            _input(CallerInputRole.TUMOR_BAM, "severus-tumor"),
+            _input(CallerInputRole.MATCHED_NORMAL_BAM, "severus-normal"),
+        ).model_copy(update={"lane_id": "lane-severus"})
+        wakhan = _request(
+            CallerMode.WAKHAN_PHASED_CNA,
+            CallerAssayRegime.TUMOR_NORMAL_LONG_READ,
+            _input(CallerInputRole.TUMOR_BAM, "wakhan-tumor"),
+            _input(CallerInputRole.PHASED_VARIANTS, "wakhan-phased"),
+            parents=("lane-severus",),
+        )
+
+        plan = seal_multicaller_plan(
+            plan_id="synthetic-wakhan-severus-parent",
+            requests=[severus, wakhan],
+            runtime_availability=self._runtime_map(
+                CallerMode.SEVERUS_PAIRED,
+                CallerMode.WAKHAN_PHASED_CNA,
+            ),
+        )
+        lanes = {item.lane_id: item for item in plan.lanes}
+
+        self.assertEqual(
+            lanes["lane-wakhan-phased_cna"].decision,
+            CallerPlanningDecision.ELIGIBLE,
+        )
+        self.assertEqual(
+            lanes["lane-wakhan-phased_cna"].parent_lane_sha256s,
+            {"lane-severus": lanes["lane-severus"].lane_sha256},
+        )
+
+    def test_wakhan_rejects_non_severus_optional_parent(self) -> None:
+        cutesv = _request(
+            CallerMode.CUTESV_STANDARD,
+            CallerAssayRegime.TUMOR_NORMAL_LONG_READ,
+            _input(CallerInputRole.ALIGNED_BAM, "cutesv-bam"),
+        ).model_copy(update={"lane_id": "lane-cutesv"})
+        wakhan = _request(
+            CallerMode.WAKHAN_PHASED_CNA,
+            CallerAssayRegime.TUMOR_NORMAL_LONG_READ,
+            _input(CallerInputRole.TUMOR_BAM, "wakhan-tumor"),
+            _input(CallerInputRole.PHASED_VARIANTS, "wakhan-phased"),
+            parents=("lane-cutesv",),
+        )
+
+        with self.assertRaisesRegex(ValueError, "unsupported parent"):
+            seal_multicaller_plan(
+                plan_id="synthetic-wakhan-wrong-parent",
+                requests=[cutesv, wakhan],
+                runtime_availability=self._runtime_map(
+                    CallerMode.CUTESV_STANDARD,
+                    CallerMode.WAKHAN_PHASED_CNA,
+                ),
+            )
+
     def test_plan_lock_is_deterministic_across_request_order(self) -> None:
         first_request = _request(
             CallerMode.QDNASEQ_ACE_MULTIBIN,
