@@ -379,7 +379,8 @@ class CnvMetricResult(StrictModel):
             for field_name, allowed in unions.items():
                 if not set(getattr(membership, field_name)).issubset(allowed):
                     raise ValueError(
-                        f"Metric {field_name} membership must be present in the metric provenance union"
+                        "Metric membership must be present in the metric provenance union: "
+                        + field_name
                     )
             for pair in membership.event_pairs:
                 if pair.truth_event_id not in unions["truth_event_ids"]:
