@@ -436,6 +436,18 @@ class _EventMetricAccumulator:
     normalized_event_ids: set[str] = field(default_factory=set)
     full_evidence_ids: set[str] = field(default_factory=set)
     lane_ids: set[str] = field(default_factory=set)
+    tp_event_pairs: set[tuple[str, str]] = field(default_factory=set)
+    tp_truth_event_ids: set[str] = field(default_factory=set)
+    fn_truth_event_ids: set[str] = field(default_factory=set)
+    tp_normalized_event_ids: set[str] = field(default_factory=set)
+    fp_normalized_event_ids: set[str] = field(default_factory=set)
+    tp_full_evidence_ids: set[str] = field(default_factory=set)
+    fp_full_evidence_ids: set[str] = field(default_factory=set)
+    truth_lane_ids: set[str] = field(default_factory=set)
+    query_lane_ids: set[str] = field(default_factory=set)
+    truth_run_summary_full_evidence_ids: set[str] = field(default_factory=set)
+    query_run_summary_full_evidence_ids: set[str] = field(default_factory=set)
+    observed_run_summary_full_evidence_ids: set[str] = field(default_factory=set)
 
 
 def _format_cutpoint(value: float | int) -> str:
@@ -575,6 +587,106 @@ def _stratum_address(
     return tuple(sorted(value.items()))
 
 
+def _event_pairs(
+    values: set[tuple[str, str]],
+) -> list[CnvMetricEventPair]:
+    return [
+        CnvMetricEventPair(truth_event_id=truth_id, normalized_event_id=normalized_id)
+        for truth_id, normalized_id in sorted(values)
+    ]
+
+
+def _event_metric_memberships(
+    metric: CnvAcceptanceMetric,
+    accumulator: _EventMetricAccumulator,
+) -> tuple[CnvMetricMembership, CnvMetricMembership]:
+    tp_pairs = _event_pairs(accumulator.tp_event_pairs)
+    if metric == CnvAcceptanceMetric.SENSITIVITY:
+        return (
+            CnvMetricMembership(
+                truth_event_ids=sorted(accumulator.tp_truth_event_ids),
+                normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
+                full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
+                lane_ids=sorted(accumulator.truth_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+            CnvMetricMembership(
+                truth_event_ids=sorted(
+                    accumulator.tp_truth_event_ids | accumulator.fn_truth_event_ids
+                ),
+                normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
+                full_evidence_ids=sorted(
+                    accumulator.tp_full_evidence_ids
+                    | accumulator.truth_run_summary_full_evidence_ids
+                ),
+                lane_ids=sorted(accumulator.truth_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+        )
+    if metric == CnvAcceptanceMetric.PRECISION:
+        return (
+            CnvMetricMembership(
+                truth_event_ids=sorted(accumulator.tp_truth_event_ids),
+                normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
+                full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
+                lane_ids=sorted(accumulator.query_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+            CnvMetricMembership(
+                truth_event_ids=sorted(accumulator.tp_truth_event_ids),
+                normalized_event_ids=sorted(
+                    accumulator.tp_normalized_event_ids | accumulator.fp_normalized_event_ids
+                ),
+                full_evidence_ids=sorted(
+                    accumulator.tp_full_evidence_ids
+                    | accumulator.fp_full_evidence_ids
+                    | accumulator.query_run_summary_full_evidence_ids
+                ),
+                lane_ids=sorted(accumulator.query_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+        )
+    if metric == CnvAcceptanceMetric.F1:
+        return (
+            CnvMetricMembership(
+                truth_event_ids=sorted(accumulator.tp_truth_event_ids),
+                normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
+                full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
+                lane_ids=sorted(accumulator.truth_lane_ids | accumulator.query_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+            CnvMetricMembership(
+                truth_event_ids=sorted(
+                    accumulator.tp_truth_event_ids | accumulator.fn_truth_event_ids
+                ),
+                normalized_event_ids=sorted(
+                    accumulator.tp_normalized_event_ids | accumulator.fp_normalized_event_ids
+                ),
+                full_evidence_ids=sorted(
+                    accumulator.tp_full_evidence_ids
+                    | accumulator.fp_full_evidence_ids
+                    | accumulator.truth_run_summary_full_evidence_ids
+                    | accumulator.query_run_summary_full_evidence_ids
+                ),
+                lane_ids=sorted(accumulator.truth_lane_ids | accumulator.query_lane_ids),
+                event_pairs=tp_pairs,
+            ),
+        )
+    if metric == CnvAcceptanceMetric.FALSE_POSITIVE_BURDEN:
+        return (
+            CnvMetricMembership(
+                normalized_event_ids=sorted(accumulator.fp_normalized_event_ids),
+                full_evidence_ids=sorted(accumulator.fp_full_evidence_ids),
+                lane_ids=sorted(accumulator.query_lane_ids),
+            ),
+            CnvMetricMembership(
+                full_evidence_ids=sorted(accumulator.observed_run_summary_full_evidence_ids),
+                lane_ids=sorted(accumulator.observed_lane_ids),
+            ),
+        )
+    raise ValueError(f"Unsupported event metric membership: {metric.value}")
+
+
 def _metric_from_accumulator(
     *,
     metric: CnvAcceptanceMetric,
@@ -627,6 +739,10 @@ def _metric_from_accumulator(
     else:
         raise ValueError(f"Unsupported event metric: {metric.value}")
 
+    numerator_membership, denominator_membership = _event_metric_memberships(
+        metric,
+        accumulator,
+    )
     return CnvMetricResult(
         metric=metric,
         stratum_key=stratum_key,
@@ -646,6 +762,8 @@ def _metric_from_accumulator(
         normalized_event_ids=sorted(accumulator.normalized_event_ids),
         full_evidence_ids=sorted(accumulator.full_evidence_ids),
         lane_ids=sorted(accumulator.lane_ids),
+        numerator_membership=numerator_membership,
+        denominator_membership=denominator_membership,
         reason=reason,
     )
 
@@ -678,12 +796,18 @@ def aggregate_cnv_event_metrics(
         lane = assignment.lane
         technical = _lane_technical_stratum(lane, registration)
         overall.observed_lane_ids.add(assignment.lane_id)
+        overall.observed_run_summary_full_evidence_ids.add(
+            assignment.run_summary_full_evidence_id
+        )
         overall.lane_ids.add(assignment.lane_id)
         overall.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
         for address, key in keys_by_address.items():
             if all(key.get(name) == value for name, value in technical.items()):
                 accumulators[address].observed_lane_ids.add(assignment.lane_id)
+                accumulators[address].observed_run_summary_full_evidence_ids.add(
+                    assignment.run_summary_full_evidence_id
+                )
                 accumulators[address].lane_ids.add(assignment.lane_id)
                 accumulators[address].full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
@@ -715,6 +839,18 @@ def aggregate_cnv_event_metrics(
             truth_acc.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             truth_acc.full_evidence_ids.update(query.source_full_evidence_ids)
             truth_acc.lane_ids.add(assignment.lane_id)
+            truth_acc.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
+            truth_acc.tp_truth_event_ids.add(truth.event_id)
+            truth_acc.tp_normalized_event_ids.add(query.normalized_event_id)
+            truth_acc.tp_full_evidence_ids.update(query.source_full_evidence_ids)
+            truth_acc.truth_lane_ids.add(assignment.lane_id)
+            truth_acc.query_lane_ids.add(assignment.lane_id)
+            truth_acc.truth_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
+            truth_acc.query_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
 
             query_acc = accumulators[_stratum_address(query_key)]
             query_acc.tp_query += 1
@@ -723,12 +859,36 @@ def aggregate_cnv_event_metrics(
             query_acc.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             query_acc.full_evidence_ids.update(query.source_full_evidence_ids)
             query_acc.lane_ids.add(assignment.lane_id)
+            query_acc.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
+            query_acc.tp_truth_event_ids.add(truth.event_id)
+            query_acc.tp_normalized_event_ids.add(query.normalized_event_id)
+            query_acc.tp_full_evidence_ids.update(query.source_full_evidence_ids)
+            query_acc.truth_lane_ids.add(assignment.lane_id)
+            query_acc.query_lane_ids.add(assignment.lane_id)
+            query_acc.truth_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
+            query_acc.query_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
 
             overall.tp_truth += 1
             overall.tp_query += 1
             overall.truth_event_ids.add(truth.event_id)
             overall.normalized_event_ids.add(query.normalized_event_id)
             overall.full_evidence_ids.update(query.source_full_evidence_ids)
+            overall.tp_event_pairs.add((truth.event_id, query.normalized_event_id))
+            overall.tp_truth_event_ids.add(truth.event_id)
+            overall.tp_normalized_event_ids.add(query.normalized_event_id)
+            overall.tp_full_evidence_ids.update(query.source_full_evidence_ids)
+            overall.truth_lane_ids.add(assignment.lane_id)
+            overall.query_lane_ids.add(assignment.lane_id)
+            overall.truth_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
+            overall.query_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
 
         for truth_id in assignment.unmatched_truth_event_ids:
             truth = truth_by_id[truth_id]
@@ -742,10 +902,20 @@ def aggregate_cnv_event_metrics(
             accumulator = accumulators[_stratum_address(key)]
             accumulator.false_negative += 1
             accumulator.truth_event_ids.add(truth.event_id)
+            accumulator.fn_truth_event_ids.add(truth.event_id)
+            accumulator.truth_lane_ids.add(assignment.lane_id)
+            accumulator.truth_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
             accumulator.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             accumulator.lane_ids.add(assignment.lane_id)
             overall.false_negative += 1
             overall.truth_event_ids.add(truth.event_id)
+            overall.fn_truth_event_ids.add(truth.event_id)
+            overall.truth_lane_ids.add(assignment.lane_id)
+            overall.truth_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
 
         for normalized_id in assignment.unmatched_normalized_event_ids:
             query = normalized_by_id[normalized_id]
@@ -759,11 +929,23 @@ def aggregate_cnv_event_metrics(
             accumulator = accumulators[_stratum_address(key)]
             accumulator.false_positive += 1
             accumulator.normalized_event_ids.add(query.normalized_event_id)
+            accumulator.fp_normalized_event_ids.add(query.normalized_event_id)
+            accumulator.fp_full_evidence_ids.update(query.source_full_evidence_ids)
+            accumulator.query_lane_ids.add(assignment.lane_id)
+            accumulator.query_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
             accumulator.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             accumulator.full_evidence_ids.update(query.source_full_evidence_ids)
             accumulator.lane_ids.add(assignment.lane_id)
             overall.false_positive += 1
             overall.normalized_event_ids.add(query.normalized_event_id)
+            overall.fp_normalized_event_ids.add(query.normalized_event_id)
+            overall.fp_full_evidence_ids.update(query.source_full_evidence_ids)
+            overall.query_lane_ids.add(assignment.lane_id)
+            overall.query_run_summary_full_evidence_ids.add(
+                assignment.run_summary_full_evidence_id
+            )
             overall.full_evidence_ids.update(query.source_full_evidence_ids)
 
     metrics_to_emit = (
