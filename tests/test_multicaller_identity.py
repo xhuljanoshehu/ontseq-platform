@@ -3,12 +3,11 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from pydantic import ValidationError
-
 from ontseq_platform.multicaller_identity import (
     CallerEvidenceSourceKind,
     build_multicaller_collection_address,
 )
+from pydantic import ValidationError
 
 
 def _sha(value: str) -> str:
