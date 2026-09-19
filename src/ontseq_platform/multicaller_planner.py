@@ -6,13 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from .multicaller_contracts import (
+    CallerLanePlan,
+    CallerLaneRequest,
     CallerMode,
     CallerPlanningDecision,
     MultiCallerPlan,
     SealedCallerLanePlan,
-    CallerLanePlan,
-    CallerLaneRequest,
-    CallerPlanningDecision,
     get_caller_catalog_entry,
 )
 
