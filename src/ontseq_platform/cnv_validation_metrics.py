@@ -315,10 +315,7 @@ class CnvMetricMembership(StrictModel):
         ):
             if len(values) != len(set(values)):
                 raise ValueError(f"Metric membership {label} must be unique")
-        pairs = [
-            (item.truth_event_id, item.normalized_event_id)
-            for item in self.event_pairs
-        ]
+        pairs = [(item.truth_event_id, item.normalized_event_id) for item in self.event_pairs]
         if len(pairs) != len(set(pairs)):
             raise ValueError("Metric event-pair memberships must be unique")
         return self
@@ -661,9 +658,7 @@ def _event_metric_memberships(
                 truth_event_ids=sorted(accumulator.tp_truth_event_ids),
                 normalized_event_ids=sorted(accumulator.tp_normalized_event_ids),
                 full_evidence_ids=sorted(accumulator.tp_full_evidence_ids),
-                lane_ids=sorted(
-                    accumulator.tp_truth_lane_ids | accumulator.tp_query_lane_ids
-                ),
+                lane_ids=sorted(accumulator.tp_truth_lane_ids | accumulator.tp_query_lane_ids),
                 event_pairs=tp_pairs,
             ),
             CnvMetricMembership(
@@ -807,9 +802,7 @@ def aggregate_cnv_event_metrics(
         lane = assignment.lane
         technical = _lane_technical_stratum(lane, registration)
         overall.observed_lane_ids.add(assignment.lane_id)
-        overall.observed_run_summary_full_evidence_ids.add(
-            assignment.run_summary_full_evidence_id
-        )
+        overall.observed_run_summary_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
         overall.lane_ids.add(assignment.lane_id)
         overall.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
@@ -900,12 +893,8 @@ def aggregate_cnv_event_metrics(
             overall.tp_full_evidence_ids.update(query.source_full_evidence_ids)
             overall.truth_lane_ids.add(assignment.lane_id)
             overall.query_lane_ids.add(assignment.lane_id)
-            overall.truth_run_summary_full_evidence_ids.add(
-                assignment.run_summary_full_evidence_id
-            )
-            overall.query_run_summary_full_evidence_ids.add(
-                assignment.run_summary_full_evidence_id
-            )
+            overall.truth_run_summary_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
+            overall.query_run_summary_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
         for truth_id in assignment.unmatched_truth_event_ids:
             truth = truth_by_id[truth_id]
@@ -932,9 +921,7 @@ def aggregate_cnv_event_metrics(
             overall.fn_truth_event_ids.add(truth.event_id)
             overall.fn_truth_lane_ids.add(assignment.lane_id)
             overall.truth_lane_ids.add(assignment.lane_id)
-            overall.truth_run_summary_full_evidence_ids.add(
-                assignment.run_summary_full_evidence_id
-            )
+            overall.truth_run_summary_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
         for normalized_id in assignment.unmatched_normalized_event_ids:
             query = normalized_by_id[normalized_id]
@@ -964,9 +951,7 @@ def aggregate_cnv_event_metrics(
             overall.fp_full_evidence_ids.update(query.source_full_evidence_ids)
             overall.fp_query_lane_ids.add(assignment.lane_id)
             overall.query_lane_ids.add(assignment.lane_id)
-            overall.query_run_summary_full_evidence_ids.add(
-                assignment.run_summary_full_evidence_id
-            )
+            overall.query_run_summary_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             overall.full_evidence_ids.update(query.source_full_evidence_ids)
 
     metrics_to_emit = (
@@ -1292,24 +1277,16 @@ def aggregate_cnv_run_state_metrics(
             target.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             if assignment.run_outcome == CnvRunOutcomeState.OBSERVED:
                 target.observed_lane_ids.add(assignment.lane_id)
-                target.observed_full_evidence_ids.add(
-                    assignment.run_summary_full_evidence_id
-                )
+                target.observed_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             elif assignment.run_outcome == CnvRunOutcomeState.NO_CALL:
                 target.no_call_lane_ids.add(assignment.lane_id)
-                target.no_call_full_evidence_ids.add(
-                    assignment.run_summary_full_evidence_id
-                )
+                target.no_call_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             elif assignment.run_outcome == CnvRunOutcomeState.FAILED:
                 target.failed_lane_ids.add(assignment.lane_id)
-                target.failed_full_evidence_ids.add(
-                    assignment.run_summary_full_evidence_id
-                )
+                target.failed_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             elif assignment.run_outcome == CnvRunOutcomeState.NOT_ASSESSABLE:
                 target.not_assessable_lane_ids.add(assignment.lane_id)
-                target.not_assessable_full_evidence_ids.add(
-                    assignment.run_summary_full_evidence_id
-                )
+                target.not_assessable_full_evidence_ids.add(assignment.run_summary_full_evidence_id)
 
     rate_metrics = (
         CnvAcceptanceMetric.NO_CALL_RATE,
@@ -1764,9 +1741,7 @@ def aggregate_cnv_reproducibility_metrics(
     evaluable_pair_ids = {item.pair_id for item in evaluable_pairs}
     excluded_pair_ids = all_pair_ids - evaluable_pair_ids
     evaluable_lane_ids = {
-        lane_id
-        for item in evaluable_pairs
-        for lane_id in (item.left_lane_id, item.right_lane_id)
+        lane_id for item in evaluable_pairs for lane_id in (item.left_lane_id, item.right_lane_id)
     }
     evaluable_normalized_ids = {
         event_id
@@ -1774,9 +1749,7 @@ def aggregate_cnv_reproducibility_metrics(
         for event_id in item.left_normalized_event_ids + item.right_normalized_event_ids
     }
     evaluable_full_ids = {
-        full_id
-        for lane_id in evaluable_lane_ids
-        for full_id in full_by_lane.get(lane_id, set())
+        full_id for lane_id in evaluable_lane_ids for full_id in full_by_lane.get(lane_id, set())
     }
     denominator_membership = CnvMetricMembership(
         normalized_event_ids=sorted(evaluable_normalized_ids),
@@ -2038,9 +2011,7 @@ def _verify_metric_provenance(
         missing_lanes = set(metric.lane_ids) - lane_ids
         if missing_lanes:
             raise ValueError("Metric references unknown analytical lanes")
-        missing_negative_assessments = (
-            set(metric.negative_assessment_ids) - negative_assessment_ids
-        )
+        missing_negative_assessments = set(metric.negative_assessment_ids) - negative_assessment_ids
         if missing_negative_assessments:
             raise ValueError("Metric references unknown negative-unit assessments")
         missing_reproducibility_pairs = (
@@ -2104,12 +2075,8 @@ class CnvValidationMetricReport(StrictModel):
             for assignment in self.assignments
             for match in assignment.matches
         }
-        negative_assessment_ids = {
-            item.assessment_id for item in self.negative_unit_assessments
-        }
-        reproducibility_pair_ids = {
-            item.pair_id for item in self.reproducibility_pairs
-        }
+        negative_assessment_ids = {item.assessment_id for item in self.negative_unit_assessments}
+        reproducibility_pair_ids = {item.pair_id for item in self.reproducibility_pairs}
         for result in self.acceptance_results:
             if result.metric_id is not None and result.metric_id not in metric_id_set:
                 raise ValueError("Acceptance result references a metric outside the report")
@@ -2120,9 +2087,7 @@ class CnvValidationMetricReport(StrictModel):
                 raise ValueError("Report contains metric from another evidence manifest")
             if not set(metric.negative_assessment_ids).issubset(negative_assessment_ids):
                 raise ValueError("Report metric references absent negative-unit assessment")
-            if not set(metric.reproducibility_pair_ids).issubset(
-                reproducibility_pair_ids
-            ):
+            if not set(metric.reproducibility_pair_ids).issubset(reproducibility_pair_ids):
                 raise ValueError("Report metric references absent reproducibility pair")
             for membership in (
                 metric.numerator_membership,

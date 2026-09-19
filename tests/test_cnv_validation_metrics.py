@@ -1551,7 +1551,6 @@ class CnvExactMetricProvenanceTests(unittest.TestCase):
             [pairs[0].pair_id],
         )
 
-
     def test_sensitivity_numerator_excludes_fn_only_lane(self) -> None:
         registration = _repeat_registration()
         first, second = registration.cohort.specimens
@@ -1591,9 +1590,7 @@ class CnvExactMetricProvenanceTests(unittest.TestCase):
             normalized_events=[first_event],
         )
         assignments = assign_cnv_validation_lanes(registration, evidence)
-        lane_by_specimen = {
-            item.lane.specimen_id: item.lane_id for item in assignments
-        }
+        lane_by_specimen = {item.lane.specimen_id: item.lane_id for item in assignments}
         metric = _find_metric(
             aggregate_cnv_event_metrics(
                 registration,
@@ -1652,12 +1649,9 @@ class CnvExactMetricProvenanceTests(unittest.TestCase):
         target = next(
             item
             for item in payload["metrics"]
-            if item["metric"] == "sensitivity"
-            and item["stratum_key"] == {"scope": "overall"}
+            if item["metric"] == "sensitivity" and item["stratum_key"] == {"scope": "overall"}
         )
-        target["numerator_membership"]["event_pairs"][0][
-            "normalized_event_id"
-        ] = "normalized-fp"
+        target["numerator_membership"]["event_pairs"][0]["normalized_event_id"] = "normalized-fp"
         payload["report_sha256"] = canonical_evidence_sha256(
             {key: value for key, value in payload.items() if key != "report_sha256"}
         )
