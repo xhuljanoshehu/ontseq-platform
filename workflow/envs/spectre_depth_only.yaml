@@ -1,0 +1,17 @@
+name: ontseq-spectre-depth-only
+channels:
+  - conda-forge
+channel_priority: strict
+dependencies:
+  - python=3.11
+  - pip
+  - pytest>=8
+  - pydantic>=2.8,<3
+  - pyyaml>=6,<7
+  - numpy=1.24.3
+  - pandas=2.0.1
+  - scipy=1.10.1
+  - matplotlib=3.7.1
+  - pip:
+      - "https://files.pythonhosted.org/packages/1a/33/3d3892efab21256011bc7ee8d9911787583b93cd45a6d9a07b27c98f8df0/pysam-0.22.0-cp311-cp311-manylinux_2_28_x86_64.whl#sha256=4779a99d1ece17a98724d87a5c10c455cf212b3baa3a8399d3d072e4d0ae5ba0"
+      - "https://files.pythonhosted.org/packages/7b/5f/8ca2e17fbb891b0196d409f6315145c3eb26951dd79dd6e68561e01f5793/spectre_cnv-0.2.1-py3-none-any.whl#sha256=c50998798a33b22455f3681a69c5c61e82df3fe049224da6d2e54b068bc35510"
