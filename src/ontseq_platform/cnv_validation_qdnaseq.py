@@ -329,7 +329,9 @@ def map_qdnaseq_ace_full_evidence(
         contribution_status = CnvContributionStatus.NO_CALL
         outcome_reason = "QDNAseq+ACE completed without normalized CNV events."
     else:
-        raise ValueError(f"Unsupported QDNAseq report status for validation evidence: {report.status}")
+        raise ValueError(
+            f"Unsupported QDNAseq report status for validation evidence: {report.status}"
+        )
 
     full_evidence: list[CnvFullEvidenceRecord] = [
         CnvFullEvidenceRecord.model_validate(
