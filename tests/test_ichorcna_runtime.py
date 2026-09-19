@@ -151,20 +151,24 @@ class FakeIchorRunner:
 
 class IchorCnaRuntimeTests(unittest.TestCase):
     def test_command_uses_read_depth_resources_and_never_a_bam(self) -> None:
-        policy = _policy(Path("/tmp/runIchorCNA.R"))
-        argv = build_ichorcna_argv(
-            rscript="Rscript",
-            ichorcna_script=Path("/tmp/runIchorCNA.R"),
-            coverage_wig=Path("/tmp/sample.wig"),
-            gc_wig=Path("/tmp/gc.wig"),
-            mappability_wig=Path("/tmp/map.wig"),
-            centromere=Path("/tmp/centromere.txt"),
-            sample_id="CFDNA_001",
-            output_dir=Path("/tmp/ichor"),
-            policy=policy,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "runIchorCNA.R"
+            _write(script, "# synthetic runIchorCNA.R\n")
+            policy = _policy(script)
+            argv = build_ichorcna_argv(
+                rscript="Rscript",
+                ichorcna_script=script,
+                coverage_wig=Path("/tmp/sample.wig"),
+                gc_wig=Path("/tmp/gc.wig"),
+                mappability_wig=Path("/tmp/map.wig"),
+                centromere=Path("/tmp/centromere.txt"),
+                sample_id="CFDNA_001",
+                output_dir=Path("/tmp/ichor"),
+                policy=policy,
+            )
 
-        self.assertEqual(argv[:2], ("Rscript", "/tmp/runIchorCNA.R"))
+        self.assertEqual(argv[:2], ("Rscript", str(script)))
         self.assertIn("--WIG", argv)
         self.assertIn("--gcWig", argv)
         self.assertIn("--mapWig", argv)
