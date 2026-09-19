@@ -1,6 +1,7 @@
 name: ontseq-spectre-depth-only
 channels:
   - conda-forge
+  - bioconda
 channel_priority: strict
 dependencies:
   - python=3.11
