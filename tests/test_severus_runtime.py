@@ -115,15 +115,18 @@ class FakeSeverusRunner:
         somatic = out_dir / "somatic_SVs"
         plots = somatic / "plots"
         plots.mkdir(parents=True, exist_ok=True)
-        records = "" if self.empty else (
-            "chr7\t1001\tseverus_1\tN\t<DEL>\t60\tPASS\t"
-            "SVTYPE=DEL;END=2000;DETAILED_TYPE=DEL;CLUSTERID=severus_1;HP=1\n"
+        records = (
+            ""
+            if self.empty
+            else (
+                "chr7\t1001\tseverus_1\tN\t<DEL>\t60\tPASS\t"
+                "SVTYPE=DEL;END=2000;DETAILED_TYPE=DEL;CLUSTERID=severus_1;HP=1\n"
+            )
         )
         (somatic / "severus_somatic.vcf").write_text(
             "##fileformat=VCFv4.2\n"
             "##source=Severus\n"
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            + records,
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n" + records,
             encoding="utf-8",
         )
         (out_dir / "breakpoints_double.csv").write_text(
