@@ -423,6 +423,10 @@ class _RunStateAccumulator:
     failed_lane_ids: set[str] = field(default_factory=set)
     not_assessable_lane_ids: set[str] = field(default_factory=set)
     full_evidence_ids: set[str] = field(default_factory=set)
+    observed_full_evidence_ids: set[str] = field(default_factory=set)
+    no_call_full_evidence_ids: set[str] = field(default_factory=set)
+    failed_full_evidence_ids: set[str] = field(default_factory=set)
+    not_assessable_full_evidence_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -1035,6 +1039,26 @@ def _run_state_metric(
         CnvAcceptanceMetric.NOT_ASSESSABLE_RATE: counts["not_assessable_lanes"],
     }
     numerator = numerator_by_metric[metric]
+    numerator_lanes_by_metric = {
+        CnvAcceptanceMetric.NO_CALL_RATE: accumulator.no_call_lane_ids,
+        CnvAcceptanceMetric.TECHNICAL_FAILURE_RATE: accumulator.failed_lane_ids,
+        CnvAcceptanceMetric.NOT_ASSESSABLE_RATE: accumulator.not_assessable_lane_ids,
+    }
+    numerator_evidence_by_metric = {
+        CnvAcceptanceMetric.NO_CALL_RATE: accumulator.no_call_full_evidence_ids,
+        CnvAcceptanceMetric.TECHNICAL_FAILURE_RATE: accumulator.failed_full_evidence_ids,
+        CnvAcceptanceMetric.NOT_ASSESSABLE_RATE: accumulator.not_assessable_full_evidence_ids,
+    }
+    numerator_membership = CnvMetricMembership(
+        full_evidence_ids=sorted(numerator_evidence_by_metric[metric]),
+        lane_ids=sorted(numerator_lanes_by_metric[metric]),
+    )
+    denominator_membership = CnvMetricMembership(
+        full_evidence_ids=sorted(accumulator.full_evidence_ids),
+        lane_ids=sorted(accumulator.executed_lane_ids),
+        numerator_membership=numerator_membership,
+        denominator_membership=denominator_membership,
+    )
     if denominator == 0:
         return CnvMetricResult(
             metric=metric,
@@ -1046,6 +1070,8 @@ def _run_state_metric(
             evidence_manifest_sha256=evidence.manifest_sha256,
             full_evidence_ids=sorted(accumulator.full_evidence_ids),
             lane_ids=sorted(accumulator.executed_lane_ids),
+            numerator_membership=numerator_membership,
+            denominator_membership=denominator_membership,
             reason="No executed caller lanes in the registered technical stratum.",
         )
     return CnvMetricResult(
@@ -1163,6 +1189,10 @@ def _specificity_metric(
             evidence_manifest_sha256=evidence.manifest_sha256,
             full_evidence_ids=sorted(full_ids),
             lane_ids=sorted(lane_ids),
+            denominator_membership=CnvMetricMembership(
+                full_evidence_ids=sorted(full_ids),
+                lane_ids=sorted(lane_ids),
+            ),
             reason=_MISSING_SPECIFICITY_ASSESSMENT_REASON,
         )
 
@@ -1171,6 +1201,12 @@ def _specificity_metric(
     false_positive_units = sum(item.false_positive_units for item in assessments)
     true_negative_units = assessed_units - false_positive_units
     full_ids = {full_id for item in assessments for full_id in item.full_evidence_ids}
+    assessment_ids = sorted(item.assessment_id for item in assessments)
+    specificity_membership = CnvMetricMembership(
+        full_evidence_ids=sorted(full_ids),
+        lane_ids=sorted(lane_ids),
+        negative_assessment_ids=assessment_ids,
+    )
     return CnvMetricResult(
         metric=CnvAcceptanceMetric.SPECIFICITY,
         stratum_key=stratum_key,
@@ -1188,6 +1224,9 @@ def _specificity_metric(
         evidence_manifest_sha256=evidence.manifest_sha256,
         full_evidence_ids=sorted(full_ids),
         lane_ids=sorted(lane_ids),
+        negative_assessment_ids=assessment_ids,
+        numerator_membership=specificity_membership,
+        denominator_membership=specificity_membership,
     )
 
 
@@ -1236,12 +1275,24 @@ def aggregate_cnv_run_state_metrics(
             target.full_evidence_ids.add(assignment.run_summary_full_evidence_id)
             if assignment.run_outcome == CnvRunOutcomeState.OBSERVED:
                 target.observed_lane_ids.add(assignment.lane_id)
+                target.observed_full_evidence_ids.add(
+                    assignment.run_summary_full_evidence_id
+                )
             elif assignment.run_outcome == CnvRunOutcomeState.NO_CALL:
                 target.no_call_lane_ids.add(assignment.lane_id)
+                target.no_call_full_evidence_ids.add(
+                    assignment.run_summary_full_evidence_id
+                )
             elif assignment.run_outcome == CnvRunOutcomeState.FAILED:
                 target.failed_lane_ids.add(assignment.lane_id)
+                target.failed_full_evidence_ids.add(
+                    assignment.run_summary_full_evidence_id
+                )
             elif assignment.run_outcome == CnvRunOutcomeState.NOT_ASSESSABLE:
                 target.not_assessable_lane_ids.add(assignment.lane_id)
+                target.not_assessable_full_evidence_ids.add(
+                    assignment.run_summary_full_evidence_id
+                )
 
     rate_metrics = (
         CnvAcceptanceMetric.NO_CALL_RATE,
