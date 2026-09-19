@@ -1503,9 +1503,8 @@ class CnvAcceptanceResult(StrictModel):
             expected_accepted = None
         if self.accepted != expected_accepted:
             raise ValueError("Acceptance decision and accepted flag disagree")
-        if (
-            self.decision in {CnvAcceptanceDecision.PASS, CnvAcceptanceDecision.FAIL}
-            and (self.metric_id is None or self.metric_value is None)
+        if self.decision in {CnvAcceptanceDecision.PASS, CnvAcceptanceDecision.FAIL} and (
+            self.metric_id is None or self.metric_value is None
         ):
             raise ValueError("PASS/FAIL acceptance requires a concrete metric")
         return self
@@ -1789,15 +1788,11 @@ def aggregate_cnv_validation(
         "matching_thresholds": registration.matrix.matching_thresholds.model_dump(mode="json"),
         "assignments": [item.model_dump(mode="json") for item in assignments],
         "metrics": [item.model_dump(mode="json") for item in metrics],
-        "acceptance_results": [
-            item.model_dump(mode="json") for item in acceptance_results
-        ],
+        "acceptance_results": [item.model_dump(mode="json") for item in acceptance_results],
         "negative_unit_assessments": [
             item.model_dump(mode="json") for item in negative_assessments
         ],
-        "reproducibility_pairs": [
-            item.model_dump(mode="json") for item in reproducibility_pairs
-        ],
+        "reproducibility_pairs": [item.model_dump(mode="json") for item in reproducibility_pairs],
         "retain_all_evidence": True,
         "clinical_validity_claimed": False,
         "sensitive_output": True,
