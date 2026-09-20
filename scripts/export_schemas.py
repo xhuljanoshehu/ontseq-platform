@@ -66,6 +66,8 @@ from ontseq_platform.models import (
     SvConsensusReport,
     SvEvidencePolicy,
 )
+from ontseq_platform.multicaller_contracts import MultiCallerPlan
+from ontseq_platform.multicaller_report import MultiCallerComparisonReport
 
 
 def _render() -> dict[Path, str]:
@@ -82,6 +84,8 @@ def _render() -> dict[Path, str]:
                 "cnv-validation-evidence": CnvValidationEvidenceManifest,
                 "cnv-validation-traceability": CnvTraceabilityIndex,
                 "cnv-validation-report": CnvValidationMetricReport,
+                "multicaller-plan": MultiCallerPlan,
+                "multicaller-comparison-report": MultiCallerComparisonReport,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
                 "modbam-source-summary": ModbamSourceSummary,

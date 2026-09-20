@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "CallerAssayRegime": {
+      "enum": [
+        "lcwgs",
+        "adaptive_sampling",
+        "tumor_normal_long_read",
+        "tumor_only_long_read",
+        "cfdna_ulp_wgs"
+      ],
+      "title": "CallerAssayRegime",
+      "type": "string"
+    },
+    "CallerInputArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/CallerInputRole"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "role",
+        "sha256"
+      ],
+      "title": "CallerInputArtifact",
+      "type": "object"
+    },
+    "CallerInputRole": {
+      "enum": [
+        "aligned_bam",
+        "tumor_bam",
+        "matched_normal_bam",
+        "coverage_profile",
+        "snp_vcf",
+        "baf_table",
+        "phased_variants",
+        "panel_of_normals",
+        "sniffles_vcf",
+        "severus_breakpoints"
+      ],
+      "title": "CallerInputRole",
+      "type": "string"
+    },
+    "CallerLaneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "assay_regime": {
+          "$ref": "#/$defs/CallerAssayRegime"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/CallerInputArtifact"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "mode_id": {
+          "$ref": "#/$defs/CallerMode"
+        },
+        "parent_lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Lane Ids",
+          "type": "array"
+        },
+        "requested": {
+          "default": true,
+          "title": "Requested",
+          "type": "boolean"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lane_id",
+        "mode_id",
+        "assay_regime"
+      ],
+      "title": "CallerLaneRequest",
+      "type": "object"
+    },
+    "CallerMode": {
+      "enum": [
+        "qdnaseq_ace:multibin",
+        "spectre:depth_only",
+        "spectre:sniffles_supported",
+        "sniffles2:standard",
+        "sniffles2:mosaic",
+        "cutesv:standard",
+        "severus:paired",
+        "severus:single_sample",
+        "savana:paired",
+        "savana:tumor_only",
+        "wakhan:phased_cna",
+        "ichorcna:ulp_wgs"
+      ],
+      "title": "CallerMode",
+      "type": "string"
+    },
+    "CallerPlanningDecision": {
+      "enum": [
+        "ELIGIBLE",
+        "INELIGIBLE",
+        "RUNTIME_UNAVAILABLE",
+        "NOT_REQUESTED"
+      ],
+      "title": "CallerPlanningDecision",
+      "type": "string"
+    },
+    "SealedCallerLanePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/CallerPlanningDecision"
+        },
+        "input_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Artifact Ids",
+          "type": "array"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "lane_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Lane Sha256",
+          "type": "string"
+        },
+        "mode_id": {
+          "$ref": "#/$defs/CallerMode"
+        },
+        "parent_lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Lane Ids",
+          "type": "array"
+        },
+        "parent_lane_sha256s": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Parent Lane Sha256S",
+          "type": "object"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lane_id",
+        "mode_id",
+        "decision",
+        "lane_sha256"
+      ],
+      "title": "SealedCallerLanePlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "lanes": {
+      "items": {
+        "$ref": "#/$defs/SealedCallerLanePlan"
+      },
+      "minItems": 1,
+      "title": "Lanes",
+      "type": "array"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Plan Sha256",
+      "type": "string"
+    },
+    "requests": {
+      "items": {
+        "$ref": "#/$defs/CallerLaneRequest"
+      },
+      "minItems": 1,
+      "title": "Requests",
+      "type": "array"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "topological_order": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Topological Order",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "requests",
+    "lanes",
+    "topological_order",
+    "plan_sha256"
+  ],
+  "title": "MultiCallerPlan",
+  "type": "object"
+}
