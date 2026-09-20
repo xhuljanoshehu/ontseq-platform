@@ -129,7 +129,7 @@ def _policy(reference_sha256: str, *, mode: str) -> WakhanPhasedCnaPolicy:
     return WakhanPhasedCnaPolicy(
         profile_id=f"wakhan-{mode}-test",
         mode=mode,
-        expected_version="0.5.0",
+        expected_version="0.4.4",
         genome_build=GenomeBuild.GRCH38,
         reference_id="GRCh38-test",
         reference_sha256=reference_sha256,
@@ -263,7 +263,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         reference_sha256=reference_sha256,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.5.0",
+                    observed_runtime_version="0.4.4",
                     wakhan_script=script,
                     runner=runner,
                 )
@@ -304,7 +304,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         breakpoint_parent_sha256="c" * 64,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.5.0",
+                    observed_runtime_version="0.4.4",
                     wakhan_script=script,
                     runner=runner,
                 )
@@ -345,7 +345,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                     breakpoint_parent_sha256=parent_sha256,
                 ),
                 policy=_policy(reference_sha256, mode="tumor_normal"),
-                observed_runtime_version="0.5.0",
+                observed_runtime_version="0.4.4",
                 wakhan_script=script,
                 runner=runner,
             )
@@ -354,7 +354,7 @@ class WakhanRuntimeTests(unittest.TestCase):
         self.assertEqual(report.mode, "tumor_normal")
         self.assertEqual(report.breakpoint_parent_lane_id, "lane-severus")
         self.assertEqual(report.breakpoint_parent_lane_sha256, parent_sha256)
-        self.assertEqual(report.tool.version, "0.5.0")
+        self.assertEqual(report.tool.version, "0.4.4")
         native_paths = {item.relative_path for item in report.native_artifacts}
         self.assertIn("solutions_ranks.tsv", native_paths)
         self.assertIn(
@@ -392,7 +392,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         reference_sha256=reference_sha256,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.4.4",
+                    observed_runtime_version="0.4.3",
                     wakhan_script=script,
                     runner=runner,
                 )
