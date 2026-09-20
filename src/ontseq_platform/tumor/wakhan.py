@@ -36,6 +36,7 @@ class WakhanPhasedCnaPolicy(StrictModel):
     reference_id: str = Field(min_length=1)
     reference_sha256: str = Field(pattern=_SHA256)
     contigs: str = Field(default="chr1-22,chrX", min_length=1)
+    centromere_sha256: str | None = Field(default=None, pattern=_SHA256)
     timeout_seconds: int = Field(ge=60)
     note: str = Field(min_length=12)
     research_only: Literal[True] = True
@@ -119,6 +120,7 @@ class WakhanReport(StrictModel):
     phased_vcf_fingerprint: FileFingerprint
     reference_fingerprint: FileFingerprint
     runtime_script_fingerprint: FileFingerprint
+    centromere_fingerprint: FileFingerprint | None = None
     breakpoints_fingerprint: FileFingerprint | None = None
     breakpoint_parent_lane_id: str | None = None
     breakpoint_parent_lane_sha256: str | None = Field(default=None, pattern=_SHA256)
@@ -133,6 +135,17 @@ class WakhanReport(StrictModel):
             raise ValueError("Wakhan report mode must match policy mode")
         if self.real_tool_qualified != self.policy.real_tool_qualified:
             raise ValueError("Wakhan real-tool qualification must match policy")
+        centromere_pair = (
+            self.policy.centromere_sha256 is not None,
+            self.centromere_fingerprint is not None,
+        )
+        if centromere_pair[0] != centromere_pair[1]:
+            raise ValueError("Wakhan centromere policy lock and fingerprint must be paired")
+        if (
+            self.centromere_fingerprint is not None
+            and self.centromere_fingerprint.sha256 != self.policy.centromere_sha256
+        ):
+            raise ValueError("Wakhan centromere fingerprint must match policy lock")
         parent_pair = (
             self.breakpoint_parent_lane_id is not None,
             self.breakpoint_parent_lane_sha256 is not None,
@@ -160,6 +173,7 @@ def build_wakhan_argv(
     policy: WakhanPhasedCnaPolicy,
     threads: int = 8,
     breakpoints_vcf: Path | None = None,
+    centromere_bed: Path | None = None,
 ) -> tuple[str, ...]:
     if threads < 1:
         raise ValueError("Wakhan threads must be at least 1")
@@ -188,6 +202,8 @@ def build_wakhan_argv(
             str(output_dir),
         ]
     )
+    if centromere_bed is not None:
+        argv.extend(["--centromere-bed", str(centromere_bed)])
     if breakpoints_vcf is None:
         argv.append("--change-point-detection-for-cna")
     else:
@@ -276,6 +292,27 @@ def _validate_common_inputs(
     if reference_fp.sha256 != policy.reference_sha256:
         raise ValueError("Wakhan reference FASTA SHA-256 does not match policy lock")
     return tumor_fp, tumor_index_fp, phased_fp, reference_fp
+
+
+def _validate_centromere_resource(
+    *,
+    centromere_bed: Path | None,
+    policy: WakhanPhasedCnaPolicy,
+) -> FileFingerprint | None:
+    paired = (
+        centromere_bed is not None,
+        policy.centromere_sha256 is not None,
+    )
+    if paired[0] != paired[1]:
+        raise ValueError("Wakhan centromere path and policy SHA-256 must be declared together")
+    if centromere_bed is None:
+        return None
+    if not centromere_bed.is_file():
+        raise ValueError(f"Wakhan requires centromere BED: {centromere_bed}")
+    fingerprint = _fingerprint(centromere_bed)
+    if fingerprint.sha256 != policy.centromere_sha256:
+        raise ValueError("Wakhan centromere BED SHA-256 does not match policy lock")
+    return fingerprint
 
 
 def _validate_breakpoints(
@@ -416,6 +453,7 @@ def run_wakhan_phased_cna(
     observed_runtime_version: str,
     wakhan_script: Path,
     breakpoints_vcf: Path | None = None,
+    centromere_bed: Path | None = None,
     expected_breakpoint_parent_lane_id: str | None = None,
     expected_breakpoint_parent_lane_sha256: str | None = None,
     runner: CommandRunner | None = None,
@@ -438,6 +476,10 @@ def run_wakhan_phased_cna(
         reference_fasta=reference_fasta,
         sample_id=sample_id,
         inputs=inputs,
+        policy=policy,
+    )
+    centromere_fp = _validate_centromere_resource(
+        centromere_bed=centromere_bed,
         policy=policy,
     )
     breakpoints_fp, parent_id, parent_sha256 = _validate_breakpoints(
@@ -464,6 +506,7 @@ def run_wakhan_phased_cna(
             policy=policy,
             threads=threads,
             breakpoints_vcf=breakpoints_vcf,
+            centromere_bed=centromere_bed,
         )
         result = command_runner.run(argv, timeout_seconds=policy.timeout_seconds)
         if result.returncode != 0:
@@ -485,6 +528,7 @@ def run_wakhan_phased_cna(
                     "mode": policy.mode,
                     "threads": threads,
                     "contigs": policy.contigs,
+                    "centromere_override": centromere_bed is not None,
                     "breakpoints_supplied": breakpoints_vcf is not None,
                     "change_point_detection_for_cna": breakpoints_vcf is None,
                     "use_sv_haplotypes": False,
@@ -498,6 +542,7 @@ def run_wakhan_phased_cna(
             phased_vcf_fingerprint=phased_fp,
             reference_fingerprint=reference_fp,
             runtime_script_fingerprint=script_fp,
+            centromere_fingerprint=centromere_fp,
             breakpoints_fingerprint=breakpoints_fp,
             breakpoint_parent_lane_id=parent_id,
             breakpoint_parent_lane_sha256=parent_sha256,
