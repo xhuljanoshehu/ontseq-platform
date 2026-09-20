@@ -12,6 +12,7 @@ from ontseq_platform.marlin_contracts import MarlinArtifactLock, MarlinFeatureSu
 from ontseq_platform.marlin_features import MarlinFeatureVector
 from ontseq_platform.marlin_runtime import (
     create_runtime_compatibility_profile,
+    load_frozen_runtime_fixture,
     run_marlin_inference,
     verify_frozen_runtime_fixture,
 )
@@ -131,6 +132,16 @@ def _fixture_path(tmp_path: Path, *, first_value: int = 1) -> Path:
         newline="\n",
     )
     return path
+
+
+def test_public_frozen_runtime_fixture_loader_preserves_existing_semantics(tmp_path: Path) -> None:
+    _, _, lock = _runtime_paths(tmp_path)
+    loaded = load_frozen_runtime_fixture(_fixture_path(tmp_path), lock)
+
+    assert len(loaded.values) == 357340
+    assert loaded.values[0] == 1.0
+    assert loaded.summary.feature_vector_sha256 == _vector().summary.feature_vector_sha256
+    assert loaded.summary.feature_artifact_sha256 == lock.canonical_feature_list_sha256
 
 
 def test_runtime_accepts_exact_42_score_softmax(tmp_path: Path) -> None:

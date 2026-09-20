@@ -112,3 +112,12 @@ def test_marlin_technical_config_pins_published_semantics() -> None:
     assert data["expected_model_unit_count"] == 42
     assert data["confidence_threshold"] == 0.8
     assert "runtime_compatibility_tolerance" not in data
+
+    dual = data["dual_runtime_compatibility"]
+    assert dual == {
+        "status": "engineering_gate",
+        "absolute_score_tolerance": 1e-7,
+        "score_sum_tolerance": 1e-5,
+        "fixture_generator_version": "sha256-index-mod3-v1",
+        "research_only": True,
+    }

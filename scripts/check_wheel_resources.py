@@ -21,6 +21,7 @@ REQUIRED_SUFFIXES = (
     "ontseq_platform/marlin_features.py",
     "ontseq_platform/marlin_runtime.py",
     "ontseq_platform/marlin_runtime_freeze.py",
+    "ontseq_platform/marlin_runtime_compare.py",
     "ontseq_platform/marlin_classification.py",
     "ontseq_platform/marlin_runner.py",
     "ontseq_platform/marlin_validation.py",
@@ -63,6 +64,7 @@ REQUIRED_SUFFIXES = (
     "share/ontseq/scripts/run_qdnaseq_ace.R",
     "share/ontseq/scripts/marlin_export_resources.R",
     "share/ontseq/scripts/marlin_infer_locked.R",
+    "share/ontseq/scripts/marlin_runtime_probe.R",
 )
 
 FORBIDDEN_PARTS = ("share/ontseq/configs/configs/",)

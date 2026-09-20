@@ -71,6 +71,7 @@ where = ["src"]
   "scripts/run_qdnaseq_ace.R",
   "scripts/marlin_export_resources.R",
   "scripts/marlin_infer_locked.R",
+  "scripts/marlin_runtime_probe.R",
 ]
 
 [tool.ruff]
@@ -79,6 +80,7 @@ target-version = "py311"
 extend-exclude = [
   "docs/superpowers/plans/2026-09-13-marlin-classification-v1.md",
   "docs/superpowers/plans/2026-09-15-clean-room-acceptance.md",
+  "docs/superpowers/plans/2026-09-15-marlin-dual-runtime-compatibility.md",
   "docs/superpowers/plans/2026-09-17-cnv-validation-block1.md",
 ]
 

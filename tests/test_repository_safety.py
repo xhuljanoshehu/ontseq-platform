@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import check_repository_safety as safety
+from scripts import check_wheel_resources as wheel_resources
 
 
 class RepositorySafetyTests(unittest.TestCase):
@@ -86,6 +87,45 @@ class RepositorySafetyTests(unittest.TestCase):
                 self.assertRaisesRegex(SystemExit, "prohibited methylation artifact filename"),
             ):
                 safety.main()
+
+    def test_marlin_local_validation_artifacts_are_rejected_when_force_tracked(self) -> None:
+        cases = (
+            Path("results/marlin-validation/marlin-runtime-profile.json"),
+            Path("results/marlin-validation/runtime-comparison.json"),
+            Path("results/marlin-validation/GSM8587229_AL_001.txt.gz"),
+            Path("results/marlin-validation/marlin_v1.model.hdf5"),
+            Path("results/marlin-validation/marlin_v1.model.h5"),
+            Path("results/marlin-validation/marlin_v1.model.keras"),
+            Path("results/marlin-validation/saved_model.pb"),
+            Path("results/marlin-validation/marlin.onnx"),
+        )
+        for path in cases:
+            with (
+                self.subTest(path=path),
+                patch.object(safety, "_candidate_files", return_value=[path]),
+                self.assertRaisesRegex(SystemExit, "MARLIN"),
+            ):
+                safety.main()
+
+    def test_marlin_code_and_nonbiological_fixture_names_remain_allowed(self) -> None:
+        allowed = (
+            Path("src/ontseq_platform/marlin_runtime_compare.py"),
+            Path("tests/fixtures/marlin/nonbiological-runtime-fixture.txt"),
+        )
+        with patch.object(safety, "_candidate_files", return_value=list(allowed)):
+            safety.main()
+
+    def test_wheel_contract_requires_dual_runtime_compare_module(self) -> None:
+        self.assertIn(
+            "ontseq_platform/marlin_runtime_compare.py",
+            wheel_resources.REQUIRED_SUFFIXES,
+        )
+
+    def test_wheel_contract_requires_marlin_runtime_probe_script(self) -> None:
+        self.assertIn(
+            "share/ontseq/scripts/marlin_runtime_probe.R",
+            wheel_resources.REQUIRED_SUFFIXES,
+        )
 
     def test_unreadable_gzip_and_oversized_expansion_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
