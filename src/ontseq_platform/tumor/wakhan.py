@@ -361,11 +361,19 @@ def _artifact_role(relative_path: str) -> str:
         return "ranked_solutions"
     if name == "integer_profile.bed":
         return "integer_copy_number_profile_bed"
-    if name == "integer_profile.vcf":
+    if name.endswith("_copynumbers_segments_HP_1.bed"):
+        return "integer_copy_number_profile_haplotype_1_bed"
+    if name.endswith("_copynumbers_segments_HP_2.bed"):
+        return "integer_copy_number_profile_haplotype_2_bed"
+    if name == "integer_profile.vcf" or name.endswith("_wakhan_cna_integers.vcf"):
         return "integer_copy_number_profile_vcf"
     if name == "subclonal_profile.bed":
         return "subclonal_copy_number_profile_bed"
-    if name == "subclonal_profile.vcf":
+    if name.endswith("_copynumbers_subclonal_segments_HP_1.bed"):
+        return "subclonal_copy_number_profile_haplotype_1_bed"
+    if name.endswith("_copynumbers_subclonal_segments_HP_2.bed"):
+        return "subclonal_copy_number_profile_haplotype_2_bed"
+    if name == "subclonal_profile.vcf" or name.endswith("_wakhan_cna_subclonals.vcf"):
         return "subclonal_copy_number_profile_vcf"
     if name == "rephased.vcf.gz":
         return "rephased_variants"
@@ -436,8 +444,21 @@ def _native_artifacts(output_dir: Path) -> list[WakhanNativeArtifact]:
         raise ValueError("Wakhan returned success without native artifacts")
     if not any(item.role == "ranked_solutions" for item in artifacts):
         raise ValueError("Wakhan output lacks solutions_ranks.tsv")
-    if not any(item.role == "integer_copy_number_profile_bed" for item in artifacts):
-        raise ValueError("Wakhan output lacks an integer_profile.bed solution")
+
+    has_merged_integer_profile = any(
+        item.role == "integer_copy_number_profile_bed" for item in artifacts
+    )
+    has_legacy_hp1 = any(
+        item.role == "integer_copy_number_profile_haplotype_1_bed" for item in artifacts
+    )
+    has_legacy_hp2 = any(
+        item.role == "integer_copy_number_profile_haplotype_2_bed" for item in artifacts
+    )
+    if not has_merged_integer_profile and not (has_legacy_hp1 and has_legacy_hp2):
+        raise ValueError(
+            "Wakhan output lacks a complete integer copy-number BED solution "
+            "(merged integer_profile.bed or both native HP1/HP2 profiles)"
+        )
     return artifacts
 
 
@@ -554,8 +575,9 @@ def run_wakhan_phased_cna(
                     "reportability or biological truth."
                 ),
                 (
-                    "Wakhan integer_profile BED/VCF files remain caller-native evidence until "
-                    "their exact schema is separately normalized and validated."
+                    "Wakhan merged or legacy dual-haplotype BED/VCF outputs remain "
+                    "caller-native evidence until their exact schema is separately normalized "
+                    "and validated."
                 ),
                 (
                     "Severus breakpoints are optional; when absent, the adapter explicitly "
