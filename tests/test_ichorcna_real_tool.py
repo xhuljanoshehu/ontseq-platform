@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -34,21 +33,13 @@ def _sha256(path: Path) -> str:
 )
 class IchorCnaBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
-        rscript = shutil.which("Rscript")
-        self.assertIsNotNone(rscript)
-        assert rscript is not None
+        rscript = os.environ.get("R") or "Rscript"
         self.rscript = rscript
 
-        conda_prefix = os.environ.get("CONDA_PREFIX")
-        self.assertIsNotNone(conda_prefix)
-        assert conda_prefix is not None
-        scripts = list(Path(conda_prefix).rglob("runIchorCNA.R"))
-        self.assertEqual(
-            len(scripts),
-            1,
-            f"Expected exactly one runIchorCNA.R below {conda_prefix}, found {scripts}",
+        self.ichor_script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "run_ichorcna_0_5_1.R"
         )
-        self.ichor_script = scripts[0]
+        self.assertTrue(self.ichor_script.is_file())
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
