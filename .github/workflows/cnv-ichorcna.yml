@@ -32,9 +32,14 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$(command -v Rscript)"
-          ICHOR_SCRIPT="$(command -v runIchorCNA.R)"
-          test -n "$ICHOR_SCRIPT"
+          ICHOR_SCRIPT="$(find "$CONDA_PREFIX" -type f -name runIchorCNA.R -print -quit)"
+          if [[ -z "$ICHOR_SCRIPT" ]]; then
+            echo "runIchorCNA.R was not found under CONDA_PREFIX=$CONDA_PREFIX" >&2
+            find "$CONDA_PREFIX" -type f -iname '*ichor*' -print | head -n 100 >&2
+            exit 1
+          fi
           test -r "$ICHOR_SCRIPT"
+          echo "Resolved ichorCNA script: $ICHOR_SCRIPT"
           Rscript -e 'stopifnot(as.character(utils::packageVersion("ichorCNA")) == "0.5.1")'
           grep -Fq -- '--WIG' "$ICHOR_SCRIPT"
           grep -Fq -- '--gcWig' "$ICHOR_SCRIPT"
