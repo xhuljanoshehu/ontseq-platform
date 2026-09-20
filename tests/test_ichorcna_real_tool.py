@@ -35,9 +35,7 @@ class IchorCnaBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.rscript = "Rscript"
 
-        self.ichor_script = (
-            Path(__file__).resolve().parents[1] / "scripts" / "run_ichorcna_0_5_1.R"
-        )
+        self.ichor_script = Path(__file__).resolve().parents[1] / "scripts" / "run_ichorcna_0_5_1.R"
         self.assertTrue(self.ichor_script.is_file())
 
         self.directory = tempfile.TemporaryDirectory()
