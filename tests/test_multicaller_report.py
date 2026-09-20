@@ -252,11 +252,9 @@ class MultiCallerComparisonReportTests(unittest.TestCase):
             ],
         )
 
-        link = next(
-            item
-            for item in report.lanes
-            if item.lane_id == "lane-severus"
-        ).evidence_links[0]
+        link = next(item for item in report.lanes if item.lane_id == "lane-severus").evidence_links[
+            0
+        ]
         self.assertEqual(link.address.collection_id, address.collection_id)
         self.assertEqual(link.address.source_id, "severus-native-vcf")
         self.assertEqual(link.native_artifact_ids, ["severus-native-vcf"])
@@ -351,13 +349,9 @@ class MultiCallerComparisonReportTests(unittest.TestCase):
         payload = report.model_dump(mode="json")
 
         with self.assertRaises(ValidationError):
-            MultiCallerComparisonReport.model_validate(
-                {**payload, "winner": "lane-severus"}
-            )
+            MultiCallerComparisonReport.model_validate({**payload, "winner": "lane-severus"})
         with self.assertRaises(ValidationError):
-            MultiCallerComparisonReport.model_validate(
-                {**payload, "majority_vote": "supported"}
-            )
+            MultiCallerComparisonReport.model_validate({**payload, "majority_vote": "supported"})
 
     def test_evidence_link_must_match_the_lane_hash(self) -> None:
         plan = _dependent_plan()
