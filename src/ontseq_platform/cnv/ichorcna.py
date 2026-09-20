@@ -524,8 +524,10 @@ def _parse_segments(path: Path) -> list[IchorCnaSegment]:
         reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             chromosome = row.get("chrom")
-            if chromosome is None:
-                raise ValueError("ichorCNA segment output is missing chrom column")
+            if chromosome in {None, ""}:
+                chromosome = row.get("chr")
+            if chromosome in {None, ""}:
+                raise ValueError("ichorCNA segment output is missing chrom/chr column")
             try:
                 native_start = int(row["start"])
                 native_end = int(row["end"])
