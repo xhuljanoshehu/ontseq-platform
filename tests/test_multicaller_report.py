@@ -3,18 +3,6 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from ontseq_platform.multicaller_report import (
-    CallerDependencyStatus,
-    CallerExecutionOutcome,
-    CallerLaneExecutionRecord,
-    ComparisonGroupState,
-    MultiCallerComparisonGroup,
-    MultiCallerComparisonMember,
-    MultiCallerComparisonReport,
-    MultiCallerEvidenceLink,
-    build_multicaller_comparison_report,
-)
-
 from pydantic import ValidationError
 
 from ontseq_platform.multicaller_contracts import (
@@ -29,6 +17,17 @@ from ontseq_platform.multicaller_identity import (
     build_multicaller_collection_address,
 )
 from ontseq_platform.multicaller_planner import seal_multicaller_plan
+from ontseq_platform.multicaller_report import (
+    CallerDependencyStatus,
+    CallerExecutionOutcome,
+    CallerLaneExecutionRecord,
+    ComparisonGroupState,
+    MultiCallerComparisonGroup,
+    MultiCallerComparisonMember,
+    MultiCallerComparisonReport,
+    MultiCallerEvidenceLink,
+    build_multicaller_comparison_report,
+)
 
 
 def _sha(value: str) -> str:
