@@ -64,4 +64,5 @@ jobs:
           import sys
           assert sys.version_info[:2] == (3, 11)
           PY
-          ONTSEQ_WAKHAN_REAL_TOOL=1 PYTHONPATH=src             python -m pytest -q tests/test_wakhan_runtime.py tests/test_wakhan_real_tool.py
+          export PATH="$(dirname "$ONTSEQ_WAKHAN_EXECUTABLE"):$PATH"
+          ONTSEQ_WAKHAN_REAL_TOOL=1 PYTHONPATH=src python -m pytest -q tests/test_wakhan_runtime.py tests/test_wakhan_real_tool.py
