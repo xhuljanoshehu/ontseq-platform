@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ontseq_platform.execution import CommandResult, SubprocessRunner
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 from ontseq_platform.multicaller_contracts import CallerInputRole
 from ontseq_platform.tumor.wakhan import WakhanPhasedCnaPolicy, run_wakhan_phased_cna
@@ -23,6 +24,44 @@ from ontseq_platform.tumor_inputs import (
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class DiagnosticWakhanRunner:
+    """Preserve small synthetic text diagnostics before adapter cleanup on failure."""
+
+    def __init__(self) -> None:
+        self.delegate = SubprocessRunner()
+
+    def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
+        result = self.delegate.run(argv, timeout_seconds=timeout_seconds)
+        if result.returncode == 0:
+            return result
+
+        args = tuple(str(item) for item in argv)
+        diagnostics: list[str] = []
+        if "--out-dir-plots" in args:
+            output_dir = Path(args[args.index("--out-dir-plots") + 1])
+            for relative_path in (
+                "data/hp1_weights.tsv",
+                "data/hp2_weights.tsv",
+                "coverage_data/phase_corrected_coverage.csv",
+            ):
+                path = output_dir / relative_path
+                if not path.is_file():
+                    continue
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                diagnostics.append(
+                    f"--- {relative_path} ---\n" + "\n".join(lines[:80])
+                )
+        stderr = result.stderr
+        if diagnostics:
+            stderr += "\n" + "\n".join(diagnostics)
+        return CommandResult(
+            argv=result.argv,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=stderr,
+        )
 
 
 @unittest.skipUnless(
@@ -64,9 +103,7 @@ class WakhanBinaryTests(unittest.TestCase):
         self._write_reference()
         self.reference_sha256 = _sha256(self.reference)
 
-        self.variant_positions = tuple(
-            range(20_000, self.reference_length - 19_999, 20_000)
-        )
+        self.variant_positions = tuple(range(20_000, self.reference_length - 19_999, 20_000))
         self.phased_vcf = self.root / "synthetic.phased.vcf.gz"
         self._write_phased_vcf()
 
@@ -142,9 +179,7 @@ class WakhanBinaryTests(unittest.TestCase):
                             for position in overlapping:
                                 sequence[position - start] = ord("G")
                         read = self.pysam.AlignedSegment()
-                        read.query_name = (
-                            f"SYNTHETIC_TUMOR-{chromosome}-read-{read_number:06d}"
-                        )
+                        read.query_name = f"SYNTHETIC_TUMOR-{chromosome}-read-{read_number:06d}"
                         read.query_sequence = sequence.decode("ascii")
                         read.flag = 0
                         read.reference_id = reference_id
@@ -214,6 +249,7 @@ class WakhanBinaryTests(unittest.TestCase):
             policy=self._policy(),
             observed_runtime_version=self.runtime_version,
             wakhan_script=self.wakhan_script,
+            runner=DiagnosticWakhanRunner(),
             python_executable=self.runtime_python,
             threads=2,
         )
