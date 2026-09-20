@@ -69,6 +69,7 @@ class SeverusBinaryTests(unittest.TestCase):
                     read.cigar = ((0, 1_000),)
                     read.query_qualities = self.pysam.qualitystring_to_array("I" * 1_000)
                     read.set_tag("RG", "rg1")
+                    read.set_tag("NM", 0)
                     handle.write(read)
                     read_number += 1
         self.pysam.index(str(path))
