@@ -44,9 +44,7 @@ class SeverusBinaryTests(unittest.TestCase):
         self._write_bam(self.tumor_bam, "SYNTHETIC_TUMOR", tumor=True)
         self._write_bam(self.normal_bam, "SYNTHETIC_NORMAL", tumor=False)
 
-        self.reference_sha256 = hashlib.sha256(
-            b"synthetic-severus-grch38-contract"
-        ).hexdigest()
+        self.reference_sha256 = hashlib.sha256(b"synthetic-severus-grch38-contract").hexdigest()
 
     def _write_bam(self, path: Path, sample_id: str, *, tumor: bool) -> None:
         header = {
