@@ -1,0 +1,8 @@
+name: ontseq-wakhan-0-4-4
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - python=3.10
+  - wakhan=0.4.4

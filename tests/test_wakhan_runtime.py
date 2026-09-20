@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 from ontseq_platform.multicaller_contracts import CallerInputRole
@@ -127,7 +129,7 @@ def _policy(reference_sha256: str, *, mode: str) -> WakhanPhasedCnaPolicy:
     return WakhanPhasedCnaPolicy(
         profile_id=f"wakhan-{mode}-test",
         mode=mode,
-        expected_version="0.5.0",
+        expected_version="0.4.4",
         genome_build=GenomeBuild.GRCH38,
         reference_id="GRCh38-test",
         reference_sha256=reference_sha256,
@@ -137,8 +139,9 @@ def _policy(reference_sha256: str, *, mode: str) -> WakhanPhasedCnaPolicy:
 
 
 class FakeWakhanRunner:
-    def __init__(self) -> None:
+    def __init__(self, *, legacy_layout: bool = False) -> None:
         self.calls: list[tuple[str, ...]] = []
+        self.legacy_layout = legacy_layout
 
     def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
         del timeout_seconds
@@ -152,10 +155,28 @@ class FakeWakhanRunner:
         )
         solution = outdir / "solution_2.0_0.70_0.90"
         solution.mkdir()
-        (solution / "integer_profile.bed").write_text(
-            "chrom\tstart\tend\thp1_cn\thp2_cn\nchr7\t0\t1000000\t1\t2\n",
-            encoding="utf-8",
-        )
+        if self.legacy_layout:
+            bed_output = solution / "bed_output"
+            bed_output.mkdir()
+            (bed_output / "TUMOR_001_2.0_0.70_0.90_copynumbers_segments_HP_1.bed").write_text(
+                "chr7\t0\t1000000\t1\n",
+                encoding="utf-8",
+            )
+            (bed_output / "TUMOR_001_2.0_0.70_0.90_copynumbers_segments_HP_2.bed").write_text(
+                "chr7\t0\t1000000\t2\n",
+                encoding="utf-8",
+            )
+            vcf_output = solution / "vcf_output"
+            vcf_output.mkdir()
+            (vcf_output / "TUMOR_001_2.0_0.70_0.90_wakhan_cna_integers.vcf").write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+                encoding="utf-8",
+            )
+        else:
+            (solution / "integer_profile.bed").write_text(
+                "chrom\tstart\tend\thp1_cn\thp2_cn\nchr7\t0\t1000000\t1\t2\n",
+                encoding="utf-8",
+            )
         coverage = outdir / "coverage_data"
         coverage.mkdir()
         (coverage / "coverage.csv").write_text(
@@ -169,6 +190,127 @@ class FakeWakhanRunner:
 
 
 class WakhanRuntimeTests(unittest.TestCase):
+    def test_current_published_0_4_4_policy_is_accepted(self) -> None:
+        policy = WakhanPhasedCnaPolicy(
+            profile_id="wakhan-current-version-contract",
+            mode="tumor_only",
+            expected_version="0.4.4",
+            genome_build=GenomeBuild.GRCH38,
+            reference_id="GRCh38-test",
+            reference_sha256=_sha_bytes(b"reference"),
+            timeout_seconds=300,
+            note="Current published Wakhan version contract.",
+        )
+
+        self.assertEqual(policy.expected_version, "0.4.4")
+
+    def test_obsolete_0_5_0_policy_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "0.4.4"):
+            WakhanPhasedCnaPolicy(
+                profile_id="wakhan-obsolete-version-contract",
+                mode="tumor_only",
+                expected_version="0.5.0",
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="GRCh38-test",
+                reference_sha256=_sha_bytes(b"reference"),
+                timeout_seconds=300,
+                note="Obsolete Wakhan version contract must fail closed.",
+            )
+
+    def test_command_uses_explicit_policy_contig_scope(self) -> None:
+        policy = WakhanPhasedCnaPolicy(
+            profile_id="wakhan-contig-scope-contract",
+            mode="tumor_only",
+            expected_version="0.4.4",
+            genome_build=GenomeBuild.GRCH38,
+            reference_id="GRCh38-test",
+            reference_sha256=_sha_bytes(b"reference"),
+            contigs="chr7,chr8",
+            timeout_seconds=300,
+            note="Explicit Wakhan contig scope contract.",
+        )
+        argv = build_wakhan_argv(
+            python_executable="python",
+            wakhan_script=Path("/opt/wakhan/wakhan.py"),
+            tumor_bam=Path("/tmp/tumor.bam"),
+            phased_vcf=Path("/tmp/tumor.phased.vcf.gz"),
+            reference_fasta=Path("/tmp/ref.fa"),
+            sample_id="TUMOR_001",
+            output_dir=Path("/tmp/wakhan"),
+            policy=policy,
+            threads=2,
+        )
+
+        self.assertIn("--contigs", argv)
+        index = argv.index("--contigs")
+        self.assertEqual(argv[index + 1], "chr7,chr8")
+
+    def test_custom_centromere_resource_is_checksum_locked_and_passed_to_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            phased = root / "tumor.phased.vcf"
+            reference = root / "ref.fa"
+            centromere = root / "centromere.bed"
+            script = root / "wakhan.py"
+            _write_bam(tumor, b"tumor")
+            _write_phased_vcf(phased)
+            reference_sha256 = _write_reference(reference)
+            centromere.write_text("chr7\t1500\t1600\n", encoding="utf-8")
+            centromere_sha256 = _sha_bytes(centromere.read_bytes())
+            script.write_text("# synthetic wakhan entry point\n", encoding="utf-8")
+
+            policy = WakhanPhasedCnaPolicy(
+                profile_id="wakhan-custom-centromere-contract",
+                mode="tumor_only",
+                expected_version="0.4.4",
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="GRCh38-test",
+                reference_sha256=reference_sha256,
+                centromere_sha256=centromere_sha256,
+                timeout_seconds=300,
+                note="Explicit Wakhan centromere resource contract.",
+            )
+            argv = build_wakhan_argv(
+                python_executable="python",
+                wakhan_script=script,
+                tumor_bam=tumor,
+                phased_vcf=phased,
+                reference_fasta=reference,
+                centromere_bed=centromere,
+                sample_id="TUMOR_001",
+                output_dir=root / "output",
+                policy=policy,
+            )
+
+            self.assertIn("--centromere-bed", argv)
+            index = argv.index("--centromere-bed")
+            self.assertEqual(argv[index + 1], str(centromere))
+
+            centromere.write_text("chr7\t1700\t1800\n", encoding="utf-8")
+            runner = FakeWakhanRunner()
+            with self.assertRaisesRegex(ValueError, "centromere"):
+                run_wakhan_phased_cna(
+                    tumor_bam=tumor,
+                    phased_vcf=phased,
+                    reference_fasta=reference,
+                    centromere_bed=centromere,
+                    sample_id="TUMOR_001",
+                    output_dir=root / "runtime-output",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        phased_vcf=phased,
+                        phased_source_sample_id="TUMOR_001",
+                        reference_sha256=reference_sha256,
+                    ),
+                    policy=policy,
+                    observed_runtime_version="0.4.4",
+                    wakhan_script=script,
+                    runner=runner,
+                )
+
+            self.assertEqual(runner.calls, [])
+
     def test_tumor_normal_command_uses_normal_phasing_and_cpd_without_breakpoints(self) -> None:
         argv = build_wakhan_argv(
             python_executable="python",
@@ -234,7 +376,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         reference_sha256=reference_sha256,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.5.0",
+                    observed_runtime_version="0.4.4",
                     wakhan_script=script,
                     runner=runner,
                 )
@@ -275,7 +417,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         breakpoint_parent_sha256="c" * 64,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.5.0",
+                    observed_runtime_version="0.4.4",
                     wakhan_script=script,
                     runner=runner,
                 )
@@ -316,7 +458,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                     breakpoint_parent_sha256=parent_sha256,
                 ),
                 policy=_policy(reference_sha256, mode="tumor_normal"),
-                observed_runtime_version="0.5.0",
+                observed_runtime_version="0.4.4",
                 wakhan_script=script,
                 runner=runner,
             )
@@ -325,7 +467,7 @@ class WakhanRuntimeTests(unittest.TestCase):
         self.assertEqual(report.mode, "tumor_normal")
         self.assertEqual(report.breakpoint_parent_lane_id, "lane-severus")
         self.assertEqual(report.breakpoint_parent_lane_sha256, parent_sha256)
-        self.assertEqual(report.tool.version, "0.5.0")
+        self.assertEqual(report.tool.version, "0.4.4")
         native_paths = {item.relative_path for item in report.native_artifacts}
         self.assertIn("solutions_ranks.tsv", native_paths)
         self.assertIn(
@@ -336,6 +478,43 @@ class WakhanRuntimeTests(unittest.TestCase):
         self.assertIn("phasing_output/rephased.vcf.gz", native_paths)
         self.assertFalse(report.real_tool_qualified)
         self.assertTrue(report.research_only)
+
+    def test_runtime_accepts_native_wakhan_0_4_4_dual_haplotype_bed_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            phased = root / "tumor.phased.vcf"
+            reference = root / "ref.fa"
+            script = root / "wakhan.py"
+            _write_bam(tumor, b"tumor")
+            _write_phased_vcf(phased)
+            reference_sha256 = _write_reference(reference)
+            script.write_text("# synthetic wakhan entry point\n", encoding="utf-8")
+
+            report = run_wakhan_phased_cna(
+                tumor_bam=tumor,
+                phased_vcf=phased,
+                reference_fasta=reference,
+                sample_id="TUMOR_001",
+                output_dir=root / "output",
+                inputs=_bundle(
+                    tumor_bam=tumor,
+                    phased_vcf=phased,
+                    phased_source_sample_id="TUMOR_001",
+                    reference_sha256=reference_sha256,
+                ),
+                policy=_policy(reference_sha256, mode="tumor_only"),
+                observed_runtime_version="0.4.4",
+                wakhan_script=script,
+                runner=FakeWakhanRunner(legacy_layout=True),
+            )
+
+        roles = {item.role for item in report.native_artifacts}
+        paths = {item.relative_path for item in report.native_artifacts}
+        self.assertIn("integer_copy_number_profile_haplotype_1_bed", roles)
+        self.assertIn("integer_copy_number_profile_haplotype_2_bed", roles)
+        self.assertIn("integer_copy_number_profile_vcf", roles)
+        self.assertFalse(any(path.endswith("integer_profile.bed") for path in paths))
 
     def test_runtime_version_drift_fails_before_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -363,7 +542,7 @@ class WakhanRuntimeTests(unittest.TestCase):
                         reference_sha256=reference_sha256,
                     ),
                     policy=_policy(reference_sha256, mode="tumor_normal"),
-                    observed_runtime_version="0.4.4",
+                    observed_runtime_version="0.4.3",
                     wakhan_script=script,
                     runner=runner,
                 )

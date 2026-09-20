@@ -11,6 +11,7 @@ from ontseq_platform.cnv_validation_evidence import (
 )
 from ontseq_platform.cnv_validation_metrics import CnvValidationMetricReport
 from ontseq_platform.cnv_validation_registration import CnvValidationRegistration
+from ontseq_platform.cnv_validation_v1 import CnvValidationV1Design
 from ontseq_platform.dilution import (
     DilutionPolicy,
     DilutionSeriesPlan,
@@ -84,6 +85,7 @@ def _render() -> dict[Path, str]:
                 "cnv-validation-evidence": CnvValidationEvidenceManifest,
                 "cnv-validation-traceability": CnvTraceabilityIndex,
                 "cnv-validation-report": CnvValidationMetricReport,
+                "cnv-validation-v1-design": CnvValidationV1Design,
                 "multicaller-plan": MultiCallerPlan,
                 "multicaller-comparison-report": MultiCallerComparisonReport,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
