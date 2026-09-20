@@ -59,12 +59,12 @@ class WakhanBinaryTests(unittest.TestCase):
         self.root = Path(self.directory.name)
 
         self.reference = self.root / "synthetic.reference.fa"
-        self.reference_length = 500_000
+        self.reference_length = 1_000_000
         self.reference_contigs = ("chr7", "chr8")
         self._write_reference()
         self.reference_sha256 = _sha256(self.reference)
 
-        self.variant_positions = tuple(range(20_000, 480_001, 20_000))
+        self.variant_positions = tuple(range(20_000, 980_001, 20_000))
         self.phased_vcf = self.root / "synthetic.phased.vcf.gz"
         self._write_phased_vcf()
 
