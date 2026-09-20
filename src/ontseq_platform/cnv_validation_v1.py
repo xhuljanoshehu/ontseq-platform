@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from datetime import datetime
 from itertools import product
 from typing import Literal
 
@@ -156,7 +157,7 @@ def default_cnv_validation_v1_design() -> CnvValidationV1Design:
             10_000_000,
         ],
         replicates=3,
-        seed=20_260_920,
+        seed=260_920,
         reference_id="synthetic-grch38-validation-v1",
         reference_sha256=_sha_text("synthetic-grch38-validation-v1-reference-contract"),
         truth_source_resource_id="analytical-validation-v1-synthetic-truth",
@@ -457,7 +458,7 @@ def build_cnv_validation_v1_registration(
     caller_locks: list[CnvCallerLock],
     *,
     registration_id: str,
-    registered_at,
+    registered_at: datetime,
     code_sha256: str,
     software_version: str,
 ) -> CnvValidationRegistration:
