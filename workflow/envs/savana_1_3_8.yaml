@@ -1,0 +1,11 @@
+name: ontseq-savana-1-3-8
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - python=3.11
+  - savana=1.3.8
+  - pytest>=8
+  - pydantic>=2.8,<3
+  - pyyaml>=6,<7

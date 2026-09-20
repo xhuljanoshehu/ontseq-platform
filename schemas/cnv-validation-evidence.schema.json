@@ -1,0 +1,996 @@
+{
+  "$defs": {
+    "CnvContributionStatus": {
+      "enum": [
+        "USED_FOR_PRIMARY_ANALYSIS",
+        "SECONDARY",
+        "EXPLORATORY",
+        "EXCLUDED_FROM_PRIMARY_METRIC",
+        "NOT_ASSESSABLE",
+        "NO_CALL",
+        "FAILED"
+      ],
+      "title": "CnvContributionStatus",
+      "type": "string"
+    },
+    "CnvDataBasis": {
+      "enum": [
+        "lcwgs_genome_wide",
+        "adaptive_sampling_off_target",
+        "adaptive_sampling_on_target"
+      ],
+      "title": "CnvDataBasis",
+      "type": "string"
+    },
+    "CnvEvidenceRecordKind": {
+      "enum": [
+        "run_summary",
+        "caller_fit",
+        "caller_bin",
+        "caller_segment",
+        "caller_event",
+        "chromosome_summary"
+      ],
+      "title": "CnvEvidenceRecordKind",
+      "type": "string"
+    },
+    "CnvFullEvidenceRecord": {
+      "additionalProperties": false,
+      "description": "One immutable caller-native evidence row; exclusion never removes the row.",
+      "properties": {
+        "adapter_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Adapter Policy Sha256",
+          "type": "string"
+        },
+        "bin_size_kbp": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bin Size Kbp"
+        },
+        "biological_specimen_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Biological Specimen Id",
+          "type": "string"
+        },
+        "caller_id": {
+          "pattern": "^[a-z][a-z0-9_]{1,63}$",
+          "title": "Caller Id",
+          "type": "string"
+        },
+        "caller_parameters": {
+          "additionalProperties": true,
+          "title": "Caller Parameters",
+          "type": "object"
+        },
+        "caller_parameters_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Caller Parameters Sha256",
+          "type": "string"
+        },
+        "caller_version": {
+          "minLength": 1,
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "cellularity": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cellularity"
+        },
+        "contribution_reason": {
+          "anyOf": [
+            {
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contribution Reason"
+        },
+        "contribution_status": {
+          "$ref": "#/$defs/CnvContributionStatus"
+        },
+        "copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copy Number"
+        },
+        "corrected_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corrected Depth"
+        },
+        "coverage_definition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage Definition"
+        },
+        "coverage_x": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage X"
+        },
+        "data_basis": {
+          "$ref": "#/$defs/CnvDataBasis"
+        },
+        "dependency_versions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Dependency Versions",
+          "type": "object"
+        },
+        "event_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "execution_identity_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Execution Identity Sha256",
+          "type": "string"
+        },
+        "fit_error": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fit Error"
+        },
+        "fit_group_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fit Group Id"
+        },
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "input_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Sha256",
+          "type": "string"
+        },
+        "log2_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log2 Ratio"
+        },
+        "native_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Native Artifact Ids",
+          "type": "array"
+        },
+        "native_record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Native Record Id",
+          "type": "string"
+        },
+        "numeric_measurements": {
+          "items": {
+            "$ref": "#/$defs/CnvNumericMeasurement"
+          },
+          "title": "Numeric Measurements",
+          "type": "array"
+        },
+        "outcome_reason": {
+          "anyOf": [
+            {
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome Reason"
+        },
+        "ploidy": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ploidy"
+        },
+        "primary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "raw_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Depth"
+        },
+        "record_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Record Id",
+          "type": "string"
+        },
+        "record_kind": {
+          "$ref": "#/$defs/CnvEvidenceRecordKind"
+        },
+        "reference_id": {
+          "minLength": 1,
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "registration_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Registration Sha256",
+          "type": "string"
+        },
+        "repeat_group_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat Group Id"
+        },
+        "repeat_kind": {
+          "$ref": "#/$defs/CnvRepeatKind"
+        },
+        "replicate_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Replicate Id",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "run_outcome": {
+          "$ref": "#/$defs/CnvRunOutcomeState"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "selected_fit": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Fit"
+        },
+        "sensitive_output": {
+          "const": true,
+          "default": true,
+          "title": "Sensitive Output",
+          "type": "boolean"
+        },
+        "specimen_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Specimen Id",
+          "type": "string"
+        },
+        "truth_support_resource_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Truth Support Resource Ids",
+          "type": "array"
+        },
+        "tumor_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction"
+        },
+        "tumor_fraction_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Method"
+        },
+        "tumor_fraction_timepoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Timepoint"
+        }
+      },
+      "required": [
+        "record_id",
+        "registration_sha256",
+        "specimen_id",
+        "biological_specimen_id",
+        "caller_id",
+        "caller_version",
+        "adapter_policy_sha256",
+        "execution_identity_sha256",
+        "genome_build",
+        "data_basis",
+        "reference_id",
+        "reference_sha256",
+        "input_sha256",
+        "repeat_kind",
+        "replicate_id",
+        "record_kind",
+        "native_record_id",
+        "run_outcome",
+        "contribution_status",
+        "caller_parameters",
+        "caller_parameters_sha256"
+      ],
+      "title": "CnvFullEvidenceRecord",
+      "type": "object"
+    },
+    "CnvNativeArtifactReference": {
+      "additionalProperties": false,
+      "description": "Fingerprint-only reference to a caller-native file retained outside table rows.",
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "sensitive_output": {
+          "const": true,
+          "default": true,
+          "title": "Sensitive Output",
+          "type": "boolean"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "role",
+        "relative_path",
+        "sha256",
+        "size_bytes",
+        "media_type"
+      ],
+      "title": "CnvNativeArtifactReference",
+      "type": "object"
+    },
+    "CnvNormalizedEventRecord": {
+      "additionalProperties": false,
+      "description": "Derived comparison event that never replaces its caller-native source records.",
+      "properties": {
+        "adapter_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Adapter Policy Sha256",
+          "type": "string"
+        },
+        "bin_size_kbp": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bin Size Kbp"
+        },
+        "biological_specimen_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Biological Specimen Id",
+          "type": "string"
+        },
+        "caller_id": {
+          "pattern": "^[a-z][a-z0-9_]{1,63}$",
+          "title": "Caller Id",
+          "type": "string"
+        },
+        "caller_version": {
+          "minLength": 1,
+          "title": "Caller Version",
+          "type": "string"
+        },
+        "contribution_reason": {
+          "anyOf": [
+            {
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contribution Reason"
+        },
+        "contribution_status": {
+          "$ref": "#/$defs/CnvContributionStatus"
+        },
+        "coverage_definition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage Definition"
+        },
+        "coverage_x": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage X"
+        },
+        "data_basis": {
+          "$ref": "#/$defs/CnvDataBasis"
+        },
+        "event_type": {
+          "$ref": "#/$defs/EventType"
+        },
+        "execution_identity_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Execution Identity Sha256",
+          "type": "string"
+        },
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "input_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Sha256",
+          "type": "string"
+        },
+        "normalization_policy_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Normalization Policy Sha256",
+          "type": "string"
+        },
+        "normalized_copy_number": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normalized Copy Number"
+        },
+        "normalized_event_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Normalized Event Id",
+          "type": "string"
+        },
+        "primary": {
+          "$ref": "#/$defs/Locus"
+        },
+        "reference_id": {
+          "minLength": 1,
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "registration_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Registration Sha256",
+          "type": "string"
+        },
+        "repeat_group_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat Group Id"
+        },
+        "repeat_kind": {
+          "$ref": "#/$defs/CnvRepeatKind"
+        },
+        "replicate_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Replicate Id",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sensitive_output": {
+          "const": true,
+          "default": true,
+          "title": "Sensitive Output",
+          "type": "boolean"
+        },
+        "source_full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Full Evidence Ids",
+          "type": "array"
+        },
+        "specimen_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Specimen Id",
+          "type": "string"
+        },
+        "tumor_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction"
+        },
+        "tumor_fraction_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Method"
+        },
+        "tumor_fraction_timepoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Fraction Timepoint"
+        }
+      },
+      "required": [
+        "normalized_event_id",
+        "registration_sha256",
+        "specimen_id",
+        "biological_specimen_id",
+        "caller_id",
+        "caller_version",
+        "adapter_policy_sha256",
+        "execution_identity_sha256",
+        "normalization_policy_sha256",
+        "genome_build",
+        "data_basis",
+        "reference_id",
+        "reference_sha256",
+        "input_sha256",
+        "repeat_kind",
+        "replicate_id",
+        "source_full_evidence_ids",
+        "event_type",
+        "primary",
+        "contribution_status"
+      ],
+      "title": "CnvNormalizedEventRecord",
+      "type": "object"
+    },
+    "CnvNumericMeasurement": {
+      "additionalProperties": false,
+      "description": "Caller-native scalar retained without assigning biological meaning to it.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "source_field": {
+          "minLength": 1,
+          "title": "Source Field",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "source_field"
+      ],
+      "title": "CnvNumericMeasurement",
+      "type": "object"
+    },
+    "CnvRepeatKind": {
+      "enum": [
+        "independent",
+        "within_run",
+        "between_run"
+      ],
+      "title": "CnvRepeatKind",
+      "type": "string"
+    },
+    "CnvRunOutcomeState": {
+      "enum": [
+        "OBSERVED",
+        "BIOLOGICAL_NEGATIVE_ORTHOGONAL_TRUTH",
+        "NO_CALL",
+        "NOT_ASSESSABLE",
+        "FAILED"
+      ],
+      "title": "CnvRunOutcomeState",
+      "type": "string"
+    },
+    "EventType": {
+      "enum": [
+        "chromosome_gain",
+        "chromosome_loss",
+        "deletion",
+        "duplication",
+        "inversion",
+        "translocation",
+        "insertion",
+        "fusion"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "Locus": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "pattern": "^(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y)$",
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "cytoband_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband End"
+        },
+        "cytoband_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cytoband Start"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "gene": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gene"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chromosome",
+        "start",
+        "end"
+      ],
+      "title": "Locus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Tamper-evident collection of caller-native and normalized CNV evidence.",
+  "properties": {
+    "full_evidence": {
+      "items": {
+        "$ref": "#/$defs/CnvFullEvidenceRecord"
+      },
+      "minItems": 1,
+      "title": "Full Evidence",
+      "type": "array"
+    },
+    "manifest_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "native_artifacts": {
+      "items": {
+        "$ref": "#/$defs/CnvNativeArtifactReference"
+      },
+      "title": "Native Artifacts",
+      "type": "array"
+    },
+    "normalized_events": {
+      "items": {
+        "$ref": "#/$defs/CnvNormalizedEventRecord"
+      },
+      "title": "Normalized Events",
+      "type": "array"
+    },
+    "registration_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Registration Sha256",
+      "type": "string"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "retain_all_evidence": {
+      "const": true,
+      "default": true,
+      "title": "Retain All Evidence",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "registration_sha256",
+    "full_evidence",
+    "manifest_sha256"
+  ],
+  "title": "CnvValidationEvidenceManifest",
+  "type": "object"
+}

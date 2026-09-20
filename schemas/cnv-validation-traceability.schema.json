@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "CnvAggregateEvidenceTrace": {
+      "additionalProperties": false,
+      "description": "Membership-only provenance for a future aggregate; no metric value is stored here.",
+      "properties": {
+        "aggregate_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Aggregate Id",
+          "type": "string"
+        },
+        "denominator_full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Denominator Full Evidence Ids",
+          "type": "array"
+        },
+        "excluded_full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Full Evidence Ids",
+          "type": "array"
+        },
+        "normalized_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Normalized Event Ids",
+          "type": "array"
+        },
+        "numerator_full_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Numerator Full Evidence Ids",
+          "type": "array"
+        },
+        "question_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Question Id",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sensitive_output": {
+          "const": true,
+          "default": true,
+          "title": "Sensitive Output",
+          "type": "boolean"
+        },
+        "stratum_key": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "minProperties": 1,
+          "title": "Stratum Key",
+          "type": "object"
+        },
+        "trace_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trace_id",
+        "aggregate_id",
+        "question_id",
+        "stratum_key"
+      ],
+      "title": "CnvAggregateEvidenceTrace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Tamper-evident map from future aggregates to retained CNV evidence.",
+  "properties": {
+    "evidence_manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evidence Manifest Sha256",
+      "type": "string"
+    },
+    "index_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+      "title": "Index Id",
+      "type": "string"
+    },
+    "index_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Index Sha256",
+      "type": "string"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_output": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Output",
+      "type": "boolean"
+    },
+    "traces": {
+      "items": {
+        "$ref": "#/$defs/CnvAggregateEvidenceTrace"
+      },
+      "minItems": 1,
+      "title": "Traces",
+      "type": "array"
+    }
+  },
+  "required": [
+    "index_id",
+    "evidence_manifest_sha256",
+    "traces",
+    "index_sha256"
+  ],
+  "title": "CnvTraceabilityIndex",
+  "type": "object"
+}

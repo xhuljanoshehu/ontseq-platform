@@ -1,0 +1,13 @@
+name: ontseq-ichorcna-0-5-1
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - python=3.11
+  - r-base=4.4
+  - r-ichorcna=0.5.1
+  - r-optparse
+  - pytest>=8
+  - pydantic>=2.8,<3
+  - pyyaml>=6,<7

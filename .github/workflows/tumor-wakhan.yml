@@ -1,0 +1,78 @@
+name: Tumor Wakhan real-tool
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/tumor/wakhan.py"
+      - "workflow/envs/wakhan_0_4_4.yaml"
+      - "tests/test_wakhan_runtime.py"
+      - "tests/test_wakhan_real_tool.py"
+      - ".github/workflows/tumor-wakhan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wakhan-phased-cna-real-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ONTSeq test environment
+        run: python -m pip install -e ".[dev]" pysam
+
+      - name: Capture ONTSeq test Python
+        run: |
+          set -euo pipefail
+          TEST_PYTHON="$(command -v python)"
+          "$TEST_PYTHON" - <<'PY'
+          import sys
+          assert sys.version_info[:2] == (3, 11)
+          PY
+          echo "ONTSEQ_TEST_PYTHON=$TEST_PYTHON" >> "$GITHUB_ENV"
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/wakhan_0_4_4.yaml
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Verify pinned Wakhan runtime
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          RUNTIME_PYTHON="$CONDA_PREFIX/bin/python"
+          WAKHAN_EXECUTABLE="$CONDA_PREFIX/bin/wakhan"
+          test -x "$RUNTIME_PYTHON"
+          test -x "$WAKHAN_EXECUTABLE"
+          test -x "$CONDA_PREFIX/bin/samtools"
+          test -x "$CONDA_PREFIX/bin/bcftools"
+          "$RUNTIME_PYTHON" - <<'PY'
+          import importlib.metadata
+          assert importlib.metadata.version("wakhan") == "0.4.4"
+          PY
+          "$WAKHAN_EXECUTABLE" all --help >/tmp/wakhan-help.txt
+          grep -Fq -- '--target-bam' /tmp/wakhan-help.txt
+          grep -Fq -- '--tumor-phased-vcf' /tmp/wakhan-help.txt
+          grep -Fq -- '--out-dir-plots' /tmp/wakhan-help.txt
+          grep -Fq -- '--change-point-detection-for-cna' /tmp/wakhan-help.txt
+          echo "ONTSEQ_WAKHAN_PYTHON=$RUNTIME_PYTHON" >> "$GITHUB_ENV"
+          echo "ONTSEQ_WAKHAN_EXECUTABLE=$WAKHAN_EXECUTABLE" >> "$GITHUB_ENV"
+
+      - name: Run Wakhan adapter contract and synthetic real-tool smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ONTSEQ_TEST_PYTHON" - <<'PY'
+          import sys
+          assert sys.version_info[:2] == (3, 11)
+          PY
+          export PATH="$(dirname "$ONTSEQ_WAKHAN_EXECUTABLE"):$PATH"
+          ONTSEQ_WAKHAN_REAL_TOOL=1 PYTHONPATH=src             "$ONTSEQ_TEST_PYTHON" -m pytest -q tests/test_wakhan_runtime.py tests/test_wakhan_real_tool.py

@@ -4,6 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
+from ontseq_platform.cnv_validation_contracts import CnvValidationCohort, CnvValidationMatrix
+from ontseq_platform.cnv_validation_evidence import (
+    CnvTraceabilityIndex,
+    CnvValidationEvidenceManifest,
+)
+from ontseq_platform.cnv_validation_metrics import CnvValidationMetricReport
+from ontseq_platform.cnv_validation_registration import CnvValidationRegistration
+from ontseq_platform.cnv_validation_v1 import CnvValidationV1Design
 from ontseq_platform.dilution import (
     DilutionPolicy,
     DilutionSeriesPlan,
@@ -59,6 +67,8 @@ from ontseq_platform.models import (
     SvConsensusReport,
     SvEvidencePolicy,
 )
+from ontseq_platform.multicaller_contracts import MultiCallerPlan
+from ontseq_platform.multicaller_report import MultiCallerComparisonReport
 
 
 def _render() -> dict[Path, str]:
@@ -69,6 +79,15 @@ def _render() -> dict[Path, str]:
             )
             + "\n"
             for name, model in {
+                "cnv-validation-matrix": CnvValidationMatrix,
+                "cnv-validation-cohort": CnvValidationCohort,
+                "cnv-validation-registration": CnvValidationRegistration,
+                "cnv-validation-evidence": CnvValidationEvidenceManifest,
+                "cnv-validation-traceability": CnvTraceabilityIndex,
+                "cnv-validation-report": CnvValidationMetricReport,
+                "cnv-validation-v1-design": CnvValidationV1Design,
+                "multicaller-plan": MultiCallerPlan,
+                "multicaller-comparison-report": MultiCallerComparisonReport,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
                 "modbam-source-summary": ModbamSourceSummary,
