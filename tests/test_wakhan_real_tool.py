@@ -34,23 +34,40 @@ class DiagnosticWakhanRunner:
 
     def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
         result = self.delegate.run(argv, timeout_seconds=timeout_seconds)
-        if result.returncode == 0:
-            return result
-
         args = tuple(str(item) for item in argv)
         diagnostics: list[str] = []
+        output_dir = None
         if "--out-dir-plots" in args:
             output_dir = Path(args[args.index("--out-dir-plots") + 1])
             for relative_path in (
                 "data/hp1_weights.tsv",
                 "data/hp2_weights.tsv",
                 "coverage_data/phase_corrected_coverage.csv",
+                "solutions_ranks.tsv",
             ):
                 path = output_dir / relative_path
                 if not path.is_file():
                     continue
                 lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
                 diagnostics.append(f"--- {relative_path} ---\n" + "\n".join(lines[:80]))
+
+        if result.returncode == 0 and output_dir is not None:
+            integer_profiles = sorted(output_dir.rglob("integer_profile.bed"))
+            if integer_profiles:
+                return result
+            tree = sorted(
+                path.relative_to(output_dir).as_posix()
+                for path in output_dir.rglob("*")
+                if path.is_file() or path.is_symlink()
+            )
+            diagnostics.append("--- output tree ---\n" + "\n".join(tree[:200]))
+            return CommandResult(
+                argv=result.argv,
+                returncode=97,
+                stdout=result.stdout,
+                stderr=result.stderr + "\n" + "\n".join(diagnostics),
+            )
+
         stderr = result.stderr
         if diagnostics:
             stderr += "\n" + "\n".join(diagnostics)
@@ -164,14 +181,14 @@ class WakhanBinaryTests(unittest.TestCase):
         self.breakpoints_vcf.write_text(
             "##fileformat=VCFv4.2\n"
             "##source=Severus\n"
-            "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"SV type\">\n"
-            "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"SV length\">\n"
-            "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position\">\n"
-            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
-            "##FORMAT=<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fraction\">\n"
-            "##FORMAT=<ID=hVAF,Number=3,Type=Float,Description=\"Haplotype VAF\">\n"
-            "##FORMAT=<ID=DR,Number=1,Type=Integer,Description=\"Reference reads\">\n"
-            "##FORMAT=<ID=DV,Number=1,Type=Integer,Description=\"Variant reads\">\n"
+            '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="SV type">\n'
+            '##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="SV length">\n'
+            '##INFO=<ID=END,Number=1,Type=Integer,Description="End position">\n'
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            '##FORMAT=<ID=VAF,Number=1,Type=Float,Description="Variant allele fraction">\n'
+            '##FORMAT=<ID=hVAF,Number=3,Type=Float,Description="Haplotype VAF">\n'
+            '##FORMAT=<ID=DR,Number=1,Type=Integer,Description="Reference reads">\n'
+            '##FORMAT=<ID=DV,Number=1,Type=Integer,Description="Variant reads">\n'
             f"##contig=<ID=chr7,length={self.reference_length}>\n"
             f"##contig=<ID=chr8,length={self.reference_length}>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC_TUMOR\n"
