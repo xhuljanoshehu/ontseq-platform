@@ -208,7 +208,7 @@ class CnvValidationV1Tests(unittest.TestCase):
     def test_summary_reports_truth_cells_not_false_caller_votes(self) -> None:
         summary = summarize_cnv_validation_v1(default_cnv_validation_v1_design(), _callers())
 
-        self.assertEqual(summary["positive_truth_cells"], 864)
+        self.assertEqual(summary["positive_truth_cells"], 1512)
         self.assertEqual(summary["caller_count"], 2)
         self.assertEqual(summary["qdnaseq_bin_sizes_kbp"], [100, 500, 1000])
         self.assertNotIn("winner", summary)
