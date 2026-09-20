@@ -60,6 +60,7 @@ class WakhanBinaryTests(unittest.TestCase):
 
         self.reference = self.root / "synthetic.reference.fa"
         self.reference_length = 500_000
+        self.reference_contigs = ("chr7", "chr8")
         self._write_reference()
         self.reference_sha256 = _sha256(self.reference)
 
@@ -73,12 +74,13 @@ class WakhanBinaryTests(unittest.TestCase):
     def _write_reference(self) -> None:
         line = "A" * 80
         with self.reference.open("w", encoding="ascii") as handle:
-            handle.write(">chr7\n")
-            full_lines, remainder = divmod(self.reference_length, len(line))
-            for _ in range(full_lines):
-                handle.write(f"{line}\n")
-            if remainder:
-                handle.write(f"{'A' * remainder}\n")
+            for chromosome in self.reference_contigs:
+                handle.write(f">{chromosome}\n")
+                full_lines, remainder = divmod(self.reference_length, len(line))
+                for _ in range(full_lines):
+                    handle.write(f"{line}\n")
+                if remainder:
+                    handle.write(f"{'A' * remainder}\n")
         self.pysam.faidx(str(self.reference))
 
     def _write_phased_vcf(self) -> None:
@@ -89,8 +91,11 @@ class WakhanBinaryTests(unittest.TestCase):
         ]
         plain.write_text(
             "##fileformat=VCFv4.2\n"
-            f"##contig=<ID=chr7,length={self.reference_length}>\n"
-            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            + "".join(
+                f"##contig=<ID={chromosome},length={self.reference_length}>\n"
+                for chromosome in self.reference_contigs
+            )
+            + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC_TUMOR\n"
             + "\n".join(rows)
@@ -103,7 +108,10 @@ class WakhanBinaryTests(unittest.TestCase):
     def _write_tumor_bam(self) -> None:
         header = {
             "HD": {"VN": "1.6", "SO": "coordinate"},
-            "SQ": [{"SN": "chr7", "LN": self.reference_length}],
+            "SQ": [
+                {"SN": chromosome, "LN": self.reference_length}
+                for chromosome in self.reference_contigs
+            ],
             "RG": [{"ID": "rg1", "SM": "SYNTHETIC_TUMOR"}],
         }
         read_length = 20_000
