@@ -340,7 +340,9 @@ class WakhanBinaryTests(unittest.TestCase):
         self.assertTrue(report.native_artifacts)
         roles = {item.role for item in report.native_artifacts}
         self.assertIn("ranked_solutions", roles)
-        self.assertIn("integer_copy_number_profile_bed", roles)
+        self.assertIn("integer_copy_number_profile_haplotype_1_bed", roles)
+        self.assertIn("integer_copy_number_profile_haplotype_2_bed", roles)
+        self.assertIn("integer_copy_number_profile_vcf", roles)
         self.assertTrue(all(item.sensitive_output for item in report.native_artifacts))
         self.assertTrue(all(not item.exportable for item in report.native_artifacts))
 
