@@ -28,6 +28,16 @@ jobs:
       - name: Install ONTSeq test environment
         run: python -m pip install -e ".[dev]" pysam
 
+      - name: Capture ONTSeq test Python
+        run: |
+          set -euo pipefail
+          TEST_PYTHON="$(command -v python)"
+          "$TEST_PYTHON" - <<'PY'
+          import sys
+          assert sys.version_info[:2] == (3, 11)
+          PY
+          echo "ONTSEQ_TEST_PYTHON=$TEST_PYTHON" >> "$GITHUB_ENV"
+
       - uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/wakhan_0_4_4.yaml
@@ -60,9 +70,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          "$ONTSEQ_TEST_PYTHON" - <<'PY'
           import sys
           assert sys.version_info[:2] == (3, 11)
           PY
           export PATH="$(dirname "$ONTSEQ_WAKHAN_EXECUTABLE"):$PATH"
-          ONTSEQ_WAKHAN_REAL_TOOL=1 PYTHONPATH=src python -m pytest -q tests/test_wakhan_runtime.py tests/test_wakhan_real_tool.py
+          ONTSEQ_WAKHAN_REAL_TOOL=1 PYTHONPATH=src             "$ONTSEQ_TEST_PYTHON" -m pytest -q tests/test_wakhan_runtime.py tests/test_wakhan_real_tool.py
