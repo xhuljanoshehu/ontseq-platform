@@ -79,6 +79,7 @@ target-version = "py311"
 extend-exclude = [
   "docs/superpowers/plans/2026-09-13-marlin-classification-v1.md",
   "docs/superpowers/plans/2026-09-15-clean-room-acceptance.md",
+  "docs/superpowers/plans/2026-09-17-cnv-validation-block1.md",
 ]
 
 [tool.ruff.lint]
