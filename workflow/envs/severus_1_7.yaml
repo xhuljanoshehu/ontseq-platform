@@ -1,0 +1,12 @@
+name: ontseq-severus-1-7
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - python=3.11
+  - severus=1.7
+  - pysam
+  - pytest>=8
+  - pydantic>=2.8,<3
+  - pyyaml>=6,<7
