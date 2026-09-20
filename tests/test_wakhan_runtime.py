@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import GenomeBuild, ModuleRunStatus
 from ontseq_platform.multicaller_contracts import CallerInputRole
@@ -169,6 +171,33 @@ class FakeWakhanRunner:
 
 
 class WakhanRuntimeTests(unittest.TestCase):
+    def test_current_published_0_4_4_policy_is_accepted(self) -> None:
+        policy = WakhanPhasedCnaPolicy(
+            profile_id="wakhan-current-version-contract",
+            mode="tumor_only",
+            expected_version="0.4.4",
+            genome_build=GenomeBuild.GRCH38,
+            reference_id="GRCh38-test",
+            reference_sha256=_sha_bytes(b"reference"),
+            timeout_seconds=300,
+            note="Current published Wakhan version contract.",
+        )
+
+        self.assertEqual(policy.expected_version, "0.4.4")
+
+    def test_obsolete_0_5_0_policy_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "0.4.4"):
+            WakhanPhasedCnaPolicy(
+                profile_id="wakhan-obsolete-version-contract",
+                mode="tumor_only",
+                expected_version="0.5.0",
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="GRCh38-test",
+                reference_sha256=_sha_bytes(b"reference"),
+                timeout_seconds=300,
+                note="Obsolete Wakhan version contract must fail closed.",
+            )
+
     def test_tumor_normal_command_uses_normal_phasing_and_cpd_without_breakpoints(self) -> None:
         argv = build_wakhan_argv(
             python_executable="python",
