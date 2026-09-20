@@ -50,9 +50,7 @@ class DiagnosticWakhanRunner:
                 if not path.is_file():
                     continue
                 lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-                diagnostics.append(
-                    f"--- {relative_path} ---\n" + "\n".join(lines[:80])
-                )
+                diagnostics.append(f"--- {relative_path} ---\n" + "\n".join(lines[:80]))
         stderr = result.stderr
         if diagnostics:
             stderr += "\n" + "\n".join(diagnostics)
