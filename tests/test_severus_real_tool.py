@@ -58,7 +58,7 @@ class SeverusBinaryTests(unittest.TestCase):
             read_number = 0
             for start in range(20_000, 220_000, 2_000):
                 copies = 8 if tumor and 90_000 <= start < 120_000 else 6
-                for copy in range(copies):
+                for _copy in range(copies):
                     read = self.pysam.AlignedSegment()
                     read.query_name = f"{sample_id}-read-{read_number:06d}"
                     read.query_sequence = "A" * 1_000
