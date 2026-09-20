@@ -546,11 +546,15 @@ def _parse_segments(path: Path) -> list[IchorCnaSegment]:
             call = row.get("Corrected_Call")
             if call in {None, "", "NA"}:
                 call = row.get("call")
+            if call in {None, "", "NA"}:
+                call = row.get("event")
             if call in {None, ""}:
                 raise ValueError("ichorCNA segment call is missing")
 
             marker_count = None
             raw_markers = row.get("num.mark")
+            if raw_markers in {None, "", "NA"}:
+                raw_markers = row.get("bins")
             if raw_markers not in {None, "", "NA"}:
                 try:
                     marker_count = int(raw_markers)
@@ -566,7 +570,7 @@ def _parse_segments(path: Path) -> list[IchorCnaSegment]:
                     end=native_end,
                     marker_count=marker_count,
                     median_log_r=_parse_optional_number(
-                        row.get("seg.median.logR", ""),
+                        row.get("seg.median.logR") or row.get("median", ""),
                         label="segment median logR",
                     ),
                     copy_number=copy_number,
