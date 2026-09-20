@@ -53,8 +53,7 @@ def _float_token(value: float) -> str:
 
 def _midpoints(values: list[float]) -> list[float]:
     return [
-        round((left + right) / 2.0, 12)
-        for left, right in zip(values[:-1], values[1:], strict=True)
+        round((left + right) / 2.0, 12) for left, right in zip(values[:-1], values[1:], strict=True)
     ]
 
 
@@ -440,9 +439,7 @@ def build_cnv_validation_v1_matrix(
             EventType.DELETION,
             EventType.DUPLICATION,
         ],
-        qdnaseq_bin_sizes_kbp=(
-            design.qdnaseq_bin_sizes_kbp if "qdnaseq_ace" in caller_ids else []
-        ),
+        qdnaseq_bin_sizes_kbp=(design.qdnaseq_bin_sizes_kbp if "qdnaseq_ace" in caller_ids else []),
         matching_thresholds=BenchmarkThresholds(
             minimum_reciprocal_overlap=0.5,
             maximum_breakpoint_distance_bp=500,
