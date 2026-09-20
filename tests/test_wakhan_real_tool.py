@@ -101,6 +101,20 @@ class WakhanBinaryTests(unittest.TestCase):
         self._write_reference()
         self.reference_sha256 = _sha256(self.reference)
 
+        self.centromere_bed = self.root / "synthetic.centromere.bed"
+        self.centromere_bed.write_text(
+            "chr7\t2700000\t2800000\nchr8\t2700000\t2800000\n",
+            encoding="utf-8",
+        )
+        self.centromere_sha256 = _sha256(self.centromere_bed)
+
+        self.breakpoints_vcf = self.root / "synthetic.severus.vcf"
+        self._write_breakpoints_vcf()
+        self.breakpoint_parent_lane_id = "lane-severus-synthetic"
+        self.breakpoint_parent_lane_sha256 = hashlib.sha256(
+            b"synthetic-severus-parent-lane"
+        ).hexdigest()
+
         self.variant_positions = tuple(range(20_000, self.reference_length - 19_999, 20_000))
         self.phased_vcf = self.root / "synthetic.phased.vcf.gz"
         self._write_phased_vcf()
@@ -145,6 +159,27 @@ class WakhanBinaryTests(unittest.TestCase):
         )
         self.pysam.tabix_compress(str(plain), str(self.phased_vcf), force=True)
         self.pysam.tabix_index(str(self.phased_vcf), preset="vcf", force=True)
+
+    def _write_breakpoints_vcf(self) -> None:
+        self.breakpoints_vcf.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##source=Severus\n"
+            "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"SV type\">\n"
+            "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"SV length\">\n"
+            "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position\">\n"
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
+            "##FORMAT=<ID=VAF,Number=1,Type=Float,Description=\"Variant allele fraction\">\n"
+            "##FORMAT=<ID=hVAF,Number=3,Type=Float,Description=\"Haplotype VAF\">\n"
+            "##FORMAT=<ID=DR,Number=1,Type=Integer,Description=\"Reference reads\">\n"
+            "##FORMAT=<ID=DV,Number=1,Type=Integer,Description=\"Variant reads\">\n"
+            f"##contig=<ID=chr7,length={self.reference_length}>\n"
+            f"##contig=<ID=chr8,length={self.reference_length}>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC_TUMOR\n"
+            "chr7\t1200001\tDEL0001\tN\t<DEL>\t60\tPASS\t"
+            "SVTYPE=DEL;SVLEN=800000;END=2000001\t"
+            "GT:VAF:hVAF:DR:DV\t0/1:0.375:0.50,0.25,0.25:10:6\n",
+            encoding="utf-8",
+        )
 
     def _write_tumor_bam(self) -> None:
         header = {
@@ -218,6 +253,18 @@ class WakhanBinaryTests(unittest.TestCase):
                     reference_sha256=self.reference_sha256,
                     sha256=_sha256(self.phased_vcf),
                 ),
+                TumorAuxiliaryInputArtifact(
+                    artifact_id="severus-breakpoints",
+                    role=CallerInputRole.SEVERUS_BREAKPOINTS,
+                    analysis_sample_id="SYNTHETIC_TUMOR",
+                    source_sample_id="SYNTHETIC_TUMOR",
+                    genome_build=GenomeBuild.GRCH38,
+                    reference_id="synthetic-grch38",
+                    reference_sha256=self.reference_sha256,
+                    sha256=_sha256(self.breakpoints_vcf),
+                    producer_lane_id=self.breakpoint_parent_lane_id,
+                    producer_lane_sha256=self.breakpoint_parent_lane_sha256,
+                ),
             ],
         )
 
@@ -231,16 +278,21 @@ class WakhanBinaryTests(unittest.TestCase):
             reference_id="synthetic-grch38",
             reference_sha256=self.reference_sha256,
             contigs="chr7,chr8",
+            centromere_sha256=self.centromere_sha256,
             timeout_seconds=900,
-            note="Synthetic Wakhan 0.4.4 tumor-only interoperability smoke.",
+            note="Synthetic Wakhan 0.4.4 breakpoint-assisted interoperability smoke.",
         )
 
-    def test_real_wakhan_0_4_4_runs_through_adapter(self) -> None:
+    def test_real_wakhan_0_4_4_breakpoint_assisted_runs_through_adapter(self) -> None:
         output_dir = self.root / "wakhan-output"
         report = run_wakhan_phased_cna(
             tumor_bam=self.tumor_bam,
             phased_vcf=self.phased_vcf,
             reference_fasta=self.reference,
+            centromere_bed=self.centromere_bed,
+            breakpoints_vcf=self.breakpoints_vcf,
+            expected_breakpoint_parent_lane_id=self.breakpoint_parent_lane_id,
+            expected_breakpoint_parent_lane_sha256=self.breakpoint_parent_lane_sha256,
             sample_id="SYNTHETIC_TUMOR",
             output_dir=output_dir,
             inputs=self._bundle(),
@@ -256,6 +308,16 @@ class WakhanBinaryTests(unittest.TestCase):
         self.assertEqual(report.tool.version, "0.4.4")
         self.assertTrue(report.real_tool_qualified)
         self.assertTrue(report.policy.real_tool_qualified)
+        self.assertEqual(report.breakpoint_parent_lane_id, self.breakpoint_parent_lane_id)
+        self.assertEqual(
+            report.breakpoint_parent_lane_sha256,
+            self.breakpoint_parent_lane_sha256,
+        )
+        self.assertIsNotNone(report.breakpoints_fingerprint)
+        self.assertIsNotNone(report.centromere_fingerprint)
+        self.assertTrue(report.tool.parameters["breakpoints_supplied"])
+        self.assertFalse(report.tool.parameters["change_point_detection_for_cna"])
+        self.assertTrue(report.tool.parameters["centromere_override"])
         self.assertTrue(report.native_artifacts)
         roles = {item.role for item in report.native_artifacts}
         self.assertIn("ranked_solutions", roles)
