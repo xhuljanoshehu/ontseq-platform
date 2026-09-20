@@ -32,12 +32,13 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$(command -v Rscript)"
-          test -n "$(command -v runIchorCNA.R)"
+          ICHOR_SCRIPT="$(command -v runIchorCNA.R)"
+          test -n "$ICHOR_SCRIPT"
+          test -r "$ICHOR_SCRIPT"
           Rscript -e 'stopifnot(as.character(utils::packageVersion("ichorCNA")) == "0.5.1")'
-          Rscript "$(command -v runIchorCNA.R)" --help >/tmp/ichorcna-help.txt
-          grep -q -- '--WIG' /tmp/ichorcna-help.txt
-          grep -q -- '--gcWig' /tmp/ichorcna-help.txt
-          grep -q -- '--mapWig' /tmp/ichorcna-help.txt
+          grep -Fq -- '--WIG' "$ICHOR_SCRIPT"
+          grep -Fq -- '--gcWig' "$ICHOR_SCRIPT"
+          grep -Fq -- '--mapWig' "$ICHOR_SCRIPT"
 
       - name: Run ichorCNA adapter contracts and synthetic real-tool smoke
         shell: micromamba-shell {0}
