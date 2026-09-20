@@ -68,6 +68,8 @@ from ontseq_platform.models import (
     SvEvidencePolicy,
 )
 from ontseq_platform.multicaller_contracts import MultiCallerPlan
+from ontseq_platform.multicaller_plan import MultiCallerPlan as MultiCallerRoutingPlan
+from ontseq_platform.multicaller_plan import MultiCallerRequest
 from ontseq_platform.multicaller_report import MultiCallerComparisonReport
 
 
@@ -87,6 +89,8 @@ def _render() -> dict[Path, str]:
                 "cnv-validation-report": CnvValidationMetricReport,
                 "cnv-validation-v1-design": CnvValidationV1Design,
                 "multicaller-plan": MultiCallerPlan,
+                "multicaller-routing-plan": MultiCallerRoutingPlan,
+                "multicaller-request": MultiCallerRequest,
                 "multicaller-comparison-report": MultiCallerComparisonReport,
                 "modbam-adapter-policy": ModbamAdapterPolicy,
                 "modbam-source-metadata": ModbamSourceMetadata,
