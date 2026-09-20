@@ -1,0 +1,62 @@
+name: Authorized merge repair audit
+on:
+  push:
+    branches: [chore/merge-repair-20260920]
+    paths: [.github/workflows/merge-repair-audit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reproduce each merge conflict on an isolated checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ONTSeq merge repair audit'
+          git config user.email 'merge-repair@users.noreply.github.com'
+          python - <<'PY'
+          import json
+          import subprocess
+          BASE = 'ceaab08079b8cb7c528eac6f6137ad2e4dac5f31'
+          refs = {
+              78: '16f2ef8e9dcb63867176749131d7e0ba1266f502',
+              81: '0cdfd6383da0e1869b4e792849a7056d2466f602',
+              82: '30521bebc67f2562c26120a8f32983dfaaaad0d7',
+          }
+          def git(*args, check=True):
+              p = subprocess.run(['git', *args], text=True, capture_output=True)
+              if check and p.returncode:
+                  raise RuntimeError(p.stderr)
+              return p
+          for pr, tip in refs.items():
+              print(f'\n===== PR {pr} =====', flush=True)
+              git('checkout', '--detach', BASE)
+              common = git('merge-base', BASE, tip).stdout.strip()
+              delta = git('diff', '--name-only', common, tip).stdout.splitlines()
+              inventory = []
+              for path in delta:
+                  a = git('rev-parse', f'{BASE}:{path}', check=False)
+                  b = git('rev-parse', f'{tip}:{path}', check=False)
+                  inventory.append({'path': path, 'same_as_main': a.returncode == b.returncode == 0 and a.stdout == b.stdout, 'present_in_main': a.returncode == 0})
+              result = git('merge', '--no-commit', '--no-ff', tip, check=False)
+              print(json.dumps({'pr': pr, 'base': BASE, 'tip': tip, 'merge_base': common, 'merge_returncode': result.returncode, 'inventory': inventory}, indent=2), flush=True)
+              print(result.stdout, result.stderr, flush=True)
+              conflicts = git('diff', '--name-only', '--diff-filter=U').stdout.splitlines()
+              print('CONFLICTS', json.dumps(conflicts), flush=True)
+              for path in conflicts:
+                  print(f'--- CONFLICT {path} ---', flush=True)
+                  print(git('diff', '--cc', '--', path).stdout, flush=True)
+                  print(f'--- MAIN DELTA {path} ---', flush=True)
+                  print(git('diff', common, BASE, '--', path).stdout, flush=True)
+                  print(f'--- PR DELTA {path} ---', flush=True)
+                  print(git('diff', common, tip, '--', path).stdout, flush=True)
+              print('STAGED STAT', git('diff', '--cached', '--stat').stdout, flush=True)
+              git('merge', '--abort', check=False)
+          PY
