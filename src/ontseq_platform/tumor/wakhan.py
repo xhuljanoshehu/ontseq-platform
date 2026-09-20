@@ -35,9 +35,36 @@ class WakhanPhasedCnaPolicy(StrictModel):
     genome_build: GenomeBuild
     reference_id: str = Field(min_length=1)
     reference_sha256: str = Field(pattern=_SHA256)
+    contigs: str = Field(default="chr1-22,chrX", min_length=1)
     timeout_seconds: int = Field(ge=60)
     note: str = Field(min_length=12)
     research_only: Literal[True] = True
+
+    @field_validator("contigs")
+    @classmethod
+    def valid_contig_scope(cls, value: str) -> str:
+        tokens = value.split(",")
+        if not tokens or any(not token for token in tokens):
+            raise ValueError("Wakhan contigs must be a comma-separated non-empty scope")
+        prefixed = [token.startswith("chr") for token in tokens]
+        if len(set(prefixed)) != 1:
+            raise ValueError("Wakhan contigs must use a consistent chr prefix")
+        for token in tokens:
+            core = token[3:] if token.startswith("chr") else token
+            if "-" in core:
+                start, separator, end = core.partition("-")
+                if (
+                    separator != "-"
+                    or not start.isdigit()
+                    or not end.isdigit()
+                    or not 1 <= int(start) <= 22
+                    or not 1 <= int(end) <= 22
+                    or int(start) > int(end)
+                ):
+                    raise ValueError("Wakhan contig ranges must be numeric chromosomes 1-22")
+            elif core not in {*(str(number) for number in range(1, 23)), "X", "Y"}:
+                raise ValueError("Wakhan contigs must be chromosomes 1-22, X or Y")
+        return value
 
     @model_validator(mode="after")
     def pinned_runtime_version(self) -> WakhanPhasedCnaPolicy:
@@ -155,6 +182,8 @@ def build_wakhan_argv(
         [
             "--genome-name",
             sample_id,
+            "--contigs",
+            policy.contigs,
             "--out-dir-plots",
             str(output_dir),
         ]
@@ -455,6 +484,7 @@ def run_wakhan_phased_cna(
                 parameters={
                     "mode": policy.mode,
                     "threads": threads,
+                    "contigs": policy.contigs,
                     "breakpoints_supplied": breakpoints_vcf is not None,
                     "change_point_detection_for_cna": breakpoints_vcf is None,
                     "use_sv_haplotypes": False,
