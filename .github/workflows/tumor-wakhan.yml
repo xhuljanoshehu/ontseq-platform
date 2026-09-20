@@ -42,6 +42,8 @@ jobs:
           WAKHAN_EXECUTABLE="$CONDA_PREFIX/bin/wakhan"
           test -x "$RUNTIME_PYTHON"
           test -x "$WAKHAN_EXECUTABLE"
+          test -x "$CONDA_PREFIX/bin/samtools"
+          test -x "$CONDA_PREFIX/bin/bcftools"
           "$RUNTIME_PYTHON" - <<'PY'
           import importlib.metadata
           assert importlib.metadata.version("wakhan") == "0.4.4"
