@@ -41,8 +41,8 @@ class WakhanPhasedCnaPolicy(StrictModel):
 
     @model_validator(mode="after")
     def pinned_runtime_version(self) -> WakhanPhasedCnaPolicy:
-        if self.expected_version != "0.5.0":
-            raise ValueError("Wakhan expected_version must match the pinned 0.5.0 contract")
+        if self.expected_version != "0.4.4":
+            raise ValueError("Wakhan expected_version must match the pinned 0.4.4 contract")
         return self
 
 
