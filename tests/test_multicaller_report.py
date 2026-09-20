@@ -14,7 +14,6 @@ from ontseq_platform.multicaller_report import (
     MultiCallerEvidenceLink,
     build_multicaller_comparison_report,
 )
-
 from pydantic import ValidationError
 
 from ontseq_platform.multicaller_contracts import (
