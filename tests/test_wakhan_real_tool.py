@@ -59,12 +59,14 @@ class WakhanBinaryTests(unittest.TestCase):
         self.root = Path(self.directory.name)
 
         self.reference = self.root / "synthetic.reference.fa"
-        self.reference_length = 1_000_000
+        self.reference_length = 3_000_000
         self.reference_contigs = ("chr7", "chr8")
         self._write_reference()
         self.reference_sha256 = _sha256(self.reference)
 
-        self.variant_positions = tuple(range(20_000, 980_001, 20_000))
+        self.variant_positions = tuple(
+            range(20_000, self.reference_length - 19_999, 20_000)
+        )
         self.phased_vcf = self.root / "synthetic.phased.vcf.gz"
         self._write_phased_vcf()
 
@@ -122,10 +124,10 @@ class WakhanBinaryTests(unittest.TestCase):
         with self.pysam.AlignmentFile(str(self.tumor_bam), "wb", header=header) as handle:
             read_number = 0
             for reference_id, chromosome in enumerate(self.reference_contigs):
-                for start in range(0, self.reference_length - read_length, 2_000):
-                    if chromosome == "chr7" and 150_000 <= start < 260_000:
+                for start in range(0, self.reference_length - read_length, 10_000):
+                    if chromosome == "chr7" and 600_000 <= start < 1_400_000:
                         copies = 3
-                    elif chromosome == "chr7" and 320_000 <= start < 420_000:
+                    elif chromosome == "chr7" and 1_700_000 <= start < 2_500_000:
                         copies = 9
                     else:
                         copies = 6
