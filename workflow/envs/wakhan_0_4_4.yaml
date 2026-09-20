@@ -4,11 +4,5 @@ channels:
   - bioconda
 channel_priority: strict
 dependencies:
-  - python=3.11
+  - python=3.10
   - wakhan=0.4.4
-  - pysam
-  - bcftools>=1.14
-  - samtools>=1.14
-  - pytest>=8
-  - pydantic>=2.8,<3
-  - pyyaml>=6,<7
