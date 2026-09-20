@@ -55,9 +55,7 @@ class SeverusBinaryTests(unittest.TestCase):
             "RG": [{"ID": "rg1", "SM": sample_id}],
         }
         with self.pysam.AlignmentFile(str(path), "wb", header=header) as handle:
-            for read_number, start in enumerate(
-                range(0, contig_length - read_length, 1_000)
-            ):
+            for read_number, start in enumerate(range(0, contig_length - read_length, 1_000)):
                 read = self.pysam.AlignedSegment()
                 read.query_name = f"{sample_id}-read-{read_number:06d}"
                 read.query_sequence = "A" * read_length
