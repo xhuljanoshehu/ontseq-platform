@@ -8,6 +8,7 @@ on:
       - "workflow/envs/severus_1_7.yaml"
       - "tests/test_severus_runtime.py"
       - "tests/test_severus_real_tool.py"
+      - "tests/test_severus_long_read_real_tool.py"
       - ".github/workflows/sv-severus.yml"
   workflow_dispatch:
 
@@ -49,4 +50,4 @@ jobs:
         run: |
           set -euo pipefail
           ONTSEQ_SEVERUS_REAL_TOOL=1 PYTHONPATH=src \
-            python -m pytest -q tests/test_severus_runtime.py tests/test_severus_real_tool.py
+            python -m pytest -q tests/test_severus_runtime.py tests/test_severus_real_tool.py tests/test_severus_long_read_real_tool.py
