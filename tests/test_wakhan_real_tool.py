@@ -188,6 +188,7 @@ class WakhanBinaryTests(unittest.TestCase):
             genome_build=GenomeBuild.GRCH38,
             reference_id="synthetic-grch38",
             reference_sha256=self.reference_sha256,
+            contigs="chr7,chr8",
             timeout_seconds=900,
             note="Synthetic Wakhan 0.4.4 tumor-only interoperability smoke.",
         )
