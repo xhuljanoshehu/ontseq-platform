@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import importlib.metadata
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,12 +31,26 @@ def _sha256(path: Path) -> str:
 )
 class WakhanBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
-        wakhan = shutil.which("wakhan")
+        wakhan = os.environ.get("ONTSEQ_WAKHAN_EXECUTABLE") or shutil.which("wakhan")
         self.assertIsNotNone(wakhan)
         assert wakhan is not None
         self.wakhan_script = Path(wakhan)
         self.assertTrue(self.wakhan_script.is_file())
-        self.runtime_version = importlib.metadata.version("wakhan")
+
+        runtime_python = os.environ.get("ONTSEQ_WAKHAN_PYTHON") or sys.executable
+        self.runtime_python = str(Path(runtime_python))
+        self.assertTrue(Path(self.runtime_python).is_file())
+        completed = subprocess.run(
+            [
+                self.runtime_python,
+                "-c",
+                "import importlib.metadata; print(importlib.metadata.version('wakhan'))",
+            ],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+        )
+        self.runtime_version = completed.stdout.strip()
         self.assertEqual(self.runtime_version, "0.4.4")
 
         self.pysam = importlib.import_module("pysam")
@@ -182,7 +196,7 @@ class WakhanBinaryTests(unittest.TestCase):
             policy=self._policy(),
             observed_runtime_version=self.runtime_version,
             wakhan_script=self.wakhan_script,
-            python_executable=sys.executable,
+            python_executable=self.runtime_python,
             threads=2,
         )
 
