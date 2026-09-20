@@ -35,13 +35,20 @@ def _sha256(path: Path) -> str:
 class IchorCnaBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
         rscript = shutil.which("Rscript")
-        ichor_script = shutil.which("runIchorCNA.R")
         self.assertIsNotNone(rscript)
-        self.assertIsNotNone(ichor_script)
         assert rscript is not None
-        assert ichor_script is not None
         self.rscript = rscript
-        self.ichor_script = Path(ichor_script)
+
+        conda_prefix = os.environ.get("CONDA_PREFIX")
+        self.assertIsNotNone(conda_prefix)
+        assert conda_prefix is not None
+        scripts = list(Path(conda_prefix).rglob("runIchorCNA.R"))
+        self.assertEqual(
+            len(scripts),
+            1,
+            f"Expected exactly one runIchorCNA.R below {conda_prefix}, found {scripts}",
+        )
+        self.ichor_script = scripts[0]
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
