@@ -33,8 +33,7 @@ def _sha256(path: Path) -> str:
 )
 class IchorCnaBinaryTests(unittest.TestCase):
     def setUp(self) -> None:
-        rscript = os.environ.get("R") or "Rscript"
-        self.rscript = rscript
+        self.rscript = "Rscript"
 
         self.ichor_script = (
             Path(__file__).resolve().parents[1] / "scripts" / "run_ichorcna_0_5_1.R"
