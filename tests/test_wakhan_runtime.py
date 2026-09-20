@@ -139,8 +139,9 @@ def _policy(reference_sha256: str, *, mode: str) -> WakhanPhasedCnaPolicy:
 
 
 class FakeWakhanRunner:
-    def __init__(self) -> None:
+    def __init__(self, *, legacy_layout: bool = False) -> None:
         self.calls: list[tuple[str, ...]] = []
+        self.legacy_layout = legacy_layout
 
     def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
         del timeout_seconds
@@ -154,10 +155,28 @@ class FakeWakhanRunner:
         )
         solution = outdir / "solution_2.0_0.70_0.90"
         solution.mkdir()
-        (solution / "integer_profile.bed").write_text(
-            "chrom\tstart\tend\thp1_cn\thp2_cn\nchr7\t0\t1000000\t1\t2\n",
-            encoding="utf-8",
-        )
+        if self.legacy_layout:
+            bed_output = solution / "bed_output"
+            bed_output.mkdir()
+            (bed_output / "TUMOR_001_2.0_0.70_0.90_copynumbers_segments_HP_1.bed").write_text(
+                "chr7\t0\t1000000\t1\n",
+                encoding="utf-8",
+            )
+            (bed_output / "TUMOR_001_2.0_0.70_0.90_copynumbers_segments_HP_2.bed").write_text(
+                "chr7\t0\t1000000\t2\n",
+                encoding="utf-8",
+            )
+            vcf_output = solution / "vcf_output"
+            vcf_output.mkdir()
+            (vcf_output / "TUMOR_001_2.0_0.70_0.90_wakhan_cna_integers.vcf").write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+                encoding="utf-8",
+            )
+        else:
+            (solution / "integer_profile.bed").write_text(
+                "chrom\tstart\tend\thp1_cn\thp2_cn\nchr7\t0\t1000000\t1\t2\n",
+                encoding="utf-8",
+            )
         coverage = outdir / "coverage_data"
         coverage.mkdir()
         (coverage / "coverage.csv").write_text(
@@ -459,6 +478,43 @@ class WakhanRuntimeTests(unittest.TestCase):
         self.assertIn("phasing_output/rephased.vcf.gz", native_paths)
         self.assertFalse(report.real_tool_qualified)
         self.assertTrue(report.research_only)
+
+    def test_runtime_accepts_native_wakhan_0_4_4_dual_haplotype_bed_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            phased = root / "tumor.phased.vcf"
+            reference = root / "ref.fa"
+            script = root / "wakhan.py"
+            _write_bam(tumor, b"tumor")
+            _write_phased_vcf(phased)
+            reference_sha256 = _write_reference(reference)
+            script.write_text("# synthetic wakhan entry point\n", encoding="utf-8")
+
+            report = run_wakhan_phased_cna(
+                tumor_bam=tumor,
+                phased_vcf=phased,
+                reference_fasta=reference,
+                sample_id="TUMOR_001",
+                output_dir=root / "output",
+                inputs=_bundle(
+                    tumor_bam=tumor,
+                    phased_vcf=phased,
+                    phased_source_sample_id="TUMOR_001",
+                    reference_sha256=reference_sha256,
+                ),
+                policy=_policy(reference_sha256, mode="tumor_only"),
+                observed_runtime_version="0.4.4",
+                wakhan_script=script,
+                runner=FakeWakhanRunner(legacy_layout=True),
+            )
+
+        roles = {item.role for item in report.native_artifacts}
+        paths = {item.relative_path for item in report.native_artifacts}
+        self.assertIn("integer_copy_number_profile_haplotype_1_bed", roles)
+        self.assertIn("integer_copy_number_profile_haplotype_2_bed", roles)
+        self.assertIn("integer_copy_number_profile_vcf", roles)
+        self.assertFalse(any(path.endswith("integer_profile.bed") for path in paths))
 
     def test_runtime_version_drift_fails_before_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
