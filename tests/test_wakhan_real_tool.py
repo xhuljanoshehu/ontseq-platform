@@ -86,7 +86,11 @@ class WakhanBinaryTests(unittest.TestCase):
     def _write_phased_vcf(self) -> None:
         plain = self.root / "synthetic.phased.vcf"
         rows = [
-            f"chr7\t{position + 1}\trs{index}\tA\tG\t60\tPASS\t.\tGT:PS\t0|1:1"
+            (
+                f"{chromosome}\t{position + 1}\t"
+                f"rs{chromosome[3:]}_{index}\tA\tG\t60\tPASS\t.\tGT:PS\t0|1:1"
+            )
+            for chromosome in self.reference_contigs
             for index, position in enumerate(self.variant_positions, start=1)
         ]
         plain.write_text(
@@ -117,36 +121,39 @@ class WakhanBinaryTests(unittest.TestCase):
         read_length = 20_000
         with self.pysam.AlignmentFile(str(self.tumor_bam), "wb", header=header) as handle:
             read_number = 0
-            for start in range(0, self.reference_length - read_length, 2_000):
-                if 150_000 <= start < 260_000:
-                    copies = 3
-                elif 320_000 <= start < 420_000:
-                    copies = 9
-                else:
-                    copies = 6
-                overlapping = [
-                    position
-                    for position in self.variant_positions
-                    if start <= position < start + read_length
-                ]
-                for copy_index in range(copies):
-                    sequence = bytearray(b"A" * read_length)
-                    if copy_index % 2:
-                        for position in overlapping:
-                            sequence[position - start] = ord("G")
-                    read = self.pysam.AlignedSegment()
-                    read.query_name = f"SYNTHETIC_TUMOR-read-{read_number:06d}"
-                    read.query_sequence = sequence.decode("ascii")
-                    read.flag = 0
-                    read.reference_id = 0
-                    read.reference_start = start
-                    read.mapping_quality = 60
-                    read.cigar = ((0, read_length),)
-                    read.query_qualities = self.pysam.qualitystring_to_array("I" * read_length)
-                    read.set_tag("RG", "rg1")
-                    read.set_tag("NM", len(overlapping) if copy_index % 2 else 0)
-                    handle.write(read)
-                    read_number += 1
+            for reference_id, chromosome in enumerate(self.reference_contigs):
+                for start in range(0, self.reference_length - read_length, 2_000):
+                    if chromosome == "chr7" and 150_000 <= start < 260_000:
+                        copies = 3
+                    elif chromosome == "chr7" and 320_000 <= start < 420_000:
+                        copies = 9
+                    else:
+                        copies = 6
+                    overlapping = [
+                        position
+                        for position in self.variant_positions
+                        if start <= position < start + read_length
+                    ]
+                    for copy_index in range(copies):
+                        sequence = bytearray(b"A" * read_length)
+                        if copy_index % 2:
+                            for position in overlapping:
+                                sequence[position - start] = ord("G")
+                        read = self.pysam.AlignedSegment()
+                        read.query_name = (
+                            f"SYNTHETIC_TUMOR-{chromosome}-read-{read_number:06d}"
+                        )
+                        read.query_sequence = sequence.decode("ascii")
+                        read.flag = 0
+                        read.reference_id = reference_id
+                        read.reference_start = start
+                        read.mapping_quality = 60
+                        read.cigar = ((0, read_length),)
+                        read.query_qualities = self.pysam.qualitystring_to_array("I" * read_length)
+                        read.set_tag("RG", "rg1")
+                        read.set_tag("NM", len(overlapping) if copy_index % 2 else 0)
+                        handle.write(read)
+                        read_number += 1
         self.pysam.index(str(self.tumor_bam))
 
     def _bundle(self) -> TumorInputBundle:
