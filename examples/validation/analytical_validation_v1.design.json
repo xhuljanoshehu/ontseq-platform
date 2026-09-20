@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1.0",
+  "design_id": "ontseq-analytical-validation-v1",
+  "genome_build": "GRCh38",
+  "data_basis": "lcwgs_genome_wide",
+  "coverage_levels_x": [
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    20.0
+  ],
+  "tumor_fractions": [
+    1.0,
+    0.5,
+    0.3,
+    0.2,
+    0.1,
+    0.05
+  ],
+  "subchromosomal_sizes_bp": [
+    100000,
+    250000,
+    500000,
+    1000000,
+    5000000,
+    10000000
+  ],
+  "replicates": 3,
+  "seed": 260920,
+  "qdnaseq_bin_sizes_kbp": [
+    100,
+    500,
+    1000
+  ],
+  "reference_id": "synthetic-grch38-validation-v1",
+  "reference_sha256": "9391eb0302bea5d1a75402b65971108209e1e097c3e80030f5e34a2c54ddd77f",
+  "truth_source_resource_id": "analytical-validation-v1-synthetic-truth",
+  "truth_source_sha256": "ab31b063026756342c2563808c8f1c120ba1f44993545f455dec56cab4dcc58b",
+  "assessability_resource_id": "analytical-validation-v1-assessability",
+  "assessability_sha256": "c78424b0c2703c36a60704d9dc07fb6e9c2c7102de5489a3257ff3252e439d2b",
+  "research_only": true
+}

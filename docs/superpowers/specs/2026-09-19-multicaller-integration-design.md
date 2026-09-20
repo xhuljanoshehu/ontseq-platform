@@ -1,141 +1,259 @@
-# ONTSeq multi-caller integration design
+# ONTSeq Multi-Caller Integration Design
 
-Date: 2026-09-19. Scope: Research Use Only; human review required.
-Baseline: `b6e0338b6f042239a1399e3438e6c2bab4e48b08` on
-`feat/cnv-validation-program` (Draft PR #79). Package remains 0.8.2.
+Date: 2026-09-19
+Status: approved for staged implementation
+Branch: `feat/multicaller-integration`
+Base: `b6e0338b6f042239a1399e3438e6c2bab4e48b08`
+Scope: Research Use Only; Human Review Required
 
-## Intent and scope
+## 1. Goal
 
-Integrate the important, complementary CNV and SV methods into one traceable system,
-not an unqualified "run every caller" button. Preserve the existing production graph,
-all caller-native evidence, and Blocks 1–4. No merge, release, patient data or real
-biological execution is authorized by this engineering change.
+Integrate the selected caller families into ONTSeq without turning caller agreement into biological truth and without replacing the existing single-provider production-style stages.
 
-The first independently reviewable deliverable is **5A: a typed catalog and a
-fail-closed, content-addressed research planner**. It does not execute external
-programs. Catalog membership, a compatible input declaration, a runtime adapter,
-a successful runtime smoke test and intended-use analytical validation are different
-milestones. In particular, a planned lane never means an executed or negative result.
+The selected families are:
 
-## Chosen architecture
+- QDNAseq+ACE
+- Spectre
+- Sniffles2
+- cuteSV
+- SAVANA
+- Severus
+- Wakhan
+- ichorCNA
 
-Use a common intake / identity / assessability boundary, then parallel complementary
-analytical lanes, then the existing full-evidence and normalization layers.
-A single winner or majority-vote consensus is explicitly excluded. Adding a second
-independent monolithic pipeline would duplicate reference, QC and reporting rules;
-running every program unconditionally would violate their different input assumptions.
+"Integrated" has four separate meanings which must not be conflated:
 
-| Lane | Role | First integration scope |
-| --- | --- | --- |
-| QDNAseq + ACE | depth, segments, fitted total CN and alternative purity/ploidy fits | reuse existing runtime and Block-4 evidence adapter; retain 100/500/1000 kbp |
-| ONT-Spectre | long-read depth / SNV-informed CNV comparison | distinct provider `ont_spectre`; require compatible coverage bins and SNV evidence |
-| ichorCNA | cfDNA/ULP-WGS CN and tumour-fraction research | separate cfDNA route; no automatic equivalence with adaptive-sampling or ONT tumour WGS |
-| Sniffles2 | SV breakpoint candidates | reuse existing adapter; explicit germline/mosaic policy, no automatic somatic assertion |
-| cuteSV | alternative SV breakpoint candidates | reuse existing module; retain disagreement and source-event identities |
-| SAVANA | tumour SV plus CN; selected/alternative purity/ploidy and allelic CN | paired and tumour-only routes separate; CN requires SNP information |
-| Severus | tumour/normal and complex-SV breakpoint graph | paired somatic route; unpaired calls stay candidates, not verified somatic calls |
-| Wakhan | haplotype-specific CN, purity/ploidy, LOH-related evidence | phased SNP / haplotagged route; chosen SV-guided vs change-point segmentation explicit |
+1. known to the caller catalog;
+2. eligible for a declared data regime and input set;
+3. technically executable by a pinned runtime adapter;
+4. analytically validated for a particular intended-use study.
 
-The original Spectre and ONT-Spectre fork are not interchangeable. A future second
-Spectre provider must carry its own version, adapter and policy identities and a
-shared method-family tag; it is not a second independent biological experiment.
+A catalog entry is not a runtime qualification, and a runtime qualification is not analytical or clinical validation.
 
-## Routing rules
+## 2. Existing system boundary
 
-Inputs declare sample identity, reference fingerprint/build, platform, assay basis,
-coverage and artifact fingerprints. Unknown coverage stays unknown. No missing tumour
-fraction is replaced by ACE/SAVANA/Wakhan/ichor fitted purity, and no ploidy of two is
-silently assigned. CNV coverage and breakpoint-support coverage are distinct validation
-questions. A global depth check is a necessary engineering gate, not a detection guarantee.
+The existing `RunComponents` contract selects one provider per main pipeline stage. That remains intact. Multi-caller comparison is an additive subsystem with explicit parallel lanes rather than a rewrite of the canonical runner.
 
-Every selected caller requires a prospectively locked, matching assay/platform/build
-policy with an explicit minimum coverage. Those are **study parameters**, not universal
-clinical recommendations. Policies also bind the exact reference and assessability-mask
-hash and the coverage measurement definition. Measured tumour fraction requires method
-and timepoint; these declarations are not independently verified by the planner.
-Paired somatic lanes additionally require a distinct normal sample, normal BAM identity
-and a separately registered normal-depth criterion and measurement definition.
+Existing QDNAseq+ACE, Sniffles2 and cuteSV behavior must remain stable. New comparison lanes may consume the same BAM but must have independent lane identity, policy identity, runtime identity, output directory, state and provenance.
 
-Whole-genome read-depth CNV lanes on adaptive-sampling data are blocked in this initial
-planner. Unlocking a future AS route requires a separately validated off-/on-target
-selection, callable territory and bias-correction design, not a generic force flag.
-SV-only AS research remains possible with its own locked policy and mask; absence of
-an event outside assessable territory is not a negative call.
+## 3. Domain separation
 
-ONT-Spectre requires SNV and coverage-bin artifacts from the same sample/reference and
-an exact bin-size match. SAVANA CN requests require SNP or heterozygous-count evidence.
-Wakhan's allele-specific route requires phased-SNV and haplotagged-BAM declarations;
-SV-guided segmentation additionally requires explicit breakpoint evidence. These are
-chosen integration preconditions, not assertions that every upstream optional mode
-has the same requirements. Source artifacts must never be substituted across samples.
-Normal-derived SNPs are allowed only when explicitly bound to the declared normal BAM.
+The subsystem separates four analytical domains.
 
-## State and identity contract
+### Genome-wide copy number
 
-A plan retains a row for every catalog caller, including disabled and blocked callers.
-It records input blockers independently from adapter availability. Existing adapters
-are not re-executed by this new planner; new callers remain `ADAPTER_PENDING` when
-declared inputs are eligible, or `BLOCKED` with `existing_adapter=false` otherwise.
-Every plan row has `execution_status=NOT_RUN`. No plan may claim `NO_CALL`, `FAILED`
-or `COMPLETED`, since these are execution outcomes, not planning outcomes.
+- QDNAseq+ACE
+- Spectre
 
-Each request locks caller version, runtime digest, adapter digest, parameter-policy
-digest and study-policy digest. Unpinned `latest`, moving branch names and wildcard
-versions are rejected. Catalog and plan hashes are canonical and contain no runtime
-clock. Reordering requests or input records cannot change a plan; changing a sample,
-reference, coverage, request, input digest or registered threshold must change it.
-Revalidated inputs prevent unchecked model copies from bypassing contracts.
-A study-registration digest is a declared reference in 5A, not verification of the
-external registration content. Native execution must resolve and verify that content.
+Outputs may include depth-derived bins, segments, copy number, fit parameters and caller-native QC. QDNAseq multi-resolution evidence and ACE alternative fits remain retained.
 
-## Evidence and reporting boundary (subsequent adapter blocks)
+### Structural variation
 
-All native outputs, fit alternatives, exclusions and raw quantitative values remain
-available locally with fingerprints. Normalized events are additive. Event identifiers
-must be namespaced by study, specimen, caller/version, run, resolution and native ID.
-Caller-specific CN semantics, minor/major CN, BAF, purity and ploidy remain explicit;
-copy-neutral LOH is not encoded as a deletion. A BND is not proof of an expressed fusion.
+- Sniffles2
+- cuteSV
+- Severus
+- SAVANA-SV
 
-Reuse Block-2 evidence manifests and Block-3 matching/denominator logic. Do not create a
-parallel metric implementation. Secondary resolutions require their own normalized
-analytical lanes before per-resolution performance is claimed. Benchmark all callers
-against the same prospectively locked orthogonal truth and assessability masks; caller
-concordance is never used as truth.
+Breakpoint and SV evidence remains distinct from absolute copy number. A deletion-like SV does not imply an absolute CN value unless the caller actually reports one under a registered contract.
 
-Maintain a dependency graph for evidence: SAVANA CN can depend on SAVANA breakpoints;
-Wakhan can depend on Severus breakpoints; SNV/phase and depth tracks can be shared.
-Such dependence prevents interpreting multiple outputs as independent confirmations.
-No vote count is converted into a probability, diagnosis, winner or automatic release.
-Conflicts remain visible and traceable for human review.
+### Tumor CNA / allele-aware analysis
 
-## Native-adapter delivery sequence and acceptance
+- SAVANA-CNA
+- Wakhan
 
-5A delivers only the catalog, declared-input checks and deterministic plan, with tests.
-5B implements a pinned ONT-Spectre runtime + native import + Block-2/3 bridge.
-5C implements a pinned SAVANA paired/tumour-only adapter; preserve all ranked CN fits.
-5D implements Severus and then Wakhan, preserving breakpoint / phase dependencies.
-5E implements the isolated ichorCNA cfDNA path and resource identities.
-5F connects the reviewed adapters to existing engineering CLI/desktop controls and
-reports. Standard/default execution stays unchanged until separately approved.
+Purity, ploidy, allele-specific copy number and LOH are model-dependent outputs. Alternative solutions and upstream dependencies must be retained.
 
-Every new native adapter requires: exact upstream version/API and license/resource
-review; failing tests before code; safe local paths and atomic non-overwriting outputs;
-exit/status/timeout handling; native-to-normalized identity checks; build/sample mismatch
-and non-finite-value tests; real-tool smoke on permitted synthetic material; full
-same-head repository CI. Biological performance requires the separate real-validation
-block and does not follow from synthetic tests.
+### cfDNA / ULP-WGS transfer lane
 
-## Primary sources checked for this design
+- ichorCNA
 
-- https://github.com/tgac-vumc/ACE
-- https://github.com/nanoporetech/ont-spectre
-- https://github.com/broadinstitute/ichorCNA
-- https://github.com/fritzsedlazeck/Sniffles
-- https://github.com/tjiangHIT/cuteSV
-- https://github.com/cortes-ciriano-lab/savana
-- https://github.com/KolmogorovLab/Severus
-- https://github.com/KolmogorovLab/Wakhan
+ichorCNA is a separate assay/data-regime lane. It is never silently treated as validated for marrow lcWGS or Adaptive Sampling.
 
-These references establish candidate scope, not installed versions, clinical validity,
-or permission to redistribute software/resources. Versions and license acceptance must
-be locked during each native-adapter block. No third-party code/data is vendored here.
+## 4. Caller catalog
+
+Every caller mode is identified by a stable provider ID and mode ID. Related modes that change analytical assumptions are distinct entries.
+
+Initial entries:
+
+- `qdnaseq_ace:multibin`
+- `spectre:depth_only`
+- `spectre:sniffles_supported` (future gated mode)
+- `sniffles2:standard`
+- `sniffles2:mosaic` (separately qualified)
+- `cutesv:standard`
+- `severus:paired`
+- `severus:single_sample` (separately qualified; no automatic somatic claim)
+- `savana:paired`
+- `savana:tumor_only`
+- `wakhan:phased_cna`
+- `ichorcna:ulp_wgs`
+
+ONT-Spectre, if added later, receives a distinct provider ID rather than being treated as another independent vote from upstream Spectre.
+
+## 5. Eligibility inputs
+
+Eligibility is explicit and fail-closed. Unknown or absent inputs are never imputed.
+
+The planner can reason about:
+
+- assay mode / data basis;
+- genome build and locked reference identity;
+- tumor BAM;
+- matched normal BAM;
+- generic single-sample BAM;
+- coverage evidence;
+- target design for Adaptive Sampling;
+- SNP/BAF input;
+- phased SNP or haplotype input;
+- panel-of-normals input;
+- directly supporting upstream caller evidence;
+- requested analysis mode;
+- registered runtime availability.
+
+Examples:
+
+- `savana:paired` requires tumor and matched normal inputs. Missing normal blocks the lane. It must not silently downgrade to `savana:tumor_only`.
+- `wakhan:phased_cna` requires its registered allele/phasing inputs. If it is configured to use Severus breakpoints, the Severus lane is a declared parent dependency.
+- `spectre:depth_only` must not consume Sniffles output. A supported Spectre mode is a separate lane and declares that dependency.
+- `ichorcna:ulp_wgs` is eligible only for a registered low-pass/cfDNA-compatible study regime, not merely because a BAM exists.
+- Adaptive Sampling does not become equivalent to unbiased genome-wide lcWGS.
+
+## 6. Lane and dependency contract
+
+A `MultiCallerPlan` contains independent `CallerLane` entries.
+
+Each lane records at least:
+
+- lane ID;
+- provider and mode;
+- analytical domain;
+- specimen/run identity;
+- genome build and data basis;
+- required input roles and their fingerprints;
+- caller version/runtime identity when qualified;
+- policy identity;
+- direct parent lane IDs;
+- selection state;
+- eligibility decision and reasons.
+
+Dependencies form a directed acyclic graph. Cycles fail before any execution.
+
+Changing a parent lane identity invalidates dependent-lane plan identity, but must not invalidate unrelated depth-only lanes.
+
+## 7. States
+
+Planning and execution states remain distinct.
+
+Planning decisions:
+
+- `ELIGIBLE`
+- `INELIGIBLE`
+- `RUNTIME_UNAVAILABLE`
+- `NOT_REQUESTED`
+
+Execution outcomes, once a runtime exists:
+
+- `COMPLETED`
+- `NO_CALL`
+- `FAILED`
+- `NOT_ASSESSABLE`
+- `NOT_RUN`
+
+An ineligible or unavailable lane never becomes a biological negative.
+
+## 8. Evidence retention and identity
+
+Caller-native files are fingerprinted and retained. Normalized records are additive.
+
+A global multi-caller collection must not rely on record IDs that are unique only inside one single-sample manifest. Lane ID participates in collection-level identity so equal caller-native row names from different specimens or replicates cannot collide.
+
+For all callers:
+
+- raw/native artifacts survive;
+- alternative fits/solutions survive;
+- exclusions change contribution state, not retention;
+- normalized events link to exact source evidence;
+- aggregate metrics retain exact numerator/denominator/exclusion membership.
+
+## 9. Dependency-aware comparison
+
+Agreement is shown, not voted.
+
+Examples:
+
+- QDNAseq 100/500/1000 kbp are resolutions of one family.
+- Spectre with Sniffles support is not an independent confirmation of Sniffles.
+- SAVANA-CNA may depend on SAVANA SV breakpoints.
+- Wakhan may consume Severus breakpoints; this relationship must remain visible.
+- different callers sharing the same BAM still share measurement noise and sampling limitations.
+
+No generic "N of M callers = true" score is introduced.
+
+## 10. Validation integration
+
+The existing CNV validation registration, full-evidence, traceability and metric contracts remain authoritative for CNV studies. New caller inclusion creates a new prospectively registered study version; an already locked study is not rewritten after outcome review.
+
+SV comparisons use SV-specific breakpoint/type/orientation matching rather than reusing CNV overlap thresholds blindly.
+
+Missing caller-specific outputs map to NOT_APPLICABLE/NOT_EVALUABLE as appropriate; values are not invented.
+
+## 11. Staged implementation
+
+### 5A — catalog, eligibility, lanes and dependency graph
+
+Implement typed catalog definitions, input-role declarations, lane identities, eligibility evaluation, deterministic content lock and cycle detection. Existing canonical runner remains unchanged.
+
+### 5B — Spectre
+
+Add a depth-only Spectre adapter first. Native output and parameters remain retained. No hidden Sniffles input.
+
+### 5C — existing Sniffles2/cuteSV integration
+
+Expose existing adapters through the multi-caller plan without changing their current normalized results. Mosaic remains a separate Sniffles mode.
+
+### 5D — allele/SNP/phasing input contract
+
+Add typed, fingerprinted auxiliary inputs used by tumor CNA callers.
+
+### 5E — Severus
+
+Qualify paired mode first. Preserve native breakpoint graphs, clusters and haplotype assignments. Single-sample mode remains separately gated.
+
+### 5F — SAVANA
+
+Keep paired and tumor-only modes separate. Preserve both SV and CNA native outputs and alternative purity/ploidy solutions.
+
+### 5G — Wakhan
+
+Add phased CNA lane with explicit upstream SNP/phasing and optional registered breakpoint dependency. Prevent dependency cycles.
+
+### 5H — ichorCNA
+
+Add a distinct ULP-WGS/cfDNA-compatible lane. Any ONT transfer study requires its own preregistration and is not automatically promoted.
+
+### 5I — comparison report and Desktop surface
+
+Add a dependency-aware comparison view over retained evidence. It displays conflicts, dependencies, failures and missingness. It does not auto-promote a caller, auto-release ISCN or make a clinical-validity claim.
+
+## 12. TDD acceptance requirements
+
+At minimum:
+
+1. SAVANA paired + missing normal => INELIGIBLE with explicit reason; no tumor-only substitution.
+2. Unknown provider/mode => plan validation failure before execution.
+3. Two specimens with identical native row names => globally unique collection identities.
+4. Missing runtime => RUNTIME_UNAVAILABLE, not NO_CALL.
+5. Parent-lane change => dependent lock changes; unrelated lane lock does not.
+6. Dependency cycle => fail before execution.
+7. Spectre depth-only plan has no Sniffles parent.
+8. Adaptive Sampling cannot satisfy lcWGS eligibility merely from BAM presence.
+9. QDNAseq 100/500/1000 and ACE alternatives remain retained under the existing Block-4 contract.
+10. Existing pipeline tests remain green.
+11. Each new executable runtime later requires a real-tool smoke test on synthetic data.
+12. No real patient/genomic payload enters Git.
+
+## 13. Release boundary
+
+This program is Research Use Only.
+
+It does not select a winning caller, define universal clinical thresholds, infer clinical validity from software tests, modify package version by itself, merge automatically, or permit automatic clinical release. Human review remains mandatory.

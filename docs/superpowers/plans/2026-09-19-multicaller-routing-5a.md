@@ -1,3 +1,7 @@
+# Supplemental declarative routing contract
+
+Merge scope (2026-09-20): this is a separate, planning-only contract. It does not replace multicaller_contracts.MultiCallerPlan, the canonical lane planner, caller runtimes, or their qualification registry. Its existing_adapter flags describe this supplemental route, not platform-wide installation status. All its lanes remain NOT_RUN and execution_enabled=false. No implicit conversion into the canonical execution plan is provided.
+
 # Multi-caller routing 5A implementation plan
 
 > For agentic workers: execute task-by-task with test-driven development and verify
@@ -9,7 +13,7 @@ misrepresent catalog entries as executed/validated integrations.
 routing + versioned schemas. Reuse the existing pipeline after future adapter gates,
 not by mutating its provider table in this block.
 **Tech Stack:** Python 3.11+, Pydantic v2, pytest/unittest, canonical JSON/SHA-256.
-**Spec:** `docs/superpowers/specs/2026-09-19-multicaller-integration-design.md`.
+**Spec:** `docs/superpowers/specs/2026-09-19-multicaller-routing-5a-design.md`.
 
 ## Global constraints
 
@@ -44,7 +48,7 @@ Files: `src/ontseq_platform/multicaller_plan.py`, `tests/test_multicaller_plan.p
 ## Task 3 — canonical lock and schema
 
 Files: `src/ontseq_platform/multicaller_plan.py`, the same test file,
-`schemas/multicaller-request.schema.json`, `schemas/multicaller-plan.schema.json`,
+`schemas/multicaller-request.schema.json`, `schemas/multicaller-routing-plan.schema.json`,
 `scripts/export_schemas.py`.
 - [x] Add failing tests for request-order invariance, fingerprint/threshold sensitivity,
   a tampered plan, unchecked model-copy mutation and schema freshness.

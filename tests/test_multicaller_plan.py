@@ -527,7 +527,7 @@ class MultiCallerSchemaTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         for name, model in (
             ("multicaller-request", MultiCallerRequest),
-            ("multicaller-plan", MultiCallerPlan),
+            ("multicaller-routing-plan", MultiCallerPlan),
         ):
             path = root / "schemas" / f"{name}.schema.json"
             self.assertTrue(path.is_file(), f"Missing public schema: {path.name}")

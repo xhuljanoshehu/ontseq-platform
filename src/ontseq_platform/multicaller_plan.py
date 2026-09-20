@@ -1,5 +1,9 @@
 """Fail-closed research planning across complementary CNV/SV callers.
 
+This supplemental declaration contract is not the canonical execution planner.
+Its public schema is multicaller-routing-plan.schema.json; no runtime dispatch
+or conversion to multicaller_contracts.MultiCallerPlan is implied.
+
 This module reads no genomic files and executes no tools. Input fingerprints and
 runtime locks are declarations, not installation or analytical-validation receipts.
 Every returned lane is NOT_RUN, even when its declared inputs are compatible.

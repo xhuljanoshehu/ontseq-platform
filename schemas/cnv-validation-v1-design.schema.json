@@ -1,0 +1,122 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "assessability_resource_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$",
+      "title": "Assessability Resource Id",
+      "type": "string"
+    },
+    "assessability_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Assessability Sha256",
+      "type": "string"
+    },
+    "coverage_levels_x": {
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "title": "Coverage Levels X",
+      "type": "array"
+    },
+    "data_basis": {
+      "const": "lcwgs_genome_wide",
+      "default": "lcwgs_genome_wide",
+      "title": "Data Basis",
+      "type": "string"
+    },
+    "design_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
+      "title": "Design Id",
+      "type": "string"
+    },
+    "genome_build": {
+      "const": "GRCh38",
+      "default": "GRCh38",
+      "title": "Genome Build",
+      "type": "string"
+    },
+    "qdnaseq_bin_sizes_kbp": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Qdnaseq Bin Sizes Kbp",
+      "type": "array"
+    },
+    "reference_id": {
+      "minLength": 3,
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "reference_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Reference Sha256",
+      "type": "string"
+    },
+    "replicates": {
+      "minimum": 1,
+      "title": "Replicates",
+      "type": "integer"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed": {
+      "maximum": 999999,
+      "minimum": 0,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "subchromosomal_sizes_bp": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 2,
+      "title": "Subchromosomal Sizes Bp",
+      "type": "array"
+    },
+    "truth_source_resource_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$",
+      "title": "Truth Source Resource Id",
+      "type": "string"
+    },
+    "truth_source_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Truth Source Sha256",
+      "type": "string"
+    },
+    "tumor_fractions": {
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "title": "Tumor Fractions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "design_id",
+    "coverage_levels_x",
+    "tumor_fractions",
+    "subchromosomal_sizes_bp",
+    "replicates",
+    "seed",
+    "reference_id",
+    "reference_sha256",
+    "truth_source_resource_id",
+    "truth_source_sha256",
+    "assessability_resource_id",
+    "assessability_sha256"
+  ],
+  "title": "CnvValidationV1Design",
+  "type": "object"
+}

@@ -1,3 +1,7 @@
+# Supplemental declarative routing contract
+
+Merge scope (2026-09-20): this is a separate, planning-only contract. It does not replace multicaller_contracts.MultiCallerPlan, the canonical lane planner, caller runtimes, or their qualification registry. Its existing_adapter flags describe this supplemental route, not platform-wide installation status. All its lanes remain NOT_RUN and execution_enabled=false. No implicit conversion into the canonical execution plan is provided.
+
 # Multi-caller 5A: catalog and declared-input planning
 
 Research Use Only. Human Review Required. Package version unchanged at 0.8.2.

@@ -1,457 +1,28 @@
 {
   "$defs": {
-    "CallerPlanningContext": {
-      "additionalProperties": false,
-      "properties": {
-        "artifacts": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/PlanningArtifact"
-          },
-          "title": "Artifacts",
-          "type": "array"
-        },
-        "assessability_mask_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Assessability Mask Sha256",
-          "type": "string"
-        },
-        "bam_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Bam Sha256",
-          "type": "string"
-        },
-        "coverage_definition": {
-          "anyOf": [
-            {
-              "minLength": 3,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Coverage Definition"
-        },
-        "coverage_x": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Coverage X"
-        },
-        "data_basis": {
-          "enum": [
-            "lcwgs_genome_wide",
-            "adaptive_sampling_on_target",
-            "adaptive_sampling_off_target",
-            "cfdna_ulp_wgs"
-          ],
-          "title": "Data Basis",
-          "type": "string"
-        },
-        "genome_build": {
-          "enum": [
-            "GRCh37",
-            "GRCh38"
-          ],
-          "title": "Genome Build",
-          "type": "string"
-        },
-        "normal_bam_sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normal Bam Sha256"
-        },
-        "normal_coverage_definition": {
-          "anyOf": [
-            {
-              "minLength": 3,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normal Coverage Definition"
-        },
-        "normal_coverage_x": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normal Coverage X"
-        },
-        "normal_sample_id": {
-          "anyOf": [
-            {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normal Sample Id"
-        },
-        "platform": {
-          "enum": [
-            "ONT",
-            "PACBIO_HIFI",
-            "ILLUMINA"
-          ],
-          "title": "Platform",
-          "type": "string"
-        },
-        "reference_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Reference Sha256",
-          "type": "string"
-        },
-        "sample_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
-          "title": "Sample Id",
-          "type": "string"
-        },
-        "tumor_fraction": {
-          "anyOf": [
-            {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tumor Fraction"
-        },
-        "tumor_fraction_method": {
-          "anyOf": [
-            {
-              "minLength": 3,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tumor Fraction Method"
-        },
-        "tumor_fraction_timepoint": {
-          "anyOf": [
-            {
-              "minLength": 3,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tumor Fraction Timepoint"
-        }
-      },
-      "required": [
-        "sample_id",
-        "genome_build",
-        "reference_sha256",
-        "bam_sha256",
-        "assessability_mask_sha256",
-        "platform",
-        "data_basis"
+    "CallerAssayRegime": {
+      "enum": [
+        "lcwgs",
+        "adaptive_sampling",
+        "tumor_normal_long_read",
+        "tumor_only_long_read",
+        "cfdna_ulp_wgs"
       ],
-      "title": "CallerPlanningContext",
-      "type": "object"
+      "title": "CallerAssayRegime",
+      "type": "string"
     },
-    "CallerRuntimePin": {
+    "CallerInputArtifact": {
       "additionalProperties": false,
       "properties": {
-        "adapter_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Adapter Sha256",
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Artifact Id",
           "type": "string"
         },
-        "parameters_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Parameters Sha256",
+        "description": {
+          "default": "",
+          "title": "Description",
           "type": "string"
-        },
-        "runtime_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Runtime Sha256",
-          "type": "string"
-        },
-        "version": {
-          "minLength": 1,
-          "title": "Version",
-          "type": "string"
-        }
-      },
-      "required": [
-        "version",
-        "runtime_sha256",
-        "adapter_sha256",
-        "parameters_sha256"
-      ],
-      "title": "CallerRuntimePin",
-      "type": "object"
-    },
-    "CallerSelection": {
-      "additionalProperties": false,
-      "properties": {
-        "analyses": {
-          "items": {
-            "enum": [
-              "cnv",
-              "sv",
-              "allelic_cn",
-              "purity_ploidy",
-              "complex_sv"
-            ],
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Analyses",
-          "type": "array"
-        },
-        "caller_id": {
-          "enum": [
-            "qdnaseq_ace",
-            "ont_spectre",
-            "ichorcna",
-            "sniffles2",
-            "cutesv",
-            "savana",
-            "severus",
-            "wakhan"
-          ],
-          "title": "Caller Id",
-          "type": "string"
-        },
-        "enabled": {
-          "default": true,
-          "title": "Enabled",
-          "type": "boolean"
-        },
-        "mode": {
-          "enum": [
-            "single_sample",
-            "tumour_only",
-            "tumour_normal"
-          ],
-          "title": "Mode",
-          "type": "string"
-        },
-        "policy": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CallerStudyPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "runtime": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CallerRuntimePin"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "segmentation": {
-          "anyOf": [
-            {
-              "enum": [
-                "change_point",
-                "sv_guided"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Segmentation"
-        }
-      },
-      "required": [
-        "caller_id",
-        "analyses",
-        "mode"
-      ],
-      "title": "CallerSelection",
-      "type": "object"
-    },
-    "CallerStudyPolicy": {
-      "additionalProperties": false,
-      "description": "Prospective engineering bounds; no default is a scientific recommendation.",
-      "properties": {
-        "allowed_modes": {
-          "items": {
-            "enum": [
-              "single_sample",
-              "tumour_only",
-              "tumour_normal"
-            ],
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Allowed Modes",
-          "type": "array"
-        },
-        "assessability_mask_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Assessability Mask Sha256",
-          "type": "string"
-        },
-        "bin_size_bp": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Bin Size Bp"
-        },
-        "caller_id": {
-          "enum": [
-            "qdnaseq_ace",
-            "ont_spectre",
-            "ichorcna",
-            "sniffles2",
-            "cutesv",
-            "savana",
-            "severus",
-            "wakhan"
-          ],
-          "title": "Caller Id",
-          "type": "string"
-        },
-        "coverage_definition": {
-          "minLength": 3,
-          "title": "Coverage Definition",
-          "type": "string"
-        },
-        "data_basis": {
-          "enum": [
-            "lcwgs_genome_wide",
-            "adaptive_sampling_on_target",
-            "adaptive_sampling_off_target",
-            "cfdna_ulp_wgs"
-          ],
-          "title": "Data Basis",
-          "type": "string"
-        },
-        "genome_build": {
-          "enum": [
-            "GRCh37",
-            "GRCh38"
-          ],
-          "title": "Genome Build",
-          "type": "string"
-        },
-        "minimum_coverage_x": {
-          "exclusiveMinimum": 0,
-          "title": "Minimum Coverage X",
-          "type": "number"
-        },
-        "minimum_normal_coverage_x": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Minimum Normal Coverage X"
-        },
-        "normal_coverage_definition": {
-          "anyOf": [
-            {
-              "minLength": 3,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normal Coverage Definition"
-        },
-        "platform": {
-          "enum": [
-            "ONT",
-            "PACBIO_HIFI",
-            "ILLUMINA"
-          ],
-          "title": "Platform",
-          "type": "string"
-        },
-        "reference_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Reference Sha256",
-          "type": "string"
-        }
-      },
-      "required": [
-        "caller_id",
-        "genome_build",
-        "platform",
-        "data_basis",
-        "reference_sha256",
-        "assessability_mask_sha256",
-        "coverage_definition",
-        "allowed_modes",
-        "minimum_coverage_x"
-      ],
-      "title": "CallerStudyPolicy",
-      "type": "object"
-    },
-    "MultiCallerRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/CallerPlanningContext"
         },
         "research_only": {
           "const": true,
@@ -459,334 +30,211 @@
           "title": "Research Only",
           "type": "boolean"
         },
-        "schema_version": {
-          "const": "0.1.0",
-          "default": "0.1.0",
-          "title": "Schema Version",
-          "type": "string"
-        },
-        "selections": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/CallerSelection"
-          },
-          "title": "Selections",
-          "type": "array"
-        },
-        "sensitive_output": {
-          "const": true,
-          "default": true,
-          "title": "Sensitive Output",
-          "type": "boolean"
-        },
-        "study_registration_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Study Registration Sha256",
-          "type": "string"
-        }
-      },
-      "required": [
-        "study_registration_sha256",
-        "context"
-      ],
-      "title": "MultiCallerRequest",
-      "type": "object"
-    },
-    "PlannedCaller": {
-      "additionalProperties": false,
-      "properties": {
-        "analyses": {
-          "items": {
-            "enum": [
-              "cnv",
-              "sv",
-              "allelic_cn",
-              "purity_ploidy",
-              "complex_sv"
-            ],
-            "type": "string"
-          },
-          "title": "Analyses",
-          "type": "array"
-        },
-        "blockers": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Blockers",
-          "type": "array"
-        },
-        "caller_id": {
-          "enum": [
-            "qdnaseq_ace",
-            "ont_spectre",
-            "ichorcna",
-            "sniffles2",
-            "cutesv",
-            "savana",
-            "severus",
-            "wakhan"
-          ],
-          "title": "Caller Id",
-          "type": "string"
-        },
-        "dependencies": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Dependencies",
-          "type": "array"
-        },
-        "disposition": {
-          "enum": [
-            "NOT_SELECTED",
-            "BLOCKED",
-            "ADAPTER_PENDING",
-            "PLANNED"
-          ],
-          "title": "Disposition",
-          "type": "string"
-        },
-        "execution_status": {
-          "const": "NOT_RUN",
-          "default": "NOT_RUN",
-          "title": "Execution Status",
-          "type": "string"
-        },
-        "existing_adapter": {
-          "title": "Existing Adapter",
-          "type": "boolean"
-        },
-        "input_eligible": {
-          "title": "Input Eligible",
-          "type": "boolean"
-        },
-        "mode": {
-          "anyOf": [
-            {
-              "enum": [
-                "single_sample",
-                "tumour_only",
-                "tumour_normal"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Mode"
-        },
-        "policy_sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Policy Sha256"
-        },
-        "runtime_pin_sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Runtime Pin Sha256"
-        },
-        "warnings": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Warnings",
-          "type": "array"
-        }
-      },
-      "required": [
-        "caller_id",
-        "analyses",
-        "mode",
-        "disposition",
-        "existing_adapter",
-        "input_eligible"
-      ],
-      "title": "PlannedCaller",
-      "type": "object"
-    },
-    "PlanningArtifact": {
-      "additionalProperties": false,
-      "properties": {
-        "bin_size_bp": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Bin Size Bp"
-        },
-        "genome_build": {
-          "enum": [
-            "GRCh37",
-            "GRCh38"
-          ],
-          "title": "Genome Build",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "snv_vcf",
-            "phased_snv_vcf",
-            "haplotagged_bam",
-            "coverage_bins",
-            "het_snp_counts",
-            "read_count_wig",
-            "gc_track",
-            "mappability_track",
-            "sv_breakpoints",
-            "population_snps",
-            "sv_pon",
-            "cn_pon",
-            "roi_bed"
-          ],
-          "title": "Kind",
-          "type": "string"
-        },
-        "producer": {
-          "anyOf": [
-            {
-              "enum": [
-                "qdnaseq_ace",
-                "ont_spectre",
-                "ichorcna",
-                "sniffles2",
-                "cutesv",
-                "savana",
-                "severus",
-                "wakhan"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Producer"
-        },
-        "reference_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Reference Sha256",
-          "type": "string"
-        },
-        "sample_id": {
-          "anyOf": [
-            {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sample Id"
+        "role": {
+          "$ref": "#/$defs/CallerInputRole"
         },
         "sha256": {
           "pattern": "^[0-9a-f]{64}$",
           "title": "Sha256",
           "type": "string"
-        },
-        "source_input_sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Source Input Sha256"
         }
       },
       "required": [
-        "kind",
-        "sha256",
-        "genome_build",
-        "reference_sha256"
+        "artifact_id",
+        "role",
+        "sha256"
       ],
-      "title": "PlanningArtifact",
+      "title": "CallerInputArtifact",
+      "type": "object"
+    },
+    "CallerInputRole": {
+      "enum": [
+        "aligned_bam",
+        "tumor_bam",
+        "matched_normal_bam",
+        "coverage_profile",
+        "snp_vcf",
+        "baf_table",
+        "phased_variants",
+        "panel_of_normals",
+        "sniffles_vcf",
+        "severus_breakpoints"
+      ],
+      "title": "CallerInputRole",
+      "type": "string"
+    },
+    "CallerLaneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "assay_regime": {
+          "$ref": "#/$defs/CallerAssayRegime"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/CallerInputArtifact"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "mode_id": {
+          "$ref": "#/$defs/CallerMode"
+        },
+        "parent_lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Lane Ids",
+          "type": "array"
+        },
+        "requested": {
+          "default": true,
+          "title": "Requested",
+          "type": "boolean"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lane_id",
+        "mode_id",
+        "assay_regime"
+      ],
+      "title": "CallerLaneRequest",
+      "type": "object"
+    },
+    "CallerMode": {
+      "enum": [
+        "qdnaseq_ace:multibin",
+        "spectre:depth_only",
+        "spectre:sniffles_supported",
+        "sniffles2:standard",
+        "sniffles2:mosaic",
+        "cutesv:standard",
+        "severus:paired",
+        "severus:single_sample",
+        "savana:paired",
+        "savana:tumor_only",
+        "wakhan:phased_cna",
+        "ichorcna:ulp_wgs"
+      ],
+      "title": "CallerMode",
+      "type": "string"
+    },
+    "CallerPlanningDecision": {
+      "enum": [
+        "ELIGIBLE",
+        "INELIGIBLE",
+        "RUNTIME_UNAVAILABLE",
+        "NOT_REQUESTED"
+      ],
+      "title": "CallerPlanningDecision",
+      "type": "string"
+    },
+    "SealedCallerLanePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/CallerPlanningDecision"
+        },
+        "input_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Artifact Ids",
+          "type": "array"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "lane_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Lane Sha256",
+          "type": "string"
+        },
+        "mode_id": {
+          "$ref": "#/$defs/CallerMode"
+        },
+        "parent_lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Lane Ids",
+          "type": "array"
+        },
+        "parent_lane_sha256s": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Parent Lane Sha256S",
+          "type": "object"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lane_id",
+        "mode_id",
+        "decision",
+        "lane_sha256"
+      ],
+      "title": "SealedCallerLanePlan",
       "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
-    "catalog_sha256": {
-      "pattern": "^[0-9a-f]{64}$",
-      "title": "Catalog Sha256",
-      "type": "string"
-    },
-    "comparison_policy": {
-      "const": "NO_VOTING",
-      "default": "NO_VOTING",
-      "title": "Comparison Policy",
-      "type": "string"
-    },
-    "execution_enabled": {
-      "const": false,
-      "default": false,
-      "title": "Execution Enabled",
-      "type": "boolean"
-    },
-    "human_review_required": {
-      "const": true,
-      "default": true,
-      "title": "Human Review Required",
-      "type": "boolean"
-    },
     "lanes": {
       "items": {
-        "$ref": "#/$defs/PlannedCaller"
+        "$ref": "#/$defs/SealedCallerLanePlan"
       },
+      "minItems": 1,
       "title": "Lanes",
       "type": "array"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+      "title": "Plan Id",
+      "type": "string"
     },
     "plan_sha256": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Plan Sha256",
       "type": "string"
     },
-    "request": {
-      "$ref": "#/$defs/MultiCallerRequest"
+    "requests": {
+      "items": {
+        "$ref": "#/$defs/CallerLaneRequest"
+      },
+      "minItems": 1,
+      "title": "Requests",
+      "type": "array"
     },
     "research_only": {
       "const": true,
       "default": true,
       "title": "Research Only",
-      "type": "boolean"
-    },
-    "retain_all_evidence": {
-      "const": true,
-      "default": true,
-      "title": "Retain All Evidence",
       "type": "boolean"
     },
     "schema_version": {
@@ -795,17 +243,20 @@
       "title": "Schema Version",
       "type": "string"
     },
-    "sensitive_output": {
-      "const": true,
-      "default": true,
-      "title": "Sensitive Output",
-      "type": "boolean"
+    "topological_order": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Topological Order",
+      "type": "array"
     }
   },
   "required": [
-    "request",
-    "catalog_sha256",
+    "plan_id",
+    "requests",
     "lanes",
+    "topological_order",
     "plan_sha256"
   ],
   "title": "MultiCallerPlan",
