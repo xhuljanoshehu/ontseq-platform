@@ -41,8 +41,6 @@ from ontseq_platform.methylation_validation import (
     ValidationCohort,
 )
 from ontseq_platform.methylation_validation_runner import ValidationLocalInputs, ValidationReadiness
-from ontseq_platform.multicaller_contracts import MultiCallerPlan
-from ontseq_platform.multicaller_report import MultiCallerComparisonReport
 from ontseq_platform.modbam import (
     ModbamAdapterPolicy,
     ModbamSourceMetadata,
@@ -68,6 +66,8 @@ from ontseq_platform.models import (
     SvConsensusReport,
     SvEvidencePolicy,
 )
+from ontseq_platform.multicaller_contracts import MultiCallerPlan
+from ontseq_platform.multicaller_report import MultiCallerComparisonReport
 
 
 def _render() -> dict[Path, str]:
