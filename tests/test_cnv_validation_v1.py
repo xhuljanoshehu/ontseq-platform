@@ -4,6 +4,9 @@ import hashlib
 import unittest
 from datetime import UTC, datetime
 
+from pydantic import ValidationError
+
+from ontseq_platform.cnv_validation_contracts import CnvCallerLock
 from ontseq_platform.cnv_validation_v1 import (
     CnvValidationV1Design,
     build_cnv_validation_v1_matrix,
@@ -14,9 +17,6 @@ from ontseq_platform.cnv_validation_v1 import (
     materialize_synthetic_validation_v1_cohort,
     summarize_cnv_validation_v1,
 )
-from pydantic import ValidationError
-
-from ontseq_platform.cnv_validation_contracts import CnvCallerLock
 from ontseq_platform.models import EventType
 
 
