@@ -53,7 +53,9 @@ class DiagnosticWakhanRunner:
 
         if result.returncode == 0 and output_dir is not None:
             integer_profiles = sorted(output_dir.rglob("integer_profile.bed"))
-            if integer_profiles:
+            legacy_hp1 = sorted(output_dir.rglob("*_copynumbers_segments_HP_1.bed"))
+            legacy_hp2 = sorted(output_dir.rglob("*_copynumbers_segments_HP_2.bed"))
+            if integer_profiles or (legacy_hp1 and legacy_hp2):
                 return result
             tree = sorted(
                 path.relative_to(output_dir).as_posix()
