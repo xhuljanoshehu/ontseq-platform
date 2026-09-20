@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -204,6 +206,19 @@ class CnvValidationV1Tests(unittest.TestCase):
         self.assertEqual(policy.replicates, design.replicates)
         self.assertTrue(policy.include_normal_only_control)
         self.assertEqual(policy.status, "technical_defaults_only")
+
+    def test_committed_design_example_matches_default_contract(self) -> None:
+        payload = json.loads(
+            Path("examples/validation/analytical_validation_v1.design.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        example = CnvValidationV1Design.model_validate(payload)
+
+        self.assertEqual(
+            example.model_dump(mode="json"),
+            default_cnv_validation_v1_design().model_dump(mode="json"),
+        )
 
     def test_summary_reports_truth_cells_not_false_caller_votes(self) -> None:
         summary = summarize_cnv_validation_v1(default_cnv_validation_v1_design(), _callers())
