@@ -1,0 +1,52 @@
+name: SV Severus paired real-tool
+
+on:
+  pull_request:
+    paths:
+      - "src/ontseq_platform/sv/severus.py"
+      - "src/ontseq_platform/tumor_inputs.py"
+      - "workflow/envs/severus_1_7.yaml"
+      - "tests/test_severus_runtime.py"
+      - "tests/test_severus_real_tool.py"
+      - ".github/workflows/sv-severus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  severus-paired-real-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/severus_1_7.yaml
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Verify the pinned Severus runtime
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          test -n "$(command -v severus)"
+          python - <<'PY'
+          from importlib.metadata import version
+
+          assert version("severus") == "1.7"
+          PY
+          severus --help >/tmp/severus-help.txt
+          grep -q -- '--target-bam' /tmp/severus-help.txt
+          grep -q -- '--control-bam' /tmp/severus-help.txt
+          grep -q -- '--out-dir' /tmp/severus-help.txt
+          grep -q -- '--min-support' /tmp/severus-help.txt
+          grep -q -- '--TIN-ratio' /tmp/severus-help.txt
+
+      - name: Run Severus adapter contracts and synthetic real-tool smoke
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          ONTSEQ_SEVERUS_REAL_TOOL=1 PYTHONPATH=src \
+            python -m pytest -q tests/test_severus_runtime.py tests/test_severus_real_tool.py
