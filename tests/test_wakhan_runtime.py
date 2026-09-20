@@ -226,6 +226,72 @@ class WakhanRuntimeTests(unittest.TestCase):
         index = argv.index("--contigs")
         self.assertEqual(argv[index + 1], "chr7,chr8")
 
+    def test_custom_centromere_resource_is_checksum_locked_and_passed_to_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            phased = root / "tumor.phased.vcf"
+            reference = root / "ref.fa"
+            centromere = root / "centromere.bed"
+            script = root / "wakhan.py"
+            _write_bam(tumor, b"tumor")
+            _write_phased_vcf(phased)
+            reference_sha256 = _write_reference(reference)
+            centromere.write_text("chr7\t1500\t1600\n", encoding="utf-8")
+            centromere_sha256 = _sha_bytes(centromere.read_bytes())
+            script.write_text("# synthetic wakhan entry point\n", encoding="utf-8")
+
+            policy = WakhanPhasedCnaPolicy(
+                profile_id="wakhan-custom-centromere-contract",
+                mode="tumor_only",
+                expected_version="0.4.4",
+                genome_build=GenomeBuild.GRCH38,
+                reference_id="GRCh38-test",
+                reference_sha256=reference_sha256,
+                centromere_sha256=centromere_sha256,
+                timeout_seconds=300,
+                note="Explicit Wakhan centromere resource contract.",
+            )
+            argv = build_wakhan_argv(
+                python_executable="python",
+                wakhan_script=script,
+                tumor_bam=tumor,
+                phased_vcf=phased,
+                reference_fasta=reference,
+                centromere_bed=centromere,
+                sample_id="TUMOR_001",
+                output_dir=root / "output",
+                policy=policy,
+            )
+
+            self.assertIn("--centromere-bed", argv)
+            index = argv.index("--centromere-bed")
+            self.assertEqual(argv[index + 1], str(centromere))
+
+            centromere.write_text("chr7\t1700\t1800\n", encoding="utf-8")
+            runner = FakeWakhanRunner()
+            with self.assertRaisesRegex(ValueError, "centromere"):
+                run_wakhan_phased_cna(
+                    tumor_bam=tumor,
+                    phased_vcf=phased,
+                    reference_fasta=reference,
+                    centromere_bed=centromere,
+                    sample_id="TUMOR_001",
+                    output_dir=root / "runtime-output",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        phased_vcf=phased,
+                        phased_source_sample_id="TUMOR_001",
+                        reference_sha256=reference_sha256,
+                    ),
+                    policy=policy,
+                    observed_runtime_version="0.4.4",
+                    wakhan_script=script,
+                    runner=runner,
+                )
+
+            self.assertEqual(runner.calls, [])
+
     def test_tumor_normal_command_uses_normal_phasing_and_cpd_without_breakpoints(self) -> None:
         argv = build_wakhan_argv(
             python_executable="python",
