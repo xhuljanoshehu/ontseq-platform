@@ -90,25 +90,25 @@ def locked(filename: str) -> LockedFile:
     return LockedFile(str(path), digest(path))
 
 
-reference = locked('/approved/reference/GRCh38.fa')
+reference = locked("/approved/reference/GRCh38.fa")
 config = GATKConfig(
-    profile_id='ONT_AS_research_v1',
+    profile_id="ONT_AS_research_v1",
     reference=reference,
-    reference_fai=locked('/approved/reference/GRCh38.fa.fai'),
-    reference_dict=locked('/approved/reference/GRCh38.dict'),
+    reference_fai=locked("/approved/reference/GRCh38.fa.fai"),
+    reference_dict=locked("/approved/reference/GRCh38.dict"),
     tumor=Sample(
-        name='TUMOR_001',  # Must equal read-group SM, not merely the BAM filename.
-        bam=locked('/approved/input/tumor.bam'),
-        index=locked('/approved/input/tumor.bam.bai'),
+        name="TUMOR_001",  # Must equal read-group SM, not merely the BAM filename.
+        bam=locked("/approved/input/tumor.bam"),
+        index=locked("/approved/input/tumor.bam.bai"),
         reference_sha256=reference.sha256,
     ),
-    intervals=locked('/approved/reference/targets.bed'),
+    intervals=locked("/approved/reference/targets.bed"),
 )
 # For paired mode, set normal=Sample(...) with the verified normal's exact SM.
 # For resources, use VCFResource(vcf=locked(...), index=locked(...),
 # reference_sha256=reference.sha256). For a PoN also supply technology='ONT'
 # and assay_id=config.profile_id. Missing resources remain explicit warnings.
-Path('gatk.local.json').write_text(json.dumps(asdict(config), indent=2) + '\n')
+Path("gatk.local.json").write_text(json.dumps(asdict(config), indent=2) + "\n")
 ```
 
 Preview commands only; this is NOT_RUN, not successful preflight or execution:
@@ -161,9 +161,16 @@ routing, exact-version gating, provenance, malformed inputs, stale results, fail
 processes, FILTER/AS semantics, quantities, REF checks and mid-run input changes.
 These are adapter contract tests, NOT real GATK, real BAM, or biological tests.
 
-The complete repository safety/version/lint/type/test commands must pass in CI before
-merge. The local authoring workspace did not contain the full repository or installed
-ruff/mypy. The dedicated GATK contract workflow complements, not replaces, normal CI.
+GitHub Actions run 35536425764 verified the focused adapter tests, Ruff lint,
+Ruff formatting and mypy on source commit b7e662f223564adbbb7e1ff4b659a1936eb5f470.
+The preceding complete Python 3.11 regression job 106145697397 recorded 2058 passed,
+12 skipped and 502 subtests passed. Its remaining failures were formatting only;
+this documentation update applies the embedded-example formatter correction.
+
+The complete repository safety/version/lint/type/test commands must pass on the
+final PR revision before merge. The local authoring workspace did not contain the
+full repository or installed ruff/mypy. The dedicated GATK contract workflow
+complements, not replaces, normal CI. No real GATK invocation has been verified.
 
 Before runtime qualification: execute real pinned GATK/samtools on deliberately
 synthetic indexed BAMs in both modes, including valid resources and failure paths.
