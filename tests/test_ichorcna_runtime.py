@@ -131,10 +131,9 @@ class FakeIchorRunner:
         )
         _write(
             out_dir / f"{sample}.seg",
-            "ID\tchr\tstart\tend\tnum.mark\tseg.median.logR\tcopy.number\tcall\t"
-            "subclone.status\tlogR_Copy_Number\tCorrected_Copy_Number\tCorrected_Call\n"
-            "x1\tchr7\t1000001\t5000000\t4\t-0.35\t1\tHETD\tFALSE\t0.9\t1\tHETD\n"
-            "x1\tchr7\t5000001\t9000000\t4\t0.40\t3\tGAIN\tFALSE\t3.1\t3\tGAIN\n",
+            "sample\tchr\tstart\tend\tevent\tcopy.number\tbins\tmedian\n"
+            "CFDNA_001\tchr7\t1000001\t5000000\tHETD\t1\t4\t-0.35\n"
+            "CFDNA_001\tchr7\t5000001\t9000000\tGAIN\t3\t4\t0.40\n",
         )
         _write(
             out_dir / f"{sample}.cna.seg",
