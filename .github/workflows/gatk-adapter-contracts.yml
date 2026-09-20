@@ -1,0 +1,36 @@
+name: GATK adapter contracts
+
+on:
+  pull_request:
+    paths:
+      - 'src/ontseq_platform/gatk*.py'
+      - 'tests/test_gatk_mutect2.py'
+      - '.github/workflows/gatk-adapter-contracts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install engineering tools only
+        run: python -m pip install -e '.[dev]'
+      - name: Synthetic adapter tests, not a real GATK run
+        run: python -m pytest tests/test_gatk_mutect2.py
+      - name: Lint adapter files
+        if: ${{ !cancelled() }}
+        run: ruff check src/ontseq_platform/gatk_mutect2.py src/ontseq_platform/gatk_vcf.py tests/test_gatk_mutect2.py
+      - name: Check formatting and show reviewable diff
+        if: ${{ !cancelled() }}
+        run: ruff format --diff src/ontseq_platform/gatk_mutect2.py src/ontseq_platform/gatk_vcf.py tests/test_gatk_mutect2.py
+      - name: Check adapter types
+        if: ${{ !cancelled() }}
+        run: mypy src/ontseq_platform/gatk_mutect2.py src/ontseq_platform/gatk_vcf.py
