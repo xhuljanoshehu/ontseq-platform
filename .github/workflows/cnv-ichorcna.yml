@@ -6,6 +6,7 @@ on:
       - "src/ontseq_platform/cnv/ichorcna.py"
       - "configs/cnv/ichorcna.ulp-wgs.technical.yaml"
       - "workflow/envs/ichorcna_0_5_1.yaml"
+      - "scripts/run_ichorcna_0_5_1.R"
       - "tests/test_ichorcna_runtime.py"
       - "tests/test_ichorcna_real_tool.py"
       - ".github/workflows/cnv-ichorcna.yml"
@@ -32,15 +33,10 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$(command -v Rscript)"
-          ICHOR_SCRIPT="$(find "$CONDA_PREFIX" -type f -name runIchorCNA.R -print -quit)"
-          if [[ -z "$ICHOR_SCRIPT" ]]; then
-            echo "runIchorCNA.R was not found under CONDA_PREFIX=$CONDA_PREFIX" >&2
-            find "$CONDA_PREFIX" -type f -iname '*ichor*' -print | head -n 100 >&2
-            exit 1
-          fi
+          ICHOR_SCRIPT="$GITHUB_WORKSPACE/scripts/run_ichorcna_0_5_1.R"
           test -r "$ICHOR_SCRIPT"
-          echo "Resolved ichorCNA script: $ICHOR_SCRIPT"
           Rscript -e 'stopifnot(as.character(utils::packageVersion("ichorCNA")) == "0.5.1")'
+          grep -Fq -- 'ichorCNA::run_ichorCNA' "$ICHOR_SCRIPT"
           grep -Fq -- '--WIG' "$ICHOR_SCRIPT"
           grep -Fq -- '--gcWig' "$ICHOR_SCRIPT"
           grep -Fq -- '--mapWig' "$ICHOR_SCRIPT"
