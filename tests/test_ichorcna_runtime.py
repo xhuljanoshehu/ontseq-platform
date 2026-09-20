@@ -149,6 +149,15 @@ class FakeIchorRunner:
 
 
 class IchorCnaRuntimeTests(unittest.TestCase):
+    def test_repository_wrapper_targets_the_pinned_package_api(self) -> None:
+        wrapper = Path(__file__).resolve().parents[1] / "scripts" / "run_ichorcna_0_5_1.R"
+
+        self.assertTrue(wrapper.is_file())
+        text = wrapper.read_text(encoding="utf-8")
+        self.assertIn("ichorCNA::run_ichorCNA", text)
+        for flag in ("--WIG", "--gcWig", "--mapWig", "--centromere", "--outDir"):
+            self.assertIn(flag, text)
+
     def test_policy_pins_active_upstream_version_0_5_1(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "runIchorCNA.R"
