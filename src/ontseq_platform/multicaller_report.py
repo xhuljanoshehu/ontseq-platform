@@ -95,7 +95,9 @@ class MultiCallerLaneComparison(StrictModel):
             raise ValueError("Comparison lane dependency status does not match parent lanes")
         for link in self.evidence_links:
             if link.address.lane_sha256 != self.lane_sha256:
-                raise ValueError("Comparison evidence link lane SHA does not match planned lane SHA")
+                raise ValueError(
+                    "Comparison evidence link lane SHA does not match planned lane SHA"
+                )
         return self
 
 
