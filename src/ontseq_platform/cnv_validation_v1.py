@@ -52,7 +52,10 @@ def _float_token(value: float) -> str:
 
 
 def _midpoints(values: list[float]) -> list[float]:
-    return [round((left + right) / 2.0, 12) for left, right in zip(values[:-1], values[1:], strict=True)]
+    return [
+        round((left + right) / 2.0, 12)
+        for left, right in zip(values[:-1], values[1:], strict=True)
+    ]
 
 
 def _integer_midpoints(values: list[int]) -> list[int]:
