@@ -198,6 +198,34 @@ class WakhanRuntimeTests(unittest.TestCase):
                 note="Obsolete Wakhan version contract must fail closed.",
             )
 
+    def test_command_uses_explicit_policy_contig_scope(self) -> None:
+        policy = WakhanPhasedCnaPolicy(
+            profile_id="wakhan-contig-scope-contract",
+            mode="tumor_only",
+            expected_version="0.4.4",
+            genome_build=GenomeBuild.GRCH38,
+            reference_id="GRCh38-test",
+            reference_sha256=_sha_bytes(b"reference"),
+            contigs="chr7,chr8",
+            timeout_seconds=300,
+            note="Explicit Wakhan contig scope contract.",
+        )
+        argv = build_wakhan_argv(
+            python_executable="python",
+            wakhan_script=Path("/opt/wakhan/wakhan.py"),
+            tumor_bam=Path("/tmp/tumor.bam"),
+            phased_vcf=Path("/tmp/tumor.phased.vcf.gz"),
+            reference_fasta=Path("/tmp/ref.fa"),
+            sample_id="TUMOR_001",
+            output_dir=Path("/tmp/wakhan"),
+            policy=policy,
+            threads=2,
+        )
+
+        self.assertIn("--contigs", argv)
+        index = argv.index("--contigs")
+        self.assertEqual(argv[index + 1], "chr7,chr8")
+
     def test_tumor_normal_command_uses_normal_phasing_and_cpd_without_breakpoints(self) -> None:
         argv = build_wakhan_argv(
             python_executable="python",
