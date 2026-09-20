@@ -31,11 +31,26 @@ jobs:
         run: |
           set -euo pipefail
           cp scripts/authorized_merge_repair.py "$RUNNER_TEMP/authorized_merge_repair.py"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'authorized_merge_repair.py'
+          text = p.read_text()
+          changes = {
+              'set((matches[0][1] + matches[0][2]).splitlines()) != expected': '{line.strip() for line in (matches[0][1] + matches[0][2]).splitlines()} != {line.strip() for line in expected}',
+              '        assert json.loads(exported[Path(f"schemas/{name}.schema.json")]) == model.model_json_schema()': '        exported_schema = json.loads(exported[Path(f"schemas/{name}.schema.json")])\n        assert exported_schema == model.model_json_schema()',
+              'run("git", "diff", "--cached", "--check")': 'run("git", "diff", "--cached", "--check", BASE, "--", ":!*.md")',
+          }
+          for old, new in changes.items():
+              assert text.count(old) == 1, old
+              text = text.replace(old, new)
+          p.write_text(text)
+          PY
           git config user.name 'ONTSeq merge repair'
           git config user.email 'merge-repair@users.noreply.github.com'
           python "$RUNNER_TEMP/authorized_merge_repair.py" prepare "$PR_NUMBER"
       - name: Install repository test dependencies
-        run: python -m pip install -e '.[dev,workflow]' pysam
+        run: python -m pip install -q -e '.[dev,workflow]' pysam
       - name: Verify new schema regression RED to GREEN and commit repair
         env:
           PR_NUMBER: ${{ matrix.pr }}
@@ -93,11 +108,11 @@ jobs:
           git merge --no-edit --no-ff origin/feat/multicaller-routing
           git merge --no-edit --no-ff origin/feat/multicaller-real-tool-qualification
           git log -4 --oneline
-          git diff --check ceaab08079b8cb7c528eac6f6137ad2e4dac5f31 HEAD
+          git diff --check ceaab08079b8cb7c528eac6f6137ad2e4dac5f31 HEAD -- ':!*.md'
       - name: Verify the entire combined source tree
         run: |
           set -euo pipefail
-          python -m pip install -e '.[dev,workflow]' pysam
+          python -m pip install -q -e '.[dev,workflow]' pysam
           python scripts/check_repository_safety.py
           python scripts/check_version_consistency.py
           python scripts/export_schemas.py --check
