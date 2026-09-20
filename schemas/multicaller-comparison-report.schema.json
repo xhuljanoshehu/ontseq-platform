@@ -1,0 +1,373 @@
+{
+  "$defs": {
+    "CallerDependencyStatus": {
+      "enum": [
+        "NO_DECLARED_CALLER_DEPENDENCY",
+        "DIRECT_CALLER_DEPENDENCY"
+      ],
+      "title": "CallerDependencyStatus",
+      "type": "string"
+    },
+    "CallerEvidenceSourceKind": {
+      "enum": [
+        "native_artifact",
+        "full_evidence",
+        "normalized_event"
+      ],
+      "title": "CallerEvidenceSourceKind",
+      "type": "string"
+    },
+    "CallerExecutionOutcome": {
+      "enum": [
+        "COMPLETED",
+        "NO_CALL",
+        "FAILED",
+        "NOT_ASSESSABLE",
+        "NOT_RUN"
+      ],
+      "title": "CallerExecutionOutcome",
+      "type": "string"
+    },
+    "CallerMode": {
+      "enum": [
+        "qdnaseq_ace:multibin",
+        "spectre:depth_only",
+        "spectre:sniffles_supported",
+        "sniffles2:standard",
+        "sniffles2:mosaic",
+        "cutesv:standard",
+        "severus:paired",
+        "severus:single_sample",
+        "savana:paired",
+        "savana:tumor_only",
+        "wakhan:phased_cna",
+        "ichorcna:ulp_wgs"
+      ],
+      "title": "CallerMode",
+      "type": "string"
+    },
+    "CallerPlanningDecision": {
+      "enum": [
+        "ELIGIBLE",
+        "INELIGIBLE",
+        "RUNTIME_UNAVAILABLE",
+        "NOT_REQUESTED"
+      ],
+      "title": "CallerPlanningDecision",
+      "type": "string"
+    },
+    "ComparisonGroupState": {
+      "enum": [
+        "AGREEING",
+        "CONFLICTING",
+        "SINGLE_SOURCE",
+        "NOT_ASSESSABLE"
+      ],
+      "title": "ComparisonGroupState",
+      "type": "string"
+    },
+    "MultiCallerCollectionAddress": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "pattern": "^mce-[0-9a-f]{40}$",
+          "title": "Collection Id",
+          "type": "string"
+        },
+        "lane_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Lane Sha256",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "source_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_kind": {
+          "$ref": "#/$defs/CallerEvidenceSourceKind"
+        }
+      },
+      "required": [
+        "lane_sha256",
+        "source_kind",
+        "source_id",
+        "collection_id"
+      ],
+      "title": "MultiCallerCollectionAddress",
+      "type": "object"
+    },
+    "MultiCallerComparisonGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Group Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/MultiCallerComparisonMember"
+          },
+          "minItems": 1,
+          "title": "Members",
+          "type": "array"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/$defs/ComparisonGroupState"
+        },
+        "subject": {
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "group_id",
+        "subject",
+        "state",
+        "members"
+      ],
+      "title": "MultiCallerComparisonGroup",
+      "type": "object"
+    },
+    "MultiCallerComparisonMember": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_collection_id": {
+          "pattern": "^mce-[0-9a-f]{40}$",
+          "title": "Evidence Collection Id",
+          "type": "string"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "numeric_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Value"
+        },
+        "observation": {
+          "minLength": 1,
+          "title": "Observation",
+          "type": "string"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "text_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "lane_id",
+        "evidence_collection_id",
+        "observation"
+      ],
+      "title": "MultiCallerComparisonMember",
+      "type": "object"
+    },
+    "MultiCallerEvidenceLink": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/MultiCallerCollectionAddress"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "native_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Native Artifact Ids",
+          "type": "array"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "label"
+      ],
+      "title": "MultiCallerEvidenceLink",
+      "type": "object"
+    },
+    "MultiCallerLaneComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_status": {
+          "$ref": "#/$defs/CallerDependencyStatus"
+        },
+        "evidence_links": {
+          "items": {
+            "$ref": "#/$defs/MultiCallerEvidenceLink"
+          },
+          "title": "Evidence Links",
+          "type": "array"
+        },
+        "execution_outcome": {
+          "$ref": "#/$defs/CallerExecutionOutcome"
+        },
+        "execution_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Execution Reasons",
+          "type": "array"
+        },
+        "lane_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "lane_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Lane Sha256",
+          "type": "string"
+        },
+        "mode_id": {
+          "$ref": "#/$defs/CallerMode"
+        },
+        "parent_lane_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Lane Ids",
+          "type": "array"
+        },
+        "parent_lane_sha256s": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Parent Lane Sha256S",
+          "type": "object"
+        },
+        "planning_decision": {
+          "$ref": "#/$defs/CallerPlanningDecision"
+        },
+        "planning_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Planning Reasons",
+          "type": "array"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lane_id",
+        "mode_id",
+        "planning_decision",
+        "execution_outcome",
+        "dependency_status",
+        "lane_sha256"
+      ],
+      "title": "MultiCallerLaneComparison",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "groups": {
+      "items": {
+        "$ref": "#/$defs/MultiCallerComparisonGroup"
+      },
+      "title": "Groups",
+      "type": "array"
+    },
+    "lanes": {
+      "items": {
+        "$ref": "#/$defs/MultiCallerLaneComparison"
+      },
+      "minItems": 1,
+      "title": "Lanes",
+      "type": "array"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Plan Sha256",
+      "type": "string"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_sha256",
+    "lanes"
+  ],
+  "title": "MultiCallerComparisonReport",
+  "type": "object"
+}
