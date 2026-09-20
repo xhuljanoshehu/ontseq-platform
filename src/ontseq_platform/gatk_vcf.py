@@ -31,7 +31,7 @@ def read_candidates(
     rows: list[dict[str, Any]] = []
     samples: list[str] | None = None
     saw_fileformat = False
-    with (gzip.open(path, "rt") if path.suffix == ".gz" else path.open()) as stream:
+    with gzip.open(path, "rt") if path.suffix == ".gz" else path.open() as stream:
         for line in stream:
             line = line.rstrip("\r\n")
             if line.startswith("##fileformat=VCFv4."):
