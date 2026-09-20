@@ -96,7 +96,9 @@ def _samples(config: GATKConfig) -> tuple[Sample, ...]:
 
 
 def _resources(config: GATKConfig) -> tuple[VCFResource, ...]:
-    return tuple(x for x in (config.germline, config.panel_of_normals, config.population_sites) if x)
+    return tuple(
+        x for x in (config.germline, config.panel_of_normals, config.population_sites) if x
+    )
 
 
 def _files(config: GATKConfig) -> list[LockedFile]:
@@ -155,23 +157,48 @@ def build_commands(config: GATKConfig, output_dir: Path) -> list[list[str]]:
         mutect += ["-I", sample.bam.local_path()]
     if config.normal:
         mutect += ["-normal", config.normal.name]
-    mutect += ["-L", config.intervals.local_path(), "--native-pair-hmm-threads", str(config.threads)]
-    for flag, resource in (("--germline-resource", config.germline),
-                           ("--panel-of-normals", config.panel_of_normals)):
+    mutect += [
+        "-L",
+        config.intervals.local_path(),
+        "--native-pair-hmm-threads",
+        str(config.threads),
+    ]
+    for flag, resource in (
+        ("--germline-resource", config.germline),
+        ("--panel-of-normals", config.panel_of_normals),
+    ):
         if resource:
             mutect += [flag, resource.vcf.local_path()]
     mutect += ["-O", raw]
     commands = [mutect]
-    filtered = prefix + ["FilterMutectCalls", "-R", config.reference.local_path(),
-                         "-V", raw, "--stats", raw + ".stats"]
+    filtered = prefix + [
+        "FilterMutectCalls",
+        "-R",
+        config.reference.local_path(),
+        "-V",
+        raw,
+        "--stats",
+        raw + ".stats",
+    ]
     if config.population_sites:
-        for role, sample in (("tumor", config.tumor), ("normal", config.normal)):
-            if sample:
-                commands.append(prefix + [
-                    "GetPileupSummaries", "-R", config.reference.local_path(),
-                    "-I", sample.bam.local_path(), "-V", config.population_sites.vcf.local_path(),
-                    "-L", config.intervals.local_path(), "-O", str(out / f"{role}.pileups.table"),
-                ])
+        for role, pileup_sample in (("tumor", config.tumor), ("normal", config.normal)):
+            if pileup_sample:
+                commands.append(
+                    prefix
+                    + [
+                        "GetPileupSummaries",
+                        "-R",
+                        config.reference.local_path(),
+                        "-I",
+                        pileup_sample.bam.local_path(),
+                        "-V",
+                        config.population_sites.vcf.local_path(),
+                        "-L",
+                        config.intervals.local_path(),
+                        "-O",
+                        str(out / f"{role}.pileups.table"),
+                    ]
+                )
         contamination = prefix + ["CalculateContamination", "-I", str(out / "tumor.pileups.table")]
         if config.normal:
             contamination += ["--matched-normal", str(out / "normal.pileups.table")]
@@ -184,8 +211,14 @@ def build_commands(config: GATKConfig, output_dir: Path) -> list[list[str]]:
 
 def subprocess_runner(argv: list[str], cwd: Path, timeout: int) -> str:
     completed = subprocess.run(
-        argv, cwd=cwd, timeout=timeout, check=True, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=False,
+        argv,
+        cwd=cwd,
+        timeout=timeout,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        shell=False,
     )
     return completed.stdout
 
@@ -272,7 +305,10 @@ def _write_json(path: Path, content: dict[str, Any]) -> None:
 
 
 def run_gatk(
-    config: GATKConfig, output_dir: Path, *, allow_experimental_ont: bool = False,
+    config: GATKConfig,
+    output_dir: Path,
+    *,
+    allow_experimental_ont: bool = False,
     runner: Runner = subprocess_runner,
 ) -> dict[str, Any]:
     """Run a bounded local research branch; require an unused output directory."""
@@ -282,7 +318,9 @@ def run_gatk(
     try:
         out.mkdir(parents=True, exist_ok=False)
     except FileExistsError as exc:
-        raise GATKError("Output directory already exists; stale results must not be reused") from exc
+        raise GATKError(
+            "Output directory already exists; stale results must not be reused"
+        ) from exc
     calls: list[list[str]] = []
 
     def call(argv: list[str]) -> str:
@@ -314,7 +352,9 @@ def run_gatk(
             header = call([config.samtools, "view", "-H", sample.bam.local_path()])
             observed, names, coordinate_sorted = _sam_header(header)
             if observed != contigs or names != {sample.name} or not coordinate_sorted:
-                raise GATKError("BAM sample, reference dictionary or coordinate-sort header mismatch")
+                raise GATKError(
+                    "BAM sample, reference dictionary or coordinate-sort header mismatch"
+                )
         for argv in commands:
             if "FilterMutectCalls" in argv:
                 stats = out / "unfiltered.vcf.gz.stats"
@@ -349,24 +389,38 @@ def run_gatk(
         if not config.population_sites:
             warnings.append("Contamination was not estimated; it must not be assumed zero.")
         result = {
-            "schema_version": SCHEMA_VERSION, "caller": "GATK Mutect2",
-            "caller_version": GATK_VERSION, "samtools_version": samtools_version.strip(),
-            "profile_id": config.profile_id, "mode": config.mode, "technology": "ONT",
+            "schema_version": SCHEMA_VERSION,
+            "caller": "GATK Mutect2",
+            "caller_version": GATK_VERSION,
+            "samtools_version": samtools_version.strip(),
+            "profile_id": config.profile_id,
+            "mode": config.mode,
+            "technology": "ONT",
             "status": "COMPLETED" if any(v["technical_pass"] for v in variants) else "NO_CALL",
-            "research_only": True, "reportable": False, "analytical_validation": "NOT_VALIDATED",
+            "research_only": True,
+            "reportable": False,
+            "analytical_validation": "NOT_VALIDATED",
             "reference_sha256": config.reference.sha256,
             "config_sha256": digest(out / "config.lock.json"),
             "input_sha256": {f.local_path(): f.sha256 for f in files},
             "artifact_sha256": {p.name: digest(p) for p in out.iterdir() if p.is_file()},
-            "commands_executed": calls, "warnings": warnings, "variants": variants,
+            "commands_executed": calls,
+            "warnings": warnings,
+            "variants": variants,
         }
         _write_json(out / "evidence.json", result)
         return result
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as exc:
-        _write_json(out / "failure.json", {
-            "schema_version": SCHEMA_VERSION, "status": "FAILED", "reportable": False,
-            "reason": str(exc), "commands_executed": calls,
-        })
+        _write_json(
+            out / "failure.json",
+            {
+                "schema_version": SCHEMA_VERSION,
+                "status": "FAILED",
+                "reportable": False,
+                "reason": str(exc),
+                "commands_executed": calls,
+            },
+        )
         raise GATKError(str(exc)) from exc
 
 
@@ -382,15 +436,17 @@ def load_config(path: Path) -> GATKConfig:
             item = raw[key]
             if not isinstance(item, dict) or not item:
                 raise GATKError(f"{key} must be a populated JSON object or null")
-            raw[key] = Sample(**{**item, "bam": LockedFile(**item["bam"]),
-                                 "index": LockedFile(**item["index"])})
+            raw[key] = Sample(
+                **{**item, "bam": LockedFile(**item["bam"]), "index": LockedFile(**item["index"])}
+            )
     for key in ("germline", "panel_of_normals", "population_sites"):
         if raw.get(key) is not None:
             item = raw[key]
             if not isinstance(item, dict) or not item:
                 raise GATKError(f"{key} must be a populated JSON object or null")
-            raw[key] = VCFResource(**{**item, "vcf": LockedFile(**item["vcf"]),
-                                      "index": LockedFile(**item["index"])})
+            raw[key] = VCFResource(
+                **{**item, "vcf": LockedFile(**item["vcf"]), "index": LockedFile(**item["index"])}
+            )
     return GATKConfig(**raw)
 
 
@@ -404,12 +460,21 @@ def main() -> int:
     try:
         config = load_config(args.config)
         if args.execute:
-            result = run_gatk(config, args.output_dir,
-                              allow_experimental_ont=args.allow_experimental_ont)
+            result = run_gatk(
+                config, args.output_dir, allow_experimental_ont=args.allow_experimental_ont
+            )
             print(json.dumps({"status": result["status"], "reportable": False}))
         else:
-            print(json.dumps({"status": "NOT_RUN", "execution_enabled": False,
-                              "commands": build_commands(config, args.output_dir)}, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "status": "NOT_RUN",
+                        "execution_enabled": False,
+                        "commands": build_commands(config, args.output_dir),
+                    },
+                    indent=2,
+                )
+            )
     except (ValueError, OSError, KeyError, TypeError) as exc:
         parser.exit(2, f"GATK adapter blocked/failed: {exc}\n")
     return 0

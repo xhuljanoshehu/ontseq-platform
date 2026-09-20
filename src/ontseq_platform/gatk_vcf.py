@@ -6,7 +6,7 @@ import gzip
 import math
 import re
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 
 def _number(value: str, *, integer: bool = False) -> int | float | None:
@@ -28,11 +28,10 @@ def read_candidates(
     AF is the caller estimate; AD fraction uses sum(AD), NOT FORMAT/DP. Missing
     values remain null. An absent/malformed sample or record fails the whole import.
     """
-    stream: TextIO = gzip.open(path, "rt") if path.suffix == ".gz" else path.open()
     rows: list[dict[str, Any]] = []
     samples: list[str] | None = None
     saw_fileformat = False
-    with stream:
+    with (gzip.open(path, "rt") if path.suffix == ".gz" else path.open()) as stream:
         for line in stream:
             line = line.rstrip("\r\n")
             if line.startswith("##fileformat=VCFv4."):
@@ -44,7 +43,15 @@ def read_candidates(
                     raise ValueError("Duplicate VCF column header")
                 columns = line.split("\t")
                 if columns[:9] != [
-                    "#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"
+                    "#CHROM",
+                    "POS",
+                    "ID",
+                    "REF",
+                    "ALT",
+                    "QUAL",
+                    "FILTER",
+                    "INFO",
+                    "FORMAT",
                 ]:
                     raise ValueError("Invalid VCF column header")
                 samples = columns[9:]
@@ -66,7 +73,9 @@ def read_candidates(
             alts = alternate.split(",")
             position = int(pos)
             if (
-                not chrom or position < 1 or not filters
+                not chrom
+                or position < 1
+                or not filters
                 or not re.fullmatch(r"[ACGTNacgtn]+", ref)
                 or len(alts) != len(set(alts))
                 or any(not re.fullmatch(r"[ACGTNacgtn]+", alt) or alt == ref for alt in alts)
@@ -74,7 +83,9 @@ def read_candidates(
                 raise ValueError("Invalid or unsupported literal small variant")
             info_values = dict(x.split("=", 1) for x in info.split(";") if "=" in x)
             allele_filters = (
-                info_values["AS_FilterStatus"].split("|") if "AS_FilterStatus" in info_values else None
+                info_values["AS_FilterStatus"].split("|")
+                if "AS_FilterStatus" in info_values
+                else None
             )
             if allele_filters is not None and len(allele_filters) != len(alts):
                 raise ValueError("AS_FilterStatus must describe every ALT")
@@ -89,7 +100,9 @@ def read_candidates(
             af = None if af_text == "." else [_number(x) for x in af_text.split(",")]
             if ad is not None and (len(ad) != len(alts) + 1 or None in ad):
                 raise ValueError("AD must have one count for REF and every ALT")
-            if af is not None and (len(af) != len(alts) or any(x is not None and x > 1 for x in af)):
+            if af is not None and (
+                len(af) != len(alts) or any(x is not None and x > 1 for x in af)
+            ):
                 raise ValueError("AF must have one valid fraction per ALT")
             total = sum(x for x in ad if x is not None) if ad is not None else None
             depth = _number(sample.get("DP", "."), integer=True)
@@ -99,22 +112,35 @@ def read_candidates(
                 allele_filter = allele_filters[index - 1] if allele_filters is not None else None
                 technical_pass = filters == "PASS" and (
                     allele_filter in ("SITE", "PASS")
-                    if allele_filters is not None else len(alts) == 1
+                    if allele_filters is not None
+                    else len(alts) == 1
                 )
-                rows.append({
-                    "chromosome": chrom, "position": position, "reference": ref,
-                    "alternate": alt, "native_alt_index": index, "quality": quality,
-                    "depth": depth, "reference_reads": ad[0] if ad is not None else None,
-                    "alternate_reads": alt_count,
-                    "ad_fraction": alt_count / total if alt_count is not None and total else None,
-                    "caller_af": af[index - 1] if af is not None else None,
-                    "native_filter": filters, "native_info": info,
-                    "technical_pass": technical_pass, "allele_filter": allele_filter,
-                    "somatic_status": "NOT_VALIDATED", "reportable": False,
-                    "requires_expert_review": True,
-                    "requires_orthogonal_confirmation": len(ref) != len(alt),
-                    "representation": "native_vcf_not_left_normalized",
-                })
+                rows.append(
+                    {
+                        "chromosome": chrom,
+                        "position": position,
+                        "reference": ref,
+                        "alternate": alt,
+                        "native_alt_index": index,
+                        "quality": quality,
+                        "depth": depth,
+                        "reference_reads": ad[0] if ad is not None else None,
+                        "alternate_reads": alt_count,
+                        "ad_fraction": alt_count / total
+                        if alt_count is not None and total
+                        else None,
+                        "caller_af": af[index - 1] if af is not None else None,
+                        "native_filter": filters,
+                        "native_info": info,
+                        "technical_pass": technical_pass,
+                        "allele_filter": allele_filter,
+                        "somatic_status": "NOT_VALIDATED",
+                        "reportable": False,
+                        "requires_expert_review": True,
+                        "requires_orthogonal_confirmation": len(ref) != len(alt),
+                        "representation": "native_vcf_not_left_normalized",
+                    }
+                )
     if not saw_fileformat or samples is None:
         raise ValueError("Missing required VCF headers")
     return rows
