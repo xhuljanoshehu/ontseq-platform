@@ -1,0 +1,113 @@
+name: Authorized merge repair verification
+on:
+  push:
+    branches: [chore/merge-repair-20260920]
+    paths:
+      - .github/workflows/merge-repair-verify.yml
+      - scripts/authorized_merge_repair.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  repair:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: [78, 81, 82]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Prepare only reviewed conflicts on a detached PR checkout
+        env:
+          PR_NUMBER: ${{ matrix.pr }}
+        run: |
+          set -euo pipefail
+          cp scripts/authorized_merge_repair.py "$RUNNER_TEMP/authorized_merge_repair.py"
+          git config user.name 'ONTSeq merge repair'
+          git config user.email 'merge-repair@users.noreply.github.com'
+          python "$RUNNER_TEMP/authorized_merge_repair.py" prepare "$PR_NUMBER"
+      - name: Install repository test dependencies
+        run: python -m pip install -e '.[dev,workflow]' pysam
+      - name: Verify new schema regression RED to GREEN and commit repair
+        env:
+          PR_NUMBER: ${{ matrix.pr }}
+        run: python "$RUNNER_TEMP/authorized_merge_repair.py" finalize "$PR_NUMBER"
+      - name: Validate safety versions schemas style types and full regression
+        run: |
+          set -euo pipefail
+          python scripts/check_repository_safety.py
+          python scripts/check_version_consistency.py
+          python scripts/export_schemas.py --check
+          ruff check .
+          ruff format --check .
+          mypy src
+          python -m pytest --junitxml=results/merge-repair-pytest.xml
+          snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1
+          snakemake --snakefile workflow/aligned_bam.smk --dry-run --cores 4
+          python -m ontseq_platform demo --output-dir results/merge-repair-demo
+          python -m pip wheel --no-deps --wheel-dir /tmp/ontseq-repair-wheel .
+          python scripts/check_wheel_resources.py /tmp/ontseq-repair-wheel/ontseq_platform-*.whl
+      - uses: mamba-org/setup-micromamba@v3
+        if: matrix.pr == 82
+        with:
+          environment-file: workflow/envs/severus_1_7.yaml
+          cache-environment: true
+          post-cleanup: all
+      - name: Verify both real Severus synthetic smoke tests
+        if: matrix.pr == 82
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          ONTSEQ_SEVERUS_REAL_TOOL=1 PYTHONPATH=src python -m pytest -q tests/test_severus_runtime.py tests/test_severus_real_tool.py tests/test_severus_long_read_real_tool.py
+      - name: Fast-forward only the original PR branch after successful tests
+        env:
+          PR_NUMBER: ${{ matrix.pr }}
+        run: python "$RUNNER_TEMP/authorized_merge_repair.py" promote "$PR_NUMBER"
+  combined:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Rehearse the complete merge stack without modifying main
+        run: |
+          set -euo pipefail
+          git config user.name 'ONTSeq merge repair'
+          git config user.email 'merge-repair@users.noreply.github.com'
+          git checkout --detach ceaab08079b8cb7c528eac6f6137ad2e4dac5f31
+          git merge --no-edit --no-ff origin/feat/marlin-dual-runtime-compatibility
+          git merge --no-edit --no-ff origin/feat/multicaller-routing
+          git merge --no-edit --no-ff origin/feat/multicaller-real-tool-qualification
+          git log -4 --oneline
+          git diff --check ceaab08079b8cb7c528eac6f6137ad2e4dac5f31 HEAD
+      - name: Verify the entire combined source tree
+        run: |
+          set -euo pipefail
+          python -m pip install -e '.[dev,workflow]' pysam
+          python scripts/check_repository_safety.py
+          python scripts/check_version_consistency.py
+          python scripts/export_schemas.py --check
+          ruff check .
+          ruff format --check .
+          mypy src
+          python -m pytest --junitxml=results/combined-merge-pytest.xml
+          snakemake --snakefile workflow/benchmark.smk --dry-run --cores 1
+          snakemake --snakefile workflow/aligned_bam.smk --dry-run --cores 4
+          python -m ontseq_platform demo --output-dir results/combined-merge-demo
+          python -m pip wheel --no-deps --wheel-dir /tmp/ontseq-combined-wheel .
+          python scripts/check_wheel_resources.py /tmp/ontseq-combined-wheel/ontseq_platform-*.whl
+          git rev-parse HEAD^{tree}
