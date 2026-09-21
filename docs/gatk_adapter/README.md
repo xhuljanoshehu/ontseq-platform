@@ -11,8 +11,9 @@ Inspected upstream base: `xhuljanoshehu/ontseq-platform` at
 This is an additive source patch implementing an opt-in Python API and standalone CLI.
 It does **not** modify the canonical ONTSeq runner, its multi-caller registry, public
 CNV/SV result schema, consensus engine, HTML/Excel report, desktop interface, or release path.
-It has **not** been committed, pushed, merged, or tested in the full upstream repository.
-A complete repository checkout was not available in this execution environment.
+This package is tracked in PR #85. Merge eligibility requires full-repository checks on the
+exact reviewed revision; the original standalone test results are historical, not a current
+integration qualification. See the PR checks and REVIEW.md for engineering scope.
 
 The Python adapter is implemented; native GATK interoperability and analytical validity
 are **not established**. Contract tests use deliberately artificial text stand-ins for

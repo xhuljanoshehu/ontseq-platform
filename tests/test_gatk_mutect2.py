@@ -158,7 +158,9 @@ def test_success_is_research_only_with_provenance(api, config, tmp_path):
     assert json.loads((tmp_path / "run/evidence.json").read_text())["reportable"] is False
 
 
-@pytest.mark.parametrize("version", ["4.6.1.0", "4.6.2.01", "4.7.0.0", "garbage"])
+@pytest.mark.parametrize(
+    "version", ["4.6.1.0", "4.6.2.01", "4.7.0.0", "garbage", "4.6.2.0-SNAPSHOT", "4.6.2.0+local"]
+)
 def test_version_mismatch_blocks_calling(api, config, tmp_path, version):
     runner = SyntheticRunner(version=version)
     with pytest.raises(api.GATKError, match="version"):

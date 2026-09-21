@@ -5,6 +5,14 @@ validated release.
 
 ## Unreleased
 
+- Add opt-in GATK 4.6.2.0 research adapters, separate candidate/config/result schemas,
+  tumor-only and paired modes, native artifact provenance and synthetic contract tests.
+- Repair strict typing and exact-version checks; reject suffixed or extended GATK builds.
+  Include both adapter entry points in focused CI without weakening full-project gates.
+- Validation impact: adapters remain separately invoked, non-reportable and not
+  real-GATK-qualified or analytically validated. No canonical runner, CNV/SV policy,
+  reference bundle, package version or automatic clinical release changes.
+
 - Add a pinned Spectre 0.2.1 `depth_only` CNV adapter that consumes only indexed
   Mosdepth coverage and the locked reference. The shell-free runtime rejects version,
   build, source and sample mismatches; never accepts Sniffles/SNFJ, SNV, population or

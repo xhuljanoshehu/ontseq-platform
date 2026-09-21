@@ -1,4 +1,4 @@
-# Proposed changelog fragment (not yet inserted into upstream CHANGELOG.md)
+# GATK adapter change summary (also recorded in CHANGELOG.md)
 
 ## Unreleased — experimental GATK adapter patch
 
@@ -10,4 +10,4 @@ synthetic contract tests, isolated schemas and validation-impact documentation.
 
 No changes to package version 0.8.2, canonical runner/registry, CNV/SV public schemas,
 clinical reportability, consensus logic, license or deployment. No real-tool or analytical
-qualification is claimed. Not committed or merged into the upstream repository.
+qualification is claimed. See PR #85 for the current integration status.

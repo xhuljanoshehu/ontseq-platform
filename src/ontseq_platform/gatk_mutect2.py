@@ -343,7 +343,7 @@ def run_gatk(
         _write_json(out / "config.lock.json", asdict(config))
         _write_json(out / "command-plan.json", {"commands": commands, "executed": False})
         version = call([config.gatk, "--version"])
-        matches = re.findall(r"\bGATK\)?\s+v?(\d+\.\d+\.\d+\.\d+)(?![\d.])", version)
+        matches = re.findall(r"\bGATK\)?\s+v?(\d+\.\d+\.\d+\.\d+)(?![\w.+-])", version)
         if matches != [GATK_VERSION]:
             raise GATKError(f"GATK version must be exactly {GATK_VERSION}")
         samtools_version = call([config.samtools, "version"])

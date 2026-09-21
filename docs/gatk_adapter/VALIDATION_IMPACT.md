@@ -15,7 +15,13 @@ Research Use Only. No automatic clinical release.
 This is **not** a platform-wide qualification declaration. See delivery verification files
 for the exact commands, environment, test count, exit codes and scope of each check.
 
-## Not executed or not delivered
+## Original standalone-delivery boundary
+
+This table describes the original standalone delivery. GitHub upload and software-gate status
+are superseded by PR #85 checks on the exact reviewed revision. Native GATK and analytical
+validation remain unqualified; see REVIEW.md.
+
+### Historical status
 
 | Area | Status | Consequence |
 | --- | --- | --- |

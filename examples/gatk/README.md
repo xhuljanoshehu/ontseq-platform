@@ -1,6 +1,6 @@
 # Local usage: experimental GATK adapter
 
-These are Linux/WSL commands from the ONTSeq repository root **after applying the patch**.
+These are Linux/WSL commands from the ONTSeq repository root with the reviewed adapter package present.
 Use the project's existing approved Python environment with Pydantic 2.8–2.x.
 The adapter itself requires no Python library beyond Pydantic and the standard library.
 GATK and Java are separate local prerequisites, not installed by these commands.
@@ -98,6 +98,6 @@ make lint
 make test
 ```
 
-Those upstream gates have not been executed in this delivery environment. The new schema
+The exact reviewed revision must pass all of those upstream gates before merge. The new schema
 files are isolated documentation artifacts, not registrations in ONTSeq's canonical
 schema exporter or multi-caller planner.
