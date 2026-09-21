@@ -76,6 +76,23 @@ def test_live_results_reject_swapped_identity(tmp_path: Path) -> None:
         assert _request(port, "GET", route, token=config.token)[0] == 400
 
 
+def test_current_befund_export_reformats_existing_run_without_changing_artifacts(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "results"
+    run_id, sample_id, envelope = _result(output)
+    paths = list(envelope.rglob("*"))
+    before = {path: path.read_bytes() for path in paths if path.is_file()}
+    with _service(tmp_path, output) as (config, port):
+        route = f"/api/artifacts?run_id={run_id}&sample_id={sample_id}&kind=befund"
+        status, body = _request(port, "GET", route, token=config.token)
+        assert status == 200
+        assert b"bf-app" in body and b"ontseq-befund-data" in body
+        assert sample_id.encode() in body
+    assert all(path.read_bytes() == content for path, content in before.items())
+    assert set(envelope.rglob("*")) == set(paths)
+
+
 def test_workspace_token_is_not_exposed_to_rebinding_host(tmp_path: Path) -> None:
     with (
         _service(tmp_path, tmp_path / "results") as (config, port),

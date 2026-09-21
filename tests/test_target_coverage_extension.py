@@ -172,6 +172,100 @@ class TargetCoverageExtensionTests(unittest.TestCase):
             limitations=["Technical bins are descriptive only."],
         )
 
+    def test_sv_consumes_sample_named_extension_coverage(self) -> None:
+        from ontseq_platform.pipeline.runner import StagePlan, _sv_execute
+
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        ctx.envelope.atomic_write_text("manifest/intake.json", "{}")
+        ctx.envelope.atomic_write_text(
+            ctx.path(TARGET_COVERAGE_REPORT), self._report().model_dump_json()
+        )
+        with mock.patch(
+            "ontseq_platform.pipeline.runner.AlignedBamIntakeReport.model_validate_json",
+            return_value=mock.sentinel.intake,
+        ):
+            outcome = _sv_execute(ctx, StagePlan(parameters={}, tool_versions={}))
+        self.assertEqual(outcome.status, ModuleRunStatus.NO_CALL)
+        self.assertTrue(any("consensus" in item.relative_path for item in outcome.outputs))
+
+    def test_coverage_reader_accepts_both_producer_names(self) -> None:
+        from ontseq_platform.coverage_artifacts import load_run_coverage
+
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        report = self._report()
+        for name in ("qc/target-coverage.json", ctx.path(TARGET_COVERAGE_REPORT)):
+            with self.subTest(name=name):
+                artifact = ctx.envelope.atomic_write_text(name, report.model_dump_json())
+                self.assertEqual(load_run_coverage(ctx.envelope.root, ctx.manifest), report)
+                ctx.envelope.path(artifact.relative_path).unlink()
+        self.assertIsNone(load_run_coverage(ctx.envelope.root, ctx.manifest))
+
+    def test_coverage_reader_refuses_mismatched_sample_build_and_conflicts(self) -> None:
+        from ontseq_platform.coverage_artifacts import load_run_coverage
+
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        report = self._report()
+        for update, reason in (
+            ({"sample_id": "OTHER_SYNTHETIC"}, "different sample"),
+            ({"genome_build": GenomeBuild.GRCH37}, "different genome build"),
+        ):
+            with self.subTest(reason=reason):
+                wrong = report.model_copy(update=update)
+                ctx.envelope.atomic_write_text(
+                    ctx.path(TARGET_COVERAGE_REPORT), wrong.model_dump_json()
+                )
+                with self.assertRaisesRegex(ValueError, reason):
+                    load_run_coverage(ctx.envelope.root, ctx.manifest)
+        ctx.envelope.atomic_write_text(ctx.path(TARGET_COVERAGE_REPORT), report.model_dump_json())
+        other = report.model_copy(update={"target_bed_version": "OTHER_PANEL"})
+        ctx.envelope.atomic_write_text("qc/target-coverage.json", other.model_dump_json())
+        with self.assertRaisesRegex(ValueError, "Conflicting"):
+            load_run_coverage(ctx.envelope.root, ctx.manifest)
+
+    def test_selection_coverage_is_not_substituted_for_analysis_coverage(self) -> None:
+        from ontseq_platform.coverage_artifacts import load_run_coverage
+
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        ctx.envelope.atomic_write_text(
+            "qc/selection-coverage.json", self._report().model_dump_json()
+        )
+        self.assertIsNone(load_run_coverage(ctx.envelope.root, ctx.manifest))
+        self.assertIsNotNone(load_run_coverage(ctx.envelope.root, ctx.manifest, selection=True))
+
+    def test_core_and_cnv_reports_include_extension_coverage(self) -> None:
+        from ontseq_platform.cnv.extension import _report_execute as cnv_report
+        from ontseq_platform.demo import build_demo_result
+        from ontseq_platform.pipeline.runner import (
+            REPORT_HTML,
+            RESULT_JSON,
+            StagePlan,
+            _report_execute,
+        )
+
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        result = build_demo_result()
+        result.manifest = ctx.manifest
+        ctx.envelope.atomic_write_text(ctx.path(RESULT_JSON), result.model_dump_json())
+        ctx.envelope.atomic_write_text(
+            ctx.path(TARGET_COVERAGE_REPORT), self._report().model_dump_json()
+        )
+        for render in (_report_execute, cnv_report):
+            with self.subTest(renderer=render.__module__):
+                render(ctx, StagePlan(parameters={}, tool_versions={}))
+                document = ctx.envelope.path(ctx.path(REPORT_HTML)).read_text()
+                self.assertIn("ROI_A", document)
+                self.assertIn("18.5", document)
+
+    def test_sv_and_report_resume_track_coverage_artifacts(self) -> None:
+        ctx = self._context(AssayMode.ADAPTIVE_SAMPLING)
+        artifact = ctx.envelope.atomic_write_text(
+            ctx.path(TARGET_COVERAGE_REPORT), self._report().model_dump_json()
+        )
+        ctx.artifacts[StageId.TARGET_COVERAGE] = [artifact]
+        for stage in (StageId.SV, StageId.REPORT):
+            with self.subTest(stage=stage):
+                self.assertIn(artifact, ctx.upstream(stage, InputKind.ALIGNED_BAM))
+
     def test_registration_promotes_only_engineering_verification(self) -> None:
         spec = SPEC_BY_STAGE[StageId.TARGET_COVERAGE]
         self.assertEqual(spec.verification, VerificationStatus.VERIFIED_WITH_REAL_TOOL)

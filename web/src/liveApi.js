@@ -260,7 +260,7 @@ export function createLiveApi({ location = globalThis.location, document = globa
       return validateMethylationReport(await request(`/api/methylation?${params}`, { signal }), job);
     },
     artifact(job, kind, signal) {
-      if (!["html", "xlsx", "json"].includes(kind)) throw new LiveApiError("Unbekannter Exporttyp.");
+      if (!["befund", "html", "xlsx", "json"].includes(kind)) throw new LiveApiError("Unbekannter Exporttyp.");
       const params = new URLSearchParams({ run_id: assertIdentifier(job.run_id), sample_id: assertIdentifier(job.sample_id), kind });
       return request(`/api/artifacts?${params}`, { signal, blob: true, timeout: 120000 });
     },

@@ -41,6 +41,7 @@ from ..breakpoint_annotation import (
     PathBackedContextIntervalIndex,
     annotate_events_from_cache,
 )
+from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT, load_run_coverage
 from ..cutesv import run_cutesv
 from ..execution import StreamingCommandRunner, SubprocessRunner
 from ..iscn import ISCN_RULE_PROFILE
@@ -84,13 +85,14 @@ from ..mvp import assemble_aligned_bam_mvp
 from ..qc import read_length_histogram_from_tsv, run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
 from ..report import render_html
+from ..report_interactive import REPORT_PRESENTATION_VERSION
 from ..report_plots import ReadLengthBin
 from ..sniffles import run_sniffles
 from ..sv_annotation import annotate_sv_events, load_interval_resource
 from ..sv_consensus import build_consensus_report
 from ..sv_evidence import prioritize_sv_events
 from ..sv_observability import apply_sv_observability
-from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
+from ..target_coverage import TargetCoveragePolicy, run_target_coverage
 from ..workbook import render_workbook
 from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
@@ -241,6 +243,11 @@ class RunContext:
     def upstream(self, stage: StageId, input_kind: InputKindName) -> list[Artifact]:
         collected: list[Artifact] = []
         dependencies = list(SPEC_BY_STAGE[stage].depends_on)
+        if (
+            stage in {StageId.SV, StageId.REPORT}
+            and self.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING
+        ):
+            dependencies.append(StageId.TARGET_COVERAGE)
         if stage is StageId.ASSEMBLE:
             # Optional evidence affects the assembled result even though a missing lane
             # must not block assembly. Track current outputs in the resume signature;
@@ -808,6 +815,7 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
     parameters: dict[str, object] = {
         "threads": ctx.config.threads,
         "sv_minimum_mean_depth": ctx.config.sv_minimum_mean_depth,
+        "coverage_artifact_contract": COVERAGE_ARTIFACT_CONTRACT,
     }
     tool_versions: dict[str, str] = {}
     if sniffles_policy is not None:
@@ -898,6 +906,9 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
+    coverage_report = load_run_coverage(ctx.envelope.root, ctx.manifest)
+    if ctx.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and coverage_report is None:
+        raise StageFailure("Adaptive Sampling SV observability requires a coverage report")
     all_events: list[GenomicEvent] = []
     outputs: list[Artifact] = []
     tools: list[ToolRecord] = []
@@ -981,12 +992,6 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
             expected_build=ctx.manifest.assay.genome_build.value,
             context_resources=context_resources,
         )
-    coverage_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
-    coverage_report = (
-        TargetCoverageReport.model_validate_json(coverage_path.read_text(encoding="utf-8"))
-        if coverage_path.is_file()
-        else None
-    )
     consolidated = apply_sv_observability(
         consolidated,
         assay_mode=ctx.manifest.assay.mode,
@@ -1263,7 +1268,14 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 
 
 def _report_plan(ctx: RunContext) -> StagePlan:
-    return StagePlan(parameters={"formats": ["json", "html", "xlsx"]}, tool_versions={})
+    return StagePlan(
+        parameters={
+            "formats": ["json", "html", "xlsx"],
+            "report_presentation": REPORT_PRESENTATION_VERSION,
+            "coverage_artifact_contract": COVERAGE_ARTIFACT_CONTRACT,
+        },
+        tool_versions={},
+    )
 
 
 def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
@@ -1272,18 +1284,8 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    target_path = ctx.envelope.path(TARGET_COVERAGE_REPORT)
-    selection_path = ctx.envelope.path(SELECTION_COVERAGE_REPORT)
-    target_coverage = (
-        TargetCoverageReport.model_validate_json(target_path.read_text(encoding="utf-8"))
-        if target_path.is_file()
-        else None
-    )
-    selection_coverage = (
-        TargetCoverageReport.model_validate_json(selection_path.read_text(encoding="utf-8"))
-        if selection_path.is_file()
-        else None
-    )
+    target_coverage = load_run_coverage(ctx.envelope.root, result.manifest)
+    selection_coverage = load_run_coverage(ctx.envelope.root, result.manifest, selection=True)
     histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
     qc_histogram = (
         [

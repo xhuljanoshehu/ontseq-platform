@@ -3,10 +3,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from .cnv.qdnaseq import QDNAseqCallReport
 from .methylation import MODKIT_MODIFICATION_NAMES, MethylationReport
 from .models import PipelineResult
+from .report_cnv import cnv_html_section
 from .report_formatting import cell as _cell
 from .report_formatting import tool_parameters
+from .report_interactive import attach_interactive_report
 from .report_plots import (
     MethylationCell,
     ReadLengthBin,
@@ -14,6 +17,8 @@ from .report_plots import (
     read_length_histogram_svg,
 )
 from .report_sections import coverage_section, iscn_details, resource_details, sv_details
+from .report_style import REPORT_CSS
+from .report_summary import status_cards, summary_cards
 from .report_view import AnnotationView, EventView, ReportView, build_report_view
 from .target_coverage import TargetCoverageReport, validate_report_coverage
 
@@ -308,6 +313,8 @@ def render_html(
     selection_coverage: TargetCoverageReport | None = None,
     qc_histogram: Sequence[ReadLengthBin] | None = None,
     methylation_report: MethylationReport | None = None,
+    cnv_report: QDNAseqCallReport | None = None,
+    cnv_evidence_root: Path | None = None,
 ) -> Path:
     validate_report_coverage(result, target_coverage, selection_coverage)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -321,225 +328,78 @@ def render_html(
     methylation_section = _methylation_section(methylation_report)
     methylation_nav = '<a href="#methylation">Methylation</a>' if methylation_section else ""
     document = f"""<!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="utf-8">
+  <meta name="ontseq-report-layout" content="befund-v8-local-1">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ONTSeq report - {_cell(view.sample_id)}</title>
   <style>
-    :root {{
-      color-scheme: light;
-      --ink:#172033; --muted:#5e687a; --line:#d9dee7; --panel:#ffffff;
-      --canvas:#f3f5f8; --accent:#174a6e; --accent-soft:#eaf2f7;
-      --critical:#8f1d1d; --critical-soft:#fff0f0; --warning:#8a4b08;
-      --warning-soft:#fff7e8; --info:#36566f; --info-soft:#eef5f9;
-      --ok:#245c45; --ok-soft:#edf7f1; --neutral:#586174;
-      --neutral-soft:#f0f2f5;
-    }}
-    * {{ box-sizing:border-box; }}
-    body {{
-      margin:0; font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif; color:var(--ink);
-      background:var(--canvas);
-    }}
-    .ruo {{
-      position:sticky; top:0; z-index:20; background:#731c1c; color:white;
-      padding:9px 20px; text-align:center; font-weight:800; letter-spacing:.05em;
-    }}
-    .shell {{ max-width:1460px; margin:0 auto; padding:24px; }}
-    .masthead {{
-      background:var(--panel); border:1px solid var(--line); border-radius:14px;
-      padding:24px;
-    }}
-    .masthead h1 {{ margin:0 0 6px; font-size:28px; }}
-    .eyebrow {{
-      color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.08em;
-      text-transform:uppercase;
-    }}
-    .identity {{
-      display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px;
-      margin-top:20px;
-    }}
-    .identity div {{ border-top:2px solid var(--line); padding-top:8px; min-width:0; }}
-    .identity span {{
-      display:block; color:var(--muted); font-size:11px; text-transform:uppercase;
-    }}
-    .identity strong {{ display:block; margin-top:3px; overflow-wrap:anywhere; }}
-    .layout {{
-      display:grid; grid-template-columns:220px minmax(0,1fr); gap:18px;
-      margin-top:18px;
-    }}
-    nav {{
-      align-self:start; position:sticky; top:58px; background:var(--panel);
-      border:1px solid var(--line); border-radius:12px; padding:10px;
-    }}
-    nav a {{
-      display:block; padding:9px 10px; border-radius:8px; color:var(--ink);
-      text-decoration:none;
-    }}
-    nav a:hover, nav a:focus-visible {{ background:var(--accent-soft); outline:none; }}
-    main {{ min-width:0; }}
-    section {{
-      background:var(--panel); border:1px solid var(--line); border-radius:12px;
-      padding:20px; margin-bottom:16px;
-    }}
-    h2 {{ margin:0 0 14px; font-size:20px; }}
-    h3 {{ margin:2px 0 0; font-size:17px; }}
-    h4 {{ margin:18px 0 8px; font-size:14px; }}
-    p {{ margin:6px 0; }}
-    .muted {{ color:var(--muted); }}
-    .module-strip {{
-      display:grid; grid-template-columns:repeat(auto-fit,minmax(125px,1fr));
-      gap:8px; margin-top:12px;
-    }}
-    .module-state {{
-      border:1px solid var(--line); border-left-width:5px; border-radius:9px;
-      padding:10px;
-    }}
-    .module-state span {{
-      display:block; color:var(--muted); font-size:11px; text-transform:uppercase;
-    }}
-    .module-state strong {{ display:block; margin-top:3px; }}
-    .state-completed {{ border-left-color:var(--ok); background:var(--ok-soft); }}
-    .state-no-call {{ border-left-color:var(--warning); background:var(--warning-soft); }}
-    .state-failed {{ border-left-color:var(--critical); background:var(--critical-soft); }}
-    .state-not-run {{ border-left-color:var(--neutral); background:var(--neutral-soft); }}
-    .state-label {{
-      display:inline-block; padding:3px 7px; border-radius:999px;
-      border:1px solid currentColor; font-size:11px; font-weight:800;
-    }}
-    .alert {{
-      border-left:5px solid; padding:12px 14px; margin:10px 0; border-radius:8px;
-    }}
-    .alert-critical {{ color:var(--critical); background:var(--critical-soft); }}
-    .alert-warning {{ color:var(--warning); background:var(--warning-soft); }}
-    .alert-info {{ color:var(--info); background:var(--info-soft); }}
-    .table-wrap {{ overflow-x:auto; margin-top:10px; }}
-    table {{ width:100%; border-collapse:collapse; min-width:620px; }}
-    caption {{ text-align:left; font-weight:800; margin:0 0 8px; }}
-    th,td {{
-      padding:9px 10px; border-bottom:1px solid var(--line); text-align:left;
-      vertical-align:top;
-    }}
-    th {{ background:#f7f8fa; font-size:12px; }}
-    code {{
-      font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;
-      overflow-wrap:anywhere;
-    }}
-    .event-card {{
-      border:1px solid var(--line); border-radius:11px; padding:16px;
-      margin:14px 0; background:#fcfcfd;
-    }}
-    .event-heading {{
-      display:flex; justify-content:space-between; gap:14px; align-items:flex-start;
-    }}
-    .reportability {{
-      max-width:360px; border:1px solid var(--line); border-radius:8px;
-      padding:7px 9px; font-size:12px; font-weight:700; background:white;
-    }}
-    .event-grid {{
-      display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px;
-      margin:14px 0;
-    }}
-    .event-grid div {{ border-top:1px solid var(--line); padding-top:7px; min-width:0; }}
-    dt {{ color:var(--muted); font-size:11px; text-transform:uppercase; }}
-    dd {{ margin:2px 0 0; overflow-wrap:anywhere; }}
-    .boundary {{
-      background:var(--info-soft); border-left:4px solid var(--info); padding:10px 12px;
-      border-radius:7px;
-    }}
-    .gate-failure {{
-      background:var(--critical-soft); color:var(--critical); border-radius:8px;
-      padding:10px 12px; margin-top:10px;
-    }}
-    .iscn {{
-      font:700 19px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;
-      color:var(--accent); overflow-wrap:anywhere;
-    }}
-    .empty-state {{
-      background:var(--info-soft); border:1px solid #bfd1dd; border-radius:8px;
-      padding:14px;
-    }}
-    tr.critical {{ background:var(--critical-soft); }}
-    input[type="search"] {{ padding:8px; max-width:100%; }}
-    footer {{ color:var(--muted); font-size:12px; padding:4px 2px 24px; }}
-    @media (max-width:1000px) {{
-      .identity {{ grid-template-columns:repeat(3,minmax(120px,1fr)); }}
-      .layout {{ grid-template-columns:1fr; }}
-      nav {{ position:static; display:flex; overflow-x:auto; gap:4px; }}
-      nav a {{ white-space:nowrap; }}
-      .event-grid {{ grid-template-columns:repeat(2,minmax(120px,1fr)); }}
-    }}
-    @media (max-width:620px) {{
-      .shell {{ padding:12px; }}
-      .masthead {{ padding:17px; }}
-      .identity {{ grid-template-columns:1fr 1fr; }}
-      .event-heading {{ display:block; }}
-      .reportability {{ margin-top:9px; max-width:none; }}
-      .event-grid {{ grid-template-columns:1fr; }}
-      section {{ padding:15px; }}
-    }}
-    @media print {{
-      body {{ background:white; }}
-      .ruo {{ position:static; }}
-      nav {{ display:none; }}
-      .layout {{ display:block; }}
-      section,.masthead,.event-card {{ break-inside:avoid; box-shadow:none; }}
-    }}
+{REPORT_CSS}
   </style>
 </head>
 <body>
   <div class="ruo">RESEARCH USE ONLY · NOT CLINICALLY VALIDATED</div>
-  <div class="shell">
-    <header class="masthead">
-      <span class="eyebrow">ONTSeq evidence report</span>
-      <h1>Single-sample analytical review</h1>
-      <p class="muted">Evidence, execution state and provenance are shown separately from
-        interpretation. Missing or non-executed analyses are never displayed as negatives.</p>
-      <div class="identity">
-        <div><span>Sample</span><strong>{_cell(view.sample_id)}</strong></div>
-        <div><span>Run</span><strong>{_cell(view.run_id)}</strong></div>
-        <div><span>Assay</span><strong>{_cell(view.assay_mode)}</strong></div>
-        <div><span>Genome build</span><strong>{_cell(view.genome_build)}</strong></div>
-        <div><span>Reference</span><strong>{_cell(view.reference_id)}</strong></div>
-        <div><span>Release state</span><strong>{_cell(view.release_status)}</strong></div>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div>
+      <span class="eyebrow">ONTSeq · Analytischer Befund</span>
+      <h1>Auswertung Oxford-Nanopore-Sequenzierung</h1>
+      <p class="muted">Maschinell erzeugte Auswertung einer Einzelprobe.
+        Ohne fachliche Vidierung nicht freigegeben.</p>
       </div>
-    </header>
+      <div class="identity">
+        <div><span>Probe</span><strong>{_cell(view.sample_id)}</strong></div>
+        <div><span>Lauf</span><strong>{_cell(view.run_id)}</strong></div>
+        <div><span>Assay</span><strong>{_cell(view.assay_mode)}</strong></div>
+        <div><span>Genom</span><strong>{_cell(view.genome_build)}</strong></div>
+        <div><span>Referenz</span><strong>{_cell(view.reference_id)}</strong></div>
+        <div><span>Freigabe</span>
+          <strong class="release">{_cell(view.release_status)}</strong></div>
+      </div>
+    </div>
+  </header>
+  <div class="shell">
     <div class="layout">
-      <nav aria-label="Report sections">
-        <a href="#overview">Overview</a><a href="#modules">Module status</a>
-        <a href="#qc">Quality</a><a href="#coverage">Coverage</a>
-        {methylation_nav}
-        <a href="#sv-review">SV review</a><a href="#events">Events</a>
-        <a href="#iscn">ISCN proposal</a><a href="#warnings">Warnings</a>
-        <a href="#provenance">Provenance</a>
+      <nav aria-label="Berichtsabschnitte">
+        <a href="#overview">Kernbefunde</a><a href="#modules">Ausführungszustand</a>
+        <!-- ONTSEQ_CNV_NAV --><a href="#sv-review">Strukturvarianten</a>
+        <a href="#events">Ereignisse</a><a href="#qc">Qualitätskontrolle</a>
+        <a href="#coverage">Abdeckung</a>{methylation_nav}
+        <a href="#iscn">ISCN</a><a href="#warnings">Grenzen</a>
+        <a href="#provenance">Technische Nachweise</a>
       </nav>
       <main>
         <section id="overview">
-          <h2>1 · Review overview</h2>
-          <div class="identity">
-            <div><span>QC verdict</span><strong>{_cell(view.qc_verdict)}</strong></div>
-            <div><span>Events</span><strong>{len(view.events)}</strong></div>
-            <div><span>Analysis profile</span><strong>{_cell(view.analysis_profile)}</strong></div>
-            <div><span>Analysis intent</span><strong>{_cell(view.analysis_intent)}</strong></div>
-            <div>
-              <span>Target design version</span><strong>{_cell(target_design)}</strong>
-            </div>
-            <div><span>Pipeline</span><strong>{_cell(view.pipeline_version)}</strong></div>
-          </div>
-          <h3>Execution-state strip</h3>
-          <div class="module-strip">{_module_strip(view)}</div>
-          <h3 style="margin-top:18px">Interpretation blockers and warnings</h3>
+          <h2>Kernbefunde · erfasste Ereignisse</h2>
+          <p class="muted">{len(view.events)} normalisierte Ereignisse im Ergebnisvertrag.
+            Die Karten zeigen analytische Daten; ihre Bewertung erfordert die zugehörigen
+            Nachweise und den Ausführungszustand.</p>
+          {summary_cards(view)}
+          <p class="summary-context">Profil: {_cell(view.analysis_profile)} ·
+            Analyseabsicht: {_cell(view.analysis_intent)} ·
+            Target design version: {_cell(target_design)} ·
+            Pipeline {_cell(view.pipeline_version)}</p>
           {_alerts(view)}
         </section>
+        <div class="status-grid" aria-label="Statusübersicht">{status_cards(view)}</div>
         <section id="modules">
-          <h2>2 · Module execution status</h2>
+          <h2>Ausführungszustand</h2>
           <p class="muted">Status is an execution statement, not a biological conclusion.</p>
           <div class="table-wrap"><table><caption>Module outcomes</caption>
             <thead><tr><th>Module</th><th>Status</th><th>Recorded reason</th>
               <th>Meaning</th></tr></thead><tbody>{_module_rows(view)}</tbody></table></div>
         </section>
+        <!-- ONTSEQ_CNV_SECTION -->
+        {sv_details(result)}
+        <section id="events">
+          <h2>Genomische Ereignisse und Nachweise</h2>
+          <p class="muted">Each normalized event is displayed with caller evidence and an
+            explicit interpretation boundary. Missing values remain “not available”.</p>
+          {_events(view)}
+        </section>
         <section id="qc">
-          <h2>3 · Quality and assay context</h2>
+          <h2>Qualitätskontrolle und Assay-Kontext</h2>
           <p><strong>QC verdict:</strong> {_cell(view.qc_verdict)}</p>
           <p class="muted">Normalized metrics are descriptive unless a validated QC policy
             explicitly defines an adequacy threshold.</p>
@@ -550,15 +410,8 @@ def render_html(
         </section>
         {coverage_section(target_coverage, selection_coverage)}
         {methylation_section}
-        {sv_details(result)}
-        <section id="events">
-          <h2>4 · Genomic events and evidence</h2>
-          <p class="muted">Each normalized event is displayed with caller evidence and an
-            explicit interpretation boundary. Missing values remain “not available”.</p>
-          {_events(view)}
-        </section>
         <section id="iscn">
-          <h2>5 · ISCN proposal</h2>
+          <h2>ISCN · Vorschlag zur fachlichen Prüfung</h2>
           <p class="muted">This is a proposal generated by an unvalidated conformance subset and
             requires expert review. It is not a released cytogenetic result.</p>
           <div class="iscn">{_cell(result.iscn.notation)}</div>
@@ -576,10 +429,10 @@ def render_html(
           {iscn_details(result)}
         </section>
         <section id="warnings">
-          <h2>6 · Warnings and limitations</h2><ul>{_warnings(view)}</ul>
+          <h2>Grenzen und Warnungen</h2><ul>{_warnings(view)}</ul>
         </section>
         <section id="provenance">
-          <h2>7 · Methods and provenance</h2>
+          <h2>Technische Nachweise und Methoden</h2>
           <div class="identity">
             <div>
               <span>Pipeline version</span><strong>{_cell(view.pipeline_version)}</strong>
@@ -596,12 +449,21 @@ def render_html(
             <tbody>{_checksum_rows(view)}</tbody></table></div>
         </section>
         <footer>ONTSeq portable report · offline/self-contained presentation · RUO.
-          This self-contained HTML has no CDN or remote runtime dependency.</footer>
+          This self-contained HTML has no CDN or remote runtime dependency.
+          Darstellung: befund-v8-local-1. Analyseversion siehe technische Nachweise.</footer>
       </main>
     </div>
   </div>
 </body>
 </html>
 """
+    if cnv_report is not None and cnv_evidence_root is not None:
+        document = document.replace(
+            "<!-- ONTSEQ_CNV_SECTION -->", cnv_html_section(cnv_evidence_root, cnv_report), 1
+        )
+        document = document.replace("<!-- ONTSEQ_CNV_NAV -->", '<a href="#cnv">Kopienzahl</a>', 1)
+    document = attach_interactive_report(
+        document, result, cnv=cnv_report, evidence_root=cnv_evidence_root
+    )
     output_path.write_text(document, encoding="utf-8")
     return output_path

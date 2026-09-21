@@ -305,8 +305,10 @@ class ReportHardeningTests(unittest.TestCase):
             "input_path",
         ):
             self.assertNotIn(secret, document)
-        self.assertNotIn("https://", document)
-        self.assertNotIn("http://", document)
+        # The bundled React runtime contains its diagnostic documentation URL and SVG
+        # namespace strings. Offline means no external assets, not no URL-shaped text.
+        self.assertNotRegex(document, r"<(?:script|link)\b[^>]*(?:src|href)\s*=")
+        self.assertNotRegex(document, r'<(?:img|iframe)\b[^>]*src=["\x27]https?://')
         self.assertNotIn("<script src=", document)
         self.assertNotIn("<link rel=", document)
         self.assertIn("self-contained HTML has no CDN or remote runtime dependency", document)

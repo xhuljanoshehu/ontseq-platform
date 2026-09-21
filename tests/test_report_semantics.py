@@ -19,9 +19,11 @@ class ReportSemanticTests(unittest.TestCase):
 
     def test_portable_report_has_no_remote_runtime_dependency(self) -> None:
         document = self._render()
-        self.assertNotIn("https://", document)
-        self.assertNotIn("http://", document)
-        self.assertNotIn("<script src=", document)
+        # React's bundled SVG namespaces and error-documentation string are not
+        # network dependencies. Reject resource-loading elements instead.
+        self.assertNotRegex(document, r"<(?:script|link)\b[^>]*(?:src|href)\s*=")
+        self.assertNotRegex(document, r'<(?:img|iframe)\b[^>]*src=["\x27]https?://')
+        self.assertNotIn("fonts.googleapis.com", document)
         self.assertIn("offline/self-contained presentation", document)
 
     def test_no_call_is_explicitly_not_a_negative_result(self) -> None:

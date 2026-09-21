@@ -9,7 +9,9 @@
   "scripts": {
     "build": "node ../scripts/build_live_workspace.mjs",
     "check:build": "node ../scripts/build_live_workspace.mjs --check",
-    "test": "node --test tests/live-workspace.test.mjs tests/build-contract.test.mjs"
+    "test": "node --test tests/live-workspace.test.mjs tests/build-contract.test.mjs tests/befund-model.test.mjs",
+    "build:befund": "node ../scripts/build_befund.mjs",
+    "check:befund": "node ../scripts/build_befund.mjs --check"
   },
   "dependencies": {
     "react": "19.2.0",
