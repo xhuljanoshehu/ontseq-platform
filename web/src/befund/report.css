@@ -1,0 +1,130 @@
+.befund-ready #ontseq-static-report { display:none; }
+.befund-ready #ontseq-static-report.bf-audit-visible { display:block; border-top:6px solid #0b5580; }
+.bf-app { --ink:#172936; --muted:#5b6b7a; --blue:#0b5580; --line:#dae3ea; color:var(--ink); background:#e6ecf2; font:15px/1.65 "Source Sans 3","Segoe UI",Arial,sans-serif; min-height:100vh; }
+.bf-app *, .bf-app *:before, .bf-app *:after { box-sizing:border-box; }
+.bf-app p { margin:9px 0 14px; max-width:108ch; overflow-wrap:anywhere; }
+.bf-app button,.bf-app input,.bf-app select { font:inherit; }
+.bf-app button { color:var(--blue); border:1px solid #c8d7e2; background:#fff; padding:7px 13px; border-radius:5px; cursor:pointer; line-height:1.4; }
+.bf-app button:hover { background:#edf4f9; border-color:var(--blue); }
+.bf-app button[aria-pressed=true] { color:#fff; background:var(--blue); border-color:var(--blue); }
+.bf-app button:focus-visible,.bf-app input:focus-visible,.bf-app select:focus-visible,.bf-app a:focus-visible,.bf-app summary:focus-visible { outline:3px solid #d39731; outline-offset:3px; }
+.bf-app input,.bf-app select { display:block; width:100%; border:1px solid #c8d7e2; padding:8px 11px; border-radius:5px; background:white; color:var(--ink); }
+.bf-app input[type=range] { padding:6px 0; accent-color:var(--blue); border:0; }
+.bf-app figure { margin:20px 0 8px; }
+.bf-app img,.bf-app svg { max-width:100%; height:auto; }
+.bf-app figcaption { font-size:12px; color:var(--muted); }
+.bf-app strong,.bf-mono,.bf-app td:first-child,.bf-code { font-family:"IBM Plex Mono",Consolas,"Liberation Mono",monospace; font-variant-numeric:tabular-nums; }
+.bf-app small { font-size:12px; color:var(--muted); }
+.bf-ruo { background:#031a25; color:#d6e4ed; text-align:center; letter-spacing:.14em; font-size:10px; padding:7px 12px; }
+.bf-header { background:linear-gradient(112deg,#04222f,#0b5580); color:#fff; padding:27px 32px 30px; }
+.bf-header-inner { max-width:1200px; margin:auto; }
+.bf-brand { font-size:24px; font-weight:700; letter-spacing:-.025em; }
+.bf-brand span { font:11px "IBM Plex Mono",Consolas,monospace; letter-spacing:.12em; color:#b9cfdd; margin-left:18px; }
+.bf-heading { display:flex; gap:42px; align-items:center; justify-content:space-between; padding:12px 0 22px; }
+.bf-heading>div:first-child { flex:1; }
+.bf-app h1 { font-size:36px; letter-spacing:-.022em; line-height:1.13; margin:8px 0 16px; color:#fff; font-weight:600; max-width:760px; }
+.bf-heading p { color:#c9dce6; font-size:14px; }
+.bf-kicker { text-transform:uppercase; font-size:10px!important; letter-spacing:.16em; }
+.bf-release { min-width:215px; border:1px solid #5f7f92; border-radius:8px; padding:18px; background:#ffffff09; }
+.bf-release span,.bf-release strong,.bf-release small { display:block; }
+.bf-release span { font-size:11px; color:#c9dce6; text-transform:uppercase; letter-spacing:.12em; }
+.bf-release strong { font-size:17px; margin:6px 0; color:#ffe2a9; }
+.bf-release small { color:#c9dce6; }
+.bf-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:14px; }
+.bf-facts>div { min-width:0; padding:11px 0; }
+.bf-facts span { display:block; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+.bf-facts strong { font-size:14px; overflow-wrap:anywhere; display:block; margin-top:4px; }
+.bf-header .bf-facts { border-top:1px solid #ffffff27; gap:20px; }
+.bf-header .bf-facts span { color:#a9c9da; }
+.bf-header .bf-facts strong { font-size:12px; color:#fff; }
+.bf-shell { max-width:1264px; margin:0 auto; padding:0 32px 48px; }
+.bf-nav { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:5px 14px; flex-wrap:wrap; padding:13px 0; background:rgba(230,236,242,.97); margin-bottom:7px; border:0; border-radius:0; border-bottom:1px solid #cdd8e1; }
+.bf-nav a { color:#476175; font-size:12px; text-decoration:none; padding:4px 0; }
+.bf-nav a:hover { color:var(--blue); text-decoration:underline; }
+.bf-nav button { font-size:11px; margin-left:auto; }
+.bf-main { display:block; min-width:0; }
+.bf-section { padding:26px 28px; margin:20px 0; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 5px #15384f04; scroll-margin-top:100px; }
+.bf-section h2 { color:#5b6b7a; font-size:12px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; margin:0 0 15px; line-height:1.65; }
+.bf-section h3 { font-size:13px; color:var(--ink); margin:16px 0 9px; }
+.bf-note { color:var(--muted); font-size:13.5px; }
+.bf-caution { border-left:5px solid #b45309; }
+.bf-caution h2 { color:#a45113; }
+.bf-model { border-left:5px solid #0f7b4f; }
+.bf-model h2 { color:#0f7b4f; }
+.bf-blocked { border-left:5px solid #b42318; }
+.bf-blocked h2 { color:#b42318; }
+.bf-keycards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:22px 0 18px; }
+.bf-keycards>div { border:1px solid var(--line); border-radius:8px; padding:19px 20px; background:#fbfdfe; border-top:3px solid var(--blue); }
+.bf-keycards>div:first-child { border-top-color:#b42318; }
+.bf-keycards>div:last-child { border-top-color:#b45309; }
+.bf-keycards>div>span { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+.bf-keycards>div>strong { display:block; font-size:35px; line-height:1.2; margin:12px 0; font-weight:500; }
+.bf-keycards p { margin:6px 0; }
+.bf-model-strip { padding:12px 15px; background:#f1f6fa; border-left:3px solid var(--blue); color:var(--blue); font-size:13px; }
+.bf-alert { border-left:3px solid #d2a258; background:#fdf6ec; padding:12px 15px; font-size:13px; }
+.bf-alert.critical { border-color:#b42318; background:#fdf3f1; }
+.bf-footnote { border:1px solid #f0dcbd; background:#fdf6ec; padding:12px 15px; border-radius:5px; font-size:12px; color:#775625; margin-top:18px!important; }
+.bf-empty { padding:20px; border:1px dashed #cbd6df; border-radius:6px; color:var(--muted); background:repeating-linear-gradient(135deg,#f8fafc,#f8fafc 6px,#f1f5f8 6px,#f1f5f8 7px); font-size:13px; }
+.bf-status { display:inline-block; border-radius:4px; padding:3px 7px; background:#f4f7fa; color:#5b6b7a; font-size:12px; white-space:nowrap; }
+.bf-status.s-COMPLETED { background:#edf8f1; color:#0f7b4f; }
+.bf-status.s-FAILED { background:#fff0ed; color:#b42318; }
+.bf-status.s-NO_CALL,.bf-status.s-NOT_RUN { background:#fdf6ec; color:#a65a13; }
+.bf-code { display:block; font-size:9px!important; margin-top:4px; }
+.bf-table { overflow-x:auto; max-width:100%; }
+.bf-app table { width:100%; border-collapse:collapse; margin:10px 0 2px; font-size:12px; }
+.bf-app th { font-size:10px; color:#5b6b7a; text-transform:uppercase; letter-spacing:.055em; text-align:left; padding:11px 12px; border-bottom:2px solid #dbe5ec; background:#f7fafc; white-space:nowrap; }
+.bf-app td { vertical-align:top; padding:12px; border-bottom:1px solid #e7eef3; max-width:460px; overflow-wrap:anywhere; }
+.bf-app td p { margin:5px 0; }
+.bf-app tr.bf-selected { background:#edf4f9; }
+.bf-app details { border-top:1px solid #e0e8ee; margin-top:18px; padding-top:12px; }
+.bf-app summary { color:var(--blue); cursor:pointer; font-size:13px; font-weight:600; padding:5px 0; }
+.bf-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:15px 0; }
+.bf-controls>span { font-size:12px; color:var(--muted); margin-right:10px; }
+.bf-controls label { flex:1; min-width:230px; font-size:13px; color:var(--muted); }
+.bf-slider { display:block; padding:20px 25px; background:#f7fafc; border:1px solid var(--line); border-radius:7px; }
+.bf-slider input { margin:14px 0 0; }
+.bf-chromosomes { display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); gap:8px; margin:22px 0 12px; }
+.bf-chromosome { text-align:center; border:1px solid #dae3ea; background:#fbfdfe; border-radius:6px; padding:10px 3px; }
+.bf-chromosome>span { display:block; font-size:11px; color:var(--muted); }
+.bf-chromosome>strong { font-size:19px; font-weight:500; display:block; margin:5px 0; }
+.bf-chromosome>small { display:block; font-size:8px; }
+.bf-chromosome.gain { color:#b42318; border-color:#ebc3bd; background:#fdf4f3; }
+.bf-chromosome.loss { color:#1d6fa5; border-color:#b6d2e5; background:#f1f7fb; }
+.bf-chromosome.missing { background:repeating-linear-gradient(135deg,#f8fafc,#f8fafc 6px,#e9eef3 6px,#e9eef3 7px); color:#8697a6; }
+.bf-ratios { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 30px; margin:20px 0; }
+.bf-ratios>div { display:flex; gap:10px; align-items:center; font:11px Consolas,monospace; }
+.bf-ratios>div>span { width:36px; }
+.bf-ratios>div>strong { width:50px; text-align:right; }
+.bf-ratio-track { flex:1; height:9px; border-radius:2px; background:#e9eff4; overflow:hidden; }
+.bf-ratio-track i { display:block; height:100%; background:#277398; }
+.bf-search { display:block; font-size:12px; max-width:480px; color:var(--muted); margin:14px 0; }
+.bf-search input { margin-top:6px; }
+.bf-scope { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:20px; }
+.bf-scope>div { background:#f7fafc; padding:14px; border:1px solid #e0e8ee; border-radius:6px; }
+.bf-native { font-size:13px; overflow-wrap:anywhere; }
+.bf-native>h2 { display:none; }
+.bf-native .identity { display:flex; flex-wrap:wrap; gap:15px; }
+.bf-native .identity>div { flex:1; min-width:140px; }
+.bf-native .identity span { display:block; color:var(--muted); font-size:11px; }
+.bf-native .table-wrap { overflow-x:auto; }
+.bf-native .plot { margin:15px 0; }
+.bf-native input { display:none; }
+.bf-footer { text-align:center; color:#687d8c; font-size:11px; padding:20px; }
+@media(max-width:800px) {
+ .bf-header { padding:22px 22px; } .bf-heading { display:block; } .bf-release { margin-top:20px; min-width:0; max-width:350px; }
+ .bf-app h1 { font-size:28px; } .bf-shell { padding:0 16px 30px; } .bf-section { padding:22px 20px; } .bf-chromosomes { grid-template-columns:repeat(6,minmax(0,1fr)); }
+ .bf-keycards { grid-template-columns:1fr; } .bf-keycards>div { padding:16px; } .bf-keycards>div>strong { font-size:30px; }
+ .bf-nav { position:static; gap:5px 12px; } .bf-controls label { min-width:100%; } .bf-ratios { grid-template-columns:1fr; }
+ .bf-app td { min-width:100px; } .bf-section { scroll-margin-top:10px; }
+}
+@media(max-width:450px) { .bf-chromosomes { grid-template-columns:repeat(4,minmax(0,1fr)); } .bf-facts { grid-template-columns:repeat(2,minmax(0,1fr)); } .bf-header .bf-facts { grid-template-columns:1fr; gap:4px; } .bf-app h1 { font-size:27px; } }
+@media print {
+ .bf-app { background:#fff; font-size:10px; } .bf-shell { max-width:none; padding:0; } .bf-header { padding:15px; print-color-adjust:exact; }
+ .bf-nav,.bf-search,.bf-app button { display:none!important; } .bf-section { box-shadow:none; border-radius:0; padding:16px 8px; margin:8px 0; break-inside:auto; }
+ .bf-section h2,.bf-app summary { break-after:avoid; } .bf-keycards { grid-template-columns:repeat(3,minmax(0,1fr)); } .bf-app tr,.bf-app figure,.bf-chromosome { break-inside:avoid; }
+ .bf-app details:not([open])>:not(summary) { display:block; } .bf-app .bf-table { overflow:visible; } .bf-app table { table-layout:fixed; font-size:9px; }
+ .bf-app th,.bf-app td { white-space:normal; padding:5px; } .bf-chromosomes { grid-template-columns:repeat(11,minmax(0,1fr)); } .bf-app input[type=range] { display:none; }
+ .befund-ready #ontseq-static-report { display:none!important; } .bf-app * { print-color-adjust:exact; }
+ .bf-app details::details-content { content-visibility:visible; }
+}
+@media(prefers-reduced-motion:reduce) { .bf-app * { scroll-behavior:auto!important; } }

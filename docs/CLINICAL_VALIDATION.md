@@ -5,6 +5,19 @@
 The software is a research prototype. No output is validated for diagnosis, prognosis,
 treatment selection or patient release.
 
+### Integrated Befund presentation, 2026-09-21
+
+`befund-interactive-v1` adapts the supplied report design to actual typed run outputs.
+Purity/ploidy alternatives, VAF anchoring and dilution are explicitly exploratory
+models. Chromosome ratios are reconstructed from consensus CN under the primary fit,
+not asserted to be new raw measurements. VAF and anchor neutrality are hypothetical.
+Impossible model values remain unavailable; no clinical sensitivity, detection limit,
+risk classification or reportability is inferred. Original events, ISCN, thresholds,
+methylation guards and review decisions remain unchanged. Existing-run exports are
+derived presentations; archived artifacts remain untouched. Synthetic tests cover
+cross-run evidence, escaping, null/zero semantics, model arithmetic and export immutability.
+See `REPORT_INTERFACE.md` for the contract and browser acceptance checks.
+
 ### Review corrections and assessable chromosome spans, 2026-09-12
 
 The assessable-bin span policy introduced on main can enable a whole-chromosome ISCN
@@ -442,3 +455,21 @@ Previously rejected target runs require recomputation; a completed synthetic tes
 not evidence of patient-level methylation accuracy. The global pipeline-version/commit
 resume signature binds the correction. Basecalling, coverage and confidence thresholds
 are unchanged.
+
+
+### Local coverage artifact handoff correction (2026-09-21)
+
+The installed target-coverage extension writes a sample-named normalized JSON file,
+whereas the core SV and report stages previously looked only for the unprefixed name.
+The `core-or-sample-coverage-v1` contract accepts either exact producer name, validates
+sample/build identity and refuses contradictory duplicate reports. Selection coverage
+is not substituted for analysis coverage. SV and report resume fingerprints now include
+coverage-stage artifacts for adaptive sampling, and plans record the contract revision.
+
+This repairs integration of already measured coverage; it can change downstream SV
+observability annotations and restores coverage sections in HTML/Excel exports. It does
+not change the biological callers, depth thresholds, methylation policy, reportability
+flags or release gates. Synthetic regressions reproduce the original failure and test
+both producer names, cross-sample/build refusal, duplicate conflicts, report integration
+and resume dependencies. Existing user runs were inspected read-only; they were not
+reclassified, released or presented as successfully rerun by this correction.

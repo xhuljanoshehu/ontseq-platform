@@ -5,6 +5,15 @@ import test from "node:test";
 const html = await readFile(new URL("../../src/ontseq_platform/service/workspace.html", import.meta.url), "utf8").catch(() => null);
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+const befund = await readFile(new URL("../../src/ontseq_platform/report_bundle.html", import.meta.url), "utf8");
+
+test("portable Befund bundle carries its runtime and notices without embedded run data", () => {
+  assert.match(befund, /befund-interactive-v1/);
+  assert.match(befund, /ontseq-befund-notices/);
+  assert.match(befund, /Permission is hereby granted, free of charge/);
+  assert.doesNotMatch(befund, /<(?:script|link)\b[^>]*(?:src|href)\s*=/i);
+  assert.doesNotMatch(befund, /fonts\.googleapis|ONTSEQ_RUN3|run3-data|210114_/);
+});
 
 test("web dependencies are exact and the integrity-pinned graph contains no demo libraries", () => {
   assert.equal(packageJson.private, true);

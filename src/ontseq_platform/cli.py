@@ -9,6 +9,7 @@ from . import __version__
 from .aml_rearrangements import prioritize_aml_rearrangements
 from .bam_intake import AlignedBamInspector
 from .benchmark import benchmark_case
+from .coverage_artifacts import load_run_coverage
 from .demo import build_demo_result
 from .dilution import (
     DilutionPolicy,
@@ -419,16 +420,8 @@ def main() -> None:
                     lock_path=args.knowledge_lock,
                 )
             envelope_root = args.result.parent.parent
-            target_path = envelope_root / "qc" / "target-coverage.json"
-            selection_path = envelope_root / "qc" / "selection-coverage.json"
-            target_coverage = (
-                load_model(target_path, TargetCoverageReport) if target_path.is_file() else None
-            )
-            selection_coverage = (
-                load_model(selection_path, TargetCoverageReport)
-                if selection_path.is_file()
-                else None
-            )
+            target_coverage = load_run_coverage(envelope_root, result.manifest)
+            selection_coverage = load_run_coverage(envelope_root, result.manifest, selection=True)
             for path in _render(
                 result,
                 args.output_dir,

@@ -13,6 +13,35 @@ validated release.
   real-GATK-qualified or analytically validated. No canonical runner, CNV/SV policy,
   reference bundle, package version or automatic clinical release changes.
 
+- Integrate the owner-selected complete Befund design as `befund-interactive-v1`:
+  offline React report, real run-bound evidence, original CNV plots, model selection,
+  synchronized chromosome/dilution views, explicit hypothetical VAF anchoring,
+  module states, methylation, ISCN and complete technical evidence. Package the
+  reproducible report bundle in wheels and stamp the report resume signature.
+- Add an authenticated current-layout export for existing runs; retain archived
+  reports and analysis artifacts unchanged. Validate evidence identity, paths and
+  recorded checksums. Preserve the static report as a no-JavaScript fallback.
+- Validation impact: additional exploratory presentation calculations only; no new
+  caller, threshold, classification or release behavior. No patient example from
+  the supplied design is imported. Missing results never become measured zero.
+
+- Local `core-or-sample-coverage-v1` fix: resolve both core and installed-runtime
+  coverage filenames for SV observability and HTML/Excel/CLI reporting. Reject
+  mismatched samples/builds and conflicting duplicates. Track coverage artifacts
+  in adaptive-sampling SV/report resume signatures and fail before running SV callers
+  when coverage is absent. Existing sample-named reports remain readable.
+- Validation impact: existing per-target measurements can now reach downstream SV
+  observability and reports. No depth threshold, caller setting, methylation policy
+  or clinical release rule changes; candidate events remain research-only.
+
+- Local presentation revision `befund-v8-local-1`: use the owner-selected report
+  composition with a dark header, event/status cards and CNV evidence near the top.
+  Preserve normalized results, release boundaries, complete evidence tables and offline use.
+  Add responsive and print styles; show absent module records explicitly.
+- Validation impact of this local layout revision: presentation only; no caller,
+  classification, threshold, copy-number model or release-rule changes. The reference
+  report's sample-specific interpretations and simulations are not imported.
+
 - Add a pinned Spectre 0.2.1 `depth_only` CNV adapter that consumes only indexed
   Mosdepth coverage and the locked reference. The shell-free runtime rejects version,
   build, source and sample mismatches; never accepts Sniffles/SNFJ, SNV, population or

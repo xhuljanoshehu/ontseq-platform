@@ -35,6 +35,7 @@ ontseq = "ontseq_platform.entrypoint:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"ontseq_platform" = ["report_bundle.html"]
 "ontseq_platform.service" = ["*.html"]
 
 # Install the immutable configuration/authority tree with ordinary wheels.  Runtime lookup uses

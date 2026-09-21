@@ -90,6 +90,7 @@ from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
 from ..target_coverage import TargetCoveragePolicy
+from .befund import current_befund
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -898,6 +899,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
             formats = {
                 "json": (RESULT_JSON, "application/json"),
                 "html": (REPORT_HTML, "text/html; charset=utf-8"),
+                "befund": (RESULT_JSON, "text/html; charset=utf-8"),
                 "xlsx": (
                     REPORT_XLSX,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -939,6 +941,9 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 if path.stat().st_size > MAX_RESULT_BYTES:
                     raise ValueError("artifact is too large for the interactive workspace")
                 body = path.read_bytes() if download else result.model_dump_json().encode("utf-8")
+                if kind == "befund":
+                    body = current_befund(envelope, result)
+                    path = Path(f"{sample_id}.befund.html")
                 if methylation:
                     if (envelope / LOCK_FILENAME).exists():
                         self._refuse(HTTPStatus.CONFLICT, "the run envelope is still locked")
