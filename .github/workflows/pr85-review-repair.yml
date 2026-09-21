@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = af9a1ba35f12fb9fbbeb3774789b259cd4794c2d
-          python -m pip install -e '.[dev,workflow]' pysam
+          python -m pip install -q -e '.[dev,workflow]' pysam
       - name: Observe RED regression failures, then apply reviewed repairs
         run: |
           python - <<'PY'
@@ -53,8 +53,14 @@ jobs:
           new_check = '''red_xml = ET.parse('/tmp/pr85-red.xml').getroot()
           red_failures = red_xml.findall('.//testcase[failure]')
           if red.returncode != 1 or len(red_failures) != 5 or red_xml.findall('.//testcase[error]'):'''
-          assert source.count(old_argv) == 1 and source.count(old_check) == 1
-          source = source.replace(old_argv, new_argv).replace(old_check, new_check)
+          old_heading = 'replace("CHANGELOG.md", "## Unreleased\\n",'
+          new_heading = 'replace("CHANGELOG.md", "validated release.\\n\\n## Unreleased\\n",'
+          old_fragment = "'''## Unreleased\n"
+          new_fragment = "'''validated release.\n\n## Unreleased\n"
+          for old, new in ((old_argv, new_argv), (old_check, new_check),
+                           (old_heading, new_heading), (old_fragment, new_fragment)):
+              assert source.count(old) == 1, old
+              source = source.replace(old, new)
           exec(compile(source, 'pr85_review_fixes.py', 'exec'))
           PY
       - name: Apply repository formatter only to GATK files
