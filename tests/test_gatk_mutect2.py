@@ -407,6 +407,7 @@ def test_ref_allele_check_handles_wrapped_fasta(api, config, tmp_path):
     )
     api._verify_ref_alleles(config, [{"chromosome": "chr1", "position": 3, "reference": "GTACGT"}])
 
+
 def test_legacy_run_directory_is_private_on_posix(api, config, tmp_path):
     import os
     import stat
