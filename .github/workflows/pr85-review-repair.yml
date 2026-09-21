@@ -41,7 +41,22 @@ jobs:
           test "$(git rev-parse HEAD)" = af9a1ba35f12fb9fbbeb3774789b259cd4794c2d
           python -m pip install -e '.[dev,workflow]' pysam
       - name: Observe RED regression failures, then apply reviewed repairs
-        run: python ../control/scripts/pr85_review_fixes.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          source = Path('../control/scripts/pr85_review_fixes.py').read_text()
+          old_argv = '["python", "-m", "pytest", "-q",'
+          new_argv = '["python", "-m", "pytest", "--junitxml=/tmp/pr85-red.xml", "-q",'
+          old_check = 'if red.returncode != 1 or "5 failed" not in red.stdout:'
+          new_check = '''red_xml = ET.parse('/tmp/pr85-red.xml').getroot()
+          red_failures = red_xml.findall('.//testcase[failure]')
+          if red.returncode != 1 or len(red_failures) != 5 or red_xml.findall('.//testcase[error]'):'''
+          assert source.count(old_argv) == 1 and source.count(old_check) == 1
+          source = source.replace(old_argv, new_argv).replace(old_check, new_check)
+          exec(compile(source, 'pr85_review_fixes.py', 'exec'))
+          PY
       - name: Apply repository formatter only to GATK files
         run: |
           ruff check --select I,UP --fix src/ontseq_platform/gatk_adapter tests/test_gatk_adapter.py
