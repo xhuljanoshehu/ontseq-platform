@@ -1,0 +1,82 @@
+name: PR85 isolated repair verification
+
+on:
+  push:
+    branches: [review/gatk-pr85-control-20260921]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr85-isolated-review
+  cancel-in-progress: true
+
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: repo
+    steps:
+      - name: Read isolated review controls
+        uses: actions/checkout@v7
+        with:
+          path: control
+          persist-credentials: false
+          sparse-checkout: scripts/pr85_review_fixes.py
+          sparse-checkout-cone-mode: false
+      - name: Check out exact PR85 source, not the control branch
+        uses: actions/checkout@v7
+        with:
+          ref: af9a1ba35f12fb9fbbeb3774789b259cd4794c2d
+          path: repo
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Check source identity and install existing engineering dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = af9a1ba35f12fb9fbbeb3774789b259cd4794c2d
+          python -m pip install -e '.[dev,workflow]' pysam
+      - name: Observe RED regression failures, then apply reviewed repairs
+        run: python ../control/scripts/pr85_review_fixes.py
+      - name: Apply repository formatter only to GATK files
+        run: |
+          ruff check --select I,UP --fix src/ontseq_platform/gatk_adapter tests/test_gatk_adapter.py
+          ruff format src/ontseq_platform/gatk_adapter src/ontseq_platform/gatk_mutect2.py tests/test_gatk_adapter.py tests/test_gatk_mutect2.py docs/gatk_adapter/README.md
+      - name: Full safety, version, lint, type and regression gates
+        run: |
+          set -euo pipefail
+          make safety
+          make versions
+          make lint
+          make test
+          python scripts/export_schemas.py --check
+          git diff --exit-code -- schemas
+          python -m pip wheel --no-deps --wheel-dir /tmp/ontseq-review-wheel .
+          python scripts/check_wheel_resources.py /tmp/ontseq-review-wheel/ontseq_platform-*.whl
+      - name: Publish verified code only to a separate review-output branch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = af9a1ba35f12fb9fbbeb3774789b259cd4794c2d
+          git diff --exit-code -- .github pyproject.toml configs
+          if git ls-remote --heads origin review/gatk-pr85-verified-20260921 | grep -q .; then
+            echo 'Review output branch already exists; refusing overwrite.' >&2
+            exit 1
+          fi
+          git add src/ontseq_platform/gatk_adapter src/ontseq_platform/gatk_mutect2.py tests/test_gatk_adapter.py tests/test_gatk_mutect2.py docs/gatk_adapter examples/gatk/README.md CHANGELOG.md
+          python - <<'PY'
+          import subprocess
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          allowed = ('src/ontseq_platform/gatk_adapter/', 'docs/gatk_adapter/')
+          files = {'src/ontseq_platform/gatk_mutect2.py', 'tests/test_gatk_adapter.py', 'tests/test_gatk_mutect2.py', 'examples/gatk/README.md', 'CHANGELOG.md'}
+          assert paths and all(p.startswith(allowed) or p in files for p in paths), paths
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(gatk): enforce exact versions and repair typed adapter contracts' -m 'Owner-authorized PR85 review. Observed RED before correction; full make safety, versions, lint, test, schema and wheel gates passed. Preserve both opt-in adapters, schemas, history and RUO boundaries. No real-GATK or analytical-validation claim.'
+          git push origin HEAD:refs/heads/review/gatk-pr85-verified-20260921
+          echo "VERIFIED_COMMIT=$(git rev-parse HEAD)"
+          echo "VERIFIED_TREE=$(git rev-parse HEAD^{tree})"
