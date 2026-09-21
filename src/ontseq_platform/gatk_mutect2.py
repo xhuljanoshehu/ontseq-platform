@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -219,6 +220,7 @@ def subprocess_runner(argv: list[str], cwd: Path, timeout: int) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=False,
+        umask=0o077 if os.name == "posix" else -1,
     )
     return completed.stdout
 
@@ -316,7 +318,7 @@ def run_gatk(
         raise GATKError("ONT execution is experimental; explicit opt-in is required")
     out = output_dir.resolve()
     try:
-        out.mkdir(parents=True, exist_ok=False)
+        out.mkdir(mode=0o700, parents=True, exist_ok=False)
     except FileExistsError as exc:
         raise GATKError(
             "Output directory already exists; stale results must not be reused"

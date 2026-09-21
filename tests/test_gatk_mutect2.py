@@ -406,3 +406,35 @@ def test_ref_allele_check_handles_wrapped_fasta(api, config, tmp_path):
         reference_fai=lock(api, tmp_path / "ref.fa.fai", "chr1\t20\t6\t4\t5\n"),
     )
     api._verify_ref_alleles(config, [{"chromosome": "chr1", "position": 3, "reference": "GTACGT"}])
+
+
+def test_legacy_run_directory_is_private_on_posix(api, config, tmp_path):
+    import os
+    import stat
+
+    if os.name != "posix":
+        pytest.skip("POSIX permission mode assertion")
+
+    output_dir = tmp_path / "private-run"
+    api.run_gatk(
+        config,
+        output_dir,
+        allow_experimental_ont=True,
+        runner=SyntheticRunner(),
+    )
+    assert stat.S_IMODE(output_dir.stat().st_mode) == 0o700
+
+
+def test_subprocess_runner_sets_restrictive_umask(api, tmp_path, monkeypatch):
+    import os
+    import subprocess
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, stdout="ok")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert api.subprocess_runner(["gatk", "--version"], tmp_path, 123) == "ok"
+    assert captured["umask"] == (0o077 if os.name == "posix" else -1)

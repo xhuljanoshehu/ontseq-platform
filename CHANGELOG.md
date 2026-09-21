@@ -5,6 +5,8 @@ validated release.
 
 ## Unreleased
 
+- Restrict the legacy GATK research run directory to mode `0700` on POSIX and launch native child processes with umask `077`, preventing local disclosure of BAM-header/sample and variant artifacts. No caller parameters, thresholds, result semantics, or clinical-reportability rules change.
+
 - Add opt-in GATK 4.6.2.0 research adapters, separate candidate/config/result schemas,
   tumor-only and paired modes, native artifact provenance and synthetic contract tests.
 - Repair strict typing and exact-version checks; reject suffixed or extended GATK builds.
