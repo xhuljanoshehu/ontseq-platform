@@ -1,0 +1,309 @@
+{
+  "$defs": {
+    "BamSample": {
+      "additionalProperties": false,
+      "properties": {
+        "bai": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "bam": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "sample_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Sample Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_id",
+        "bam",
+        "bai",
+        "reference_sha256"
+      ],
+      "title": "BamSample",
+      "type": "object"
+    },
+    "LockedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "LockedFile",
+      "type": "object"
+    },
+    "ReferenceBundle": {
+      "additionalProperties": false,
+      "properties": {
+        "dictionary": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "fai": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "fasta": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "genome_build": {
+          "enum": [
+            "GRCh37",
+            "GRCh38",
+            "synthetic"
+          ],
+          "title": "Genome Build",
+          "type": "string"
+        },
+        "reference_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Reference Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_id",
+        "genome_build",
+        "fasta",
+        "fai",
+        "dictionary"
+      ],
+      "title": "ReferenceBundle",
+      "type": "object"
+    },
+    "RuntimeLock": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "const": "4.6.2.0",
+          "default": "4.6.2.0",
+          "title": "Expected Version",
+          "type": "string"
+        },
+        "gatk_jar": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "heap_gb": {
+          "default": 8,
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Heap Gb",
+          "type": "integer"
+        },
+        "java_executable": {
+          "default": "java",
+          "title": "Java Executable",
+          "type": "string"
+        },
+        "java_major": {
+          "const": 17,
+          "default": 17,
+          "title": "Java Major",
+          "type": "integer"
+        },
+        "pair_hmm_threads": {
+          "default": 2,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Pair Hmm Threads",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "gatk_jar"
+      ],
+      "title": "RuntimeLock",
+      "type": "object"
+    },
+    "VcfResource": {
+      "additionalProperties": false,
+      "properties": {
+        "assay_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assay Id"
+        },
+        "index": {
+          "$ref": "#/$defs/LockedFile"
+        },
+        "kind": {
+          "enum": [
+            "population",
+            "ont_pon"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "reference_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Sha256",
+          "type": "string"
+        },
+        "vcf": {
+          "$ref": "#/$defs/LockedFile"
+        }
+      },
+      "required": [
+        "name",
+        "vcf",
+        "index",
+        "reference_sha256",
+        "kind"
+      ],
+      "title": "VcfResource",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allow_experimental_ont": {
+      "default": false,
+      "title": "Allow Experimental Ont",
+      "type": "boolean"
+    },
+    "assay_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "title": "Assay Id",
+      "type": "string"
+    },
+    "contamination_sites": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VcfResource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "estimate_contamination": {
+      "default": false,
+      "title": "Estimate Contamination",
+      "type": "boolean"
+    },
+    "germline_resource": {
+      "$ref": "#/$defs/VcfResource"
+    },
+    "intervals": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LockedFile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mode": {
+      "enum": [
+        "tumor_only",
+        "tumor_normal"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "normal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BamSample"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "panel_of_normals": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VcfResource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reference": {
+      "$ref": "#/$defs/ReferenceBundle"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RuntimeLock"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "step_timeout_seconds": {
+      "default": 14400,
+      "maximum": 604800,
+      "minimum": 1,
+      "title": "Step Timeout Seconds",
+      "type": "integer"
+    },
+    "tumor": {
+      "$ref": "#/$defs/BamSample"
+    }
+  },
+  "required": [
+    "run_id",
+    "assay_id",
+    "mode",
+    "reference",
+    "tumor",
+    "germline_resource",
+    "runtime"
+  ],
+  "title": "Mutect2Config",
+  "type": "object"
+}

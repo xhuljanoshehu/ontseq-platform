@@ -1,0 +1,362 @@
+{
+  "$defs": {
+    "SmallVariantCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "allele_index": {
+          "minimum": 1,
+          "title": "Allele Index",
+          "type": "integer"
+        },
+        "alt": {
+          "title": "Alt",
+          "type": "string"
+        },
+        "alt_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt Depth"
+        },
+        "caller": {
+          "const": "GATK Mutect2",
+          "default": "GATK Mutect2",
+          "title": "Caller",
+          "type": "string"
+        },
+        "chromosome": {
+          "title": "Chromosome",
+          "type": "string"
+        },
+        "clinically_reportable": {
+          "const": false,
+          "default": false,
+          "title": "Clinically Reportable",
+          "type": "boolean"
+        },
+        "coordinate_system": {
+          "const": "zero_based_half_open",
+          "default": "zero_based_half_open",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depth"
+        },
+        "end0": {
+          "minimum": 1,
+          "title": "End0",
+          "type": "integer"
+        },
+        "evidence_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "left_aligned": {
+          "const": false,
+          "default": false,
+          "title": "Left Aligned",
+          "type": "boolean"
+        },
+        "native_allele_filter_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Allele Filter Status"
+        },
+        "native_pos1": {
+          "minimum": 1,
+          "title": "Native Pos1",
+          "type": "integer"
+        },
+        "native_record_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Native Record Sha256",
+          "type": "string"
+        },
+        "native_site_filter": {
+          "title": "Native Site Filter",
+          "type": "string"
+        },
+        "normal_af": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normal Af"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "ref_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref Depth"
+        },
+        "research_only": {
+          "const": true,
+          "default": true,
+          "title": "Research Only",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sample_id": {
+          "title": "Sample Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1.0",
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_line_number": {
+          "minimum": 1,
+          "title": "Source Line Number",
+          "type": "integer"
+        },
+        "source_vcf_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Vcf Sha256",
+          "type": "string"
+        },
+        "start0": {
+          "minimum": 0,
+          "title": "Start0",
+          "type": "integer"
+        },
+        "tumor_af": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tumor Af"
+        },
+        "variant_type": {
+          "enum": [
+            "SNV",
+            "MNV",
+            "INS",
+            "DEL",
+            "COMPLEX"
+          ],
+          "title": "Variant Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "run_id",
+        "sample_id",
+        "chromosome",
+        "start0",
+        "end0",
+        "native_pos1",
+        "ref",
+        "alt",
+        "allele_index",
+        "variant_type",
+        "native_site_filter",
+        "native_record_sha256",
+        "source_vcf_sha256",
+        "source_line_number"
+      ],
+      "title": "SmallVariantCandidate",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "analytically_validated": {
+      "const": false,
+      "default": false,
+      "title": "Analytically Validated",
+      "type": "boolean"
+    },
+    "biological_interpretation": {
+      "const": "NOT_ASSESSED",
+      "default": "NOT_ASSESSED",
+      "title": "Biological Interpretation",
+      "type": "string"
+    },
+    "caller_agreement_is_truth": {
+      "const": false,
+      "default": false,
+      "title": "Caller Agreement Is Truth",
+      "type": "boolean"
+    },
+    "candidates": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SmallVariantCandidate"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "clinically_reportable": {
+      "const": false,
+      "default": false,
+      "title": "Clinically Reportable",
+      "type": "boolean"
+    },
+    "config_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Config Sha256",
+      "type": "string"
+    },
+    "execution_evidence": {
+      "default": "NONE",
+      "enum": [
+        "NONE",
+        "TEST_DOUBLE",
+        "NATIVE_EXECUTION"
+      ],
+      "title": "Execution Evidence",
+      "type": "string"
+    },
+    "expected_gatk_version": {
+      "const": "4.6.2.0",
+      "default": "4.6.2.0",
+      "title": "Expected Gatk Version",
+      "type": "string"
+    },
+    "input_sha256s": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Sha256S",
+      "type": "object"
+    },
+    "messages": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Messages",
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "tumor_only",
+        "tumor_normal"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "no_biological_negative_claim": {
+      "const": true,
+      "default": true,
+      "title": "No Biological Negative Claim",
+      "type": "boolean"
+    },
+    "output_sha256s": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Output Sha256S",
+      "type": "object"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sample_id": {
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitive_local_only": {
+      "const": true,
+      "default": true,
+      "title": "Sensitive Local Only",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "NOT_RUN",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "step_exit_codes": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Step Exit Codes",
+      "type": "object"
+    }
+  },
+  "required": [
+    "run_id",
+    "sample_id",
+    "mode",
+    "status",
+    "config_sha256"
+  ],
+  "title": "Mutect2Result",
+  "type": "object"
+}

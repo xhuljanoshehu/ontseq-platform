@@ -1,0 +1,10 @@
+# Optional research recipe; not a resolved build lock or a validated ONT environment.
+name: ontseq-gatk-mutect2-research
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.11
+  - gatk4=4.6.2.0
+  - samtools=1.24
