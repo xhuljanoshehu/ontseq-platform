@@ -130,7 +130,7 @@ class CuteSvAtomicTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(list(root.glob(".cutesv-*")), [])
 
-    def test_large_work_files_use_system_scratch_and_keep_atomic_output(self) -> None:
+    def test_large_work_files_use_managed_scratch_and_keep_atomic_output(self) -> None:
         for outcome in ("success", "tool_error", "invalid_vcf", "runner_error"):
             with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -156,7 +156,7 @@ class CuteSvAtomicTests(unittest.TestCase):
                     returncode=1 if outcome == "tool_error" else 0,
                     vcf="invalid" if outcome == "invalid_vcf" else VALID_VCF,
                 )
-                with patch("tempfile.tempdir", str(scratch_root)):
+                with patch.dict("os.environ", {"ONTSEQ_CUTESV_SCRATCH_ROOT": str(scratch_root)}):
                     if outcome == "success":
                         report = run_cutesv(
                             manifest,
@@ -168,7 +168,9 @@ class CuteSvAtomicTests(unittest.TestCase):
                         )
                         self.assertEqual(report.accepted_record_count, 1)
                         self.assertTrue(output.is_file())
-                        self.assertEqual(report.tool.parameters["scratch_storage"], "system_temp")
+                        self.assertEqual(
+                            report.tool.parameters["scratch_storage"], "managed_directory"
+                        )
                     else:
                         with self.assertRaises((ValueError, OSError)):
                             run_cutesv(
@@ -186,6 +188,48 @@ class CuteSvAtomicTests(unittest.TestCase):
                 self.assertIsNotNone(runner.staged_vcf)
                 if runner.staged_vcf is not None:
                     self.assertEqual(runner.staged_vcf.parent.parent, output_root)
+
+    def test_default_scratch_uses_user_cache_instead_of_ram_temp(self) -> None:
+        import os
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, intake, reference = _manifest(root)
+            runner = CuteSvRunner()
+            with (
+                patch.dict(os.environ),
+                patch("ontseq_platform.cutesv.Path.home", return_value=root),
+            ):
+                os.environ.pop("ONTSEQ_CUTESV_SCRATCH_ROOT", None)
+                report = run_cutesv(
+                    manifest,
+                    intake,
+                    _policy(),
+                    reference_fasta=reference,
+                    output_vcf=root / "calls.vcf",
+                    runner=runner,
+                )
+            expected = root / ".cache" / "ontseq" / "cutesv"
+            self.assertEqual(report.tool.parameters["scratch_root"], str(expected))
+            self.assertEqual(list(expected.iterdir()), [])
+
+    def test_relative_scratch_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, intake, reference = _manifest(root)
+            with (
+                patch.dict("os.environ", {"ONTSEQ_CUTESV_SCRATCH_ROOT": "relative"}),
+                self.assertRaisesRegex(ValueError, "absolute"),
+            ):
+                run_cutesv(
+                    manifest,
+                    intake,
+                    _policy(),
+                    reference_fasta=reference,
+                    output_vcf=root / "calls.vcf",
+                    runner=CuteSvRunner(),
+                )
+            self.assertFalse((root / "calls.vcf").exists())
 
 
 if __name__ == "__main__":

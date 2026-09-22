@@ -21,9 +21,12 @@ records, while the same file loaded all 28 million records on native Linux stora
 This supports moving scratch I/O off the Windows mount; it does not establish the
 precise kernel cause or guarantee arbitrary input sizes fit in memory.
 
-cuteSV signature/pickle intermediates now use Python's system temporary directory
-(`/tmp` in the qualified WSL environment). Keep `TMPDIR` on native Linux storage
-with sufficient free disk space. The final VCF is still staged beside its destination,
+cuteSV signature/pickle intermediates use `~/.cache/ontseq/cutesv` by default.
+On the qualified WSL installation this is native Linux disk storage. Set the absolute
+`ONTSEQ_CUTESV_SCRATCH_ROOT` environment variable to choose another scratch root;
+keep it on a native Linux disk with sufficient free space. Do not use a small tmpfs:
+the actual diagnostic passed the previous read failure in `/tmp` but subsequently
+ran out of space because that filesystem was RAM-backed and limited to about 4.9 GiB. The final VCF is still staged beside its destination,
 validated, then atomically promoted. Both temporary directories are removed after
 success, tool failure, invalid output or a runner exception. The effective scratch
 root is recorded in tool provenance. No analytical threshold is changed.

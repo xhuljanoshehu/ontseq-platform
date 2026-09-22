@@ -544,10 +544,17 @@ The one-worker mitigation did not resolve the observed `pickle.load` ENOMEM on t
 Windows-mounted result directory. In a synthetic comparison under the same 8-GiB
 process address-space limit, Windows-mounted scratch failed at 19.9 million records;
 native Linux scratch loaded all 28 million records from the same pickle byte stream.
-The adapter therefore separates system scratch from destination-local VCF staging.
+The adapter therefore separates managed scratch from destination-local VCF staging.
 Tests cover scratch placement and cleanup on successful execution, tool failure,
 malformed VCF and runner exceptions, while preserving atomic VCF publication.
 Tool provenance records the storage strategy and scratch root. This changes I/O
 placement, not thresholds or algorithms; it does not qualify arbitrary memory sizes
 or biological performance. Actual-sample completion is tracked separately in local
 technical evidence and does not constitute clinical validation.
+
+The actual native `/tmp` attempt passed the original read failure but exhausted the
+RAM-backed temporary filesystem during output. The default was therefore refined to
+`~/.cache/ontseq/cutesv` (Linux disk storage on the qualified installation), with an
+absolute `ONTSEQ_CUTESV_SCRATCH_ROOT` override. Tests verify this default independently
+of system TMP and reject relative overrides. Scratch placement still does not impose
+a universal bound on memory or disk usage; deployments need sufficient resources.

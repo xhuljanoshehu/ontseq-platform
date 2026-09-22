@@ -5,10 +5,13 @@ validated release.
 
 ## Unreleased
 
-- cuteSV now writes large signature/pickle intermediates to system temporary
-  storage while retaining destination-local VCF staging and atomic promotion.
+- cuteSV now writes large signature/pickle intermediates to a managed user-cache
+  directory (`~/.cache/ontseq/cutesv`, with `ONTSEQ_CUTESV_SCRATCH_ROOT` override)
+  while retaining destination-local VCF staging and atomic promotion.
   A synthetic WSL comparison reproduced ENOMEM on the Windows mount and completed
-  from native Linux storage. Worker count reduction alone was insufficient.
+  from native Linux storage. Worker count reduction alone was insufficient; a
+  subsequent RAM-backed `/tmp`
+  attempt exhausted its small filesystem, so the default now uses the user cache.
 
 - Correct floating work-interval boundaries in the exact known cuteSV 2.1.3 entry
   script using a temporary, hash-verified copy. Integer chunks prevent read loss

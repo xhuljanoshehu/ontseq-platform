@@ -312,6 +312,15 @@ def cutesv_version(text: str) -> str:
     return text.splitlines()[0].strip()[:80] if text.strip() else "unknown"
 
 
+def _scratch_root() -> Path:
+    configured = os.environ.get("ONTSEQ_CUTESV_SCRATCH_ROOT")
+    root = Path(configured) if configured else Path.home() / ".cache" / "ontseq" / "cutesv"
+    if not root.is_absolute():
+        raise ValueError("ONTSEQ_CUTESV_SCRATCH_ROOT must be an absolute path")
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return root.resolve()
+
+
 def run_cutesv(
     manifest: SampleManifest,
     intake: AlignedBamIntakeReport,
@@ -355,12 +364,13 @@ def run_cutesv(
     ):
         raise ValueError("cuteSV executable changed after planning")
     # Keep the small VCF beside its destination for atomic promotion, but place
-    # large pickle/signature files in system scratch (native Linux /tmp on WSL).
-    # Reading those files on a Windows mount can fail with ENOMEM under pressure
-    # even while Linux has swap available.
+    # large pickle/signature files in a managed user-cache directory. On WSL this
+    # defaults to Linux disk storage; /tmp may be a small RAM-backed filesystem.
+    # A dedicated absolute-path override supports installations with other layouts.
+    scratch_root = _scratch_root()
     with (
         tempfile.TemporaryDirectory(prefix=".cutesv-", dir=output_vcf.parent) as staging,
-        tempfile.TemporaryDirectory(prefix="ontseq-cutesv-work-") as scratch,
+        tempfile.TemporaryDirectory(prefix="ontseq-cutesv-work-", dir=scratch_root) as scratch,
     ):
         staged_dir = Path(staging)
         scratch_dir = Path(scratch)
@@ -368,7 +378,7 @@ def run_cutesv(
         parameters: dict[str, str | int | float | bool] = {
             **identity,
             "threads": threads,
-            "scratch_storage": "system_temp",
+            "scratch_storage": "managed_directory",
             "scratch_root": str(scratch_dir.parent),
             "min_support": policy.min_support,
             "min_size": policy.min_sv_length,
