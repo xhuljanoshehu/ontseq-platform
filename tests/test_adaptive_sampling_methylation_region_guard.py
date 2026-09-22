@@ -28,7 +28,9 @@ from ontseq_platform.models import (
 
 class _NoToolRunner:
     def run(self, argv, *, timeout_seconds=300):
-        raise AssertionError(f"external tool must not be invoked for invalid assay/policy: {argv}")
+        raise AssertionError(
+            f"external tool must not be invoked for invalid assay/policy: {argv}"
+        )
 
 
 class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
@@ -43,8 +45,8 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
             bed = root / "targets.bed"
             bed.write_text("1\t0\t6\tTARGET\n", encoding="utf-8")
 
-            # identify_modkit_binary() runs before the command runner on the current code path.
-            # A tiny local executable makes this test independent of whether CI has modkit on PATH.
+            # identify_modkit_binary() precedes the injected command runner on this path.
+            # A tiny executable keeps the test independent of modkit availability on PATH.
             modkit = root / "modkit"
             modkit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             modkit.chmod(0o755)
@@ -81,7 +83,10 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
                 cpg_only=True,
                 combine_strands=True,
                 region_source="chromosome",
-                note="Issue #87 regression: Adaptive Sampling cannot imply genome-wide methylation.",
+                note=(
+                    "Issue #87 regression: Adaptive Sampling cannot imply genome-wide "
+                    "methylation."
+                ),
             )
 
             with self.assertRaises(ValueError) as raised:
