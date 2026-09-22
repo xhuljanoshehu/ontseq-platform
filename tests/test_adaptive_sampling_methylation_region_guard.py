@@ -82,7 +82,7 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
                 cpg_only=True,
                 combine_strands=True,
                 region_source="chromosome",
-                note=("Issue #87 regression: Adaptive Sampling cannot imply genome-wide methylation."),
+                note="Issue #87: Adaptive Sampling cannot imply genome-wide methylation.",
             )
 
             with self.assertRaises(ValueError) as raised:
