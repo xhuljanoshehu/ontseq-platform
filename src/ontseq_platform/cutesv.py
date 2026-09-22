@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .breakends import BreakendParseError, resolve_breakend
+from .cutesv_build import executable_identity, prepare_executable
 from .execution import CommandRunner, SubprocessRunner
 from .models import (
     AlignedBamIntakeReport,
@@ -322,6 +323,7 @@ def run_cutesv(
     runner: CommandRunner | None = None,
     cutesv: str = "cuteSV",
     threads: int = 4,
+    expected_source_sha256: str | None = None,
 ) -> CuteSvCallReport:
     if manifest.input.kind != InputKind.ALIGNED_BAM:
         raise ValueError("cuteSV requires input.kind=aligned_bam")
@@ -347,10 +349,17 @@ def run_cutesv(
         raise ValueError(
             f"cuteSV version {version!r} does not match policy lock {policy.expected_version!r}"
         )
+    identity = executable_identity(cutesv)
+    if (
+        expected_source_sha256 is not None
+        and identity.get("cutesv_source_sha256") != expected_source_sha256
+    ):
+        raise ValueError("cuteSV executable changed after planning")
     staged_dir = Path(tempfile.mkdtemp(prefix=".cutesv-", dir=output_vcf.parent))
     staged_vcf = staged_dir / output_vcf.name
     (staged_dir / "work").mkdir(parents=True, exist_ok=True)
     parameters: dict[str, str | int | float | bool] = {
+        **identity,
         "threads": threads,
         "min_support": policy.min_support,
         "min_size": policy.min_sv_length,
@@ -383,7 +392,16 @@ def run_cutesv(
         str(policy.diff_ratio_merging_del),
     ]
     try:
+        argv[0] = prepare_executable(cutesv, staged_dir, identity)
+        execution_identity = executable_identity(argv[0])
+        if execution_identity:
+            parameters["cutesv_executed_sha256"] = execution_identity["cutesv_source_sha256"]
         result = command_runner.run(argv, timeout_seconds=7200)
+        if (
+            executable_identity(cutesv) != identity
+            or executable_identity(argv[0]) != execution_identity
+        ):
+            raise ValueError("cuteSV executable changed during execution")
         if result.returncode != 0:
             detail = result.stderr.strip()[-2000:]
             suffix = f": {detail}" if detail else ""

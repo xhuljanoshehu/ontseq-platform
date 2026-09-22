@@ -209,6 +209,7 @@ class ServiceConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     threads: int = 4
+    cutesv_threads: int = 1
     token: str = field(default_factory=new_token)
     instance_id: str | None = None
 
@@ -518,6 +519,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
             ),
             components=config.components,
             threads=config.threads,
+            cutesv_threads=config.cutesv_threads,
             executables={
                 "cutesv": config.cutesv_executable,
                 "samtools": config.samtools_executable,
@@ -594,6 +596,7 @@ def _build_profile_configuration(
             pipeline_version=__version__,
             git_commit=_runtime_git_commit(),
             threads=config.threads,
+            cutesv_threads=config.cutesv_threads,
             include_methylation=include_methylation,
             executables={
                 "cutesv": config.cutesv_executable,

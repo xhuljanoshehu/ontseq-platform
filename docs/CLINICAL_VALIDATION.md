@@ -1,5 +1,40 @@
 # Analytical and clinical validation plan
 
+## cuteSV memory concurrency and partial-stage status
+
+The real-tool comparison exposed a second issue: with 80 synthetic reads (40
+supporting a known deletion), stock cuteSV 2.1.3's float partition bounds could
+retain only 39 supporting reads, depending on worker count and read start. The
+adapter now prepares an ephemeral integer-chunk copy only for the exact known
+entry-script body SHA-256 `e34d5f414a9d5c44fb7212cb033260c22a74e636c79d340def27230d8aa6adb3`.
+The corrected body must hash to `2ff25693aefc586002b51582a574dcce5cf09c9f61b917189e793f8329b405a3`.
+Interpreter paths may differ; the original full script and the executed copy are
+also fingerprinted. The installed source and imported cuteSV libraries are untouched.
+Other script bodies are not rewritten or called qualified. The version banner
+remains 2.1.3; the separate build ID records the compatibility correction.
+Tests place reads at boundaries affected by both one and four workers and require
+all 40 supports, literal VCF breakpoints/length, and identical normalized events.
+This intentionally corrects lost input evidence and can change calls near support
+thresholds. It is not evidence of genome-wide equivalence or base-exact qualification
+of the existing anchor-based event normalization.
+
+The cuteSV runner now defaults to one worker, separately configurable through
+`--cutesv-threads` in run/analyze/serve/watch. The worker count is recorded in the
+SV resume signature and caller provenance. No caller version, read filter, support
+threshold, reference or consensus rule changes. A synthetic real-tool test compares
+one and four workers against a known 300 bp deletion. This is interoperability and
+fixture-level equivalence, not large-input memory qualification or clinical validation.
+The largest single signature list can still exhaust available memory with one worker.
+
+Both assemblers now preserve the current SV stage verdict. Partial or stale caller
+files from FAILED/NOT_RUN stages remain diagnostic files and are excluded from
+current normalized events and fusion assessment. Regression tests cover failure,
+resume and independence from methylation. A failed module is not a biological negative.
+Completed stages still require the identical pipeline version and Git commit as well
+as matching input signatures and artifact checksums before reuse. This change does
+not authorize reuse across code revisions. See `CUTESV_TROUBLESHOOTING.md`.
+
+
 ## Current classification
 
 The software is a research prototype. No output is validated for diagnosis, prognosis,

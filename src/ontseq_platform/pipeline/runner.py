@@ -43,6 +43,7 @@ from ..breakpoint_annotation import (
 )
 from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT, load_run_coverage
 from ..cutesv import run_cutesv
+from ..cutesv_build import executable_identity as cutesv_executable_identity
 from ..execution import StreamingCommandRunner, SubprocessRunner
 from ..iscn import ISCN_RULE_PROFILE
 from ..methylation import (
@@ -66,6 +67,7 @@ from ..models import (
     InputSpec,
     IntervalResourceLock,
     ISCNSelectionPolicy,
+    ModuleOutcome,
     ModuleRunStatus,
     QCPolicy,
     ReferenceLock,
@@ -183,6 +185,9 @@ class RunConfiguration:
     reference_fasta: Path | None = None
     pod5_directory: Path | None = None
     threads: int = 4
+    # cuteSV rebuilds genome-wide signature lists in each worker. Keep its memory
+    # concurrency independent of the other callers and record it in the SV plan.
+    cutesv_threads: int = 1
     executables: Mapping[str, str] = field(
         default_factory=lambda: {
             "samtools": "samtools",
@@ -202,6 +207,14 @@ class RunConfiguration:
     selection_target_bed: Path | None = None
     context_resource_paths: Mapping[str, Path] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.cutesv_threads, bool)
+            or not isinstance(self.cutesv_threads, int)
+            or self.cutesv_threads < 1
+        ):
+            raise ValueError("cutesv_threads must be a positive integer")
+
     def executable(self, name: str) -> str:
         return self.executables.get(name, name)
 
@@ -217,6 +230,7 @@ class RunContext:
     #: pipeline just produced, so downstream adapters need no special casing.
     manifest: SampleManifest
     artifacts: dict[StageId, list[Artifact]] = field(default_factory=dict)
+    stage_records: dict[StageId, StageRecord] = field(default_factory=dict)
     input_digests: RunInputDigestCache = field(default_factory=RunInputDigestCache, repr=False)
 
     def fingerprint_external_input(
@@ -840,11 +854,13 @@ def _sv_plan(ctx: RunContext) -> StagePlan:
         if consensus is None:
             raise StageFailure("cuteSV requires an explicit SV consensus policy")
         cutesv = ctx.config.executable("cutesv")
+        parameters.update(cutesv_executable_identity(cutesv))
         probe = _probe(ctx.runner, cutesv, [cutesv, "--version"], tool="cuteSV")
         tool_versions["cutesv"] = probe
         parameters.update(
             {
                 "cutesv_policy": cute_policy.model_dump(mode="json"),
+                "cutesv_threads": ctx.config.cutesv_threads,
                 "sv_consensus_policy": consensus.model_dump(mode="json"),
             }
         )
@@ -950,7 +966,10 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
             output_vcf=cutesv_vcf,
             runner=ctx.runner,
             cutesv=ctx.config.executable("cutesv"),
-            threads=ctx.config.threads,
+            threads=ctx.config.cutesv_threads,
+            expected_source_sha256=str(plan.parameters["cutesv_source_sha256"])
+            if "cutesv_source_sha256" in plan.parameters
+            else None,
         )
         all_events.extend(cute_report.events)
         outputs.extend(
@@ -1162,7 +1181,29 @@ def load_methylation_report(ctx: RunContext) -> MethylationReport | None:
     return MethylationReport.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def current_sv_outcome(ctx: RunContext) -> ModuleOutcome | None:
+    """Carry the current stage verdict into both result assemblers.
+
+    Caller files may survive a later caller's failure. Their existence does not
+    establish successful completion of the configured SV analysis.
+    """
+    record = ctx.stage_records.get(StageId.SV)
+    if record is None:
+        return None
+    reason = record.reason.splitlines()[0]
+    prefix = "Resumed unchanged from a previous run. "
+    while reason.startswith(prefix):
+        reason = reason.removeprefix(prefix)
+    return ModuleOutcome(
+        module=AnalysisModule.SV,
+        status=record.status,
+        reason=reason,
+        tools=record.tools,
+    )
+
+
 def _assemble_plan(ctx: RunContext) -> StagePlan:
+    sv_outcome = current_sv_outcome(ctx)
     resource_context = ctx.config.resource_context
     reference_lock_sha256 = (
         resource_context.resource_checksums.get("reference.reference_lock", "UNAVAILABLE")
@@ -1195,6 +1236,7 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
         parameters={
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
+            "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
             "iscn_rule_profile": ISCN_RULE_PROFILE,
             "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
             "iscn_exact_full_chromosome_span_required": True,
@@ -1214,22 +1256,27 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     qc = CraminoQCReport.model_validate_json(
         ctx.envelope.path(QC_REPORT).read_text(encoding="utf-8")
     )
+    sv_outcome = current_sv_outcome(ctx)
+    use_sv = sv_outcome is None or sv_outcome.status in {
+        ModuleRunStatus.COMPLETED,
+        ModuleRunStatus.NO_CALL,
+    }
     sv_path = ctx.envelope.path(ctx.path(SV_REPORT))
     sniffles = (
         SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
+        if use_sv and sv_path.is_file()
         else None
     )
     cutesv_path = ctx.envelope.path(ctx.path(CUTESV_REPORT))
     cutesv = (
         CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
-        if cutesv_path.is_file()
+        if use_sv and cutesv_path.is_file()
         else None
     )
     consensus_path = ctx.envelope.path(ctx.path(SV_CONSENSUS_REPORT))
     consensus = (
         SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
-        if consensus_path.is_file()
+        if use_sv and consensus_path.is_file()
         else None
     )
     sidecars = []
@@ -1253,6 +1300,7 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         sniffles_report=sniffles,
         cutesv_report=cutesv,
         sv_consensus_report=consensus,
+        sv_stage_outcome=sv_outcome,
         methylation_report=load_methylation_report(ctx),
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
@@ -1565,6 +1613,7 @@ def _run_locked(
         spec = SPEC_BY_STAGE[stage]
         record = _execute_stage(stage, context, kind, outcomes, previous)
         records.append(record)
+        context.stage_records[stage] = record
         outcomes[stage] = StageOutcome(record.status.value)
         context.artifacts[stage] = [item.to_artifact() for item in record.outputs]
         if record.status == ModuleRunStatus.FAILED and spec.required:

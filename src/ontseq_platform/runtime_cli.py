@@ -417,6 +417,12 @@ def _parser() -> argparse.ArgumentParser:
     _add_execution_options(run, include_qc=True)
     _add_cnv_options(run)
     run.add_argument("--threads", type=int, default=4)
+    run.add_argument(
+        "--cutesv-threads",
+        type=int,
+        default=1,
+        help="cuteSV workers (default: 1 to limit concurrent signature memory)",
+    )
     run.add_argument("--git-commit", default="UNKNOWN")
     run.add_argument("--force", action="store_true")
     run.add_argument("--json", action="store_true", dest="as_json")
@@ -437,6 +443,12 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--sample-id")
     analyze.add_argument("--run-id")
     analyze.add_argument("--threads", type=int, default=4)
+    analyze.add_argument(
+        "--cutesv-threads",
+        type=int,
+        default=1,
+        help="cuteSV workers (default: 1 to limit concurrent signature memory)",
+    )
     analyze.add_argument("--git-commit", default="UNKNOWN")
     analyze.add_argument("--force", action="store_true")
     analyze.add_argument(
@@ -548,6 +560,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Per-launch Desktop nonce returned by /api/config",
     )
     srv.add_argument("--threads", type=int, default=4)
+    srv.add_argument(
+        "--cutesv-threads",
+        type=int,
+        default=1,
+        help="cuteSV workers (default: 1 to limit concurrent signature memory)",
+    )
     srv.add_argument("--no-browser", action="store_true")
 
     review = sub.add_parser("review", help="Record or inspect review state")
@@ -637,6 +655,12 @@ def _parser() -> argparse.ArgumentParser:
     watcher.add_argument("--quiet-seconds", type=float, default=300.0)
     watcher.add_argument("--run-id-prefix", default="")
     watcher.add_argument("--threads", type=int, default=4)
+    watcher.add_argument(
+        "--cutesv-threads",
+        type=int,
+        default=1,
+        help="cuteSV workers (default: 1 to limit concurrent signature memory)",
+    )
     watcher.add_argument("--git-commit", default="UNKNOWN")
     watcher.add_argument("--retry-failed", action="store_true")
     watcher.add_argument("--once", action="store_true")
@@ -825,6 +849,7 @@ def main() -> None:
                     pipeline_version=__version__,
                     git_commit=args.git_commit,
                     threads=args.threads,
+                    cutesv_threads=args.cutesv_threads,
                     force=args.force,
                     include_methylation=args.include_methylation,
                     executables=_executables(args),
@@ -891,6 +916,7 @@ def main() -> None:
                 reference_fasta=args.reference_fasta,
                 pod5_directory=args.pod5_dir,
                 threads=args.threads,
+                cutesv_threads=args.cutesv_threads,
                 executables=_executables(args),
                 force=args.force,
             )
@@ -1032,6 +1058,7 @@ def main() -> None:
                     samtools_executable=args.samtools,
                     port=args.port,
                     threads=args.threads,
+                    cutesv_threads=args.cutesv_threads,
                     resource_root=args.resource_root,
                     instance_id=args.instance_id,
                 ),
@@ -1102,6 +1129,7 @@ def main() -> None:
                 pod5_subdirectory=args.pod5_subdir,
                 quiet_seconds=args.quiet_seconds,
                 threads=args.threads,
+                cutesv_threads=args.cutesv_threads,
                 git_commit=args.git_commit,
                 retry_failed=args.retry_failed,
                 executables={"cutesv": args.cutesv},

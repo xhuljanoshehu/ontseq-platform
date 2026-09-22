@@ -5,6 +5,23 @@ validated release.
 
 ## Unreleased
 
+- Correct floating work-interval boundaries in the exact known cuteSV 2.1.3 entry
+  script using a temporary, hash-verified copy. Integer chunks prevent read loss
+  where pysam truncates a float fetch bound but cuteSV compares read starts to the
+  untruncated bound. Preserve the installed tool and interpreter; record original
+  and executed hashes plus `ontseq-cutesv-2.1.3-integer-chunks-v1`. Unknown script
+  bodies are not rewritten or identified as qualified. Bind identity to resume and
+  reject executable changes between planning and completion.
+
+- Limit cuteSV to one worker by default and expose `--cutesv-threads` independently
+  of other tools in run/analyze/serve/watch. Record the effective count in the SV
+  plan and cuteSV provenance. This reduces concurrent signature-list memory; it
+  does not guarantee completion for every input or change analytical thresholds.
+- Carry the actual SV stage outcome into both result assemblers and their resume
+  signatures. A later caller failure or a deselected stage cannot promote leftover
+  caller files to current events, a completed SV module or fusion evidence.
+  Existing archived reports are not silently rewritten.
+
 - Identify the methylation executable by SHA-256 and include its identity in result
   provenance and resume signatures. Allow the independent-MM-group correction only
   for explicitly qualified builds of modkit PR #709 at source commit

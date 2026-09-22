@@ -238,6 +238,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text("{}", encoding="utf-8")
                 context = SimpleNamespace(
+                    stage_records={},
                     manifest=manifest,
                     config=SimpleNamespace(
                         pipeline_version=baseline.provenance.pipeline_version,
@@ -284,6 +285,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                 "reference.annotation_cache": "c" * 64,
             }
             context = SimpleNamespace(
+                stage_records={},
                 config=SimpleNamespace(
                     pipeline_version="test",
                     git_commit="0" * 40,
@@ -295,7 +297,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                             "reference.cytobands": str(cytobands),
                         },
                     ),
-                )
+                ),
             )
 
             first = _core_assemble_plan(context)
@@ -361,6 +363,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(relative, encoding="utf-8")
             context = SimpleNamespace(
+                stage_records={},
                 config=SimpleNamespace(
                     pipeline_version="test",
                     git_commit="0" * 40,
@@ -409,6 +412,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                 "reference.annotation_cache": "c" * 64,
             }
             context = SimpleNamespace(
+                stage_records={},
                 config=SimpleNamespace(
                     pipeline_version="test",
                     git_commit="0" * 40,

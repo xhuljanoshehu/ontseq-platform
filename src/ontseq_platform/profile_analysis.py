@@ -85,6 +85,7 @@ class AnalyzeSettings:
     pipeline_version: str = "UNKNOWN"
     git_commit: str = "UNKNOWN"
     threads: int = 4
+    cutesv_threads: int = 1
     force: bool = False
     verify_resource_checksums: bool = True
     runtime_settings: ProfileRuntimeSettings | None = None
@@ -380,6 +381,7 @@ def build_profile_run_configuration(
         resource_context=context,
         components=components,
         threads=settings.threads,
+        cutesv_threads=settings.cutesv_threads,
         executables=settings.executables,
         force=settings.force,
     )

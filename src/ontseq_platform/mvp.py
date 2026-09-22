@@ -37,7 +37,17 @@ def assemble_aligned_bam_mvp(
     methylation_report: MethylationReport | None = None,
     reference_context: ResolvedResourceContext | None = None,
     sidecars: list[SidecarArtifact] | None = None,
+    sv_stage_outcome: ModuleOutcome | None = None,
 ) -> PipelineResult:
+    if sv_stage_outcome is not None:
+        if sv_stage_outcome.module != AnalysisModule.SV:
+            raise ValueError("SV stage outcome must describe the SV module")
+        if sv_stage_outcome.status in {ModuleRunStatus.FAILED, ModuleRunStatus.NOT_RUN}:
+            # Partial files remain in the run for diagnostics, but must not be
+            # promoted to current events, fusion assessments or a completed SV module.
+            sniffles_report = None
+            cutesv_report = None
+            sv_consensus_report = None
     if manifest.sample_id != intake.sample_id or manifest.sample_id != qc_report.sample_id:
         raise ValueError("Manifest, intake and QC artifacts must refer to the same sample")
     if intake.verdict == Verdict.FAIL:
@@ -129,6 +139,8 @@ def assemble_aligned_bam_mvp(
                     reason="Structured MVP result is ready for JSON, HTML and XLSX rendering",
                 )
             )
+        elif module == AnalysisModule.SV and sv_stage_outcome is not None:
+            modules.append(sv_stage_outcome)
         elif module == AnalysisModule.SV and (
             sv_consensus_report is not None
             or sniffles_report is not None
@@ -255,7 +267,12 @@ def assemble_aligned_bam_mvp(
         "No output may be used for diagnosis or treatment decisions.",
     ]
     if sniffles_report is None and cutesv_report is None and sv_consensus_report is None:
-        warnings.insert(1, "SV calling was not run in this artifact.")
+        warnings.insert(
+            1,
+            "SV calling failed; partial caller evidence was omitted from this result."
+            if sv_stage_outcome is not None and sv_stage_outcome.status == ModuleRunStatus.FAILED
+            else "SV calling was not run in this artifact.",
+        )
     else:
         warnings.insert(
             1,

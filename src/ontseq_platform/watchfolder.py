@@ -126,6 +126,7 @@ class WatchSettings:
     #: MinKNOW splits a GridION run into pass and fail by qscore; see ``find_input``.
     pod5_subdirectory: str | None = None
     threads: int = 4
+    cutesv_threads: int = 1
     git_commit: str = "UNKNOWN"
     retry_failed: bool = False
     executables: dict[str, str] | None = None
@@ -419,6 +420,7 @@ def _attempt_one(
         alignment_policy=resolved.alignment_policy,
         reference_fasta=settings.reference_fasta,
         threads=settings.threads,
+        cutesv_threads=settings.cutesv_threads,
     )
     if settings.executables:
         configuration = replace(configuration, executables=settings.executables)

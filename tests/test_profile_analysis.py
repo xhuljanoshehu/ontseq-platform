@@ -229,11 +229,15 @@ def test_hg19_adaptive_profile_uses_exact_contract_fasta_and_fai_lock() -> None:
                     output_dir=root / "results",
                     configuration_root=CONFIGS,
                     pipeline_version="0.6.2-test",
+                    threads=4,
+                    cutesv_threads=2,
                 ),
                 header_text=_header_from_contigs(grch37_ucsc_hg19_canonical_25_contigs()),
             )
 
         contract_fai = Path(f"{contract_fasta}.fai")
+        assert config.threads == 4
+        assert config.cutesv_threads == 2
         assert config.reference_fasta == contract_fasta
         assert config.reference_fasta != native_fasta
         assert config.reference_lock.source_fai_sha256 == sha256_file(contract_fai)

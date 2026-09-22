@@ -420,6 +420,7 @@ def _verified_iscn_resource_provenance(
 
 
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
+    sv_outcome = pipeline_runner.current_sv_outcome(ctx)
     external: list[tuple[str, str]] = []
     for relative in (
         ctx.path(CNV_REPORT),
@@ -463,6 +464,7 @@ def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
             "cnv_extension": "qdnaseq-ace-v1",
+            "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
             "iscn_rule_profile": ISCN_RULE_PROFILE,
             "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
             "iscn_exact_full_chromosome_span_required": True,
@@ -498,22 +500,27 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
     qc = CraminoQCReport.model_validate_json(
         ctx.envelope.path(pipeline_runner.QC_REPORT).read_text(encoding="utf-8")
     )
+    sv_outcome = pipeline_runner.current_sv_outcome(ctx)
+    use_sv = sv_outcome is None or sv_outcome.status in {
+        ModuleRunStatus.COMPLETED,
+        ModuleRunStatus.NO_CALL,
+    }
     sv_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_REPORT))
     sniffles = (
         SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if sv_path.is_file()
+        if use_sv and sv_path.is_file()
         else None
     )
     cutesv_path = ctx.envelope.path(ctx.path(pipeline_runner.CUTESV_REPORT))
     cutesv = (
         CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
-        if cutesv_path.is_file()
+        if use_sv and cutesv_path.is_file()
         else None
     )
     consensus_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_CONSENSUS_REPORT))
     consensus = (
         SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
-        if consensus_path.is_file()
+        if use_sv and consensus_path.is_file()
         else None
     )
     sidecars: list[SidecarArtifact] = []
@@ -536,6 +543,7 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         methylation_report=pipeline_runner.load_methylation_report(ctx),
         cutesv_report=cutesv,
         sv_consensus_report=consensus,
+        sv_stage_outcome=sv_outcome,
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
     )
