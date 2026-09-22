@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_preflight import PreflightCase
+
 from ontseq_platform.methylation import MethylationPolicy, run_methylation
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
@@ -24,13 +26,12 @@ from ontseq_platform.models import (
     SampleManifest,
     Verdict,
 )
+from ontseq_platform.pipeline.checks import CheckStatus
 
 
 class _NoToolRunner:
     def run(self, argv, *, timeout_seconds=300):
-        raise AssertionError(
-            f"external tool must not be invoked for invalid assay/policy: {argv}"
-        )
+        raise AssertionError(f"external tool must not be invoked for invalid assay/policy: {argv}")
 
 
 class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
@@ -66,9 +67,7 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
                     target_bed=str(bed),
                     target_bed_version="SYNTHETIC_V1",
                 ),
-                analysis=AnalysisSpec(
-                    profile="synthetic", modules=[AnalysisModule.METHYLATION]
-                ),
+                analysis=AnalysisSpec(profile="synthetic", modules=[AnalysisModule.METHYLATION]),
             )
             intake = AlignedBamIntakeReport(
                 sample_id=manifest.sample_id,
@@ -83,10 +82,7 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
                 cpg_only=True,
                 combine_strands=True,
                 region_source="chromosome",
-                note=(
-                    "Issue #87 regression: Adaptive Sampling cannot imply genome-wide "
-                    "methylation."
-                ),
+                note=("Issue #87 regression: Adaptive Sampling cannot imply genome-wide methylation."),
             )
 
             with self.assertRaises(ValueError) as raised:
@@ -103,3 +99,33 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
         message = str(raised.exception)
         self.assertIn("Adaptive Sampling", message)
         self.assertIn("region_source=target_bed", message)
+
+
+class AdaptiveSamplingMethylationPreflightGuardTests(PreflightCase):
+    def test_preflight_rejects_chromosome_region_policy(self) -> None:
+        target_bed = self.root / "targets.bed"
+        target_bed.write_text("chr1\t0\t4\tTARGET\n", encoding="utf-8")
+        manifest = self.manifest(
+            assay={
+                "mode": "adaptive_sampling",
+                "genome_build": "GRCh38",
+                "reference_id": "REF_V1",
+                "target_bed": str(target_bed),
+                "target_bed_version": "SYNTHETIC_V1",
+            },
+            modules=["methylation"],
+        )
+        policy = MethylationPolicy(
+            profile_id="synthetic-invalid-as-chromosome",
+            status="technical_defaults_only",
+            cpg_only=True,
+            combine_strands=True,
+            region_source="chromosome",
+            note="Issue #87 preflight regression",
+        )
+        request = self.request(manifest=manifest, methylation_policy=policy)
+
+        check = self.results(request)["methylation.regions"]
+        self.assertIs(check.status, CheckStatus.FAILED)
+        self.assertIn("Adaptive Sampling", check.detail)
+        self.assertIn("target_bed", check.remedy)
