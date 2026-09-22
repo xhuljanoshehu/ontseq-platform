@@ -2,7 +2,7 @@
 
 Adaptive Sampling methylation must not silently reuse chromosome-wide aggregation semantics.
 The supported data basis is the declared target BED; incompatible direct/custom policies
-must fail before any external tool is invoked.
+must fail before any external tool is invoked or output state is created.
 """
 
 from __future__ import annotations
@@ -84,21 +84,26 @@ class AdaptiveSamplingMethylationRegionGuardTests(unittest.TestCase):
                 region_source="chromosome",
                 note="Issue #87: Adaptive Sampling cannot imply genome-wide methylation.",
             )
+            output_dir = root / "out"
 
             with self.assertRaises(ValueError) as raised:
                 run_methylation(
                     manifest,
                     intake,
                     policy,
-                    output_dir=root / "out",
+                    output_dir=output_dir,
                     reference_fasta=fasta,
                     runner=_NoToolRunner(),
                     modkit=str(modkit),
                 )
 
-        message = str(raised.exception)
-        self.assertIn("Adaptive Sampling", message)
-        self.assertIn("region_source=target_bed", message)
+            message = str(raised.exception)
+            self.assertIn("Adaptive Sampling", message)
+            self.assertIn("region_source=target_bed", message)
+            self.assertFalse(
+                output_dir.exists(),
+                "invalid assay/policy combinations must fail before creating output state",
+            )
 
 
 class AdaptiveSamplingMethylationPreflightGuardTests(PreflightCase):
@@ -129,3 +134,4 @@ class AdaptiveSamplingMethylationPreflightGuardTests(PreflightCase):
         self.assertIs(check.status, CheckStatus.FAILED)
         self.assertIn("Adaptive Sampling", check.detail)
         self.assertIn("target_bed", check.remedy)
+        self.assertNotIn("chromosome", check.remedy)
