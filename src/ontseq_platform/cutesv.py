@@ -4,7 +4,6 @@ import gzip
 import math
 import os
 import re
-import shutil
 import tempfile
 from collections import Counter
 from collections.abc import Iterator
@@ -355,43 +354,52 @@ def run_cutesv(
         and identity.get("cutesv_source_sha256") != expected_source_sha256
     ):
         raise ValueError("cuteSV executable changed after planning")
-    staged_dir = Path(tempfile.mkdtemp(prefix=".cutesv-", dir=output_vcf.parent))
-    staged_vcf = staged_dir / output_vcf.name
-    (staged_dir / "work").mkdir(parents=True, exist_ok=True)
-    parameters: dict[str, str | int | float | bool] = {
-        **identity,
-        "threads": threads,
-        "min_support": policy.min_support,
-        "min_size": policy.min_sv_length,
-        "max_cluster_bias_INS": policy.max_cluster_bias_ins,
-        "diff_ratio_merging_INS": policy.diff_ratio_merging_ins,
-        "max_cluster_bias_DEL": policy.max_cluster_bias_del,
-        "diff_ratio_merging_DEL": policy.diff_ratio_merging_del,
-        "expected_version": policy.expected_version,
-        "normalizer_pass_only": True,
-    }
-    argv = [
-        cutesv,
-        manifest.input.path,
-        str(reference_fasta),
-        str(staged_vcf),
-        str(staged_dir / "work"),
-        "--threads",
-        str(threads),
-        "--min_support",
-        str(policy.min_support),
-        "--min_size",
-        str(policy.min_sv_length),
-        "--max_cluster_bias_INS",
-        str(policy.max_cluster_bias_ins),
-        "--diff_ratio_merging_INS",
-        str(policy.diff_ratio_merging_ins),
-        "--max_cluster_bias_DEL",
-        str(policy.max_cluster_bias_del),
-        "--diff_ratio_merging_DEL",
-        str(policy.diff_ratio_merging_del),
-    ]
-    try:
+    # Keep the small VCF beside its destination for atomic promotion, but place
+    # large pickle/signature files in system scratch (native Linux /tmp on WSL).
+    # Reading those files on a Windows mount can fail with ENOMEM under pressure
+    # even while Linux has swap available.
+    with (
+        tempfile.TemporaryDirectory(prefix=".cutesv-", dir=output_vcf.parent) as staging,
+        tempfile.TemporaryDirectory(prefix="ontseq-cutesv-work-") as scratch,
+    ):
+        staged_dir = Path(staging)
+        scratch_dir = Path(scratch)
+        staged_vcf = staged_dir / output_vcf.name
+        parameters: dict[str, str | int | float | bool] = {
+            **identity,
+            "threads": threads,
+            "scratch_storage": "system_temp",
+            "scratch_root": str(scratch_dir.parent),
+            "min_support": policy.min_support,
+            "min_size": policy.min_sv_length,
+            "max_cluster_bias_INS": policy.max_cluster_bias_ins,
+            "diff_ratio_merging_INS": policy.diff_ratio_merging_ins,
+            "max_cluster_bias_DEL": policy.max_cluster_bias_del,
+            "diff_ratio_merging_DEL": policy.diff_ratio_merging_del,
+            "expected_version": policy.expected_version,
+            "normalizer_pass_only": True,
+        }
+        argv = [
+            cutesv,
+            manifest.input.path,
+            str(reference_fasta),
+            str(staged_vcf),
+            str(scratch_dir),
+            "--threads",
+            str(threads),
+            "--min_support",
+            str(policy.min_support),
+            "--min_size",
+            str(policy.min_sv_length),
+            "--max_cluster_bias_INS",
+            str(policy.max_cluster_bias_ins),
+            "--diff_ratio_merging_INS",
+            str(policy.diff_ratio_merging_ins),
+            "--max_cluster_bias_DEL",
+            str(policy.max_cluster_bias_del),
+            "--diff_ratio_merging_DEL",
+            str(policy.diff_ratio_merging_del),
+        ]
         argv[0] = prepare_executable(cutesv, staged_dir, identity)
         execution_identity = executable_identity(argv[0])
         if execution_identity:
@@ -417,5 +425,3 @@ def run_cutesv(
         )
         os.replace(staged_vcf, output_vcf)
         return report
-    finally:
-        shutil.rmtree(staged_dir, ignore_errors=True)

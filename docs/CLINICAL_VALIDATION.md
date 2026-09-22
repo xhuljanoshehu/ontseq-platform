@@ -536,3 +536,18 @@ reports using a verified build; never relabel previous failed or partial output 
 successful measurement. CNV/SV callers, patient-level performance, reportability and RUO
 release boundaries are unchanged. See `docs/MODKIT_PR709_BUILD.md` for qualification and
 build provenance.
+
+
+### cuteSV scratch storage on WSL
+
+The one-worker mitigation did not resolve the observed `pickle.load` ENOMEM on the
+Windows-mounted result directory. In a synthetic comparison under the same 8-GiB
+process address-space limit, Windows-mounted scratch failed at 19.9 million records;
+native Linux scratch loaded all 28 million records from the same pickle byte stream.
+The adapter therefore separates system scratch from destination-local VCF staging.
+Tests cover scratch placement and cleanup on successful execution, tool failure,
+malformed VCF and runner exceptions, while preserving atomic VCF publication.
+Tool provenance records the storage strategy and scratch root. This changes I/O
+placement, not thresholds or algorithms; it does not qualify arbitrary memory sizes
+or biological performance. Actual-sample completion is tracked separately in local
+technical evidence and does not constitute clinical validation.

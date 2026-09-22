@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
+from unittest.mock import patch
 
 from ontseq_platform.cutesv import run_cutesv
 from ontseq_platform.execution import CommandResult
@@ -128,6 +129,63 @@ class CuteSvAtomicTests(unittest.TestCase):
                 )
             self.assertFalse(output.exists())
             self.assertEqual(list(root.glob(".cutesv-*")), [])
+
+    def test_large_work_files_use_system_scratch_and_keep_atomic_output(self) -> None:
+        for outcome in ("success", "tool_error", "invalid_vcf", "runner_error"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output_root = root / "results"
+                scratch_root = root / "native-scratch"
+                output_root.mkdir()
+                scratch_root.mkdir()
+                manifest, intake, reference = _manifest(root)
+                output = output_root / "calls.vcf"
+
+                class ScratchRunner(CuteSvRunner):
+                    @staticmethod
+                    def assert_work_directory(
+                        path: Path, expected_root: Path = scratch_root, failure: str = outcome
+                    ) -> None:
+                        assert path.is_dir()
+                        assert path.parent == expected_root
+                        (path / "synthetic-signatures").write_text("synthetic")
+                        if failure == "runner_error":
+                            raise OSError("synthetic I/O error")
+
+                runner = ScratchRunner(
+                    returncode=1 if outcome == "tool_error" else 0,
+                    vcf="invalid" if outcome == "invalid_vcf" else VALID_VCF,
+                )
+                with patch("tempfile.tempdir", str(scratch_root)):
+                    if outcome == "success":
+                        report = run_cutesv(
+                            manifest,
+                            intake,
+                            _policy(),
+                            reference_fasta=reference,
+                            output_vcf=output,
+                            runner=runner,
+                        )
+                        self.assertEqual(report.accepted_record_count, 1)
+                        self.assertTrue(output.is_file())
+                        self.assertEqual(report.tool.parameters["scratch_storage"], "system_temp")
+                    else:
+                        with self.assertRaises((ValueError, OSError)):
+                            run_cutesv(
+                                manifest,
+                                intake,
+                                _policy(),
+                                reference_fasta=reference,
+                                output_vcf=output,
+                                runner=runner,
+                            )
+                        self.assertFalse(output.exists())
+                self.assertEqual(list(scratch_root.iterdir()), [])
+                self.assertEqual(list(output_root.glob(".cutesv-*")), [])
+                self.assertIsNotNone(runner.staged_vcf)
+                self.assertIsNotNone(runner.staged_vcf)
+                if runner.staged_vcf is not None:
+                    self.assertEqual(runner.staged_vcf.parent.parent, output_root)
 
 
 if __name__ == "__main__":

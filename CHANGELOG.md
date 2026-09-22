@@ -5,6 +5,11 @@ validated release.
 
 ## Unreleased
 
+- cuteSV now writes large signature/pickle intermediates to system temporary
+  storage while retaining destination-local VCF staging and atomic promotion.
+  A synthetic WSL comparison reproduced ENOMEM on the Windows mount and completed
+  from native Linux storage. Worker count reduction alone was insufficient.
+
 - Correct floating work-interval boundaries in the exact known cuteSV 2.1.3 entry
   script using a temporary, hash-verified copy. Integer chunks prevent read loss
   where pysam truncates a float fetch bound but cuteSV compares read starts to the

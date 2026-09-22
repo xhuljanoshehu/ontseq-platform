@@ -12,6 +12,22 @@ One worker reduces concurrency, but does not bound the largest list. More availa
 RAM/swap may still be required. Do not lower analytical thresholds, omit reads or
 disable the second caller merely to make a failed analysis appear completed.
 
+## WSL scratch storage
+
+Reducing the worker count alone may not fix `pickle.load` ENOMEM. An isolated
+one-worker diagnostic still failed while swap remained available. A controlled
+synthetic file test then failed on a Windows-mounted directory after 19.9 million
+records, while the same file loaded all 28 million records on native Linux storage.
+This supports moving scratch I/O off the Windows mount; it does not establish the
+precise kernel cause or guarantee arbitrary input sizes fit in memory.
+
+cuteSV signature/pickle intermediates now use Python's system temporary directory
+(`/tmp` in the qualified WSL environment). Keep `TMPDIR` on native Linux storage
+with sufficient free disk space. The final VCF is still staged beside its destination,
+validated, then atomically promoted. Both temporary directories are removed after
+success, tool failure, invalid output or a runner exception. The effective scratch
+root is recorded in tool provenance. No analytical threshold is changed.
+
 ## Known float-boundary defect
 
 Changing worker count changes the original cuteSV partition boundaries. A synthetic
