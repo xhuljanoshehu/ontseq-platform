@@ -1,0 +1,23 @@
+{
+  "build_id": "ontseq-modkit-pr709-v1",
+  "source_repository": "https://github.com/SuhasSrinivasan/modkit",
+  "upstream_pr": "https://github.com/nanoporetech/modkit/pull/709",
+  "source_commit": "9fb9aea763aa1b78ac1172fa6d6734e7955ccc70",
+  "upstream_version_banner": "0.6.4",
+  "rust_version": "1.93.1",
+  "cargo_lock_sha256": "c24b18211f2b10bb8267c879c4e4bad4ca5f249b382f633aab394ebedbe91f30",
+  "status": "qualified_on_synthetic_matrix_and_upstream_suite",
+  "hts_sys_version": "2.2.0",
+  "dependency_compatibility_reference": "https://github.com/nanoporetech/modkit/pull/666",
+  "binary_sha256": "f71542ee41ec964202a751919c3f47e0d54398ba0e5c5c1ccb0990c8a65769aa",
+  "qualification_test_count": 76,
+  "compiler": "x86_64-conda-linux-gnu-cc 16.2.0",
+  "target": "x86_64-unknown-linux-gnu",
+  "minimum_glibc": "2.38",
+  "upstream_tests": {
+    "passed": 185,
+    "ignored": 14,
+    "test_threads": 1,
+    "mod_kit_debug_assertions": true
+  }
+}

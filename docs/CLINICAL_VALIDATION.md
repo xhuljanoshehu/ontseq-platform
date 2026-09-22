@@ -473,3 +473,31 @@ flags or release gates. Synthetic regressions reproduce the original failure and
 both producer names, cross-sample/build refusal, duplicate conflicts, report integration
 and resume dependencies. Existing user runs were inspected read-only; they were not
 reclassified, released or presented as successfully rerun by this correction.
+
+
+### modkit independent-MM-group scanner qualification (2026-09-22)
+
+The modkit 0.6.4 stock scanner can lose or assign calls to the wrong position when valid
+MM tags contain independent groups for the same canonical base. ONTSeq keeps rejecting
+that representation with unqualified 0.6.4 executables. A version banner, renamed file,
+policy setting or adjacent receipt cannot remove the guard. Qualification binds the
+actual executable SHA-256 to the reviewed PR #709 source commit
+`9fb9aea763aa1b78ac1172fa6d6734e7955ccc70`. This is a separately qualified build of an
+upstream proposed change, not a released upstream version or a clinical validation.
+
+Synthetic tests use independently specified positions and literal 5mC/5hmC, canonical,
+filtered and no-call counts. They include forward/reverse strands, soft clipping,
+combined and independent groups, measured zero, low confidence and low depth. The actual
+ONTSeq adapter is exercised in addition to raw pileup. Mixed tagged/untagged input that
+reports processing failures must be refused and its partial bedMethyl deleted, even if
+modkit returns exit status zero and the remaining rows look plausible. No filtering of
+the source BAM or guessing of missing methylation is introduced.
+
+Every planned methylation stage and completed result records the binary checksum, build
+identity and upstream source revision. Replacement invalidates resume; changes during
+preflight or pileup cause refusal. The output still requires the locked reference and
+versioned confidence/coverage policy. Recompute affected methylation and its downstream
+reports using a verified build; never relabel previous failed or partial output as a
+successful measurement. CNV/SV callers, patient-level performance, reportability and RUO
+release boundaries are unchanged. See `docs/MODKIT_PR709_BUILD.md` for qualification and
+build provenance.

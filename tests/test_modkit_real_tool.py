@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ontseq_platform.methylation import MethylationPolicy, run_methylation
 from ontseq_platform.models import (
@@ -193,7 +194,10 @@ class ModkitBinaryTests(unittest.TestCase):
             note="Regression for the modkit 0.6.4 independent-group safety gate",
         )
 
-        with self.assertRaisesRegex(ValueError, "independent cytosine MM groups"):
+        with (
+            patch("ontseq_platform.modkit_build.PR709_BINARY_SHA256", frozenset()),
+            self.assertRaisesRegex(ValueError, "independent cytosine MM groups"),
+        ):
             run_methylation(
                 manifest,
                 intake,

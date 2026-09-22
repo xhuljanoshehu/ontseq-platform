@@ -5,6 +5,18 @@ validated release.
 
 ## Unreleased
 
+- Identify the methylation executable by SHA-256 and include its identity in result
+  provenance and resume signatures. Allow the independent-MM-group correction only
+  for explicitly qualified builds of modkit PR #709 at source commit
+  `9fb9aea763aa1b78ac1172fa6d6734e7955ccc70`; the unchanged `0.6.4` version banner alone
+  does not qualify a binary. Reject changes between planning, preflight and completion.
+- Retain the stock-tool independent-group guard and discard zero-exit partial results
+  when modkit reports failed records. Add literal synthetic CpG position/count oracles,
+  strand/clipping controls and full adapter acceptance/refusal checks.
+- Validation impact: a qualified scanner can change previously lost or misassigned
+  5mC/5hmC calls. Confidence/coverage thresholds and clinical release rules are unchanged;
+  synthetic implementation checks establish neither patient accuracy nor clinical validity.
+
 - Restrict the legacy GATK research run directory to mode `0700` on POSIX and launch native child processes with umask `077`, preventing local disclosure of BAM-header/sample and variant artifacts. No caller parameters, thresholds, result semantics, or clinical-reportability rules change.
 
 - Add opt-in GATK 4.6.2.0 research adapters, separate candidate/config/result schemas,

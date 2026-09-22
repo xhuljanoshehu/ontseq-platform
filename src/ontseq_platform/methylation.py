@@ -57,6 +57,7 @@ from .models import (
     ToolRecord,
     Verdict,
 )
+from .modkit_build import PR709_BUILD_ID, identify_modkit_binary
 from .reference import sha256_file
 
 _VERSION = re.compile(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)")
@@ -822,6 +823,7 @@ def run_methylation(
     modkit: str = "modkit",
     samtools: str = "samtools",
     threads: int = 4,
+    expected_binary_sha256: str | None = None,
 ) -> MethylationReport:
     """Run ``modkit pileup`` over an aligned BAM and normalize the result."""
     if manifest.input.kind != InputKind.ALIGNED_BAM:
@@ -867,6 +869,10 @@ def run_methylation(
         raise ValueError("Refusing to overwrite existing modkit methylation outputs")
 
     command_runner = runner or SubprocessRunner()
+    binary = identify_modkit_binary(modkit)
+    if expected_binary_sha256 is not None and binary.sha256 != expected_binary_sha256:
+        raise ValueError("modkit executable changed after the methylation stage was planned")
+    modkit = binary.executable
     version_result = command_runner.run([modkit, "--version"], timeout_seconds=30)
     if version_result.returncode != 0:
         raise ValueError("modkit version probe returned a non-zero exit code")
@@ -898,7 +904,7 @@ def run_methylation(
                 "presence of MM/ML tags was not verified before the pileup ran."
             )
 
-    if version == "0.6.4":
+    if version == "0.6.4" and binary.build_id != PR709_BUILD_ID:
         independent_cytosine_groups = count_reads_with_independent_cytosine_mod_groups(
             Path(manifest.input.path),
             runner=command_runner,
@@ -919,6 +925,9 @@ def run_methylation(
                 "a corrected pinned modkit release is validated"
             )
 
+    if identify_modkit_binary(modkit).sha256 != binary.sha256:
+        raise ValueError("modkit executable changed during methylation preflight")
+
     include_bed = (
         _modkit_include_bed(target_bed, output_dir / f"{manifest.sample_id}.modkit.include.bed")
         if target_bed is not None and policy.region_source == MethylationRegionSource.TARGET_BED
@@ -935,6 +944,9 @@ def run_methylation(
         threads=threads,
     )
     result = command_runner.run(argv, timeout_seconds=14400)
+    if identify_modkit_binary(modkit).sha256 != binary.sha256:
+        bedmethyl_path.unlink(missing_ok=True)
+        raise ValueError("modkit executable changed during methylation pileup")
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         tail = detail[-1] if detail else "no diagnostic output"
@@ -950,6 +962,7 @@ def run_methylation(
         raise ValueError("modkit pileup reported success but produced no bedMethyl output")
 
     parameters: dict[str, object] = {
+        **binary.parameters(),
         "subcommand": "pileup",
         "threads": threads,
         "filter_threshold": policy.filter_threshold,

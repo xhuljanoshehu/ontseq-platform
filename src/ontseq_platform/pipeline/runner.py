@@ -81,6 +81,7 @@ from ..models import (
     ValidationCheck,
     Verdict,
 )
+from ..modkit_build import identify_modkit_binary
 from ..mvp import assemble_aligned_bam_mvp
 from ..qc import read_length_histogram_from_tsv, run_cramino_qc
 from ..reference import contig_signature, reference_lock_signature
@@ -1049,6 +1050,7 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
             "modkit --modified-bases requires the locked reference FASTA for every methylation run"
         )
     modkit = ctx.config.executable("modkit")
+    binary = identify_modkit_binary(modkit)
     external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
     if ctx.config.reference_fasta is not None:
         external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
@@ -1063,6 +1065,7 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
         parameters={
             "requested": True,
             "methylation_policy": policy.model_dump(mode="json"),
+            **binary.parameters(),
             "ontseq_region_assignment": REGION_ASSIGNMENT_METHOD,
             "threads": ctx.config.threads,
         },
@@ -1082,6 +1085,9 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         )
     policy = ctx.config.methylation_policy
     assert policy is not None
+    expected_binary_sha256 = plan.parameters.get("modkit_binary_sha256")
+    if expected_binary_sha256 is not None and not isinstance(expected_binary_sha256, str):
+        raise StageFailure("invalid planned modkit binary digest")
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
@@ -1099,6 +1105,7 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         reference_fasta=ctx.config.reference_fasta,
         runner=ctx.runner,
         modkit=ctx.config.executable("modkit"),
+        expected_binary_sha256=expected_binary_sha256,
         samtools=ctx.config.executable("samtools"),
         threads=ctx.config.threads,
     )
