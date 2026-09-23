@@ -41,12 +41,28 @@ _SV_TYPES = {
     "BND": EventType.TRANSLOCATION,
     "TRA": EventType.TRANSLOCATION,
 }
+_FATAL_STDERR_MARKERS: dict[str, tuple[str, ...]] = {
+    "2.1.3": ("LocalError:",),
+    "2.1.4": ("LocalError:",),
+}
 
 
 class _RejectedRecord(ValueError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+def _raise_on_internal_cutesv_error(*, version: str, stdout: str, stderr: str) -> None:
+    markers = _FATAL_STDERR_MARKERS.get(version, ())
+    if not markers:
+        return
+    combined = f"{stdout}\n{stderr}"
+    matched = next((marker for marker in markers if marker in combined), None)
+    if matched is not None:
+        raise ValueError(
+            f"cuteSV {version} reported an internal worker error despite exit code 0: {matched}"
+        )
 
 
 def _open_vcf(path: Path) -> Iterator[str]:
@@ -388,6 +404,7 @@ def run_cutesv(
             "diff_ratio_merging_DEL": policy.diff_ratio_merging_del,
             "expected_version": policy.expected_version,
             "normalizer_pass_only": True,
+            "internal_error_guard": "cutesv-localerror-v1",
         }
         argv = [
             cutesv,
@@ -424,6 +441,11 @@ def run_cutesv(
             detail = result.stderr.strip()[-2000:]
             suffix = f": {detail}" if detail else ""
             raise ValueError(f"cuteSV failed with exit code {result.returncode}{suffix}")
+        _raise_on_internal_cutesv_error(
+            version=version,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
         if not staged_vcf.is_file():
             raise ValueError("cuteSV returned success but produced no VCF")
         report = normalize_cutesv_vcf(
