@@ -27,10 +27,7 @@ from ontseq_platform.target_coverage import (
 def _region(*, start: int, end: int, mean_depth: float, region_id: str) -> TargetCoverageRegion:
     length = end - start
     thresholds = (1, 10, 20, 30)
-    bases = {
-        f"{threshold}x": length if mean_depth >= threshold else 0
-        for threshold in thresholds
-    }
+    bases = {f"{threshold}x": length if mean_depth >= threshold else 0 for threshold in thresholds}
     return TargetCoverageRegion(
         chromosome="chr1",
         start=start,
@@ -83,9 +80,7 @@ def test_span_interior_overlap_does_not_count_as_breakpoint_observability(
     observed = apply_sv_observability(
         [_span_event(event_type)],
         assay_mode=AssayMode.ADAPTIVE_SAMPLING,
-        coverage_report=_coverage(
-            _region(start=400, end=600, mean_depth=30, region_id="INTERIOR")
-        ),
+        coverage_report=_coverage(_region(start=400, end=600, mean_depth=30, region_id="INTERIOR")),
         minimum_mean_depth=10,
     )[0]
 
