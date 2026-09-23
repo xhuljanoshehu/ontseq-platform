@@ -55,9 +55,7 @@ def test_timeout_kills_descendant_process_tree(tmp_path: Path) -> None:
     pid_path = tmp_path / "descendant.pid"
 
     with pytest.raises(ToolExecutionError, match="Command timed out after 1 seconds"):
-        SubprocessRunner().run(
-            [shell, "-c", _descendant_script(pid_path)], timeout_seconds=1
-        )
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
 
     assert pid_path.is_file()
     pid = int(pid_path.read_text(encoding="utf-8"))
