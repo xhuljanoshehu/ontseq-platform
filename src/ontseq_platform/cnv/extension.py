@@ -39,6 +39,7 @@ from ..models import (
 from ..mvp import assemble_aligned_bam_mvp
 from ..pipeline import runner as pipeline_runner
 from ..pipeline.envelope import Artifact, sha256_file
+from ..pipeline.marlin import current_marlin_outcome, load_marlin_report, with_marlin_result
 from ..pipeline.runner import StageImplementation, StagePlan, StageResult
 from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
 from ..qc import read_length_histogram_from_tsv
@@ -420,6 +421,7 @@ def _verified_iscn_resource_provenance(
 
 
 def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
+    marlin_outcome = current_marlin_outcome(ctx)
     sv_outcome = pipeline_runner.current_sv_outcome(ctx)
     external: list[tuple[str, str]] = []
     for relative in (
@@ -465,6 +467,9 @@ def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
             "git_commit": ctx.config.git_commit,
             "cnv_extension": "qdnaseq-ace-v1",
             "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
+            "marlin_stage_outcome": marlin_outcome.model_dump(mode="json")
+            if marlin_outcome
+            else None,
             "iscn_rule_profile": ISCN_RULE_PROFILE,
             "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
             "iscn_exact_full_chromosome_span_required": True,
@@ -547,6 +552,7 @@ def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> Stage
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
     )
+    result = with_marlin_result(ctx, result)
     cnv = _load_cnv(ctx)
     if cnv is not None:
         if cnv.sample_id != ctx.manifest.sample_id:
@@ -764,10 +770,12 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
         selection_coverage=selection_coverage,
         qc_histogram=qc_histogram,
         methylation_report=pipeline_runner.load_methylation_report(ctx),
+        marlin_report=load_marlin_report(ctx),
     )
     render_workbook(
         result,
         xlsx_path,
+        marlin_report=load_marlin_report(ctx),
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
     )

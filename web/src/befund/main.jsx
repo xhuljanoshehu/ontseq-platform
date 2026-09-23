@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { copyAt, ratioAt, dilutedRatio, solutions, moduleState, modelSummary, moduleLabels, statusLabels, number as n, percent } from './model.js';
+import { copyAt, ratioAt, dilutedRatio, solutions, moduleState, modelSummary, marlinAssessmentFacts, moduleLabels as baseModuleLabels, statusLabels, number as n, percent } from './model.js';
 import './report.css';
 
 const data = JSON.parse(document.getElementById('ontseq-befund-data').textContent);
@@ -26,6 +26,7 @@ for (const id of ['coverage','methylation','iscn','provenance','events','qc','sv
   });
   evidence[id] = clone.innerHTML;
 }
+const moduleLabels = {...baseModuleLabels, marlin: "MARLIN-Klassifikation"};
 const names = Object.keys(moduleLabels);
 const labelType = type => ({insertion:'Insertion',deletion:'Deletion',duplication:'Duplikation',inversion:'Inversion',translocation:'Translokation',chromosome_gain:'Chromosomenzugewinn',chromosome_loss:'Chromosomenverlust'}[type] || type);
 function Section({id,title,note,tone='',children}) {
@@ -35,6 +36,19 @@ function Empty({children}) { return <div className="bf-empty">{children || 'Für
 function Native({id}) { return evidence[id] ? <div className="bf-native" dangerouslySetInnerHTML={{__html:evidence[id]}}/> : <Empty/>; }
 function Facts({rows}) { return <div className="bf-facts">{rows.map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>; }
 function Status({value}) { return <span className={`bf-status s-${value}`}>{statusLabels[value] || value}</span>; }
+function Marlin({report}) {
+  if (!report) return <Empty>Für diesen Lauf kein MARLIN-Ausführungsnachweis vorhanden.</Empty>;
+  const feature = report.feature_summary;
+  return <><p><Status value={report.status}/> · {report.reason}</p>
+    <p className="bf-alert">{report.validation_status} · Nur für Forschungszwecke; nicht klinisch validiert. Modellscores sind keine Erkrankungswahrscheinlichkeiten.</p>
+    <p className="bf-alert">Bewertung nicht validiert · Die rohe Modellscore-Schwelle ist keine validierte Grenze für die Beurteilbarkeit dieser Probe. Die Zahl und der Anteil beobachteter CpGs sind technische Nachweise; eine belastbare Assay-Beurteilbarkeit ist nicht etabliert.</p>
+    {report.decision === 'UNKNOWN' && <p className="bf-alert">UNKNOWN · Keine hinreichend sichere Klassifikation. Eine führende Modellklasse ist keine bestätigte Klasse.</p>}
+    <Facts rows={[["Entscheidung",report.decision ?? 'nicht verfügbar'],["Beobachtete Modell-CpGs",n(feature?.observed_model_feature_count,0)],["Erwartete Modell-CpGs",n(feature?.expected_feature_count,0)],["Explizit fehlende CpGs",n(feature?.explicit_na_feature_count,0)],["Nicht beobachtete Modell-CpGs",n(feature?.absent_feature_count,0)],["Führende Modellklasse",report.top_class ?? 'nicht verfügbar'],["Führender Modellscore",n(report.top_class_score,6)],...marlinAssessmentFacts(report)]}/>
+    {[["Klassen",report.class_scores],["Familien",report.family_scores],["Linien",report.lineage_scores]].map(([title,rows])=>rows?.length>0 && <div key={title} className="bf-table"><h3>{title} · Modellscores</h3><table><thead><tr><th>Rang</th><th>Bezeichnung</th><th>Modellscore</th></tr></thead><tbody>{rows.map((row,index)=><tr key={row.label}><td>{index+1}</td><td>{row.label}</td><td>{n(row.score,6)}</td></tr>)}</tbody></table></div>)}
+    {[...(report.warnings || []),...(report.limitations || [])].map((text,index)=><p key={index} className="bf-alert">{text}</p>)}
+    <details><summary>MARLIN-Werkzeuge, Parameter und Prüfsummen</summary><pre>{JSON.stringify({schema_version:report.schema_version,adapter_version:report.adapter_version,run_id:report.run_id,tools:report.tools,parameters:report.parameters,input_fingerprints:report.input_fingerprints,installation_signature:report.installation_signature,feature_summary:feature},null,2)}</pre></details>
+  </>;
+}
 function Chromosomes({rows,baseline=2,model=false}) {
   return <div className="bf-chromosomes">{Array.from({length:22},(_,index)=>`chr${index+1}`).map(chr => {
     const row = rows.find(item=>item.chromosome===chr); const cn = row?.copies;
@@ -105,7 +119,7 @@ function App() {
     <Section id="qc" title="Qualitätskontrolle und Readlängen"><Facts rows={qcEntries.map(([key,value])=>[key.replaceAll('_',' '),n(value)])}/><Native id="qc"/></Section>
     <Section id="coverage" title="Abdeckung und Assay-Kontext"><Native id="coverage"/></Section>
     <Section id="methylation" title="Methylierung"><p><Status value={methyl.status}/> · {methyl.reason}</p>{evidence.methylation?<Native id="methylation"/>:<Empty>Keine auswertbaren Methylierungswerte in diesem Bericht. Nicht gemessen ist nicht null.</Empty>}</Section>
-    <Section id="marlin" title="Methylierungsklassifikation · MARLIN"><Empty>In diesem Befundvertrag ist kein MARLIN-Klassifikationsergebnis hinterlegt. Eine Methylierungsmessung allein ergibt keine Tumorklasse.</Empty></Section>
+    <Section id="marlin" title="Methylierungsklassifikation · MARLIN"><Marlin report={data.marlin}/></Section>
     <Section id="iscn" title="ISCN · Vorschlag zur fachlichen Prüfung" tone="bf-caution"><Native id="iscn"/></Section>
     <Section id="provenance" title="Technische Nachweise"><Facts rows={[["Pipeline",view.pipeline_version],["Git-Stand",view.git_commit],["Darstellung",data.contract],["Referenz",view.reference_id]]}/><details><summary>Werkzeuge, Parameter, Referenzbündel und Prüfsummen</summary><Native id="provenance"/></details></Section>
     <Section id="scope" title="Plattformumfang"><div className="bf-scope">{['COMPLETED','NO_CALL','FAILED','NOT_RUN','NOT_REQUESTED','NOT_RECORDED'].map(status=>{const rows=modules.filter(row=>row.status===status);return rows.length?<div key={status}><Status value={status}/><p>{rows.map(row=>moduleLabels[row.name]).join(' · ')}</p></div>:null;})}</div></Section>

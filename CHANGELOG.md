@@ -5,6 +5,34 @@ validated release.
 
 ## Unreleased
 
+- Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
+  workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
+  Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
+  checksum; use the aligned reference build directly without realignment or liftover.
+- Add a separate combined 5mC+5hmC model-probe pileup, depth-weighted fractions, strict strand/count
+  validation, missing-versus-zero feature encoding, and an isolated TensorFlow CPU 2.13.1 worker
+  with fixed thread limits and Linux kernel network denial. Preserve existing modkit qualification
+  guards and legacy MARLIN R/biological bridge contracts.
+- Record complete installed runtime inventory, source and input/output hashes in native report
+  provenance and resume signatures. Missing setup is `NOT_RUN`; parser/process errors are `FAILED`;
+  zero observed features are `NO_CALL` without inference. All completed native predictions remain
+  `UNKNOWN` with `assay_assessability: NOT_ESTABLISHED`; retain raw scores and separately expose
+  `model_score_threshold: 0.8` and `model_score_threshold_met`. A high model score does not establish
+  specimen confidence. Stale or deselected results are excluded without failing other modules.
+- Bind runtime acceptance to the approved archive and independently qualified full installed
+  inventories; reject self-registered runtime changes and unqualified relocations. Keep readiness
+  non-executing until the stage verifies runtime bytes. Bind the selected BAM index to intake,
+  reject competing adjacent indexes, and recheck its exact bytes around execution and resume.
+  Bind the reference FAI as an input dependency, refuse unqualified compressed references, and
+  verify the approved runtime directory-symlink map alongside the complete file inventory.
+- Validation impact: MARLIN can now add original-model scores to research reports for either
+  supported build. All predictions remain `UNVALIDATED_RESEARCH`. Real synthetic BAM/modkit/model
+  acceptance checks count/tensor transfer and numerical execution; it establishes no analytical
+  or clinical validity and creates no legacy validated same-specimen bridge lock. Coverage-grid
+  tests preserve `UNKNOWN` at 1, 10,720 and all 357,340 observed model features, including high
+  scores: additional CpGs alone cannot establish validity and no clinical count cutoff is imposed.
+  Legacy strict R/v1 decision semantics remain unchanged.
+
 - cuteSV worker-failure hardening (#91/#93): the exact known 2.1.3 entry-script
   copy now retrieves every signature-extraction task result and re-raises
   clustering exceptions. Both stock and the prior integer-only script upgrade

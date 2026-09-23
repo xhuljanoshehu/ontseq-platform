@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "NativeMarlinAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source_uri": {
+          "minLength": 1,
+          "title": "Source Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "source_uri"
+      ],
+      "title": "NativeMarlinAsset",
+      "type": "object"
+    },
+    "NativeMarlinProbeMap": {
+      "additionalProperties": false,
+      "properties": {
+        "genome_build": {
+          "$ref": "#/$defs/GenomeBuild"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source_uri": {
+          "minLength": 1,
+          "title": "Source Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "source_uri",
+        "genome_build"
+      ],
+      "title": "NativeMarlinProbeMap",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_version": {
+      "const": "marlin-native-research-v1",
+      "default": "marlin-native-research-v1",
+      "title": "Adapter Version",
+      "type": "string"
+    },
+    "classes": {
+      "$ref": "#/$defs/NativeMarlinAsset"
+    },
+    "confinement": {
+      "const": "linux-seccomp-network-deny-v1",
+      "default": "linux-seccomp-network-deny-v1",
+      "title": "Confinement",
+      "type": "string"
+    },
+    "features": {
+      "$ref": "#/$defs/NativeMarlinAsset"
+    },
+    "keras_version": {
+      "const": "2.13.1",
+      "default": "2.13.1",
+      "title": "Keras Version",
+      "type": "string"
+    },
+    "model": {
+      "$ref": "#/$defs/NativeMarlinAsset"
+    },
+    "probe_maps": {
+      "additionalProperties": {
+        "$ref": "#/$defs/NativeMarlinProbeMap"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/GenomeBuild"
+      },
+      "title": "Probe Maps",
+      "type": "object"
+    },
+    "python_executable": {
+      "minLength": 1,
+      "title": "Python Executable",
+      "type": "string"
+    },
+    "python_version": {
+      "pattern": "^3\\.10\\.\\d+$",
+      "title": "Python Version",
+      "type": "string"
+    },
+    "runtime_archive_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Runtime Archive Sha256",
+      "type": "string"
+    },
+    "runtime_manifest": {
+      "$ref": "#/$defs/NativeMarlinAsset"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tensorflow_version": {
+      "const": "2.13.1",
+      "default": "2.13.1",
+      "title": "Tensorflow Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model",
+    "features",
+    "classes",
+    "probe_maps",
+    "python_executable",
+    "python_version",
+    "runtime_manifest",
+    "runtime_archive_sha256"
+  ],
+  "title": "NativeMarlinInstallation",
+  "type": "object"
+}

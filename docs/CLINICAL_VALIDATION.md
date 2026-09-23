@@ -1,5 +1,57 @@
 # Analytical and clinical validation plan
 
+## Native MARLIN research integration, 2026-09-23
+
+`marlin-native-research-v1` adds an explicitly unvalidated classifier outcome when methylation is
+selected in the normal desktop/pipeline workflow. This can add biological model scores to the
+research report and is therefore a validation-impacting change. It does not change regional 5mC,
+CNV, SV, fusion or ISCN thresholds. No clinical release is enabled.
+
+The original model, features, annotations and official hg19/hg38 probe maps are fixed by checksum.
+The adapter selects the map matching the aligned BAM/reference build without liftover. It runs a
+separate combined 5mC+5hmC pileup, pools modified/valid counts by depth, and encodes observed
+beta `>=0.5` as `+1`, observed beta `<0.5` as `-1`, and missing features as `0`. No observed
+features means `NO_CALL` without inference. Forty-two finite model scores are grouped by the
+original annotations. Native decisions remain `UNKNOWN` for every completed inference because
+`assay_assessability` is `NOT_ESTABLISHED`: no independently validated ONTSeq assessability policy
+exists. The separate `model_score_threshold_met` field compares the leading class score with
+`model_score_threshold: 0.8`; this is not specimen confidence. More observed CpGs alone do not
+establish validity. Tests retain the same high score at 1, 10,720 and all 357,340 features and
+require `UNKNOWN` throughout; none of those counts is a clinical cutoff. The
+[MARLIN study benchmarks](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513838/) do not establish
+an ONTSeq specimen-assessability policy. All outcomes remain `UNVALIDATED_RESEARCH`, and raw
+scores remain available without a confidence claim. `NO_CALL` stays distinct and has no threshold
+result because inference did not run. The older strict R/v1 contracts retain their own semantics.
+
+Technical controls bind sample/run/build, input and output bytes, exact tool identity, the complete
+relocated runtime inventory, source code, thread plan and network confinement. The runtime archive
+and independently qualified installed-manifest identities are pinned outside the editable
+installation configuration; an updated self-supplied manifest cannot qualify altered code or
+an arbitrary relocation. Desktop readiness executes no unverified runtime. The selected BAM
+index must match the intake SHA-256, has no competing distinct adjacent index, and is rechecked
+before/after pileup and before completed or NO_CALL outcomes. The reference `.fai` has the same
+fingerprint/stability checks; compressed references requiring `.gzi` are outside this qualified
+adapter. Approved runtime directory links are checked alongside file bytes. Stock modkit
+0.6.4 remains blocked for independent cytosine MM groups; only the separately qualified exact
+PR #709 binary may process them. Errors and partial/stale output produce unavailable predictions,
+not a biological negative. Other available modules remain reportable under their existing rules.
+
+Local synthetic acceptance used an actual BAM with independent 5mC/5hmC tags, forward/reverse
+orientations and unequal 10/90 depths at original hg38 probes. Real modkit output reproduced the
+independent `0.49/0.50/0/1` count oracle; the full ordered tensor matched, and the original model's
+42 scores matched a separate direct call exactly. The largest difference from TensorFlow
+`predict` was `3.3527612686157227e-08` (engineering tolerance `1e-7`). The no-feature BAM produced
+`NO_CALL` without a model worker. Unit and integration checks additionally cover missing versus
+zero, duplicate strands, wrong build/checksum, finite scores, threshold decisions, failures and
+current-run artifact identity.
+
+This is synthetic technical interoperability and numerical execution evidence. It does not
+establish accuracy on intended specimens, diagnostic sensitivity, biological concordance,
+assay-depth suitability, or equivalence to the historical R binding. Independent specimen-based
+and intended-use analytical validation remains open. The existing GRCh37-only R commands and
+`MarlinBridgeLock.status=validated_same_specimen_bridge` are unchanged; the native installation
+creates no such lock and cannot be presented as that evidence. See `MARLIN_CLASSIFICATION.md`.
+
 ## cuteSV memory concurrency and partial-stage status
 
 The real-tool comparison exposed a second issue: with 80 synthetic reads (40

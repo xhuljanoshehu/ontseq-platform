@@ -101,6 +101,13 @@ from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
 from .input_digest import RunInputDigestCache
 from .lock import run_lock
+from .marlin import (
+    current_marlin_outcome,
+    load_marlin_report,
+    marlin_execute,
+    marlin_plan,
+    with_marlin_result,
+)
 from .review import RELEASE_RELATIVE, REVIEW_LOG, ReviewError, ReviewState
 from .review import current_state as review_state
 from .review import read_log as read_review_log
@@ -177,6 +184,7 @@ class RunConfiguration:
     sv_minimum_mean_depth: float = 10.0
     target_coverage_policy: TargetCoveragePolicy | None = None
     methylation_policy: MethylationPolicy | None = None
+    marlin_installation: Path | None = None
     #: Which component runs each stage, and at which version. ``None`` keeps the built-in
     #: defaults and pins nothing, which is what every run did before selection existed.
     components: RunComponents | None = None
@@ -208,6 +216,17 @@ class RunConfiguration:
     context_resource_paths: Mapping[str, Path] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        modules = self.manifest.analysis.modules
+        if AnalysisModule.METHYLATION in modules and AnalysisModule.MARLIN not in modules:
+            self.manifest = self.manifest.model_copy(
+                update={
+                    "analysis": self.manifest.analysis.model_copy(
+                        update={
+                            "modules": [*modules, AnalysisModule.MARLIN],
+                        }
+                    ),
+                }
+            )
         if (
             isinstance(self.cutesv_threads, bool)
             or not isinstance(self.cutesv_threads, int)
@@ -267,7 +286,7 @@ class RunContext:
             # Optional evidence affects the assembled result even though a missing lane
             # must not block assembly. Track current outputs in the resume signature;
             # checking old files on disk would retain an earlier opt-in after deselection.
-            dependencies.extend((StageId.CNV, StageId.SV, StageId.METHYLATION))
+            dependencies.extend((StageId.CNV, StageId.SV, StageId.METHYLATION, StageId.MARLIN))
         for dependency in dependencies:
             collected.extend(self.artifacts.get(dependency, []))
         return collected
@@ -1204,6 +1223,7 @@ def current_sv_outcome(ctx: RunContext) -> ModuleOutcome | None:
 
 def _assemble_plan(ctx: RunContext) -> StagePlan:
     sv_outcome = current_sv_outcome(ctx)
+    marlin_outcome = current_marlin_outcome(ctx)
     resource_context = ctx.config.resource_context
     reference_lock_sha256 = (
         resource_context.resource_checksums.get("reference.reference_lock", "UNAVAILABLE")
@@ -1237,6 +1257,9 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
             "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
+            "marlin_stage_outcome": marlin_outcome.model_dump(mode="json")
+            if marlin_outcome
+            else None,
             "iscn_rule_profile": ISCN_RULE_PROFILE,
             "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
             "iscn_exact_full_chromosome_span_required": True,
@@ -1305,6 +1328,7 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         reference_context=ctx.config.resource_context,
         sidecars=sidecars,
     )
+    result = with_marlin_result(ctx, result)
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
     )
@@ -1359,10 +1383,12 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         selection_coverage=selection_coverage,
         qc_histogram=qc_histogram,
         methylation_report=load_methylation_report(ctx),
+        marlin_report=load_marlin_report(ctx),
     )
     render_workbook(
         result,
         ctx.envelope.path(ctx.path(REPORT_XLSX)),
+        marlin_report=load_marlin_report(ctx),
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
     )
@@ -1397,6 +1423,7 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
     StageId.METHYLATION: StageImplementation(_methylation_plan, _methylation_execute),
+    StageId.MARLIN: StageImplementation(marlin_plan, marlin_execute),
     StageId.ASSEMBLE: StageImplementation(_assemble_plan, _assemble_execute),
     StageId.REPORT: StageImplementation(_report_plan, _report_execute),
     StageId.RELEASE: StageImplementation(_release_plan, _release_execute),

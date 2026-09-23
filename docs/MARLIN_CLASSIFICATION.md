@@ -8,7 +8,13 @@ This document describes the engineering integration of the published MARLIN v1 a
 methylation classifier into ONTSeq. It does not claim analytical or clinical validity and it does
 not claim that ONTSeq reproduces the complete raw-signal workflow used in the publication.
 
-Current implementation scope:
+Two independently versioned paths are available. The automatic desktop/pipeline path is
+`marlin-native-research-v1`, schema `1.0.0`, with the mandatory validation status
+`UNVALIDATED_RESEARCH`. The older standalone R commands retain their stricter GRCh37-only
+contracts and validation gates. Installing the native adapter creates no `MarlinBridgeLock`
+and does not satisfy or bypass those legacy command gates.
+
+Legacy standalone command scope:
 
 - strict import of the published five-column probe-level methylation representation;
 - explicit GRCh37/hg19-only v1 build contract;
@@ -36,6 +42,129 @@ does **not** contain a generated compatibility profile, dual-runtime PASS report
 self-baseline from the real Zenodo MARLIN model. Those remain local controlled validation
 artifacts and must be established before biological validation begins.
 
+## Automatic native research path
+
+Selecting methylation also requests the MARLIN stage in the normal analysis. Desktop readiness
+checks configuration, expected resource presence and a declared independently qualified runtime
+profile without executing that runtime. Its message explicitly states that installed bytes and
+execution are not yet verified. The analysis stage verifies all bytes before runtime preflight. A missing
+installation becomes `NOT_RUN` with a reason; a parser, checksum, modkit or worker failure becomes
+`FAILED`. MARLIN failure does not turn available CNV/SV results into failures. Deselecting
+methylation excludes MARLIN, including leftover artifacts, from the current report.
+
+The adapter accepts directly aligned GRCh37/hg19 and GRCh38/hg38 BAMs with verified modified-base
+information. It chooses the original probe map bound to that build by a fixed SHA-256. No
+realignment or liftover is performed. The native adapter checks sample, reference and intake
+identity before executing a separate model-probe pileup. The selected adjacent BAI/CSI must
+match the intake's required SHA-256 fingerprint; competing distinct BAM-adjacent indexes are
+refused rather than left to modkit's index search order. Its exact bytes and resolved selection
+are checked again immediately before and after pileup and before any final outcome, including
+`NO_CALL`. The reference's adjacent `.fai` is likewise mandatory, fingerprinted and rechecked;
+compressed references are refused because their additional `.gzi` dependency is not qualified.
+Both index fingerprints are mandatory in concluded native reports and resume signatures:
+
+
+```text
+modkit 0.6.4 pileup --modified-bases 5mC 5hmC --combine-mods --cpg
+                  --ref <matching FASTA> --include-bed <model probe positions>
+                  --filter-threshold 0.8
+```
+
+The two modification probabilities are combined by modkit before count aggregation. For each
+model probe, ONTSeq calculates `sum(N_mod) / sum(N_valid)` over its mapped positions and strands.
+It preserves per-strand calls instead of requesting `--combine-strands`; duplicate site/strand
+records and a mixture of combined and separate strand rows are rejected. Count identities,
+finite fractions, geometry and exact feature order are checked. Measured beta zero encodes as
+`-1`; an unobserved feature encodes as `0`. The model input has exactly 357,340 float32 values.
+
+The same modkit guard used by the regional methylation lane remains active: stock 0.6.4 is
+refused for independent cytosine MM groups. Only the exact locally qualified PR #709 executable
+SHA-256 receives the exception. A version banner or an adjacent receipt alone cannot grant it.
+A zero exit status with failed-record diagnostics is a failure. Regional 5mC measurements keep
+their own modification and coverage policy; MARLIN's combined counts do not replace them.
+
+When no model feature is observed, the result is `NO_CALL`, with decision `UNKNOWN`, no scores,
+and no model execution. Otherwise the separate Python 3.10 / TensorFlow CPU 2.13.1 / Keras 2.13.1
+worker checks the original model SHA-256, exact tensor hash and input/output shapes. It loads
+with `compile=False` and evaluates with `training=False`. Linux seccomp denies network syscalls
+before TensorFlow imports; execution preflight exercises that kernel rule only after full
+runtime byte verification. GPU visibility is disabled,
+model intra-op threads are capped at eight, and inter-op threads are fixed at one.
+
+Exactly 42 finite model scores are grouped using the original XLSX annotations into current
+classes, families and lineages. `model_score_threshold` is fixed at `0.8` and
+`model_score_threshold_met` records whether the leading grouped class reaches it. This is a
+raw model-score comparison, not specimen confidence. Native predictions always have decision
+`UNKNOWN` and `assay_assessability: NOT_ESTABLISHED`, regardless of score or observed CpG count:
+no independently validated ONTSeq specimen-assessability policy exists. Additional observed
+CpGs alone cannot establish analytical validity, including coverage of all 357,340 model features.
+The threshold result is absent for `NO_CALL`, `NOT_RUN` and `FAILED`. Raw scores, top class and
+observed feature count/fraction remain available for completed research inference. Every outcome
+retains `UNVALIDATED_RESEARCH`; scores are model rankings, not clinical diagnosis probabilities.
+
+The coverage test grid (1, 10,720 and 357,340 observed model features) guards against promoting a
+high score to specimen confidence. The intermediate count is a test point, not a clinical cutoff.
+The [MARLIN publication](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513838/) reports benchmarking
+under its study conditions; those results do not qualify an ONTSeq specimen-assessability policy.
+
+### Installation and provenance
+
+The resource kit supplies `<resource-root>/marlin/installation.json`; a separately qualified
+installation can be selected with `--marlin-installation` for `run`, `analyze` or `serve`.
+The currently qualified durable Linux layout uses `marlin-native-1.0.0/env` under the local
+ONTSeq runtime root. TensorFlow is not added to
+the ONTSeq control-plane environment. Local installation retains the model's CC BY 4.0
+attribution, MARLIN's MIT license text and the runtime dependency notices. Archive extraction
+checks member paths, types, links and size before restoring the runtime; relocation completes
+before the final file inventory is generated. The installation contract records:
+
+- original model, ordered feature list, original class workbook and both build-keyed probe maps,
+  each with an exact checksum and source URI;
+- selected Python executable, exact Python patch version, TensorFlow/Keras versions and the
+  network-confinement contract;
+- original runtime archive identity and a complete manifest of installed runtime files,
+  regenerated after relocation to the final absolute prefix.
+
+The model identity is `6210a674a0e7690b7b6c03184f5732a65037cf00ff4383e1892f26e90fdcb217`.
+Runtime trust is independent of that installation JSON. The approved archive is fixed at
+SHA-256 `b812927398645d3abaa3a56622bbf1b3279b70ff25067f42040d450083c822c6`. Two separately
+verified installed-inventory identities are supported: `marlin-native-durable-linux-cpu-v1`
+(manifest SHA-256 `1f7d1d996b06b851ab4116162bfff86ef9e86ec13ed1cf9e86de7ebfcb09250b`) and
+`marlin-native-source-linux-cpu-v1`
+(`b97f0b2468923415584b756306ed95ec5941d3b26ecb423095a2ac9135b7a461`). Those manifests bind
+absolute runtime prefixes as well as bytes. Matching version banners and regenerating a
+self-supplied manifest cannot qualify changed code or a new prefix. A new relocation requires
+separate archive restoration, byte/inference qualification and reviewed registration of its
+inventory digest; generic portability to arbitrary prefixes is not claimed.
+
+The native report (`native-marlin.json`) binds run/sample/build, feature summary, tools,
+parameters, installation signature, and exact BAM/index/reference/FAI/pileup/tensor/worker fingerprints.
+Every signature request verifies actual installed bytes, including resume; added or missing
+runtime files invalidate the inventory. The exact relative directory-symlink map from the approved
+archive is also checked, preventing links from bypassing file enumeration. Source hashes identify the adapter, contracts and worker.
+An existing nonempty stage directory is not overwritten. Failed outputs remain diagnostic
+artifacts and contribute no current prediction. Archived reports remain unchanged.
+
+HTML with and without JavaScript, JSON and XLSX consume the current typed MARLIN outcome.
+An `UNKNOWN` leading class is shown as model ranking, not a confirmed classification. Missing
+values remain missing. Run/sample/build and artifact hashes must agree before score import.
+
+### Technical acceptance and remaining validation
+
+The 2026-09-23 local synthetic acceptance generated a real modified-base BAM at four original
+hg38 model probe positions, with forward/reverse calls and unequal 10/90 depths. The exact
+qualified modkit executable produced the independently specified betas `0.49`, `0.50`, `0`, `1`.
+The adapter's ordered tensor matched the independent oracle, and the original model returned
+42 scores identical to a separate direct inference call. Its maximum difference from TensorFlow
+`predict` was `3.3527612686157227e-08`, below the existing `1e-7` engineering tolerance. A separate
+sample with tags but no model-probe coverage produced `NO_CALL` without inference.
+
+These results establish synthetic data transfer and original-model execution on the inspected
+runtime. They do not establish biological concordance, assay coverage suitability, sensitivity,
+clinical validity, equivalence of historical R bindings, or a same-specimen validated bridge.
+Independent intended-use validation and expert review remain required. The legacy biological
+bridge and R runtime gates below retain their original meanings.
+
 ## Scientific reference
 
 Primary publication:
@@ -61,7 +190,7 @@ explicit NA or feature not observed                     ->  0
 
 MARLIN v1 has exactly **357,340 input features** and **42 neural-network output units**.
 
-## Evidence ladder
+## Legacy validation evidence ladder
 
 ONTSeq deliberately separates engineering evidence from analytical and clinical evidence:
 
@@ -105,7 +234,7 @@ In particular:
 - The candidate same-lock freeze after dual-runtime PASS is a reproducibility prerequisite for
   `marlin-validate`, not a new biological-validation claim.
 
-## Architecture
+## Legacy standalone architecture
 
 The integration deliberately separates ONTSeq-owned preprocessing from MARLIN model inference.
 
@@ -131,7 +260,7 @@ locked 357,340-feature construction
                          confidence + RUO report
 ```
 
-A future native path is separate:
+The legacy validated native-bridge path is separate:
 
 ```text
 MODKIT_DERIVED
@@ -163,7 +292,7 @@ bedMethyl rows are refused by this bridge because they do not prove the publishe
 This rule is **specific to the MARLIN bridge**. ONTSeq's general methylation lane continues to
 preserve 5mC and 5hmC as separate modification codes and is not reinterpreted by this integration.
 
-The native path is not enabled by the existence of code alone. It requires a
+This legacy validated-bridge command is not enabled by the native research installation. It requires a
 `MarlinBridgeLock` recording separate same-specimen comparison evidence. No valid bridge lock is
 shipped as a default configuration.
 
@@ -243,7 +372,7 @@ artifact-set SHA-256 before candidate inference. The canonical identity includes
 model/code/feature/annotation/probe/build/contract fields but excludes runtime versions, backend,
 lock IDs, timestamps, local paths and source-URI formatting.
 
-## Engineering runtime and live probe
+## Legacy R engineering runtime and live probe
 
 ONTSeq deliberately keeps the control plane and the legacy MARLIN model runtime in separate Python
 environments:
@@ -297,7 +426,7 @@ dual-runtime comparison before any biological validation is permitted.
 The smoke workflow stores only a small non-biological runtime-identity JSON artifact. It does not
 contain the trained MARLIN model, GSE280090 payloads or patient-derived data.
 
-## Runtime compatibility gates
+## Legacy runtime compatibility gates
 
 External biological validation requires more than a successful runtime import or a stored profile.
 ONTSeq therefore uses a reference reproducibility gate, a cross-runtime numerical gate, and a
@@ -358,7 +487,7 @@ The tolerances are frozen before biological validation. They must not be tuned f
 GSE280090 outcomes. A direct `marlin-classify` invocation is not a substitute for external
 validation.
 
-## Classification semantics
+## Legacy standalone classification semantics
 
 The 42 raw model-unit scores are retained. ONTSeq then uses the locked class annotation resource
 to aggregate scores into:
@@ -390,7 +519,7 @@ It is **not** `NO_CALL`.
 observed MARLIN model features. Malformed input, lock mismatch, wrong runtime shape, non-finite
 scores or partial output are failures, not biological negatives.
 
-## Native modkit bridge
+## Legacy validated modkit bridge
 
 The bridge follows the published MARLIN probe aggregation rather than reusing ONTSeq's
 chromosome/target-level methylation summaries.

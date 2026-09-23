@@ -48,6 +48,7 @@ SUPPORTED_PROVIDERS: dict[StageId, frozenset[str]] = {
     StageId.CNV: frozenset({"qdnaseq_ace"}),
     StageId.SV: frozenset({"sniffles2"}),
     StageId.METHYLATION: frozenset({"modkit"}),
+    StageId.MARLIN: frozenset({"marlin_native"}),
 }
 
 #: The key each provider reports its version under in :attr:`StagePlan.tool_versions`.
@@ -62,6 +63,7 @@ PROVIDER_VERSION_KEY: dict[str, str] = {
     "qdnaseq_ace": "QDNAseq",
     "sniffles2": "sniffles",
     "modkit": "modkit",
+    "marlin_native": "MARLIN",
 }
 
 

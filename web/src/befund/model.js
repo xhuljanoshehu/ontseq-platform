@@ -34,3 +34,13 @@ export function modelSummary(rows, ploidy) {
   const detail = changed.map(row => `${row.chromosome}: ${number(row.copies)} Kopien`).join(' · ') || 'Keine Abweichung über 0,5 Kopien von der Modellploidie in den verfügbaren Chromosomenmitteln.';
   return `${detail} ${measured.length} Chromosomen auswertbar${rows.length > measured.length ? ` · ${rows.length - measured.length} nicht bestimmbar` : ''}. Deskriptive Modellansicht, kein normaler Karyotyp abgeleitet.`;
 }
+
+export function marlinAssessmentFacts(report) {
+  const fraction = report.feature_summary?.observed_fraction;
+  return [
+    ['Anteil beobachteter Modell-CpGs', fraction == null ? 'nicht verfügbar' : `${number(fraction * 100,6)} %`],
+    ['Rohe Modellscore-Schwelle', number(report.model_score_threshold,2)],
+    ['Modellscore-Schwelle erreicht', report.model_score_threshold_met == null ? 'nicht verfügbar' : report.model_score_threshold_met ? 'ja · nur Modellscore' : 'nein · nur Modellscore'],
+    ['Assay-Beurteilbarkeit', `${report.assay_assessability ?? 'NOT_ESTABLISHED'} · Bewertung nicht validiert`],
+  ];
+}

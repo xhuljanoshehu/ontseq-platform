@@ -119,6 +119,7 @@ class WatchSettings:
     sv_minimum_mean_depth: float = 10.0
     alignment_policy: Path | None = None
     reference_fasta: Path | None = None
+    marlin_installation: Path | None = None
     run_id_prefix: str = ""
     ready_marker: str | None = None
     quiet_seconds: float = 300.0
@@ -419,6 +420,7 @@ def _attempt_one(
         sv_minimum_mean_depth=settings.sv_minimum_mean_depth,
         alignment_policy=resolved.alignment_policy,
         reference_fasta=settings.reference_fasta,
+        marlin_installation=settings.marlin_installation,
         threads=settings.threads,
         cutesv_threads=settings.cutesv_threads,
     )

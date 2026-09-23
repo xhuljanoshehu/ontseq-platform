@@ -64,6 +64,12 @@ Directory.CreateDirectory(root);
 
 try
 {
+    var marlinReady = JsonSerializer.Deserialize<MarlinReadinessResponse>(
+        "{\"ready\":true,\"reason\":\"Configured\",\"genome_build\":\"GRCh38\",\"validation_status\":\"UNVALIDATED_RESEARCH\"}", JsonDefaults.Options)!;
+    AssertEqual("True", marlinReady.RequireBuild("GRCh38").Ready.ToString(), "MARLIN matching build readiness");
+    AssertThrows<InvalidDataException>(() => marlinReady.RequireBuild("GRCh37"), "MARLIN foreign-build readiness rejected");
+    AssertThrows<InvalidDataException>(() => (marlinReady with { ValidationStatus = "VALIDATED" }).RequireBuild("GRCh38"),
+        "MARLIN runtime readiness cannot grant analytical validation");
     foreach (var reply in new[] {
         new FakeServiceReply(409, "{\"error\":\"Analyse läuft\"}"),
         new FakeServiceReply(200, "{\"instance_id\":\"foreign\",\"stopping\":true}"),

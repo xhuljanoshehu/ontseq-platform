@@ -111,6 +111,15 @@ public sealed class OntSeqServiceClient : IDisposable
             throw new InvalidDataException("Das Beenden der eigenen Dienstinstanz wurde nicht bestätigt.");
     }
 
+    public async Task<MarlinReadinessResponse> GetMarlinReadinessAsync(
+        string genomeBuild, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        return (await GetJsonAsync<MarlinReadinessResponse>(
+            "api/marlin/readiness?genome_build=" + Uri.EscapeDataString(genomeBuild),
+            cancellationToken)).RequireBuild(genomeBuild);
+    }
+
     public async Task<MethylationProbeResponse> ProbeMethylationAsync(
         string bamPath, CancellationToken cancellationToken, bool forceRefresh = false)
     {
