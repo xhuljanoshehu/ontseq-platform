@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -45,6 +46,26 @@ def _normalize(argv: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+def _terminate_timed_out_process(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
+    """Terminate the owned process tree after a timeout and reap the direct child.
+
+    POSIX tools run in a dedicated session, so signalling that process group also reaches
+    multiprocessing descendants that would otherwise outlive the timed-out parent. Native
+    Windows keeps the previous direct-child termination semantics until a separately tested
+    job-object/process-tree contract is introduced.
+    """
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            process.kill()
+    else:
+        process.kill()
+    process.wait()
+
+
 class SubprocessRunner:
     """Execute an argument vector locally without a shell."""
 
@@ -65,35 +86,39 @@ class SubprocessRunner:
         staged = Path(staged_name)
         try:
             with os.fdopen(descriptor, "wb") as handle:
-                completed = subprocess.run(
+                process = subprocess.Popen(
                     normalized,
-                    check=False,
                     stdout=handle,
                     stderr=subprocess.PIPE,
                     stdin=subprocess.DEVNULL,
-                    timeout=timeout_seconds,
+                    start_new_session=os.name == "posix",
                 )
+                try:
+                    _stdout, stderr_bytes = process.communicate(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired as exc:
+                    _terminate_timed_out_process(process)
+                    raise ToolExecutionError(
+                        f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
+                    ) from exc
                 handle.flush()
                 os.fsync(handle.fileno())
         except FileNotFoundError as exc:
             staged.unlink(missing_ok=True)
             raise ToolExecutionError(f"Required executable not found: {normalized[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
+        except ToolExecutionError:
             staged.unlink(missing_ok=True)
-            raise ToolExecutionError(
-                f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
-            ) from exc
+            raise
         except OSError as exc:
             staged.unlink(missing_ok=True)
             raise ToolExecutionError(f"Could not execute {normalized[0]}: {exc}") from exc
 
-        stderr = completed.stderr.decode("utf-8", "replace") if completed.stderr else ""
-        if completed.returncode != 0:
+        stderr = stderr_bytes.decode("utf-8", "replace") if stderr_bytes else ""
+        if process.returncode != 0:
             staged.unlink(missing_ok=True)
         else:
             os.replace(staged, output_path)
         return CommandResult(
-            argv=normalized, returncode=completed.returncode, stdout="", stderr=stderr
+            argv=normalized, returncode=process.returncode, stdout="", stderr=stderr
         )
 
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
@@ -110,26 +135,31 @@ class SubprocessRunner:
         """
         normalized = _normalize(argv)
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 normalized,
-                check=False,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout_seconds,
+                start_new_session=os.name == "posix",
             )
+            try:
+                stdout, stderr = process.communicate(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                _terminate_timed_out_process(process)
+                raise ToolExecutionError(
+                    f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
+                ) from exc
         except FileNotFoundError as exc:
             raise ToolExecutionError(f"Required executable not found: {normalized[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise ToolExecutionError(
-                f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
-            ) from exc
+        except ToolExecutionError:
+            raise
         except OSError as exc:
             raise ToolExecutionError(f"Could not execute {normalized[0]}: {exc}") from exc
         return CommandResult(
             argv=normalized,
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
