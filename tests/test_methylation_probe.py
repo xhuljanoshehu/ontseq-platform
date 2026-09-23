@@ -201,15 +201,25 @@ def test_real_isolated_process_is_reaped_on_deadline_or_cancel(bam: Path, action
     original_start = subprocess.Popen
     children: list[subprocess.Popen[bytes]] = []
     cancelled = threading.Event()
+    popen_called = threading.Event()
 
     def start(_command: list[str], **kwargs: Any) -> subprocess.Popen[bytes]:
         child = original_start([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
         children.append(child)
+        popen_called.set()
         return child
 
-    timer = threading.Timer(0.05, cancelled.set)
+    def cancel_after_start() -> None:
+        # Wait for the mocked Popen to actually run before cancelling, so this
+        # test exercises mid-scan cancellation deterministically instead of
+        # racing an absolute wall-clock timer against scheduling jitter (a
+        # slow/loaded runner could otherwise cancel before Popen is reached).
+        if popen_called.wait(timeout=5):
+            cancelled.set()
+
+    canceller = threading.Thread(target=cancel_after_start, daemon=True)
     if action == "cancelled":
-        timer.start()
+        canceller.start()
     try:
         with patch("ontseq_platform.methylation_probe.subprocess.Popen", side_effect=start):
             result = probe_bam_methylation(
@@ -218,7 +228,8 @@ def test_real_isolated_process_is_reaped_on_deadline_or_cancel(bam: Path, action
                 cancel_event=cancelled,
             )
     finally:
-        timer.cancel()
+        if action == "cancelled":
+            canceller.join(timeout=5)
         for child in children:
             if child.poll() is None:
                 child.kill()
