@@ -26,9 +26,11 @@ from ontseq_platform.models import (
 
 class CountingRunner:
     def __init__(self) -> None:
+        self.calls = 0
         self.analysis_calls = 0
 
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
+        self.calls += 1
         normalized = tuple(str(item) for item in argv)
         if "--version" in normalized:
             return CommandResult(normalized, 0, "cuteSV 2.1.3\n", "")
@@ -67,7 +69,9 @@ def _inputs(root: Path) -> tuple[SampleManifest, AlignedBamIntakeReport, Path]:
     return manifest, intake, reference
 
 
-def test_matching_version_with_unqualified_body_fails_before_analysis(tmp_path: Path) -> None:
+def test_matching_version_with_unqualified_body_fails_before_any_tool_execution(
+    tmp_path: Path,
+) -> None:
     executable = tmp_path / "cuteSV"
     executable.write_text("#!/usr/bin/env python3\nprint('custom body')\n", encoding="utf-8")
     executable.chmod(0o700)
@@ -97,7 +101,7 @@ def test_matching_version_with_unqualified_body_fails_before_analysis(tmp_path: 
             expected_source_sha256=identity["cutesv_source_sha256"],
         )
 
+    assert runner.calls == 0
     assert runner.analysis_calls == 0
     assert not (tmp_path / "calls.vcf").exists()
-    assert scratch.is_dir()
-    assert list(scratch.iterdir()) == []
+    assert not scratch.exists()
