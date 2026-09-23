@@ -12,7 +12,11 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .breakends import BreakendParseError, resolve_breakend
-from .cutesv_build import executable_identity, prepare_executable
+from .cutesv_build import (
+    executable_identity,
+    prepare_executable,
+    require_standard_lane_qualification,
+)
 from .execution import CommandRunner, SubprocessRunner
 from .models import (
     AlignedBamIntakeReport,
@@ -363,6 +367,13 @@ def run_cutesv(
         raise ValueError("Refusing to overwrite an existing cuteSV VCF")
     if threads < 1:
         raise ValueError("threads must be at least 1")
+    identity = executable_identity(cutesv)
+    require_standard_lane_qualification(identity)
+    if (
+        expected_source_sha256 is not None
+        and identity.get("cutesv_source_sha256") != expected_source_sha256
+    ):
+        raise ValueError("cuteSV executable changed after planning")
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
     command_runner = runner or SubprocessRunner()
     probe = command_runner.run([cutesv, "--version"], timeout_seconds=30)
@@ -373,12 +384,6 @@ def run_cutesv(
         raise ValueError(
             f"cuteSV version {version!r} does not match policy lock {policy.expected_version!r}"
         )
-    identity = executable_identity(cutesv)
-    if (
-        expected_source_sha256 is not None
-        and identity.get("cutesv_source_sha256") != expected_source_sha256
-    ):
-        raise ValueError("cuteSV executable changed after planning")
     # Keep the small VCF beside its destination for atomic promotion, but place
     # large pickle/signature files in a managed user-cache directory. On WSL this
     # defaults to Linux disk storage; /tmp may be a small RAM-backed filesystem.
