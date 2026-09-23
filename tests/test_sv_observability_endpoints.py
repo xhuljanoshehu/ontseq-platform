@@ -27,7 +27,10 @@ from ontseq_platform.target_coverage import (
 def _region(*, start: int, end: int, mean_depth: float, region_id: str) -> TargetCoverageRegion:
     length = end - start
     thresholds = (1, 10, 20, 30)
-    bases = {f"{threshold}x": length if mean_depth >= threshold else 0 for threshold in thresholds}
+    bases = {
+        f"{threshold}x": length if mean_depth >= threshold else 0
+        for threshold in thresholds
+    }
     return TargetCoverageRegion(
         chromosome="chr1",
         start=start,
@@ -80,7 +83,9 @@ def test_span_interior_overlap_does_not_count_as_breakpoint_observability(
     observed = apply_sv_observability(
         [_span_event(event_type)],
         assay_mode=AssayMode.ADAPTIVE_SAMPLING,
-        coverage_report=_coverage(_region(start=400, end=600, mean_depth=30, region_id="INTERIOR")),
+        coverage_report=_coverage(
+            _region(start=400, end=600, mean_depth=30, region_id="INTERIOR")
+        ),
         minimum_mean_depth=10,
     )[0]
 
@@ -108,7 +113,9 @@ def test_one_simple_sv_endpoint_inside_is_partial_not_adequate() -> None:
     observed = apply_sv_observability(
         [_span_event(EventType.INVERSION)],
         assay_mode=AssayMode.ADAPTIVE_SAMPLING,
-        coverage_report=_coverage(_region(start=100, end=101, mean_depth=20, region_id="LEFT_ONLY")),
+        coverage_report=_coverage(
+            _region(start=100, end=101, mean_depth=20, region_id="LEFT_ONLY")
+        ),
         minimum_mean_depth=10,
     )[0]
 
@@ -126,7 +133,9 @@ def test_insertion_remains_a_single_anchor_locus() -> None:
     observed = apply_sv_observability(
         [event],
         assay_mode=AssayMode.ADAPTIVE_SAMPLING,
-        coverage_report=_coverage(_region(start=490, end=510, mean_depth=20, region_id="INS_ANCHOR")),
+        coverage_report=_coverage(
+            _region(start=490, end=510, mean_depth=20, region_id="INS_ANCHOR")
+        ),
         minimum_mean_depth=10,
     )[0]
 
