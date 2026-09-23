@@ -206,6 +206,10 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
                     recording_runner = RecordingRunner()
                     recording_runner.commands = commands
                     with (
+                        patch(
+                            "ontseq_platform.cutesv.prepare_executable",
+                            return_value=str(injected),
+                        ),
                         patch.dict(
                             os.environ,
                             {"ONTSEQ_TEST_FAULT": stage, "ONTSEQ_TEST_SUCCESS": str(success)},
@@ -218,7 +222,7 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
                             self.policy,
                             reference_fasta=self.fasta,
                             output_vcf=output,
-                            cutesv=str(injected),
+                            cutesv=self.tool,
                             threads=workers,
                             runner=recording_runner,
                         )
