@@ -48,8 +48,7 @@ def _ensure_reconstructable_drvfs_semantics(options, uid, gid):
     if semantic_overrides:
         rendered = ", ".join(sorted(semantic_overrides))
         raise ValueError(
-            "Nichtstandard-DrvFs-Semantik kann nicht sicher rekonstruiert werden: "
-            + rendered
+            "Nichtstandard-DrvFs-Semantik kann nicht sicher rekonstruiert werden: " + rendered
         )
 
     for key, expected in (("uid", uid), ("gid", gid)):
