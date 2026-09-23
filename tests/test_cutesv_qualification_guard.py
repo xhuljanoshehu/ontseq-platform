@@ -105,3 +105,35 @@ def test_matching_version_with_unqualified_body_fails_before_any_tool_execution(
     assert runner.analysis_calls == 0
     assert not (tmp_path / "calls.vcf").exists()
     assert not scratch.exists()
+
+
+def test_unresolved_executable_fails_before_any_tool_execution(tmp_path: Path) -> None:
+    executable = tmp_path / "missing-cuteSV"
+    assert executable_identity(str(executable)) == {}
+
+    manifest, intake, reference = _inputs(tmp_path)
+    runner = CountingRunner()
+    scratch = tmp_path / "scratch"
+
+    with (
+        patch.dict("os.environ", {"ONTSEQ_CUTESV_SCRATCH_ROOT": str(scratch)}),
+        pytest.raises(ValueError, match="not qualified for the standard SV lane"),
+    ):
+        run_cutesv(
+            manifest,
+            intake,
+            CuteSvPolicy(
+                profile_id="synthetic-cutesv-qualification",
+                status="technical_defaults_only",
+                note="Synthetic unresolved-executable regression only.",
+            ),
+            reference_fasta=reference,
+            output_vcf=tmp_path / "calls.vcf",
+            runner=runner,
+            cutesv=str(executable),
+        )
+
+    assert runner.calls == 0
+    assert runner.analysis_calls == 0
+    assert not (tmp_path / "calls.vcf").exists()
+    assert not scratch.exists()
