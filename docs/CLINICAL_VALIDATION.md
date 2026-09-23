@@ -16,7 +16,14 @@ original annotations; below the fixed `0.8` class threshold the decision is `UNK
 Every outcome remains `UNVALIDATED_RESEARCH`, including `HIGH_CONFIDENCE` predictions.
 
 Technical controls bind sample/run/build, input and output bytes, exact tool identity, the complete
-relocated runtime inventory, source code, thread plan and network confinement. Stock modkit
+relocated runtime inventory, source code, thread plan and network confinement. The runtime archive
+and independently qualified installed-manifest identities are pinned outside the editable
+installation configuration; an updated self-supplied manifest cannot qualify altered code or
+an arbitrary relocation. Desktop readiness executes no unverified runtime. The selected BAM
+index must match the intake SHA-256, has no competing distinct adjacent index, and is rechecked
+before/after pileup and before completed or NO_CALL outcomes. The reference `.fai` has the same
+fingerprint/stability checks; compressed references requiring `.gzi` are outside this qualified
+adapter. Approved runtime directory links are checked alongside file bytes. Stock modkit
 0.6.4 remains blocked for independent cytosine MM groups; only the separately qualified exact
 PR #709 binary may process them. Errors and partial/stale output produce unavailable predictions,
 not a biological negative. Other available modules remain reportable under their existing rules.

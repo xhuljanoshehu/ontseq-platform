@@ -178,3 +178,99 @@ def test_tampered_or_missing_current_marlin_evidence_rejected(tmp_path):
     path.unlink()
     with pytest.raises(ValueError, match="missing"):
         load_marlin_report(ctx)
+
+
+def test_marlin_resume_plan_rehashes_inputs_even_if_metadata_is_restored(tmp_path):
+    import hashlib
+    import os
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from ontseq_platform.marlin_native_contracts import NativeMarlinReadiness
+    from ontseq_platform.pipeline.marlin import marlin_plan
+
+    ctx, _ = completed_context(tmp_path)
+    bam = tmp_path / "synthetic.bam"
+    index = tmp_path / "synthetic.bam.bai"
+    reference = tmp_path / "synthetic.fa"
+    reference_fai = Path(str(reference) + ".fai")
+    installation = tmp_path / "installation.json"
+    for path in (bam, index, reference, reference_fai, installation):
+        path.write_bytes(b"first")
+    ctx.manifest.input.path = str(bam)
+    ctx.manifest.input.index_path = str(index)
+    ctx.config.reference_fasta = reference
+    ctx.config.marlin_installation = installation
+    with (
+        patch(
+            "ontseq_platform.marlin_native.check_native_marlin_readiness",
+            return_value=NativeMarlinReadiness(ready=True, reason="synthetic"),
+        ),
+        patch(
+            "ontseq_platform.marlin_native.native_marlin_signature",
+            return_value={"model": "a" * 64},
+        ),
+        patch(
+            "ontseq_platform.pipeline.marlin.identify_modkit_binary",
+            return_value=SimpleNamespace(parameters=lambda: {}),
+        ),
+    ):
+        original = dict(marlin_plan(ctx).external_inputs)
+        for label, path in [
+            ("marlin_bam", bam),
+            ("marlin_bam_index", index),
+            ("marlin_reference", reference),
+            ("marlin_reference_fai", reference_fai),
+        ]:
+            stamp = path.stat()
+            path.write_bytes(b"other")
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            changed = dict(marlin_plan(ctx).external_inputs)
+            assert changed[label] == hashlib.sha256(b"other").hexdigest()
+            assert changed[label] != original[label]
+
+
+def test_execution_rejects_reference_that_changed_after_plan_before_publication(tmp_path):
+    from unittest.mock import patch
+
+    import pytest
+    from test_marlin_report_presentation import native_report
+
+    from ontseq_platform.models import AlignedBamIntakeReport
+    from ontseq_platform.pipeline.marlin import MARLIN_REPORT, marlin_execute
+    from ontseq_platform.pipeline.runner import INTAKE_REPORT, StageFailure, StagePlan
+
+    ctx, result = completed_context(tmp_path)
+    report = native_report(result)
+    ctx.config.marlin_installation = tmp_path / "installation.json"
+    ctx.config.reference_fasta = tmp_path / "synthetic.fa"
+    intake = AlignedBamIntakeReport(
+        sample_id=ctx.sample_id,
+        reference_id=ctx.manifest.assay.reference_id,
+        genome_build=ctx.manifest.assay.genome_build,
+        checks=[],
+        verdict="PASS",
+    )
+    ctx.envelope.atomic_write_text(INTAKE_REPORT, intake.model_dump_json())
+    artifact = ctx.envelope.path(ctx.path(MARLIN_REPORT))
+    artifact.unlink()
+    for key in ("bam", "bam_index", "reference", "reference_fai"):
+        planned = {
+            "marlin_" + name: value.sha256 for name, value in report.input_fingerprints.items()
+        }
+        planned["marlin_" + key] = "e" * 64
+        plan = StagePlan(
+            parameters={"requested": True, "installation_signature": {"model": "a" * 64}},
+            tool_versions={},
+            external_inputs=tuple(planned.items()),
+        )
+        with (
+            patch(
+                "ontseq_platform.marlin_native.native_marlin_signature",
+                return_value={"model": "a" * 64},
+            ),
+            patch("ontseq_platform.marlin_native.run_native_marlin", return_value=report),
+            pytest.raises(StageFailure, match=key + " differs from its planned"),
+        ):
+            marlin_execute(ctx, plan)
+        assert not artifact.exists()

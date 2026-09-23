@@ -52,6 +52,28 @@ _WORKER = Path(__file__).with_name("_marlin_native_worker.py")
 _MAX_BYTES = 128 * 1024 * 1024
 _MAX_ROWS = 2_000_000
 _FEATURE_COUNT = 357340
+_APPROVED_RUNTIME_ARCHIVE_SHA256 = (
+    "b812927398645d3abaa3a56622bbf1b3279b70ff25067f42040d450083c822c6"
+)
+# Independently byte-verified restoration/relocation receipts, not installation self-attestation.
+# Each exact manifest binds the complete file set, installed bytes and absolute runtime prefix.
+_QUALIFIED_RUNTIME_PROFILES = {
+    "1f7d1d996b06b851ab4116162bfff86ef9e86ec13ed1cf9e86de7ebfcb09250b": (
+        "marlin-native-durable-linux-cpu-v1",
+        "3.10.21",
+    ),
+    "b97f0b2468923415584b756306ed95ec5941d3b26ecb423095a2ac9135b7a461": (
+        "marlin-native-source-linux-cpu-v1",
+        "3.10.21",
+    ),
+}
+# Relative directory links from the approved conda-pack archive; regular/file-link bytes
+# are already covered by the pinned inventory. These links must not bypass enumeration.
+_QUALIFIED_DIRECTORY_LINKS = {
+    "lib/python3.1": "python3.10",
+    "lib/terminfo": "../share/terminfo",
+    "lib/icu/current": "78.3",
+}
 _FEATURES_SHA256 = "9c271460d790d207ce91abaa28c6834d52dde8fe21dc4529033b14c7bb3cc4f5"
 _CLASSES_SHA256 = "976ad5fdf347ac4513a39a3e565dee318990b0400c7f35b7cb13e32eeb64afc3"
 _PROBE_SHA256 = {
@@ -148,6 +170,36 @@ def encode_native_features(
     return tuple(0 if f not in fractions else 1 if fractions[f] >= 0.5 else -1 for f in features)
 
 
+def selected_marlin_bam_index(manifest: SampleManifest) -> Path:
+    """Bind the manifest-selected index and reject ambiguous HTSlib auto-discovery."""
+    if manifest.input.kind != InputKind.ALIGNED_BAM or not manifest.input.index_path:
+        raise ValueError("MARLIN requires an explicitly selected aligned-BAM index")
+    bam = Path(manifest.input.path).absolute()
+    selected = Path(manifest.input.index_path).resolve(strict=True)
+    if not selected.is_file():
+        raise ValueError("MARLIN selected BAM index must be a readable file")
+    candidates: set[Path] = set()
+    for bam_name in {bam, bam.resolve(strict=True)}:
+        for suffix in (".bai", ".csi"):
+            candidates.update((Path(str(bam_name) + suffix), bam_name.with_suffix(suffix)))
+    available: set[Path] = set()
+    for candidate in candidates:
+        if candidate.exists() or candidate.is_symlink():
+            if not candidate.is_file():
+                raise ValueError("MARLIN found an unreadable adjacent BAM index")
+            available.add(candidate.resolve(strict=True))
+    if selected not in available:
+        raise ValueError(
+            "MARLIN selected index must use a supported adjacent BAM .bai/.csi filename"
+        )
+    if available != {selected}:
+        raise ValueError(
+            "MARLIN found competing adjacent BAM indexes; retain only the selected "
+            "BAI/CSI (or links to that same file) before running modkit"
+        )
+    return selected
+
+
 def _asset_path(path: str, installation_path: Path) -> Path:
     p = Path(path)
     return p if p.is_absolute() else installation_path.parent / p
@@ -159,6 +211,14 @@ def _load_installation(path: Path, build: GenomeBuild) -> NativeMarlinInstallati
             "MARLIN installation.json is missing; install the MARLIN resource kit"
         )
     installation = NativeMarlinInstallation.model_validate_json(path.read_text(encoding="utf-8"))
+    if installation.runtime_archive_sha256 != _APPROVED_RUNTIME_ARCHIVE_SHA256:
+        raise ValueError("MARLIN installation does not pin the approved runtime archive")
+    qualified = _QUALIFIED_RUNTIME_PROFILES.get(installation.runtime_manifest.sha256)
+    if qualified is None or installation.python_version != qualified[1]:
+        raise ValueError(
+            "MARLIN requires an independently qualified runtime inventory and prefix; "
+            "a rehashed installation manifest cannot qualify a new runtime or relocation"
+        )
     if installation.model.sha256 != MODEL_SHA256:
         raise ValueError("MARLIN installation does not pin the approved original model")
     if build not in installation.probe_maps:
@@ -180,7 +240,10 @@ def _load_installation(path: Path, build: GenomeBuild) -> NativeMarlinInstallati
     for asset in assets:
         if not _asset_path(asset.path, path).is_file():
             raise FileNotFoundError(f"MARLIN installed asset is missing: {asset.path}")
-    if not Path(installation.python_executable).is_absolute():
+    executable = Path(installation.python_executable)
+    if executable.name != "python" or executable.parent.name != "bin":
+        raise ValueError("MARLIN requires the bin/python executable of a qualified runtime")
+    if not executable.is_absolute():
         raise ValueError("MARLIN Python executable must be an absolute path")
     if not Path(installation.python_executable).is_file():
         raise FileNotFoundError("MARLIN isolated Python runtime is missing")
@@ -214,13 +277,15 @@ def check_native_marlin_readiness(
     if installation_path is None:
         return NativeMarlinReadiness(ready=False, reason="MARLIN installation is not configured")
     try:
-        installation = _load_installation(installation_path, genome_build)
-        _preflight(installation)
+        _load_installation(installation_path, genome_build)
     except (OSError, ValueError, ToolExecutionError) as exc:
         return NativeMarlinReadiness(ready=False, reason=str(exc))
     return NativeMarlinReadiness(
         ready=True,
-        reason="MARLIN research runtime available; asset hashes are verified before execution",
+        reason=(
+            "MARLIN research runtime configured; installed bytes and execution are not yet "
+            "verified. Full verification and confinement preflight run before analysis."
+        ),
     )
 
 
@@ -239,6 +304,9 @@ def native_marlin_signature(installation_path: Path, genome_build: GenomeBuild) 
         "tensorflow_version": installation.tensorflow_version,
         "keras_version": installation.keras_version,
         "confinement": installation.confinement,
+        "qualified_runtime_profile": _QUALIFIED_RUNTIME_PROFILES[
+            installation.runtime_manifest.sha256
+        ][0],
     }
     for name, asset in (
         ("model", installation.model),
@@ -263,7 +331,17 @@ def native_marlin_signature(installation_path: Path, genome_build: GenomeBuild) 
     ):
         raise ValueError("MARLIN runtime manifest must include the selected Python executable")
     runtime_root = Path(installation.python_executable).parent.parent
-    inventory = {str(p) for p in runtime_root.rglob("*") if p.is_file()}
+    runtime_entries = tuple(runtime_root.rglob("*"))
+    if any(p.is_symlink() and not p.exists() for p in runtime_entries):
+        raise ValueError("MARLIN qualified runtime contains a dangling link")
+    directory_links = {
+        str(p.relative_to(runtime_root)): str(p.readlink())
+        for p in runtime_entries
+        if p.is_symlink() and p.is_dir()
+    }
+    if directory_links != _QUALIFIED_DIRECTORY_LINKS:
+        raise ValueError("MARLIN runtime directory link map differs from the approved archive")
+    inventory = {str(p) for p in runtime_entries if p.is_file()}
     if inventory != set(runtime_files):
         raise ValueError("MARLIN runtime file inventory differs from locked manifest")
     for name, digest in runtime_files.items():
@@ -282,6 +360,18 @@ def native_marlin_signature(installation_path: Path, genome_build: GenomeBuild) 
 
 def _fingerprint(path: Path) -> FileFingerprint:
     return FileFingerprint(size_bytes=path.stat().st_size, sha256=sha256_file(path))
+
+
+def _verify_selected_index(
+    manifest: SampleManifest, index: Path, expected: FileFingerprint
+) -> None:
+    if selected_marlin_bam_index(manifest) != index or _fingerprint(index) != expected:
+        raise ValueError("MARLIN selected BAM index changed during execution")
+
+
+def _verify_reference_fai(reference_fasta: Path, expected: FileFingerprint) -> None:
+    if _fingerprint(Path(str(reference_fasta) + ".fai")) != expected:
+        raise ValueError("MARLIN reference FAI changed during execution")
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -393,8 +483,23 @@ def run_native_marlin(
             raise ValueError("MARLIN threads must be positive")
         model_threads = min(threads, 8)
         bam = Path(manifest.input.path)
+        with reference_fasta.open("rb") as reference_handle:
+            compressed = reference_handle.read(2) == b"\x1f\x8b"
+        if compressed or reference_fasta.suffix.lower() in {".gz", ".bgz", ".bgzf"}:
+            raise ValueError(
+                "MARLIN requires uncompressed reference FASTA; "
+                "compressed FASTA/GZI is not qualified"
+            )
+        fingerprints["reference_fai"] = _fingerprint(Path(str(reference_fasta) + ".fai"))
         fingerprints["bam"] = _fingerprint(bam)
         fingerprints["reference"] = _fingerprint(reference_fasta)
+        index = selected_marlin_bam_index(manifest)
+        fingerprints["bam_index"] = _fingerprint(index)
+        if intake.index_fingerprint is None or intake.index_fingerprint.sha256 is None:
+            raise ValueError("MARLIN requires an intake BAM-index fingerprint with SHA256")
+        if fingerprints["bam_index"] != intake.index_fingerprint:
+            raise ValueError("MARLIN BAM index differs from accepted intake fingerprint")
+        provenance["bam_index_path"] = str(index)
         if intake.input_fingerprint is not None and (
             intake.input_fingerprint.size_bytes != fingerprints["bam"].size_bytes
             or (
@@ -495,7 +600,11 @@ def run_native_marlin(
         )
         if identify_modkit_binary(modkit).sha256 != binary.sha256:
             raise ValueError("modkit binary changed during MARLIN preflight")
+        _verify_selected_index(manifest, index, fingerprints["bam_index"])
+        _verify_reference_fai(reference_fasta, fingerprints["reference_fai"])
         result = runner.run(argv, timeout_seconds=14400)
+        _verify_selected_index(manifest, index, fingerprints["bam_index"])
+        _verify_reference_fai(reference_fasta, fingerprints["reference_fai"])
         if identify_modkit_binary(modkit).sha256 != binary.sha256:
             raise ValueError("modkit binary changed during MARLIN pileup")
         if result.returncode or _modkit_failed_processing_count(log, result.stdout, result.stderr):
@@ -615,6 +724,8 @@ def run_native_marlin(
             raise ValueError("MARLIN input changed during execution")
         if native_marlin_signature(installation_path, manifest.assay.genome_build) != signature:
             raise ValueError("MARLIN installation changed during execution")
+        _verify_selected_index(manifest, index, fingerprints["bam_index"])
+        _verify_reference_fai(reference_fasta, fingerprints["reference_fai"])
     except (OSError, ValueError, KeyError, TypeError, ToolExecutionError) as exc:
         report = NativeMarlinReport(
             **base,

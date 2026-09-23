@@ -141,6 +141,14 @@ def installation_fixture(tmp_path, monkeypatch):
     path = tmp_path / "installation.json"
     path.write_text(json.dumps(config))
     monkeypatch.setattr(native, "MODEL_SHA256", sha256_file(model))
+    monkeypatch.setattr(
+        native, "_APPROVED_RUNTIME_ARCHIVE_SHA256", config["runtime_archive_sha256"]
+    )
+    monkeypatch.setattr(
+        native,
+        "_QUALIFIED_RUNTIME_PROFILES",
+        {sha256_file(runtime_manifest): ("synthetic-qualified", "3.10.21")},
+    )
     monkeypatch.setattr(native, "_FEATURES_SHA256", sha256_file(features))
     monkeypatch.setattr(native, "_CLASSES_SHA256", sha256_file(classes))
     monkeypatch.setattr(
@@ -148,6 +156,7 @@ def installation_fixture(tmp_path, monkeypatch):
         "_PROBE_SHA256",
         {GenomeBuild.GRCH38: sha256_file(probes), GenomeBuild.GRCH37: "b" * 64},
     )
+    monkeypatch.setattr(native, "_QUALIFIED_DIRECTORY_LINKS", {})
     monkeypatch.setattr(native, "_preflight", lambda installation: None)
     return path, config
 
@@ -194,7 +203,28 @@ def test_probe_map_cannot_be_relabelled_to_other_build(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "mode", ["empty", "worker-failure", "low", "high", "nan", "stock-independent"]
+    "mode",
+    [
+        "empty",
+        "worker-failure",
+        "low",
+        "high",
+        "nan",
+        "stock-independent",
+        "index-missing-proof",
+        "index-mismatch",
+        "index-before-pileup",
+        "index-during-pileup",
+        "index-during-worker",
+        "index-during-empty",
+        "index-missing-sha",
+        "reference-fai-missing",
+        "reference-fai-before-pileup",
+        "reference-fai-during-pileup",
+        "reference-fai-during-worker",
+        "reference-fai-during-empty",
+        "compressed-reference",
+    ],
 )
 def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
     import hashlib
@@ -208,19 +238,66 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
 
     installation_path, config = installation_fixture(tmp_path, monkeypatch)
     manifest, intake = AdapterTests()._fixture(tmp_path)
+    index = Path(manifest.input.index_path)
+    index.write_bytes(b"original index bytes")
+    intake = intake.model_copy(update={"index_fingerprint": native._fingerprint(index)})
+    if mode == "index-missing-proof":
+        intake = intake.model_copy(update={"index_fingerprint": None})
+    elif mode == "index-mismatch":
+        intake = intake.model_copy(
+            update={
+                "index_fingerprint": intake.index_fingerprint.model_copy(
+                    update={"sha256": "0" * 64}
+                )
+            }
+        )
+    if mode == "index-missing-sha":
+        intake = intake.model_copy(
+            update={
+                "index_fingerprint": intake.index_fingerprint.model_copy(update={"sha256": None})
+            }
+        )
+    fai = tmp_path / "reference.fa.fai"
+    fai.write_text("chr1\t6\t6\t6\t7\n")
+    if mode == "reference-fai-missing":
+        fai.unlink()
+    if mode == "compressed-reference":
+        (tmp_path / "reference.fa").write_bytes(b"\x1f\x8bnot-qualified")
     output = tmp_path / "output"
+
+    def mutate_index():
+        import os
+
+        dependency = fai if mode.startswith("reference-fai-") else index
+        before = dependency.stat()
+        dependency.write_bytes(b"x" * before.st_size)
+        os.utime(dependency, ns=(before.st_atime_ns, before.st_mtime_ns))
+
     commands = []
 
     class Runner:
         def run(self, argv, *, timeout_seconds=300):
             commands.append(list(argv))
             if argv[1] == "--version":
+                if mode in {"index-before-pileup", "reference-fai-before-pileup"}:
+                    mutate_index()
                 return CommandResult(tuple(argv), 0, "modkit 0.6.4", "")
             if argv[1] == "view":
                 text = "1" if argv[-2] == "[MM]" or mode == "stock-independent" else "0"
                 return CommandResult(tuple(argv), 0, text, "")
             if argv[1] == "pileup":
-                Path(argv[3]).write_text("" if mode == "empty" else row(10, 1, 2))
+                Path(argv[3]).write_text(
+                    ""
+                    if mode in {"empty", "index-during-empty", "reference-fai-during-empty"}
+                    else row(10, 1, 2)
+                )
+                if mode in {
+                    "index-during-pileup",
+                    "index-during-empty",
+                    "reference-fai-during-pileup",
+                    "reference-fai-during-empty",
+                }:
+                    mutate_index()
                 return CommandResult(tuple(argv), 0, "", "")
             worker_config = json.loads(Path(argv[-1]).read_text())
             values = [1 / 42] * 42 if mode == "low" else [0.8] + [0.2 / 41] * 41
@@ -238,6 +315,8 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
                 "score_vector_sha256": hashlib.sha256(struct.pack("<42f", *values)).hexdigest(),
             }
             Path(worker_config["output_path"]).write_text(json.dumps(payload))
+            if mode in {"index-during-worker", "reference-fai-during-worker"}:
+                mutate_index()
             return CommandResult(
                 tuple(argv),
                 1 if mode == "worker-failure" else 0,
@@ -263,15 +342,32 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
         assert report.feature_summary.observed_model_feature_count == 0
         assert not (output / "worker-config.json").exists()
         assert report.raw_model_scores == []
-    elif mode in {"worker-failure", "nan", "stock-independent"}:
+    elif mode.startswith(("index-", "reference-fai-")) or mode in {
+        "worker-failure",
+        "nan",
+        "stock-independent",
+        "compressed-reference",
+    }:
         assert report.status == ModuleRunStatus.FAILED, report.reason
         assert report.feature_summary is None
         assert report.top_class is None
         assert report.raw_model_scores == []
-        if mode == "stock-independent":
+        if mode in {
+            "stock-independent",
+            "index-missing-proof",
+            "index-mismatch",
+            "index-before-pileup",
+            "index-missing-sha",
+            "reference-fai-missing",
+            "reference-fai-before-pileup",
+            "compressed-reference",
+        }:
             assert not any(c[1] == "pileup" for c in commands)
+        if mode.startswith("index-"):
+            assert "index" in report.reason.lower()
     else:
         assert report.status == ModuleRunStatus.COMPLETED, report.reason
+        assert report.input_fingerprints["bam_index"] == intake.index_fingerprint
         assert len(report.raw_model_scores) == 42
         assert len(report.class_scores) == 42
         assert len(report.family_scores) == 3
@@ -281,6 +377,14 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
         pileup_command = next(c for c in commands if c[1] == "pileup")
         assert pileup_command[pileup_command.index("--modified-bases") + 1 :][:2] == ["5mC", "5hmC"]
         assert "--combine-mods" in pileup_command
+    if mode in {"low", "high", "empty"}:
+        assert report.input_fingerprints["reference_fai"] == native._fingerprint(fai)
+        assert report.input_fingerprints["bam_index"] == intake.index_fingerprint
+        for dependency in ("bam_index", "reference_fai"):
+            incomplete = report.model_dump(mode="json")
+            del incomplete["input_fingerprints"][dependency]
+            with pytest.raises(ValueError, match="input fingerprints"):
+                NativeMarlinReport.model_validate(incomplete)
     again = native.run_native_marlin(
         run_id=manifest.run_id,
         manifest=manifest,
@@ -295,3 +399,84 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
     )
     assert again.status == ModuleRunStatus.FAILED
     assert again.top_class is None
+
+
+@pytest.mark.parametrize("change", ["archive", "self-rehashed-runtime", "python-path"])
+def test_runtime_identity_cannot_self_qualify(tmp_path, monkeypatch, change):
+    import json
+
+    from ontseq_platform.marlin_native import native_marlin_signature
+    from ontseq_platform.reference import sha256_file
+
+    path, config = installation_fixture(tmp_path, monkeypatch)
+    if change == "archive":
+        config["runtime_archive_sha256"] = "c" * 64
+    elif change == "python-path":
+        selected = Path(config["python_executable"])
+        other = selected.with_name("python-other")
+        other.write_bytes(selected.read_bytes())
+        config["python_executable"] = str(other)
+    else:
+        python = Path(config["python_executable"])
+        python.write_bytes(b"self-consistent replacement runtime with unchanged version metadata")
+        manifest = Path(config["runtime_manifest"]["path"])
+        manifest.write_text(json.dumps({str(python): sha256_file(python)}))
+        config["runtime_manifest"]["sha256"] = sha256_file(manifest)
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="approved runtime archive|qualified runtime"):
+        native_marlin_signature(path, GenomeBuild.GRCH38)
+
+
+def test_selected_index_refuses_competing_or_unrelated_files(tmp_path):
+    from test_methylation import AdapterTests
+
+    from ontseq_platform.marlin_native import selected_marlin_bam_index
+
+    manifest, _ = AdapterTests()._fixture(tmp_path)
+    expected = Path(manifest.input.index_path)
+    assert selected_marlin_bam_index(manifest) == expected.resolve()
+    other = Path(manifest.input.path).with_suffix(".csi")
+    other.write_bytes(b"different index")
+    with pytest.raises(ValueError, match="competing"):
+        selected_marlin_bam_index(manifest)
+    other.unlink()
+    unrelated = tmp_path / "other.bai"
+    unrelated.write_bytes(b"other")
+    altered = manifest.model_copy(
+        update={"input": manifest.input.model_copy(update={"index_path": str(unrelated)})}
+    )
+    with pytest.raises(ValueError, match="adjacent"):
+        selected_marlin_bam_index(altered)
+
+
+def test_readiness_never_executes_unverified_runtime(tmp_path, monkeypatch):
+    from ontseq_platform import marlin_native as native
+    from ontseq_platform.execution import SubprocessRunner
+
+    path, config = installation_fixture(tmp_path, monkeypatch)
+    Path(config["python_executable"]).write_bytes(b"tampered executable, not yet verified")
+
+    def unexpected_execution(*args, **kwargs):
+        raise AssertionError("Readiness must never execute an unverified runtime")
+
+    monkeypatch.setattr(native, "_preflight", unexpected_execution)
+    monkeypatch.setattr(SubprocessRunner, "run", unexpected_execution)
+    readiness = native.check_native_marlin_readiness(path, GenomeBuild.GRCH38)
+    assert readiness.ready
+    assert "not yet verified" in readiness.reason
+    with pytest.raises(ValueError, match="checksum"):
+        native.native_marlin_signature(path, GenomeBuild.GRCH38)
+
+
+def test_runtime_directory_symlink_injection_refused(tmp_path, monkeypatch):
+    from ontseq_platform.marlin_native import native_marlin_signature
+
+    path, config = installation_fixture(tmp_path, monkeypatch)
+    target = tmp_path / "unqualified_imports"
+    target.mkdir()
+    (target / "payload.py").write_text("# synthetic extra importable module")
+    (Path(config["python_executable"]).parent.parent / "unexpected").symlink_to(
+        target, target_is_directory=True
+    )
+    with pytest.raises(ValueError, match="directory.*link"):
+        native_marlin_signature(path, GenomeBuild.GRCH38)

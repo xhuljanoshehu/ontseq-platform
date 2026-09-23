@@ -49,7 +49,15 @@ def native_report(result, status="COMPLETED", score=0.6, label="SYNTHETIC_CLASS"
             installation_signature={"model": "c" * 64},
             input_fingerprints={
                 key: dict(size_bytes=1, sha256="d" * 64)
-                for key in ("bam", "reference", "bedmethyl", "tensor", "worker_output")
+                for key in (
+                    "bam",
+                    "bam_index",
+                    "reference_fai",
+                    "reference",
+                    "bedmethyl",
+                    "tensor",
+                    "worker_output",
+                )
             },
             decision="UNKNOWN",
         )

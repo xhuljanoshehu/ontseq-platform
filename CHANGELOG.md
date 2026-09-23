@@ -17,6 +17,12 @@ validated release.
   provenance and resume signatures. Missing setup is `NOT_RUN`; parser/process errors are `FAILED`;
   zero observed features are `NO_CALL` without inference. Scores below `0.8` remain `UNKNOWN`,
   and stale or deselected results are excluded without failing other available modules.
+- Bind runtime acceptance to the approved archive and independently qualified full installed
+  inventories; reject self-registered runtime changes and unqualified relocations. Keep readiness
+  non-executing until the stage verifies runtime bytes. Bind the selected BAM index to intake,
+  reject competing adjacent indexes, and recheck its exact bytes around execution and resume.
+  Bind the reference FAI as an input dependency, refuse unqualified compressed references, and
+  verify the approved runtime directory-symlink map alongside the complete file inventory.
 - Validation impact: MARLIN can now add original-model scores to research reports for either
   supported build. All predictions remain `UNVALIDATED_RESEARCH`. Real synthetic BAM/modkit/model
   acceptance checks count/tensor transfer and numerical execution; it establishes no analytical

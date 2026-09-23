@@ -100,7 +100,10 @@ class NativeMarlinReport(StrictModel):
             return self
         if self.feature_summary is None or not self.tools or not self.installation_signature:
             raise ValueError("MARLIN outcome requires feature, tool and installation evidence")
-        if not {"bam", "reference", "bedmethyl", "tensor"} <= self.input_fingerprints.keys():
+        if (
+            not {"bam", "bam_index", "reference", "reference_fai", "bedmethyl", "tensor"}
+            <= self.input_fingerprints.keys()
+        ):
             raise ValueError("MARLIN outcome requires exact input fingerprints")
         if any(v.sha256 is None for v in self.input_fingerprints.values()):
             raise ValueError("MARLIN input fingerprint requires SHA256")

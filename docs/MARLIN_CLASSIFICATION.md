@@ -44,8 +44,10 @@ artifacts and must be established before biological validation begins.
 
 ## Automatic native research path
 
-Selecting methylation also requests the MARLIN stage in the normal analysis. Desktop preflight
-shows whether the separate runtime and build-matched resources are available. A missing
+Selecting methylation also requests the MARLIN stage in the normal analysis. Desktop readiness
+checks configuration, expected resource presence and a declared independently qualified runtime
+profile without executing that runtime. Its message explicitly states that installed bytes and
+execution are not yet verified. The analysis stage verifies all bytes before runtime preflight. A missing
 installation becomes `NOT_RUN` with a reason; a parser, checksum, modkit or worker failure becomes
 `FAILED`. MARLIN failure does not turn available CNV/SV results into failures. Deselecting
 methylation excludes MARLIN, including leftover artifacts, from the current report.
@@ -53,7 +55,14 @@ methylation excludes MARLIN, including leftover artifacts, from the current repo
 The adapter accepts directly aligned GRCh37/hg19 and GRCh38/hg38 BAMs with verified modified-base
 information. It chooses the original probe map bound to that build by a fixed SHA-256. No
 realignment or liftover is performed. The native adapter checks sample, reference and intake
-identity before executing a separate model-probe pileup:
+identity before executing a separate model-probe pileup. The selected adjacent BAI/CSI must
+match the intake's required SHA-256 fingerprint; competing distinct BAM-adjacent indexes are
+refused rather than left to modkit's index search order. Its exact bytes and resolved selection
+are checked again immediately before and after pileup and before any final outcome, including
+`NO_CALL`. The reference's adjacent `.fai` is likewise mandatory, fingerprinted and rechecked;
+compressed references are refused because their additional `.gzi` dependency is not qualified.
+Both index fingerprints are mandatory in concluded native reports and resume signatures:
+
 
 ```text
 modkit 0.6.4 pileup --modified-bases 5mC 5hmC --combine-mods --cpg
@@ -78,7 +87,8 @@ When no model feature is observed, the result is `NO_CALL`, with decision `UNKNO
 and no model execution. Otherwise the separate Python 3.10 / TensorFlow CPU 2.13.1 / Keras 2.13.1
 worker checks the original model SHA-256, exact tensor hash and input/output shapes. It loads
 with `compile=False` and evaluates with `training=False`. Linux seccomp denies network syscalls
-before TensorFlow imports; preflight exercises that kernel rule. GPU visibility is disabled,
+before TensorFlow imports; execution preflight exercises that kernel rule only after full
+runtime byte verification. GPU visibility is disabled,
 model intra-op threads are capped at eight, and inter-op threads are fixed at one.
 
 Exactly 42 finite model scores are grouped using the original XLSX annotations into current
@@ -88,9 +98,10 @@ classes, families and lineages. A leading grouped class at or above `0.8` receiv
 
 ### Installation and provenance
 
-The resource kit supplies `<resource-root>/marlin/installation.json`; a separate installation
-can be selected with `--marlin-installation` for `run`, `analyze` or `serve`. A durable Linux
-runtime may live at `~/.local/share/ontseq/marlin-native-1.0.0/env`. TensorFlow is not added to
+The resource kit supplies `<resource-root>/marlin/installation.json`; a separately qualified
+installation can be selected with `--marlin-installation` for `run`, `analyze` or `serve`.
+The currently qualified durable Linux layout uses `marlin-native-1.0.0/env` under the local
+ONTSeq runtime root. TensorFlow is not added to
 the ONTSeq control-plane environment. Local installation retains the model's CC BY 4.0
 attribution, MARLIN's MIT license text and the runtime dependency notices. Archive extraction
 checks member paths, types, links and size before restoring the runtime; relocation completes
@@ -104,10 +115,22 @@ before the final file inventory is generated. The installation contract records:
   regenerated after relocation to the final absolute prefix.
 
 The model identity is `6210a674a0e7690b7b6c03184f5732a65037cf00ff4383e1892f26e90fdcb217`.
+Runtime trust is independent of that installation JSON. The approved archive is fixed at
+SHA-256 `b812927398645d3abaa3a56622bbf1b3279b70ff25067f42040d450083c822c6`. Two separately
+verified installed-inventory identities are supported: `marlin-native-durable-linux-cpu-v1`
+(manifest SHA-256 `1f7d1d996b06b851ab4116162bfff86ef9e86ec13ed1cf9e86de7ebfcb09250b`) and
+`marlin-native-source-linux-cpu-v1`
+(`b97f0b2468923415584b756306ed95ec5941d3b26ecb423095a2ac9135b7a461`). Those manifests bind
+absolute runtime prefixes as well as bytes. Matching version banners and regenerating a
+self-supplied manifest cannot qualify changed code or a new prefix. A new relocation requires
+separate archive restoration, byte/inference qualification and reviewed registration of its
+inventory digest; generic portability to arbitrary prefixes is not claimed.
+
 The native report (`native-marlin.json`) binds run/sample/build, feature summary, tools,
-parameters, installation signature, and exact BAM/reference/pileup/tensor/worker fingerprints.
+parameters, installation signature, and exact BAM/index/reference/FAI/pileup/tensor/worker fingerprints.
 Every signature request verifies actual installed bytes, including resume; added or missing
-runtime files invalidate the inventory. Source hashes identify the adapter, contracts and worker.
+runtime files invalidate the inventory. The exact relative directory-symlink map from the approved
+archive is also checked, preventing links from bypassing file enumeration. Source hashes identify the adapter, contracts and worker.
 An existing nonempty stage directory is not overwritten. Failed outputs remain diagnostic
 artifacts and contribute no current prediction. Archived reports remain unchanged.
 

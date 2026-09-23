@@ -7,6 +7,7 @@ from the current run record, never from a leftover file from an earlier attempt.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..marlin_native_contracts import NativeMarlinReport
@@ -32,8 +33,12 @@ def requested(ctx: RunContext) -> bool:
 
 
 def marlin_plan(ctx: RunContext) -> StagePlan:
-    from ..marlin_native import check_native_marlin_readiness, native_marlin_signature
-    from .runner import StagePlan
+    from ..marlin_native import (
+        check_native_marlin_readiness,
+        native_marlin_signature,
+        selected_marlin_bam_index,
+    )
+    from .runner import StageFailure, StagePlan, _stable_digest
 
     if not requested(ctx):
         return StagePlan(parameters={"requested": False}, tool_versions={})
@@ -52,6 +57,18 @@ def marlin_plan(ctx: RunContext) -> StagePlan:
     assert installation is not None
     signature = native_marlin_signature(installation, ctx.manifest.assay.genome_build)
     binary = identify_modkit_binary(ctx.config.executable("modkit"))
+    inputs = []
+    for label, path in (
+        ("marlin_bam", Path(ctx.manifest.input.path)),
+        ("marlin_bam_index", selected_marlin_bam_index(ctx.manifest)),
+        ("marlin_reference", ctx.config.reference_fasta),
+        ("marlin_reference_fai", Path(str(ctx.config.reference_fasta) + ".fai")),
+    ):
+        # Resume must see current bytes, even when size and modification time were preserved.
+        digest, stable = _stable_digest(path)
+        if not stable:
+            raise StageFailure(f"{label} changed while MARLIN inputs were fingerprinted")
+        inputs.append((label, digest))
     return StagePlan(
         parameters={
             "requested": True,
@@ -61,8 +78,8 @@ def marlin_plan(ctx: RunContext) -> StagePlan:
         },
         tool_versions={"MARLIN": "1.0.0"},
         external_inputs=(
+            *inputs,
             ctx.fingerprint_external_input(installation, label="marlin_installation"),
-            ctx.fingerprint_external_input(ctx.config.reference_fasta, label="marlin_reference"),
         ),
     )
 
@@ -118,6 +135,11 @@ def marlin_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         != plan.parameters["installation_signature"]
     ):
         raise StageFailure("MARLIN installation changed during execution")
+    planned_inputs = dict(plan.external_inputs)
+    for key in ("bam", "bam_index", "reference", "reference_fai"):
+        actual = report.input_fingerprints.get(key)
+        if actual is None or actual.sha256 != planned_inputs.get("marlin_" + key):
+            raise StageFailure(f"MARLIN {key} differs from its planned input fingerprint")
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(MARLIN_REPORT), report.model_dump_json(indent=2) + "\n"
     )
