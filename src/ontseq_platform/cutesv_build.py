@@ -65,9 +65,14 @@ def executable_identity(executable: str) -> dict[str, str]:
 
 
 def prepare_executable(executable: str, directory: Path, expected: dict[str, str]) -> str:
-    """Stage a verified copy, preserving the installed interpreter and all imports."""
+    """Stage a verified and qualified copy for the standard SV lane."""
     if executable_identity(executable) != expected:
         raise ValueError("cuteSV executable changed before execution")
+    if expected and (
+        expected.get("cutesv_build_id") != BUILD_ID
+        or expected.get("cutesv_execution_body_sha256") != FIXED_BODY_SHA256
+    ):
+        raise ValueError("cuteSV executable body is not qualified for the standard SV lane")
     resolved = shutil.which(executable)
     if resolved is None or expected.get("cutesv_source_body_sha256") not in {
         STOCK_BODY_SHA256,
