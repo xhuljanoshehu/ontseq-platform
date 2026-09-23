@@ -14,4 +14,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="wsl_drive_recovery.py" />
+  </ItemGroup>
 </Project>

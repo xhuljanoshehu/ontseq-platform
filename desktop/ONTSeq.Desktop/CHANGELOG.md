@@ -1,5 +1,16 @@
 # ONTSeq Desktop changelog
 
+## Unreleased — connection restart
+
+- Add **Verbindungen neu starten** to cancel BAM previews, gracefully stop the owned
+  idle backend, check local drive mounts and reconnect with a fresh session identity.
+- Refuse restart while an analysis is active, including concurrent browser starts,
+  or if service ownership/worker cleanup cannot be confirmed.
+- Repair only a confirmed stale local data-drive DrvFs mount (ENODEV), using ordinary
+  unmount; preserve busy mounts and never restart the whole WSL distribution.
+- Existing results and analytical policies remain unchanged; only a fresh BAM preview
+  is requested after reconnection. Browser workspaces must be reopened from Desktop.
+
 ## 0.8.2-engineering — 2026-09-11
 
 - Repair the Windows engineering bundle so `runtime/` contains the pinned base runtime,

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ONTSeq · Genom und Methylierung" Height="900" Width="1100" MinHeight="820" MinWidth="1000"
         WindowStartupLocation="CenterScreen" FontFamily="Segoe UI" Background="#F5F7FA"
-        Loaded="Window_Loaded" Closed="Window_Closed">
+        Loaded="Window_Loaded" Closed="Window_Closed" Closing="Window_Closing">
     <Grid Margin="28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -19,7 +19,7 @@
                 <TextBlock Text="ONTSeq" FontSize="30" FontWeight="SemiBold" Foreground="#152238" />
                 <TextBlock Text="Genom &amp; Methylierung · lokale Analyse" FontSize="14" Foreground="#5F6B7A" Margin="1,4,0,0" />
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <WrapPanel Grid.Column="1" MaxWidth="620" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <Border Background="#E8EEF7" CornerRadius="6" Padding="12,7" VerticalAlignment="Center" Margin="0,0,8,0">
                     <TextBlock x:Name="BackendStateText" Text="Backend wird beim Start geprüft" Foreground="#34465F"
                                MaxWidth="260" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
@@ -28,7 +28,10 @@
                         IsEnabled="False"
                         ToolTip="Öffnet die echte lokale ONTSeq-Oberfläche. Startet keinen Analyselauf. Desktop während der Nutzung geöffnet lassen." />
                 <Button x:Name="SetupButton" Content="System einrichten" Click="Setup_Click" Padding="12,7" />
-            </StackPanel>
+                <Button x:Name="RestartConnectionsButton" Content="Verbindungen neu starten"
+                        Click="RestartConnections_Click" Padding="12,7" IsEnabled="False"
+                        ToolTip="Beendet Vorprüfungen, verbindet ONTSeq neu und prüft die Laufwerke. Laufende Analysen blockieren den Neustart." />
+            </WrapPanel>
         </Grid>
 
         <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E8C861" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,0,0,18">
