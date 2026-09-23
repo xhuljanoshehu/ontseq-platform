@@ -29,14 +29,17 @@ chr1\t1000\tcute-1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;END=1200;SVLEN=-201;RE=8\tGT:
 
 
 class LocalErrorRunner:
+    version = "2.1.3"
+    marker = "[INFO] LocalError: {e}\n"
+
     """Model cuteSV returning zero plus a complete partial VCF after a swallowed worker error."""
 
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
         normalized = tuple(str(item) for item in argv)
         if "--version" in normalized:
-            return CommandResult(normalized, 0, "cuteSV 2.1.3\n", "")
+            return CommandResult(normalized, 0, f"cuteSV {self.version}\n", "")
         Path(normalized[3]).write_text(VALID_VCF, encoding="utf-8")
-        return CommandResult(normalized, 0, "", "[INFO] LocalError: {e}\n")
+        return CommandResult(normalized, 0, "", self.marker)
 
 
 def _inputs(root: Path) -> tuple[SampleManifest, AlignedBamIntakeReport, Path]:
@@ -103,6 +106,64 @@ class CuteSvLocalErrorGuardTests(unittest.TestCase):
 
             self.assertFalse(output.exists())
             self.assertEqual(list(scratch.iterdir()), [])
+
+    def test_unreviewed_version_does_not_claim_an_active_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, intake, reference = _inputs(root)
+            runner = LocalErrorRunner()
+            runner.version = "2.1.5"
+            runner.marker = ""
+            with patch.dict("os.environ", {"ONTSEQ_CUTESV_SCRATCH_ROOT": str(root / "scratch")}):
+                report = run_cutesv(
+                    manifest,
+                    intake,
+                    _policy().model_copy(update={"expected_version": "2.1.5"}),
+                    reference_fasta=reference,
+                    output_vcf=root / "out.vcf",
+                    runner=runner,
+                )
+            self.assertEqual(report.tool.parameters["internal_error_guard"], "not_qualified")
+            self.assertEqual(report.accepted_record_count, 1)
+
+    def test_reviewed_versions_reject_marker_on_either_stream(self) -> None:
+        for version in ("2.1.3", "2.1.4"):
+            for stream in ("stdout", "stderr"):
+                with (
+                    self.subTest(version=version, stream=stream),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    root = Path(temporary)
+                    manifest, intake, reference = _inputs(root)
+
+                    class StreamRunner(LocalErrorRunner):
+                        def run(self, argv, *, timeout_seconds=300):
+                            result = super().run(argv, timeout_seconds=timeout_seconds)
+                            if self.stream == "stdout" and "--version" not in argv:
+                                return CommandResult(
+                                    result.argv, result.returncode, result.stderr, ""
+                                )
+                            return result
+
+                    runner = StreamRunner()
+                    runner.stream = stream
+                    runner.version = version
+                    with (
+                        patch.dict(
+                            "os.environ", {"ONTSEQ_CUTESV_SCRATCH_ROOT": str(root / "scratch")}
+                        ),
+                        self.assertRaisesRegex(ValueError, "worker error"),
+                    ):
+                        run_cutesv(
+                            manifest,
+                            intake,
+                            _policy().model_copy(update={"expected_version": version}),
+                            reference_fasta=reference,
+                            output_vcf=root / "out.vcf",
+                            runner=runner,
+                        )
+                    self.assertFalse((root / "out.vcf").exists())
+                    self.assertEqual(list((root / "scratch").iterdir()), [])
 
 
 if __name__ == "__main__":

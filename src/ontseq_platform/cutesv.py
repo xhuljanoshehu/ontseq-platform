@@ -404,7 +404,9 @@ def run_cutesv(
             "diff_ratio_merging_DEL": policy.diff_ratio_merging_del,
             "expected_version": policy.expected_version,
             "normalizer_pass_only": True,
-            "internal_error_guard": "cutesv-localerror-v1",
+            "internal_error_guard": (
+                "cutesv-localerror-v1" if version in _FATAL_STDERR_MARKERS else "not_qualified"
+            ),
         }
         argv = [
             cutesv,
