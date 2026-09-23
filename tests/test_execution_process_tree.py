@@ -96,6 +96,7 @@ def test_captured_command_result_semantics_are_preserved() -> None:
     result = SubprocessRunner().run(
         [
             sys.executable,
+            "-S",
             "-c",
             "import sys; print('ok'); print('diagnostic', file=sys.stderr); raise SystemExit(7)",
         ],
