@@ -125,9 +125,7 @@ def test_unmounted_directory_is_not_reported_healthy(monkeypatch, recovery):
         "rw,aname=drvfs;path=E:\\134;case=force",
     ],
 )
-def test_nondefault_drvfs_semantics_fail_closed_before_unmount(
-    monkeypatch, recovery, options
-):
+def test_nondefault_drvfs_semantics_fail_closed_before_unmount(monkeypatch, recovery, options):
     calls = configure(monkeypatch, recovery, mount=mount_line(options=options))
     assert recovery.recover("E", 1000, 1000, repair=False)["state"] == "stale"
     with pytest.raises(ValueError, match="nicht sicher rekonstruiert"):
@@ -142,9 +140,7 @@ def test_nondefault_drvfs_semantics_fail_closed_before_unmount(
         "rw,aname=drvfs;path=E:\\134;uid=1000;gid=0",
     ],
 )
-def test_mismatched_drvfs_identity_fails_closed_before_unmount(
-    monkeypatch, recovery, options
-):
+def test_mismatched_drvfs_identity_fails_closed_before_unmount(monkeypatch, recovery, options):
     calls = configure(monkeypatch, recovery, mount=mount_line(options=options))
     with pytest.raises(ValueError, match="WSL-Benutzer"):
         recovery.recover("E", 1000, 1000, repair=True)
