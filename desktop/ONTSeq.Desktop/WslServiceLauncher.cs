@@ -1122,6 +1122,13 @@ public sealed class WslServiceLauncher : IAsyncDisposable
 
     public bool HasExited => _process is null || _process.HasExited;
 
+    public async Task WaitForStopAsync(CancellationToken cancellationToken)
+    {
+        if (_process is null) return;
+        // No kill fallback: only a confirmed, graceful exit releases the restart gate.
+        await _process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_process is null) return;
