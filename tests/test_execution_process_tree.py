@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import shutil
@@ -43,10 +44,8 @@ def _descendant_script(pid_path: Path, *, emit_stdout: bool = False) -> str:
 
 def _kill_if_still_live(pid: int) -> None:
     if _linux_pid_is_live(pid):
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-group cleanup contract")
