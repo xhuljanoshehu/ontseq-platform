@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -210,16 +211,15 @@ def test_real_isolated_process_is_reaped_on_deadline_or_cancel(bam: Path, action
         return child
 
     def cancel_after_start() -> None:
-        # Wait for the mocked Popen to actually run before cancelling, so this
-        # test exercises mid-scan cancellation deterministically instead of
-        # racing an absolute wall-clock timer against scheduling jitter (a
-        # slow/loaded runner could otherwise cancel before Popen is reached).
+        # Cancel only after Popen ran; a wall-clock timer could fire before the pre-start check.
         if popen_called.wait(timeout=5):
             cancelled.set()
 
     canceller = threading.Thread(target=cancel_after_start, daemon=True)
     if action == "cancelled":
         canceller.start()
+    reaped: list[bool] = []
+    call_started = time.monotonic()
     try:
         with patch("ontseq_platform.methylation_probe.subprocess.Popen", side_effect=start):
             result = probe_bam_methylation(
@@ -227,6 +227,8 @@ def test_real_isolated_process_is_reaped_on_deadline_or_cancel(bam: Path, action
                 timeout_seconds=0.05 if action == "timeout" else 2,
                 cancel_event=cancelled,
             )
+        call_seconds = time.monotonic() - call_started
+        reaped = [child.poll() is not None for child in children]
     finally:
         if action == "cancelled":
             canceller.join(timeout=5)
@@ -235,7 +237,8 @@ def test_real_isolated_process_is_reaped_on_deadline_or_cancel(bam: Path, action
                 child.kill()
                 child.wait(timeout=2)
     assert result.reason_code == action and result.elapsed_seconds < 1
-    assert len(children) == 1 and children[0].poll() is not None
+    # The stub child sleeps 30 s, so returning well before that proves the probe killed it.
+    assert reaped == [True] and call_seconds < 10
     assert children[0].stdout is not None and children[0].stdout.closed
 
 
