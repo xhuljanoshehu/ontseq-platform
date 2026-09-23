@@ -112,3 +112,57 @@ def test_unmounted_directory_is_not_reported_healthy(monkeypatch, recovery):
     with pytest.raises(ValueError):
         recovery.recover("E", 1000, 1000, repair=False)
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "rw,aname=drvfs;path=E:\\134;metadata",
+        "rw,aname=drvfs;path=E:\\134;umask=077",
+        "rw,aname=drvfs;path=E:\\134;fmask=011",
+        "rw,aname=drvfs;path=E:\\134;dmask=77",
+        "rw,aname=drvfs;path=E:\\134;case=dir",
+        "rw,aname=drvfs;path=E:\\134;case=force",
+    ],
+)
+def test_nondefault_drvfs_semantics_fail_closed_before_unmount(
+    monkeypatch, recovery, options
+):
+    calls = configure(monkeypatch, recovery, mount=mount_line(options=options))
+    assert recovery.recover("E", 1000, 1000, repair=False)["state"] == "stale"
+    with pytest.raises(ValueError, match="nicht sicher rekonstruiert"):
+        recovery.recover("E", 1000, 1000, repair=True)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "rw,aname=drvfs;path=E:\\134;uid=0;gid=1000",
+        "rw,aname=drvfs;path=E:\\134;uid=1000;gid=0",
+    ],
+)
+def test_mismatched_drvfs_identity_fails_closed_before_unmount(
+    monkeypatch, recovery, options
+):
+    calls = configure(monkeypatch, recovery, mount=mount_line(options=options))
+    with pytest.raises(ValueError, match="WSL-Benutzer"):
+        recovery.recover("E", 1000, 1000, repair=True)
+    assert calls == []
+
+
+def test_equivalent_explicit_drvfs_identity_and_default_case_remain_repairable(
+    monkeypatch, recovery
+):
+    calls = configure(
+        monkeypatch,
+        recovery,
+        mount=mount_line(
+            options="rw,aname=drvfs;path=E:\\134;uid=1000;gid=1000;umask=022;fmask=000;dmask=000;case=off"
+        ),
+    )
+    assert recovery.recover("E", 1000, 1000, repair=True)["state"] == "repaired"
+    assert calls == [
+        ["/bin/umount", "/mnt/e"],
+        ["/bin/mount", "-t", "drvfs", "E:", "/mnt/e", "-o", "uid=1000,gid=1000"],
+    ]
