@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private Task _probeTask = Task.CompletedTask;
     private int _probeOperations;
     private bool _desktopBusy;
+    private bool _restartInProgress;
     private bool _probeIsThorough;
     private bool _closing;
     private string? _probeCleanupWarning;
@@ -51,7 +52,7 @@ public partial class MainWindow : Window
         await ReloadSettingsStateAsync();
     }
 
-    private async Task ReloadSettingsStateAsync()
+    private async Task ReloadSettingsStateAsync(CancellationToken cancellationToken = default)
     {
         InvalidateProbe("Konfiguration wird geprüft. Methylierung bitte anschließend erneut prüfen.");
         await _probeTask;
@@ -70,7 +71,7 @@ public partial class MainWindow : Window
 
             _launcher ??= new WslServiceLauncher();
             _resourceFamilies = await _launcher.CheckResourceFamiliesAsync(
-                _settings, CancellationToken.None);
+                _settings, cancellationToken);
             var decision = DesktopResourcePolicy.ResolveInitialProfile(
                 configuredProfile, _resourceFamilies);
             var selectedProfileId = decision.Profile?.ProfileId ?? configuredProfile;
@@ -254,6 +255,7 @@ public partial class MainWindow : Window
     private void RefreshProbeActions()
     {
         if (ThoroughProbeButton is null) return;
+        RestartConnectionsButton.IsEnabled = !_desktopBusy && !_loadingSettings && !_closing;
         var ready = ProfileCombo.SelectedItem is DesktopProfileOption { IsEnabled: true };
         var probing = _probeOperations > 0;
         ThoroughProbeButton.IsEnabled = ready && !string.IsNullOrWhiteSpace(BamPathTextBox.Text) &&
@@ -292,12 +294,13 @@ public partial class MainWindow : Window
         await BeginProbeAsync(BamPathTextBox.Text.Trim(), option.Profile, thorough: true);
     }
 
-    private Task BeginProbeAsync(string bam, DesktopAnalysisProfile profile, bool thorough)
+    private Task BeginProbeAsync(string bam, DesktopAnalysisProfile profile, bool thorough,
+        CancellationToken cancellationToken = default)
     {
         var previous = _probeTask;
         InvalidateProbe(thorough ? "Gründliche Prüfung wird vorbereitet…" : "Methylierungs-Stichprobe wird geprüft…");
         _probeCleanupWarning = null;
-        var cts = new CancellationTokenSource();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _probeCts = cts;
         _probeIsThorough = thorough;
         var scope = _probeGuard.Capture(bam, profile.ProfileId, _serviceInstanceId);
@@ -584,6 +587,79 @@ public partial class MainWindow : Window
         {
             _desktopBusy = false;
             BrowseButton.IsEnabled = SetupButton.IsEnabled = ProfileCombo.IsEnabled = true;
+            ApplySelectedProfileAvailability();
+        }
+    }
+
+    private async void RestartConnections_Click(object sender, RoutedEventArgs e)
+    {
+        if (_desktopBusy || _loadingSettings || _closing) return;
+        _desktopBusy = _restartInProgress = true;
+        BrowseButton.IsEnabled = ProfileCombo.IsEnabled = BamPathTextBox.IsEnabled = false;
+        InvalidateProbe("Verbindungen werden neu gestartet; bisherige Prüfergebnisse sind verworfen.");
+        ApplySelectedProfileAvailability();
+        DetailText.Text = "Vorprüfung wird beendet; laufende Analysen werden geprüft…";
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        try
+        {
+            await _probeTask;
+            await _serviceGate.WaitAsync(timeout.Token);
+            try
+            {
+                if (_client is not null)
+                {
+                    if (_serviceInstanceId is null || _serviceAllowedRootWindows is null)
+                        throw new InvalidOperationException("Die Identität der alten Verbindung ist nicht belegt.");
+                    var config = (await _client.GetConfigAsync(timeout.Token)).RequireLaunch(
+                        ServiceLaunchExpectationFor(_serviceInstanceId, _serviceAllowedRootWindows));
+                    if (config.Busy)
+                        throw new InvalidOperationException("Eine Analyse läuft noch. Bitte ihren Abschluss abwarten.");
+                    // The service checks idleness again atomically with blocking new browser runs.
+                    await _client.StopSessionAsync(_serviceInstanceId, timeout.Token);
+                    if (_launcher is not null) await _launcher.WaitForStopAsync(timeout.Token);
+                }
+                else if (_launcher is { HasExited: false })
+                    throw new InvalidOperationException("Der Zustand des laufenden Dienstes ist unbekannt.");
+
+                _client?.Dispose();
+                _client = null;
+                if (_launcher is not null) await _launcher.DisposeAsync();
+                _launcher = null;
+                _serviceInstanceId = _serviceAllowedRootWindows = _serviceSettingsKey = null;
+                _servicePort = null;
+                _probeCleanupWarning = null;
+            }
+            finally { _serviceGate.Release(); }
+
+            BackendStateText.Text = "WSL und Laufwerksverbindungen werden geprüft…";
+            var bam = BamPathTextBox.Text.Trim();
+            var repaired = await WslDriveRecovery.CheckAsync(_settings,
+                [bam, _settings.OutputDirectoryWindows], timeout.Token);
+            await ReloadSettingsStateAsync(timeout.Token);
+            var option = ProfileCombo.SelectedItem as DesktopProfileOption;
+            if (option is not { IsEnabled: true })
+                throw new InvalidOperationException("Ressourcen noch nicht bereit. Bitte 'System einrichten' öffnen.");
+            var allowedRoot = WslServiceLauncher.WorkspaceAllowedRootWindows(bam, _settings.OutputDirectoryWindows);
+            var fresh = await EnsureProfileServiceAsync(allowedRoot, option.Profile, timeout.Token);
+            BackendStateText.Text = $"ONTSeq {fresh.Version} · neu verbunden · Port {_servicePort}";
+            if (!string.IsNullOrWhiteSpace(bam))
+                await BeginProbeAsync(bam, option.Profile, thorough: false, timeout.Token);
+            timeout.Token.ThrowIfCancellationRequested();
+            DetailText.Text = "Verbindungen neu gestartet. " +
+                (repaired.Count > 0 ? "Laufwerk neu eingebunden: " + string.Join(", ", repaired) + ". " : "") +
+                "Geöffnete Browser-Arbeitsplätze bitte über 'Analyse-Arbeitsplatz öffnen' erneut öffnen. " +
+                (string.IsNullOrWhiteSpace(bam) ? "BAM auswählen, um sie zu prüfen." : "Das neue BAM-Prüfergebnis steht im Prüfbereich.");
+        }
+        catch (Exception error)
+        {
+            BackendStateText.Text = "Neustart nicht abgeschlossen";
+            DetailText.Text = "Neustart nicht abgeschlossen: " + error.Message +
+                " Bei unklarem Dienststatus wird kein Prozess zwangsweise beendet.";
+        }
+        finally
+        {
+            _desktopBusy = _restartInProgress = false;
+            BrowseButton.IsEnabled = ProfileCombo.IsEnabled = BamPathTextBox.IsEnabled = true;
             ApplySelectedProfileAvailability();
         }
     }
@@ -881,5 +957,12 @@ public partial class MainWindow : Window
         _analysisCts?.Dispose();
         _workspaceCts?.Dispose();
         _probeCts?.Dispose();
+    }
+
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_restartInProgress) return;
+        e.Cancel = true;
+        DetailText.Text = "Bitte den laufenden Verbindungsneustart abwarten.";
     }
 }

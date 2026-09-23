@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from dataclasses import dataclass, field
@@ -253,6 +254,7 @@ class Jobs:
     def __init__(self) -> None:
         self._jobs: dict[str, RunJob] = {}
         self._lock = threading.Lock()
+        self._stopping = False
 
     def claim(self, job: RunJob) -> None:
         """Register *job* only if nothing else is running, atomically.
@@ -269,6 +271,8 @@ class Jobs:
         Both cases are refused here, where the decision is made under the lock.
         """
         with self._lock:
+            if self._stopping:
+                raise JobRejected("Der Dienst wird neu gestartet. Arbeitsplatz erneut öffnen.")
             for existing in self._jobs.values():
                 if existing.state == "running":
                     raise JobRejected(
@@ -281,6 +285,13 @@ class Jobs:
                     "choose a different run id"
                 )
             self._jobs[job.run_id] = job
+
+    def begin_shutdown(self) -> None:
+        """Freeze admission atomically with the idle check, including browser starts."""
+        with self._lock:
+            if any(job.state == "running" for job in self._jobs.values()):
+                raise JobRejected("Eine Analyse läuft noch. Neustart erst nach ihrem Abschluss.")
+            self._stopping = True
 
     def get(self, run_id: str) -> RunJob | None:
         with self._lock:
@@ -785,6 +796,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 "/api/runs",
                 "/api/methylation/probe",
                 "/api/methylation/scans",
+                "/api/session/stop",
             } and not (
                 path.startswith("/api/review/") or path.startswith("/api/methylation/scans/")
             ):
@@ -802,6 +814,9 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             if not isinstance(payload, dict):
                 self._refuse(HTTPStatus.BAD_REQUEST, "request body was not a JSON object")
+                return
+            if path == "/api/session/stop":
+                self._stop_session(payload)
                 return
             if path == "/api/runs":
                 self._start_run(payload)
@@ -827,6 +842,35 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._refuse(HTTPStatus.BAD_REQUEST, "expected /api/review/<run>/<sample>")
                 return
             self._review(parts[0], parts[1], payload)
+
+        def _stop_session(self, payload: dict[str, Any]) -> None:
+            if not config.instance_id or payload != {"instance_id": config.instance_id}:
+                self._refuse(HTTPStatus.CONFLICT, "Die Dienstinstanz stimmt nicht überein.")
+                return
+            try:
+                jobs.begin_shutdown()
+            except JobRejected as error:
+                self._refuse(HTTPStatus.CONFLICT, str(error))
+                return
+            scans.close()
+            # Quick previews run in their HTTP thread, rather than a retained scan
+            # thread. Let their cancellation release the BAM handles before replying.
+            deadline = time.monotonic() + 5.0
+            while scans.discovery_active() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if scans.discovery_active():
+                self._refuse(
+                    HTTPStatus.CONFLICT,
+                    "Die Vorprüfung beendet sich noch. Bitte den Neustart erneut versuchen.",
+                )
+                return
+            self.close_connection = True
+            try:
+                self._json(HTTPStatus.OK, {"instance_id": config.instance_id, "stopping": True})
+            finally:
+                # shutdown must run outside serve_forever; an interrupted HTTP response
+                # must not leave an idle service permanently frozen on its old port.
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
 
         def _serve_page(self, *, workspace: bool = False) -> None:
             page = WORKSPACE_PAGE if workspace else PAGE

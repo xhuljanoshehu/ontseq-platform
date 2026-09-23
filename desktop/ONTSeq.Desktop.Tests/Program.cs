@@ -64,6 +64,34 @@ Directory.CreateDirectory(root);
 
 try
 {
+    foreach (var reply in new[] {
+        new FakeServiceReply(409, "{\"error\":\"Analyse läuft\"}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"foreign\",\"stopping\":true}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"" + new string('a', 32) + "\",\"stopping\":false}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"" + new string('a', 32) + "\",\"stopping\":true}") })
+    {
+        FakeServiceRequest? stopRequest = null;
+        var identity = new string('a', 32);
+        await using var service = new FakeOntSeqService(identity, "/resources", "/output", "/input",
+            request => { if (request.Path != "/api/session/stop") return null;
+                stopRequest = request; return reply; });
+        using var restartClient = new OntSeqServiceClient(service.Port);
+        await restartClient.BootstrapAsync(TimeSpan.FromSeconds(5), null, null,
+            new ServiceLaunchExpectation(identity, "/resources", "/output", "/input"), CancellationToken.None);
+        if (reply.StatusCode == 409)
+            await AssertThrowsAsync<InvalidOperationException>(() => restartClient.StopSessionAsync(identity, CancellationToken.None),
+                "active analyses refuse restart");
+        else if (reply.Body.Contains("foreign") || reply.Body.Contains("false"))
+            await AssertThrowsAsync<InvalidDataException>(() => restartClient.StopSessionAsync(identity, CancellationToken.None),
+                "an unconfirmed or foreign stop acknowledgement is rejected");
+        else await restartClient.StopSessionAsync(identity, CancellationToken.None);
+        AssertEqual("POST", stopRequest?.Method, "stop is an authenticated mutation");
+        using var body = JsonDocument.Parse(stopRequest!.Body);
+        AssertEqual(identity, body.RootElement.GetProperty("instance_id").GetString(), "stop names the owned service");
+        AssertEqual("True", stopRequest.Headers.Contains("X-ONTSeq-Token: synthetic-service-token").ToString(),
+            "stop carries the bootstrapped token");
+    }
+
     var utf8StartInfo = WslServiceLauncher.WslProcessStartInfo("synthetic", ["printf", "unused"]);
     AssertEqual("utf-8", utf8StartInfo.StandardOutputEncoding?.WebName,
         "Linux stdout uses explicit UTF-8 independently of Windows code page");
