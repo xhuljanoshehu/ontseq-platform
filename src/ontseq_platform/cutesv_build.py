@@ -98,7 +98,7 @@ def executable_identity(executable: str) -> dict[str, str]:
 
 def require_standard_lane_qualification(identity: dict[str, str]) -> None:
     """Reject a resolved cuteSV executable outside the reviewed body/launch contract."""
-    if identity and (
+    if not identity or (
         identity.get("cutesv_build_id") != BUILD_ID
         or identity.get("cutesv_execution_body_sha256") != FIXED_BODY_SHA256
         or identity.get("cutesv_launch_contract") != LAUNCH_CONTRACT
