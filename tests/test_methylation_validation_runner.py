@@ -11,7 +11,12 @@ from unittest.mock import patch
 
 from clock_support import SYNTHETIC_REGISTERED_AT, install_experiment_clock
 
-from ontseq_platform import __version__, entrypoint, methylation_validation_runner
+from ontseq_platform import (
+    __version__,
+    entrypoint,
+    methylation_validation_cli,
+    methylation_validation_runner,
+)
 from ontseq_platform.methylation_mixture import MethylationMixturePolicy, NanopolishSourceMetadata
 from ontseq_platform.methylation_validation import (
     SAMPLE_ROLES,
@@ -61,7 +66,7 @@ def _write_synthetic_table(path: Path, role: str, *, reads: int = 30, ratio: flo
 
 class MethylationValidationRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
-        install_experiment_clock(self, methylation_validation_runner)
+        install_experiment_clock(self, methylation_validation_runner, methylation_validation_cli)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)

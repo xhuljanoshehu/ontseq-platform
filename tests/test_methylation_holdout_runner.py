@@ -13,7 +13,12 @@ from unittest.mock import patch
 
 from clock_support import SYNTHETIC_REGISTERED_AT, install_experiment_clock
 
-from ontseq_platform import __version__, entrypoint, methylation_holdout_runner
+from ontseq_platform import (
+    __version__,
+    entrypoint,
+    methylation_holdout_cli,
+    methylation_holdout_runner,
+)
 from ontseq_platform.methylation_holdout import (
     HOLDOUT_SOURCE_ROLES,
     PairedHoldoutCohort,
@@ -62,7 +67,7 @@ class PairedHoldoutRunnerTests(unittest.TestCase):
     """Exercise actual files, input adapters and recovery; all inputs are synthetic."""
 
     def setUp(self) -> None:
-        install_experiment_clock(self, methylation_holdout_runner)
+        install_experiment_clock(self, methylation_holdout_runner, methylation_holdout_cli)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)

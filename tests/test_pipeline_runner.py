@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from collections.abc import Sequence
 from datetime import timedelta
-from itertools import count
+from itertools import chain, repeat
 from pathlib import Path
 from unittest import mock
 
@@ -187,12 +187,14 @@ class RunnerCase(unittest.TestCase):
 
 class HappyPathTests(RunnerCase):
     def test_backwards_run_clock_is_rejected(self) -> None:
-        ticks = count()
         with (
             mock.patch.object(
                 pipeline_runner.datetime,
                 "now",
-                side_effect=lambda tz: SYNTHETIC_REGISTERED_AT - timedelta(seconds=next(ticks)),
+                side_effect=chain(
+                    [SYNTHETIC_REGISTERED_AT + timedelta(seconds=10)],
+                    repeat(SYNTHETIC_REGISTERED_AT + timedelta(seconds=1)),
+                ),
             ),
             self.assertRaisesRegex(ValueError, "run finished before it started"),
         ):
