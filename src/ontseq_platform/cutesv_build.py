@@ -103,7 +103,9 @@ def require_standard_lane_qualification(identity: dict[str, str]) -> None:
         or identity.get("cutesv_execution_body_sha256") != FIXED_BODY_SHA256
         or identity.get("cutesv_launch_contract") != LAUNCH_CONTRACT
     ):
-        raise ValueError("cuteSV executable body/launch chain is not qualified for the standard SV lane")
+        raise ValueError(
+            "cuteSV executable body/launch chain is not qualified for the standard SV lane"
+        )
 
 
 def prepare_executable(executable: str, directory: Path, expected: dict[str, str]) -> str:
