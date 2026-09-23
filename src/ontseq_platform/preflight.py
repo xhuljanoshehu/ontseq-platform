@@ -653,6 +653,19 @@ def _check_methylation(request: PreflightRequest, checks: CheckList) -> None:
             remedy="name the target BED in the manifest, or set region_source: chromosome",
             stage=StageId.METHYLATION,
         )
+    elif (
+        request.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING
+        and request.manifest.assay.target_bed
+        and policy.region_source != MethylationRegionSource.TARGET_BED
+    ):
+        checks.failed(
+            "methylation.regions",
+            "Adaptive Sampling declares a target BED, so a chromosome-wide methylation "
+            "fraction would mix enriched on-target reads with barely observed off-target "
+            "background and should not be reported as a genome-wide measurement",
+            remedy="set region_source=target_bed for Adaptive Sampling methylation",
+            stage=StageId.METHYLATION,
+        )
 
     if request.reference_fasta is None:
         checks.failed(

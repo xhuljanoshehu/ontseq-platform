@@ -859,8 +859,15 @@ def run_methylation(
         regions = _bed_regions(target_bed)
     elif manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and manifest.assay.target_bed:
         # Enrichment leaves the off-target genome at a depth where a chromosome-wide
-        # fraction mixes measured targets with barely-observed background.
-        target_bed = Path(manifest.assay.target_bed)
+        # fraction mixes measured targets with barely-observed background, so this
+        # combination must fail closed rather than run an unrestricted pileup under a
+        # target-BED fingerprint it did not constrain.
+        raise ValueError(
+            "Adaptive Sampling declares a target BED, so methylation must use "
+            "region_source=target_bed. A chromosome-wide pileup would mix enriched "
+            "on-target reads with barely observed off-target background and must not be "
+            "reported as a genome-wide measurement"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     bedmethyl_path = output_dir / f"{manifest.sample_id}.modkit.bedmethyl"
