@@ -90,6 +90,7 @@ class AnalyzeSettings:
     verify_resource_checksums: bool = True
     runtime_settings: ProfileRuntimeSettings | None = None
     include_methylation: bool = False
+    marlin_installation: Path | None = None
     executables: Mapping[str, str] = field(
         default_factory=lambda: {
             "samtools": "samtools",
@@ -190,7 +191,11 @@ def _manifest(
                 AnalysisModule.SV,
                 AnalysisModule.FUSION,
                 AnalysisModule.ISCN,
-                *([AnalysisModule.METHYLATION] if include_methylation else []),
+                *(
+                    [AnalysisModule.METHYLATION, AnalysisModule.MARLIN]
+                    if include_methylation
+                    else []
+                ),
                 AnalysisModule.REPORT,
             ],
             intent=AnalysisIntent.SOMATIC,
@@ -374,6 +379,8 @@ def build_profile_run_configuration(
         sv_minimum_mean_depth=sv_minimum_mean_depth,
         target_coverage_policy=target_policy,
         methylation_policy=methylation_policy,
+        marlin_installation=settings.marlin_installation
+        or Path(context.resource_root) / "marlin" / "installation.json",
         reference_fasta=reference_fasta,
         annotation_cache=_required_path(paths, "reference.annotation_cache"),
         selection_target_bed=selection_bed,

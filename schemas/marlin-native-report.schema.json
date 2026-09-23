@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "FileFingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size_bytes"
+      ],
+      "title": "FileFingerprint",
+      "type": "object"
+    },
+    "GenomeBuild": {
+      "enum": [
+        "GRCh37",
+        "GRCh38"
+      ],
+      "title": "GenomeBuild",
+      "type": "string"
+    },
+    "MarlinClassificationDecision": {
+      "enum": [
+        "HIGH_CONFIDENCE",
+        "UNKNOWN"
+      ],
+      "title": "MarlinClassificationDecision",
+      "type": "string"
+    },
+    "MarlinFeatureSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "absent_feature_count": {
+          "maximum": 357340,
+          "minimum": 0,
+          "title": "Absent Feature Count",
+          "type": "integer"
+        },
+        "expected_feature_count": {
+          "const": 357340,
+          "default": 357340,
+          "title": "Expected Feature Count",
+          "type": "integer"
+        },
+        "explicit_na_feature_count": {
+          "maximum": 357340,
+          "minimum": 0,
+          "title": "Explicit Na Feature Count",
+          "type": "integer"
+        },
+        "feature_artifact_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Feature Artifact Sha256",
+          "type": "string"
+        },
+        "feature_vector_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Feature Vector Sha256",
+          "type": "string"
+        },
+        "non_model_probe_count": {
+          "minimum": 0,
+          "title": "Non Model Probe Count",
+          "type": "integer"
+        },
+        "observed_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Observed Fraction",
+          "type": "number"
+        },
+        "observed_model_feature_count": {
+          "maximum": 357340,
+          "minimum": 0,
+          "title": "Observed Model Feature Count",
+          "type": "integer"
+        },
+        "preprocessing_contract_version": {
+          "const": "marlin-v1-binarize-1",
+          "default": "marlin-v1-binarize-1",
+          "title": "Preprocessing Contract Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observed_model_feature_count",
+        "explicit_na_feature_count",
+        "absent_feature_count",
+        "non_model_probe_count",
+        "observed_fraction",
+        "feature_vector_sha256",
+        "feature_artifact_sha256"
+      ],
+      "title": "MarlinFeatureSummary",
+      "type": "object"
+    },
+    "MarlinGroupedScore": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1.00001,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "score"
+      ],
+      "title": "MarlinGroupedScore",
+      "type": "object"
+    },
+    "MarlinModelUnitScore": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "model_id": {
+          "maximum": 42,
+          "minimum": 1,
+          "title": "Model Id",
+          "type": "integer"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model_id",
+        "label",
+        "score"
+      ],
+      "title": "MarlinModelUnitScore",
+      "type": "object"
+    },
+    "ModuleRunStatus": {
+      "enum": [
+        "COMPLETED",
+        "NOT_RUN",
+        "FAILED",
+        "NO_CALL"
+      ],
+      "title": "ModuleRunStatus",
+      "type": "string"
+    },
+    "ToolRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "container_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Digest"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_version": {
+      "const": "marlin-native-research-v1",
+      "default": "marlin-native-research-v1",
+      "title": "Adapter Version",
+      "type": "string"
+    },
+    "class_scores": {
+      "items": {
+        "$ref": "#/$defs/MarlinGroupedScore"
+      },
+      "title": "Class Scores",
+      "type": "array"
+    },
+    "confidence_threshold": {
+      "default": 0.8,
+      "maximum": 0.8,
+      "minimum": 0.8,
+      "title": "Confidence Threshold",
+      "type": "number"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MarlinClassificationDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "family_scores": {
+      "items": {
+        "$ref": "#/$defs/MarlinGroupedScore"
+      },
+      "title": "Family Scores",
+      "type": "array"
+    },
+    "feature_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MarlinFeatureSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "genome_build": {
+      "$ref": "#/$defs/GenomeBuild"
+    },
+    "input_fingerprints": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FileFingerprint"
+      },
+      "title": "Input Fingerprints",
+      "type": "object"
+    },
+    "installation_signature": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Installation Signature",
+      "type": "object"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "lineage_scores": {
+      "items": {
+        "$ref": "#/$defs/MarlinGroupedScore"
+      },
+      "title": "Lineage Scores",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "raw_model_scores": {
+      "items": {
+        "$ref": "#/$defs/MarlinModelUnitScore"
+      },
+      "title": "Raw Model Scores",
+      "type": "array"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "research_only": {
+      "const": true,
+      "default": true,
+      "title": "Research Only",
+      "type": "boolean"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sample_id": {
+      "minLength": 1,
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ModuleRunStatus"
+    },
+    "tools": {
+      "items": {
+        "$ref": "#/$defs/ToolRecord"
+      },
+      "title": "Tools",
+      "type": "array"
+    },
+    "top_class": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Top Class"
+    },
+    "top_class_score": {
+      "anyOf": [
+        {
+          "maximum": 1.00001,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Top Class Score"
+    },
+    "validation_status": {
+      "const": "UNVALIDATED_RESEARCH",
+      "default": "UNVALIDATED_RESEARCH",
+      "title": "Validation Status",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "sample_id",
+    "genome_build",
+    "status",
+    "reason"
+  ],
+  "title": "NativeMarlinReport",
+  "type": "object"
+}

@@ -5,6 +5,23 @@ validated release.
 
 ## Unreleased
 
+- Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
+  workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
+  Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
+  checksum; use the aligned reference build directly without realignment or liftover.
+- Add a separate combined 5mC+5hmC model-probe pileup, depth-weighted fractions, strict strand/count
+  validation, missing-versus-zero feature encoding, and an isolated TensorFlow CPU 2.13.1 worker
+  with fixed thread limits and Linux kernel network denial. Preserve existing modkit qualification
+  guards and legacy MARLIN R/biological bridge contracts.
+- Record complete installed runtime inventory, source and input/output hashes in native report
+  provenance and resume signatures. Missing setup is `NOT_RUN`; parser/process errors are `FAILED`;
+  zero observed features are `NO_CALL` without inference. Scores below `0.8` remain `UNKNOWN`,
+  and stale or deselected results are excluded without failing other available modules.
+- Validation impact: MARLIN can now add original-model scores to research reports for either
+  supported build. All predictions remain `UNVALIDATED_RESEARCH`. Real synthetic BAM/modkit/model
+  acceptance checks count/tensor transfer and numerical execution; it establishes no analytical
+  or clinical validity and creates no legacy validated same-specimen bridge lock.
+
 - cuteSV worker-failure hardening (#91/#93): the exact known 2.1.3 entry-script
   copy now retrieves every signature-extraction task result and re-raises
   clustering exceptions. Both stock and the prior integer-only script upgrade

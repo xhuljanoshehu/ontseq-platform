@@ -85,6 +85,7 @@ SELECTABLE_STAGES = (
     StageId.CNV,
     StageId.SV,
     StageId.METHYLATION,
+    StageId.MARLIN,
 )
 
 
@@ -370,6 +371,9 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         type=Path,
         default=_shipped_config("basecalling/dorado.technical.yaml"),
     )
+    parser.add_argument(
+        "--marlin-installation", type=Path, help="Locked native MARLIN research installation"
+    )
     parser.add_argument("--reference-fasta", type=Path)
     parser.add_argument("--pod5-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("results/runs"))
@@ -437,6 +441,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         choices=(*PROFILE_IDS, *GRCH37_PROFILE_IDS),
     )
+    analyze.add_argument("--marlin-installation", type=Path)
     analyze.add_argument("--resource-root", type=Path)
     analyze.add_argument("--config-root", type=Path)
     analyze.add_argument("--output-dir", type=Path, default=Path("results/runs"))
@@ -454,7 +459,10 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument(
         "--include-methylation",
         action="store_true",
-        help="Explicitly include the optional research methylation assessment from BAM MM/ML tags",
+        help=(
+            "Include regional methylation and native MARLIN research classification "
+            "from BAM MM/ML tags"
+        ),
     )
     analyze.add_argument("--samtools", default="samtools")
     analyze.add_argument("--cramino", default="cramino")
@@ -536,6 +544,7 @@ def _parser() -> argparse.ArgumentParser:
     srv.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
     srv.add_argument("--cutesv", default="cuteSV")
     srv.add_argument("--modkit", default="modkit")
+    srv.add_argument("--marlin-installation", type=Path)
     srv.add_argument("--samtools", default="samtools")
     srv.add_argument(
         "--methylation-policy",
@@ -649,6 +658,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)
+    watcher.add_argument("--marlin-installation", type=Path)
+    watcher.add_argument("--modkit", default="modkit")
     watcher.add_argument("--cutesv", default="cuteSV")
     watcher.add_argument("--ready-marker")
     watcher.add_argument("--pod5-subdir")
@@ -852,6 +863,7 @@ def main() -> None:
                     cutesv_threads=args.cutesv_threads,
                     force=args.force,
                     include_methylation=args.include_methylation,
+                    marlin_installation=args.marlin_installation,
                     executables=_executables(args),
                 )
             )
@@ -914,6 +926,7 @@ def main() -> None:
                 ),
                 components=selection,
                 reference_fasta=args.reference_fasta,
+                marlin_installation=args.marlin_installation,
                 pod5_directory=args.pod5_dir,
                 threads=args.threads,
                 cutesv_threads=args.cutesv_threads,
@@ -1055,6 +1068,7 @@ def main() -> None:
                     sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                     cutesv_executable=args.cutesv,
                     modkit_executable=args.modkit,
+                    marlin_installation=args.marlin_installation,
                     samtools_executable=args.samtools,
                     port=args.port,
                     threads=args.threads,
@@ -1124,6 +1138,7 @@ def main() -> None:
                 sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                 alignment_policy=args.alignment_policy,
                 reference_fasta=args.reference_fasta,
+                marlin_installation=args.marlin_installation,
                 run_id_prefix=args.run_id_prefix,
                 ready_marker=args.ready_marker,
                 pod5_subdirectory=args.pod5_subdir,
@@ -1132,7 +1147,7 @@ def main() -> None:
                 cutesv_threads=args.cutesv_threads,
                 git_commit=args.git_commit,
                 retry_failed=args.retry_failed,
-                executables={"cutesv": args.cutesv},
+                executables={"cutesv": args.cutesv, "modkit": args.modkit},
             )
             passes = watch(
                 settings,

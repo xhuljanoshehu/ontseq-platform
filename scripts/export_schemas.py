@@ -19,6 +19,7 @@ from ontseq_platform.dilution import (
     LodPolicy,
     LodReport,
 )
+from ontseq_platform.marlin_native_contracts import NativeMarlinInstallation, NativeMarlinReport
 from ontseq_platform.methylation import MethylationPolicy, MethylationReport
 from ontseq_platform.methylation_holdout import (
     PairedHoldoutCohort,
@@ -81,6 +82,8 @@ def _render() -> dict[Path, str]:
             )
             + "\n"
             for name, model in {
+                "marlin-native-installation": NativeMarlinInstallation,
+                "marlin-native-report": NativeMarlinReport,
                 "cnv-validation-matrix": CnvValidationMatrix,
                 "cnv-validation-cohort": CnvValidationCohort,
                 "cnv-validation-registration": CnvValidationRegistration,
