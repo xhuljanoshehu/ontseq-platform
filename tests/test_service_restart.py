@@ -177,3 +177,46 @@ def test_restart_refuses_unacknowledged_probe_cleanup(tmp_path, monkeypatch):
         assert thread.is_alive()
         with pytest.raises(JobRejected):
             jobs.claim(RunJob("LATE", "SYN_SAMPLE", tmp_path))
+
+
+def test_restart_waits_for_quick_probe_to_release_handles(tmp_path, monkeypatch):
+    import time
+
+    from test_service_methylation_scans import _probe
+
+    started = threading.Event()
+    released = threading.Event()
+
+    def probe(bam, **kwargs):
+        started.set()
+        assert kwargs["cancel_event"].wait(3)
+        time.sleep(0.1)  # The reader needs time to close its BAM/process after cancellation.
+        released.set()
+        return _probe(bam)
+
+    monkeypatch.setattr("ontseq_platform.service.app.probe_bam_methylation", probe)
+    monkeypatch.setattr("ontseq_platform.service.app._methylation_availability", lambda _: {})
+    bam = tmp_path / "SYNTHETIC.bam"
+    bam.write_bytes(b"synthetic")
+    with service(tmp_path) as (config, jobs, thread), ThreadPoolExecutor(1) as pool:
+        quick = pool.submit(
+            _request,
+            config.port,
+            "POST",
+            "/api/methylation/probe",
+            token=config.token,
+            body={"bam_path": str(bam)},
+        )
+        assert started.wait(3)
+        status, _ = _request(
+            config.port,
+            "POST",
+            "/api/session/stop",
+            token=config.token,
+            body={"instance_id": config.instance_id},
+        )
+        assert status == 200
+        assert released.is_set()
+        assert quick.result(timeout=3)[0] == 200
+        thread.join(3)
+        assert not thread.is_alive()

@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from dataclasses import dataclass, field
@@ -852,6 +853,11 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._refuse(HTTPStatus.CONFLICT, str(error))
                 return
             scans.close()
+            # Quick previews run in their HTTP thread, rather than a retained scan
+            # thread. Let their cancellation release the BAM handles before replying.
+            deadline = time.monotonic() + 5.0
+            while scans.discovery_active() and time.monotonic() < deadline:
+                time.sleep(0.05)
             if scans.discovery_active():
                 self._refuse(
                     HTTPStatus.CONFLICT,
