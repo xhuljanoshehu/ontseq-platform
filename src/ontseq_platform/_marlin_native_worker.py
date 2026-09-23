@@ -106,8 +106,8 @@ def main() -> None:
     tensor_path = Path(config["tensor_path"])
     if sha256(tensor_path) != config["tensor_sha256"]:
         raise ValueError("MARLIN tensor checksum mismatch")
-    import numpy as np
-
+    # Numerical packages belong to the isolated model runtime, not the control plane.
+    np = importlib.import_module("numpy")
     tf = importlib.import_module("tensorflow")
 
     if tf.__version__ != "2.13.1":
