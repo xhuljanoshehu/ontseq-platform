@@ -558,3 +558,35 @@ RAM-backed temporary filesystem during output. The default was therefore refined
 absolute `ONTSEQ_CUTESV_SCRATCH_ROOT` override. Tests verify this default independently
 of system TMP and reject relative overrides. Scratch placement still does not impose
 a universal bound on memory or disk usage; deployments need sufficient resources.
+
+
+### cuteSV worker-failure qualification (2026-09-23, PR #93)
+
+The exact pinned 2.1.3 entry script receives a temporary, checksum-bound
+`ontseq-cutesv-2.1.3-worker-errors-v2` correction. It retains integer task boundaries,
+retrieves all extraction AsyncResults, and re-raises clustering worker exceptions.
+The stock and previous integer-only bodies are recognized; unknown bodies are never
+rewritten. The original installation remains unchanged. Source/execution hashes and
+build ID remain in the run provenance and planning signature.
+
+Synthetic real-tool fault injection into the extraction worker or into a clustering
+worker after another chromosome has completed demonstrates fail-closed behavior
+with one and two workers. Successful controls retain both known 300-bp deletions
+with 40 supporting reads each. Existing one-/four-worker boundary tests remain
+required. Tests check nonzero process status, no partial VCF promotion, and cleanup.
+The test wrappers inject worker failures, not fake process exit codes or VCF output.
+
+A separate local comparison of exact upstream 2.1.3 and official 2.1.4 sources
+showed that 2.1.3 swallowed both induced failure classes; 2.1.4 propagated extraction
+failure but still swallowed clustering failure. No wholesale caller upgrade was
+performed. This comparison uses synthetic data and does not establish biological
+or clinical equivalence of versions. Official 2.1.4 commit:
+`f54326c024a81e9ec8b38025150842db7d4ba0ce`.
+
+The `LocalError:` wrapper guard is defense in depth for reviewed 2.1.3/2.1.4
+message contracts, not a complete detector of all possible caller failures.
+Other versions explicitly record `internal_error_guard=not_qualified`; this does
+not qualify an unknown build. There is no evidence here that a historical patient
+run suffered a swallowed exception. Results from failed current SV stages remain
+excluded by the existing assembly contract. Assay-specific SV accuracy, normalized
+breakpoint coordinates, and truth-based clinical validation remain separate gates.

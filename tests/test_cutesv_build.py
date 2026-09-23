@@ -44,6 +44,9 @@ def test_correction_produces_integer_chunks_without_touching_source(
         b"    batch_size=max(1, local_ref_len//(int(i[1]/mapped_unit)+1))\n"
         b"    return batch_size\n"
     )
+    # This small fixture qualifies only the partition transform; real worker
+    # failure propagation is exercised in test_cutesv_worker_failures.py.
+    monkeypatch.setattr(cutesv_build, "_WORKER_PATCHES", ())
     monkeypatch.setattr(cutesv_build, "STOCK_BODY_SHA256", hashlib.sha256(body).hexdigest())
     monkeypatch.setattr(cutesv_build, "FIXED_BODY_SHA256", hashlib.sha256(fixed).hexdigest())
     source = b"#!/usr/bin/python3\n" + body

@@ -64,3 +64,23 @@ The synthetic fixture in `tests/test_cutesv_real_tool.py` can be enabled with
 `ONTSEQ_CUTESV_REAL_TOOL=1`. It requires cuteSV 2.1.3 and pysam and compares the
 normalized deletion from one and four workers. It makes no assertion about memory
 requirements on biological samples.
+
+
+## Worker exceptions and partial success
+
+PR #93 adds `ontseq-cutesv-2.1.3-worker-errors-v2`, retaining the integer-boundary
+fix while making extraction and clustering worker exceptions reach the parent.
+Only the exact stock/previously qualified script bodies are transformed into a
+verified temporary copy. A reviewed `LocalError:` diagnostic also blocks VCF
+promotion even when the caller reports exit code zero. Unknown versions do not
+claim this marker guard in provenance. Installing 2.1.4 alone is not sufficient:
+the tested official version still swallowed an injected clustering exception.
+
+Reproduce the synthetic real-worker qualification with the pinned runtime:
+
+```bash
+ONTSEQ_CUTESV_REAL_TOOL=1 PYTHONPATH=src python -m unittest discover -s tests -p 'test_cutesv_worker_failures.py' -v
+```
+
+This is a technical failure test, not a benchmark of clinical sensitivity. It does
+not change support thresholds or suppress existing `NO_CALL`/`FAILED` outcomes.

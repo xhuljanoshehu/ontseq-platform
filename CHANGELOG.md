@@ -5,6 +5,17 @@ validated release.
 
 ## Unreleased
 
+- cuteSV worker-failure hardening (#91/#93): the exact known 2.1.3 entry-script
+  copy now retrieves every signature-extraction task result and re-raises
+  clustering exceptions. Both stock and the prior integer-only script upgrade
+  to `ontseq-cutesv-2.1.3-worker-errors-v2`; the installed source is unchanged.
+- Reject reviewed 2.1.3/2.1.4 `LocalError:` diagnostics before VCF normalization or
+  atomic promotion. Record this marker guard as `not_qualified` for other versions.
+- Validation impact: partial SV results after failed workers are no longer accepted.
+  No successful-call thresholds or reference resources changed. Synthetic real-worker
+  injection, positive controls, integer boundaries and cleanup are tested; this is
+  technical failure-propagation qualification, not analytical/clinical validation.
+
 - Fail closed when an Adaptive Sampling manifest declares a target BED but the
   supplied methylation policy sets `region_source=chromosome`. Reject the
   combination in preflight (`methylation.regions`) and again in
