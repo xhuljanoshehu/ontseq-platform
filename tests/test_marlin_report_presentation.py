@@ -63,7 +63,8 @@ def native_report(result, status="COMPLETED", score=0.6, label="SYNTHETIC_CLASS"
         )
     if status == "COMPLETED":
         data.update(
-            decision="HIGH_CONFIDENCE" if score >= 0.8 else "UNKNOWN",
+            decision="UNKNOWN",
+            model_score_threshold_met=score >= 0.8,
             raw_model_scores=[
                 dict(model_id=i + 1, label=f"model {i}", score=1 / 42) for i in range(42)
             ],
@@ -142,7 +143,8 @@ def test_unknown_keeps_leading_score_without_confirmed_class_and_escapes_labels(
     assert book["12_MARLIN_Scores"]["C2"].value == "=UNTRUSTED()"
     assert book["12_MARLIN_Scores"]["C2"].data_type == "s"
     rows = dict(book["11_MARLIN"].iter_rows(min_row=2, values_only=True))
-    assert rows["Decision"] == "HIGH_CONFIDENCE"
+    assert rows["Decision"] == "UNKNOWN"
+    assert rows["Assay assessability"] == "NOT_ESTABLISHED"
 
 
 def archived_run(root, status="COMPLETED"):

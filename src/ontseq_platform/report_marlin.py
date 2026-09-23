@@ -50,11 +50,15 @@ def marlin_facts(report: NativeMarlinReport | None) -> list[list[object]]:
         ["Decision", report.decision.value if report and report.decision else None],
         ["Observed model CpGs", feature.observed_model_feature_count if feature else None],
         ["Expected model CpGs", feature.expected_feature_count if feature else None],
+        ["Observed model CpG fraction", feature.observed_fraction if feature else None],
         ["Explicit NA CpGs", feature.explicit_na_feature_count if feature else None],
         ["Absent model CpGs", feature.absent_feature_count if feature else None],
         ["Leading model class", report.top_class if report else None],
         ["Leading model score", report.top_class_score if report else None],
-        ["Confidence threshold", report.confidence_threshold if report else None],
+        ["Raw model score threshold", report.model_score_threshold if report else None],
+        ["Model score threshold met", report.model_score_threshold_met if report else None],
+        ["Assay assessability", report.assay_assessability if report else None],
+        ["Assessment", "Bewertung nicht validiert" if report else None],
         ["Validation", report.validation_status if report else None],
         ["Research use", MARLIN_RESEARCH_NOTE],
     ]
@@ -65,6 +69,12 @@ def marlin_html_section(report: NativeMarlinReport | None) -> str:
     if report is None:
         return section + f"<p>{ABSENT_MARLIN}</p></section>"
     section += f"<p>{MARLIN_RESEARCH_NOTE}</p>"
+    section += (
+        "<p>Bewertung nicht validiert · Die rohe Modellscore-Schwelle ist keine "
+        "validierte Grenze für die Beurteilbarkeit dieser Probe. Die Zahl und der Anteil "
+        "beobachteter CpGs sind technische Nachweise; eine belastbare "
+        "Assay-Beurteilbarkeit ist nicht etabliert.</p>"
+    )
     if report.decision and report.decision.value == "UNKNOWN":
         section += (
             "<p>UNKNOWN · Keine hinreichend sichere Klassifikation. "

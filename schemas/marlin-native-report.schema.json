@@ -217,19 +217,18 @@
       "title": "Adapter Version",
       "type": "string"
     },
+    "assay_assessability": {
+      "const": "NOT_ESTABLISHED",
+      "default": "NOT_ESTABLISHED",
+      "title": "Assay Assessability",
+      "type": "string"
+    },
     "class_scores": {
       "items": {
         "$ref": "#/$defs/MarlinGroupedScore"
       },
       "title": "Class Scores",
       "type": "array"
-    },
-    "confidence_threshold": {
-      "default": 0.8,
-      "maximum": 0.8,
-      "minimum": 0.8,
-      "title": "Confidence Threshold",
-      "type": "number"
     },
     "decision": {
       "anyOf": [
@@ -290,6 +289,25 @@
       },
       "title": "Lineage Scores",
       "type": "array"
+    },
+    "model_score_threshold": {
+      "default": 0.8,
+      "maximum": 0.8,
+      "minimum": 0.8,
+      "title": "Model Score Threshold",
+      "type": "number"
+    },
+    "model_score_threshold_met": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Score Threshold Met"
     },
     "parameters": {
       "additionalProperties": true,

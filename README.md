@@ -109,7 +109,7 @@ Diagnostiksoftware.
 | CNV | Live QDNAseq + ACE Multi-Resolution-Lane implementiert und in den kanonischen Runner einhängbar |
 | SV | Sniffles2 2.8.0 + cuteSV 2.1.3, Breakpoint-Konsens, build-gelockte Annotation, Adaptive-Sampling-Observability, AML-Priorisierung und filterbare Review Queue; weiterhin nicht reportable |
 | Methylierung | modkit-Pileup-Lane als Stage im kanonischen Runner, gepinnt auf modkit 0.6.4 (`--modified-bases`-Semantik, 5mC/5hmC als getrennte Zeilen mit gemeinsamem Nenner); MM/ML-Tags werden fail-closed geprüft, ein leerer Pileup wird nie als "unmethyliert" berichtet. Reale modkit-CI-Prüfung auf synthetischen MM/ML-Fixtures bestanden (Tool-Interoperabilität, keine biologische Validierung), siehe [`docs/METHYLATION_LANE.md`](docs/METHYLATION_LANE.md) |
-| MARLIN | Bei ausgewählter Methylierung automatisch angeforderter Forschungsadapter für GRCh37/hg19 und GRCh38/hg38; Originalmodell und buildgebundene Sonden sind prüfsummengebunden. Separater kombinierter 5mC/5hmC-Pileup, isolierte CPU-Laufzeit, tatsächlicher Status und Ergebnis in HTML/JSON/XLSX. Immer `UNVALIDATED_RESEARCH`; fehlende Modell-CpGs ergeben `NO_CALL`, ein Klassenscore unter 0,8 `UNKNOWN`. Keine analytische oder klinische Validierung, siehe [`docs/MARLIN_CLASSIFICATION.md`](docs/MARLIN_CLASSIFICATION.md) |
+| MARLIN | Bei ausgewählter Methylierung automatisch angeforderter Forschungsadapter für GRCh37/hg19 und GRCh38/hg38; Originalmodell und buildgebundene Sonden sind prüfsummengebunden. Separater kombinierter 5mC/5hmC-Pileup, isolierte CPU-Laufzeit, tatsächlicher Status und Ergebnis in HTML/JSON/XLSX. Immer `UNVALIDATED_RESEARCH`; fehlende Modell-CpGs ergeben `NO_CALL`; alle Vorhersagen bleiben `UNKNOWN`, da die Probenbeurteilbarkeit nicht validiert ist. Der Modellscore-Schwellenwert 0,8 wird separat ausgewiesen. Keine analytische oder klinische Validierung, siehe [`docs/MARLIN_CLASSIFICATION.md`](docs/MARLIN_CLASSIFICATION.md) |
 | Methylierungs-Mischung | Standalone Nanopolish-Pfad für deterministische Mischungen zweier ausdrücklich als biologisch getrennt deklarierter Quellen; M/U-Call-Rate-WLS und ein bedingtes Vier-Zustands-Dirichlet-Intervall schätzen einen Source-A-Mischkoeffizienten gegenüber dem bekannten Readgruppenanteil oder liefern `NO_CALL`. Die Kalibrationsraten bleiben im Intervall fest. Eine getrennte technische Recovery-Bewertung verhindert, dass bloße Ausführbarkeit als Genauigkeit gilt. Sensibler technischer Output, keine Tumor-, Zell- oder DNA-Massenfraktion und keine LoD, siehe [`docs/METHYLATION_MIXTURE.md`](docs/METHYLATION_MIXTURE.md) |
 | Verdünnungsreihe / LoD | Deterministische In-silico-Tumorverdünnung (Planung, Mischung, Drift-Prüfung) und technische Detektionsgrenze mit explizitem Bracketing, siehe [`docs/DILUTION_SERIES.md`](docs/DILUTION_SERIES.md); keine analytische Sensitivität |
 | Fusionen | Forschungs-/Entwicklungsarbeit vorhanden, aber noch nicht als klinisch interpretierender Standardpfad auf `main` freigegeben |
@@ -280,8 +280,10 @@ Wenn **Methylierung einschließlich MARLIN** ausgewählt ist, prüft die Oberfl�
 auch die getrennte MARLIN-Installation. Sie wird im Ressourcenordner als
 `marlin/installation.json` mit Originalmodell, hg19/hg38-Sonden und isolierter TensorFlow-CPU-
 Laufzeit hinterlegt. Eine fehlende Einrichtung liefert einen konkreten `NOT_RUN`-Grund;
-Modellfehler machen verfügbare Ergebnisse anderer Module nicht ungültig. Eine führende Klasse
-unter 0,8 ist nur eine Modellrangfolge bei `UNKNOWN`, keine bestätigte Klassifikation.
+Modellfehler machen verfügbare Ergebnisse anderer Module nicht ungültig. Alle nativen Vorhersagen
+bleiben unabhängig vom Modellscore und der CpG-Anzahl `UNKNOWN`; die Probenbeurteilbarkeit ist
+`NOT_ESTABLISHED`. Der Modellscore-Schwellenwert 0,8 wird separat ausgewiesen und begründet keine
+Aussage zur Sicherheit der Klassifikation. Auch zusätzliche CpGs allein belegen keine Validität.
 Die älteren separaten R-Forschungsbefehle behalten ihre eigenen Validierungsbedingungen.
 
 Details: [`desktop/README.md`](desktop/README.md) und

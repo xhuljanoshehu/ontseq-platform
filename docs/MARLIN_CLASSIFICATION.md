@@ -92,9 +92,20 @@ runtime byte verification. GPU visibility is disabled,
 model intra-op threads are capped at eight, and inter-op threads are fixed at one.
 
 Exactly 42 finite model scores are grouped using the original XLSX annotations into current
-classes, families and lineages. A leading grouped class at or above `0.8` receives the technical
-`HIGH_CONFIDENCE` decision; below it the decision remains `UNKNOWN`. Both retain
-`UNVALIDATED_RESEARCH`. Scores are model rankings, not clinical diagnosis probabilities.
+classes, families and lineages. `model_score_threshold` is fixed at `0.8` and
+`model_score_threshold_met` records whether the leading grouped class reaches it. This is a
+raw model-score comparison, not specimen confidence. Native predictions always have decision
+`UNKNOWN` and `assay_assessability: NOT_ESTABLISHED`, regardless of score or observed CpG count:
+no independently validated ONTSeq specimen-assessability policy exists. Additional observed
+CpGs alone cannot establish analytical validity, including coverage of all 357,340 model features.
+The threshold result is absent for `NO_CALL`, `NOT_RUN` and `FAILED`. Raw scores, top class and
+observed feature count/fraction remain available for completed research inference. Every outcome
+retains `UNVALIDATED_RESEARCH`; scores are model rankings, not clinical diagnosis probabilities.
+
+The coverage test grid (1, 10,720 and 357,340 observed model features) guards against promoting a
+high score to specimen confidence. The intermediate count is a test point, not a clinical cutoff.
+The [MARLIN publication](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513838/) reports benchmarking
+under its study conditions; those results do not qualify an ONTSeq specimen-assessability policy.
 
 ### Installation and provenance
 
@@ -476,7 +487,7 @@ The tolerances are frozen before biological validation. They must not be tuned f
 GSE280090 outcomes. A direct `marlin-classify` invocation is not a substitute for external
 validation.
 
-## Classification semantics
+## Legacy standalone classification semantics
 
 The 42 raw model-unit scores are retained. ONTSeq then uses the locked class annotation resource
 to aggregate scores into:
@@ -508,7 +519,7 @@ It is **not** `NO_CALL`.
 observed MARLIN model features. Malformed input, lock mismatch, wrong runtime shape, non-finite
 scores or partial output are failures, not biological negatives.
 
-## Native modkit bridge
+## Legacy validated modkit bridge
 
 The bridge follows the published MARLIN probe aggregation rather than reusing ONTSeq's
 chromosome/target-level methylation summaries.

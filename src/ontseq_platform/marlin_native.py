@@ -585,7 +585,8 @@ def run_native_marlin(
                 "combine_mods": True,
                 "combine_strands": False,
                 "observed_beta_threshold": 0.5,
-                "confidence_threshold": 0.8,
+                "model_score_threshold": 0.8,
+                "assay_assessability": "NOT_ESTABLISHED",
                 "weighted_pooling": "sum(N_mod)/sum(N_valid)",
                 "threads": threads,
                 "model_threads": model_threads,
@@ -703,18 +704,19 @@ def run_native_marlin(
             report = NativeMarlinReport(
                 **{**shared, "tools": tools, "input_fingerprints": fingerprints},
                 status=ModuleRunStatus.COMPLETED,
-                reason="Original MARLIN model executed in isolated research runtime",
+                reason=(
+                    "Original MARLIN model executed; assay assessability is not established. "
+                    "The 0.8 model-score threshold does not establish specimen confidence; "
+                    "the native classification remains UNKNOWN."
+                ),
                 raw_model_scores=scores,
                 class_scores=classes,
                 family_scores=families,
                 lineage_scores=lineages,
                 top_class=classes[0].label,
                 top_class_score=classes[0].score,
-                decision=(
-                    MarlinClassificationDecision.HIGH_CONFIDENCE
-                    if classes[0].score >= 0.8
-                    else MarlinClassificationDecision.UNKNOWN
-                ),
+                decision=MarlinClassificationDecision.UNKNOWN,
+                model_score_threshold_met=classes[0].score >= 0.8,
             )
         # Bind the final result to unchanged inputs and installed executable evidence.
         if (

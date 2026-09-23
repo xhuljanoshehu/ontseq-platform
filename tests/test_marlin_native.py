@@ -54,6 +54,96 @@ def test_report_refuses_stale_prediction_on_failure():
         NativeMarlinReport(**blocked, top_class="stale")
 
 
+def completed_report_payload(observed, top_score=0.8):
+    scores = [top_score] + [(1 - top_score) / 41] * 41
+    grouped = sorted(
+        [{"label": f"class{i}", "score": score} for i, score in enumerate(scores, 1)],
+        key=lambda value: (-value["score"], value["label"]),
+    )
+    return {
+        "run_id": "synthetic-run",
+        "sample_id": "synthetic-sample",
+        "genome_build": "GRCh38",
+        "status": "COMPLETED",
+        "reason": "synthetic evidence",
+        "decision": "UNKNOWN",
+        "model_score_threshold_met": top_score >= 0.8,
+        "feature_summary": {
+            "observed_model_feature_count": observed,
+            "explicit_na_feature_count": 0,
+            "absent_feature_count": 357340 - observed,
+            "non_model_probe_count": 0,
+            "observed_fraction": observed / 357340,
+            "feature_vector_sha256": "a" * 64,
+            "feature_artifact_sha256": "b" * 64,
+        },
+        "raw_model_scores": [
+            {"model_id": i, "label": f"class{i}", "score": score}
+            for i, score in enumerate(scores, 1)
+        ],
+        "class_scores": grouped,
+        "family_scores": grouped,
+        "lineage_scores": grouped,
+        "top_class": "class1",
+        "top_class_score": top_score,
+        "tools": [{"name": "synthetic", "version": "1"}],
+        "installation_signature": {"synthetic": "c" * 64},
+        "input_fingerprints": {
+            key: {"size_bytes": 1, "sha256": "d" * 64}
+            for key in (
+                "bam",
+                "bam_index",
+                "reference",
+                "reference_fai",
+                "bedmethyl",
+                "tensor",
+                "worker_output",
+            )
+        },
+    }
+
+
+@pytest.mark.parametrize("observed", [1, 10720, 357340])
+@pytest.mark.parametrize(
+    ("top_score", "threshold_met"), [(0.799, False), (0.8, True), (0.99, True)]
+)
+def test_model_score_and_coverage_never_establish_specimen_assessability(
+    observed, top_score, threshold_met
+):
+    payload = completed_report_payload(observed, top_score)
+    report = NativeMarlinReport.model_validate(payload)
+    assert report.decision == "UNKNOWN"
+    assert report.assay_assessability == "NOT_ESTABLISHED"
+    assert report.model_score_threshold_met is threshold_met
+    assert report.model_score_threshold == 0.8
+    assert report.top_class_score == top_score
+    assert report.raw_model_scores[0].score == top_score
+    assert report.feature_summary.observed_model_feature_count == observed
+    for field, invalid in (
+        ("decision", "HIGH_CONFIDENCE"),
+        ("assay_assessability", "ESTABLISHED"),
+        ("model_score_threshold_met", not threshold_met),
+        ("model_score_threshold_met", None),
+        ("model_score_threshold", 0.7),
+    ):
+        with pytest.raises(ValueError):
+            NativeMarlinReport.model_validate({**payload, field: invalid})
+
+
+@pytest.mark.parametrize("status", ["FAILED", "NOT_RUN"])
+@pytest.mark.parametrize("threshold_met", [False, True])
+def test_noncompleted_report_cannot_claim_model_threshold(status, threshold_met):
+    with pytest.raises(ValueError, match="prediction evidence"):
+        NativeMarlinReport(
+            run_id="r",
+            sample_id="s",
+            genome_build="GRCh38",
+            status=status,
+            reason="unavailable",
+            model_score_threshold_met=threshold_met,
+        )
+
+
 def test_report_refuses_success_without_evidence():
     with pytest.raises(ValueError):
         NativeMarlinReport(
@@ -340,6 +430,15 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
     if mode == "empty":
         assert report.status == ModuleRunStatus.NO_CALL, report.reason
         assert report.feature_summary.observed_model_feature_count == 0
+        assert report.model_score_threshold_met is None
+        for threshold_met in (False, True):
+            with pytest.raises(ValueError, match="NO_CALL cannot carry"):
+                NativeMarlinReport.model_validate(
+                    {
+                        **report.model_dump(mode="json"),
+                        "model_score_threshold_met": threshold_met,
+                    }
+                )
         assert not (output / "worker-config.json").exists()
         assert report.raw_model_scores == []
     elif mode.startswith(("index-", "reference-fai-")) or mode in {
@@ -372,7 +471,10 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
         assert len(report.class_scores) == 42
         assert len(report.family_scores) == 3
         assert len(report.lineage_scores) == 2
-        assert report.decision == ("UNKNOWN" if mode == "low" else "HIGH_CONFIDENCE")
+        assert report.decision == "UNKNOWN"
+        assert report.assay_assessability == "NOT_ESTABLISHED"
+        assert report.model_score_threshold_met is (mode != "low")
+        assert report.model_score_threshold == 0.8
         assert report.feature_summary.observed_model_feature_count == 1
         pileup_command = next(c for c in commands if c[1] == "pileup")
         assert pileup_command[pileup_command.index("--modified-bases") + 1 :][:2] == ["5mC", "5hmC"]
@@ -399,6 +501,7 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
     )
     assert again.status == ModuleRunStatus.FAILED
     assert again.top_class is None
+    assert again.model_score_threshold_met is None
 
 
 @pytest.mark.parametrize("change", ["archive", "self-rehashed-runtime", "python-path"])

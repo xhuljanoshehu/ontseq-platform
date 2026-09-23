@@ -73,7 +73,9 @@ class NativeMarlinReport(StrictModel):
     lineage_scores: list[MarlinGroupedScore] = Field(default_factory=list)
     top_class: str | None = None
     top_class_score: float | None = Field(default=None, ge=0, le=1.00001)
-    confidence_threshold: float = Field(default=0.8, ge=0.8, le=0.8)
+    model_score_threshold: float = Field(default=0.8, ge=0.8, le=0.8)
+    model_score_threshold_met: bool | None = None
+    assay_assessability: Literal["NOT_ESTABLISHED"] = "NOT_ESTABLISHED"
     validation_status: Literal["UNVALIDATED_RESEARCH"] = "UNVALIDATED_RESEARCH"
     research_only: Literal[True] = True
     tools: list[ToolRecord] = Field(default_factory=list)
@@ -85,6 +87,10 @@ class NativeMarlinReport(StrictModel):
         default_factory=lambda: [
             "UNVALIDATED_RESEARCH: synthetic technical acceptance is not analytical validation.",
             "MARLIN scores are model ranks, not clinical diagnosis probabilities.",
+            "The 0.8 model-score threshold does not establish specimen confidence "
+            "or assessability.",
+            "No independently validated ONTSeq assessability policy exists; additional observed "
+            "CpGs alone cannot establish validity, so native predictions remain UNKNOWN.",
         ]
     )
 
@@ -94,7 +100,13 @@ class NativeMarlinReport(StrictModel):
         if self.status in {ModuleRunStatus.NOT_RUN, ModuleRunStatus.FAILED}:
             if any(scores) or any(
                 v is not None
-                for v in (self.decision, self.feature_summary, self.top_class, self.top_class_score)
+                for v in (
+                    self.decision,
+                    self.feature_summary,
+                    self.top_class,
+                    self.top_class_score,
+                    self.model_score_threshold_met,
+                )
             ):
                 raise ValueError("blocked/failed MARLIN reports cannot carry prediction evidence")
             return self
@@ -112,6 +124,8 @@ class NativeMarlinReport(StrictModel):
                 raise ValueError("NO_CALL requires zero observed features and no inference scores")
             if self.decision != MarlinClassificationDecision.UNKNOWN:
                 raise ValueError("NO_CALL decision must be UNKNOWN")
+            if self.model_score_threshold_met is not None:
+                raise ValueError("NO_CALL cannot carry a model-score threshold result")
             if self.top_class is not None or self.top_class_score is not None:
                 raise ValueError("NO_CALL cannot carry a top class")
             return self
@@ -130,13 +144,14 @@ class NativeMarlinReport(StrictModel):
         top = self.class_scores[0]
         if self.top_class != top.label or self.top_class_score != top.score:
             raise ValueError("MARLIN top class must equal the leading grouped class")
-        expected = (
-            MarlinClassificationDecision.HIGH_CONFIDENCE
-            if top.score >= 0.8
-            else MarlinClassificationDecision.UNKNOWN
-        )
-        if self.decision != expected:
-            raise ValueError("MARLIN decision contradicts fixed confidence threshold")
+        if self.decision != MarlinClassificationDecision.UNKNOWN:
+            raise ValueError(
+                "native MARLIN decision must be UNKNOWN: assay assessability is not established"
+            )
+        if self.model_score_threshold_met is not (top.score >= self.model_score_threshold):
+            raise ValueError(
+                "MARLIN model-score threshold result contradicts the leading class score"
+            )
         if "worker_output" not in self.input_fingerprints:
             raise ValueError("completed MARLIN requires worker output fingerprint")
         return self

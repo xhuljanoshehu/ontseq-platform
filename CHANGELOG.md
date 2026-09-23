@@ -15,8 +15,10 @@ validated release.
   guards and legacy MARLIN R/biological bridge contracts.
 - Record complete installed runtime inventory, source and input/output hashes in native report
   provenance and resume signatures. Missing setup is `NOT_RUN`; parser/process errors are `FAILED`;
-  zero observed features are `NO_CALL` without inference. Scores below `0.8` remain `UNKNOWN`,
-  and stale or deselected results are excluded without failing other available modules.
+  zero observed features are `NO_CALL` without inference. All completed native predictions remain
+  `UNKNOWN` with `assay_assessability: NOT_ESTABLISHED`; retain raw scores and separately expose
+  `model_score_threshold: 0.8` and `model_score_threshold_met`. A high model score does not establish
+  specimen confidence. Stale or deselected results are excluded without failing other modules.
 - Bind runtime acceptance to the approved archive and independently qualified full installed
   inventories; reject self-registered runtime changes and unqualified relocations. Keep readiness
   non-executing until the stage verifies runtime bytes. Bind the selected BAM index to intake,
@@ -26,7 +28,10 @@ validated release.
 - Validation impact: MARLIN can now add original-model scores to research reports for either
   supported build. All predictions remain `UNVALIDATED_RESEARCH`. Real synthetic BAM/modkit/model
   acceptance checks count/tensor transfer and numerical execution; it establishes no analytical
-  or clinical validity and creates no legacy validated same-specimen bridge lock.
+  or clinical validity and creates no legacy validated same-specimen bridge lock. Coverage-grid
+  tests preserve `UNKNOWN` at 1, 10,720 and all 357,340 observed model features, including high
+  scores: additional CpGs alone cannot establish validity and no clinical count cutoff is imposed.
+  Legacy strict R/v1 decision semantics remain unchanged.
 
 - cuteSV worker-failure hardening (#91/#93): the exact known 2.1.3 entry-script
   copy now retrieves every signature-extraction task result and re-raises

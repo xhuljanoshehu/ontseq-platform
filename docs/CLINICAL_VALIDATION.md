@@ -12,8 +12,16 @@ The adapter selects the map matching the aligned BAM/reference build without lif
 separate combined 5mC+5hmC pileup, pools modified/valid counts by depth, and encodes observed
 beta `>=0.5` as `+1`, observed beta `<0.5` as `-1`, and missing features as `0`. No observed
 features means `NO_CALL` without inference. Forty-two finite model scores are grouped by the
-original annotations; below the fixed `0.8` class threshold the decision is `UNKNOWN`.
-Every outcome remains `UNVALIDATED_RESEARCH`, including `HIGH_CONFIDENCE` predictions.
+original annotations. Native decisions remain `UNKNOWN` for every completed inference because
+`assay_assessability` is `NOT_ESTABLISHED`: no independently validated ONTSeq assessability policy
+exists. The separate `model_score_threshold_met` field compares the leading class score with
+`model_score_threshold: 0.8`; this is not specimen confidence. More observed CpGs alone do not
+establish validity. Tests retain the same high score at 1, 10,720 and all 357,340 features and
+require `UNKNOWN` throughout; none of those counts is a clinical cutoff. The
+[MARLIN study benchmarks](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513838/) do not establish
+an ONTSeq specimen-assessability policy. All outcomes remain `UNVALIDATED_RESEARCH`, and raw
+scores remain available without a confidence claim. `NO_CALL` stays distinct and has no threshold
+result because inference did not run. The older strict R/v1 contracts retain their own semantics.
 
 Technical controls bind sample/run/build, input and output bytes, exact tool identity, the complete
 relocated runtime inventory, source code, thread plan and network confinement. The runtime archive

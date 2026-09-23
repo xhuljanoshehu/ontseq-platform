@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { copyAt, ratioAt, dilutedRatio, solutions, moduleState, modelSummary, moduleLabels as baseModuleLabels, statusLabels, number as n, percent } from './model.js';
+import { copyAt, ratioAt, dilutedRatio, solutions, moduleState, modelSummary, marlinAssessmentFacts, moduleLabels as baseModuleLabels, statusLabels, number as n, percent } from './model.js';
 import './report.css';
 
 const data = JSON.parse(document.getElementById('ontseq-befund-data').textContent);
@@ -41,8 +41,9 @@ function Marlin({report}) {
   const feature = report.feature_summary;
   return <><p><Status value={report.status}/> · {report.reason}</p>
     <p className="bf-alert">{report.validation_status} · Nur für Forschungszwecke; nicht klinisch validiert. Modellscores sind keine Erkrankungswahrscheinlichkeiten.</p>
+    <p className="bf-alert">Bewertung nicht validiert · Die rohe Modellscore-Schwelle ist keine validierte Grenze für die Beurteilbarkeit dieser Probe. Die Zahl und der Anteil beobachteter CpGs sind technische Nachweise; eine belastbare Assay-Beurteilbarkeit ist nicht etabliert.</p>
     {report.decision === 'UNKNOWN' && <p className="bf-alert">UNKNOWN · Keine hinreichend sichere Klassifikation. Eine führende Modellklasse ist keine bestätigte Klasse.</p>}
-    <Facts rows={[["Entscheidung",report.decision ?? 'nicht verfügbar'],["Beobachtete Modell-CpGs",n(feature?.observed_model_feature_count,0)],["Erwartete Modell-CpGs",n(feature?.expected_feature_count,0)],["Explizit fehlende CpGs",n(feature?.explicit_na_feature_count,0)],["Nicht beobachtete Modell-CpGs",n(feature?.absent_feature_count,0)],["Führende Modellklasse",report.top_class ?? 'nicht verfügbar'],["Führender Modellscore",n(report.top_class_score,6)],["Konfidenzschwelle",n(report.confidence_threshold,2)]]}/>
+    <Facts rows={[["Entscheidung",report.decision ?? 'nicht verfügbar'],["Beobachtete Modell-CpGs",n(feature?.observed_model_feature_count,0)],["Erwartete Modell-CpGs",n(feature?.expected_feature_count,0)],["Explizit fehlende CpGs",n(feature?.explicit_na_feature_count,0)],["Nicht beobachtete Modell-CpGs",n(feature?.absent_feature_count,0)],["Führende Modellklasse",report.top_class ?? 'nicht verfügbar'],["Führender Modellscore",n(report.top_class_score,6)],...marlinAssessmentFacts(report)]}/>
     {[["Klassen",report.class_scores],["Familien",report.family_scores],["Linien",report.lineage_scores]].map(([title,rows])=>rows?.length>0 && <div key={title} className="bf-table"><h3>{title} · Modellscores</h3><table><thead><tr><th>Rang</th><th>Bezeichnung</th><th>Modellscore</th></tr></thead><tbody>{rows.map((row,index)=><tr key={row.label}><td>{index+1}</td><td>{row.label}</td><td>{n(row.score,6)}</td></tr>)}</tbody></table></div>)}
     {[...(report.warnings || []),...(report.limitations || [])].map((text,index)=><p key={index} className="bf-alert">{text}</p>)}
     <details><summary>MARLIN-Werkzeuge, Parameter und Prüfsummen</summary><pre>{JSON.stringify({schema_version:report.schema_version,adapter_version:report.adapter_version,run_id:report.run_id,tools:report.tools,parameters:report.parameters,input_fingerprints:report.input_fingerprints,installation_signature:report.installation_signature,feature_summary:feature},null,2)}</pre></details>
