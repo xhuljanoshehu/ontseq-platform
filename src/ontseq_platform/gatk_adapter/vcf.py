@@ -85,6 +85,22 @@ def _sample_fields(keys: list[str], value: str, n_alt: int) -> SampleFields:
     }
 
 
+def _allele_filter_statuses(
+    value: str | Literal[True] | None, n_alt: int
+) -> tuple[str | None, ...]:
+    """Decode GATK 4.6.2.0 AS_FilterStatus into one native string per ALT allele."""
+    if value is None:
+        return (None,) * n_alt
+    if value is True:
+        raise VcfContractError("AS_FilterStatus must be a value, not a flag")
+    statuses = tuple(item.strip() for item in value.split("|"))
+    if len(statuses) != n_alt:
+        raise VcfContractError("AS_FilterStatus allele cardinality does not match the ALT field")
+    if any(not item for item in statuses):
+        raise VcfContractError("AS_FilterStatus contains an empty allele value")
+    return statuses
+
+
 def _variant_type(ref: str, alt: str) -> Literal["SNV", "MNV", "INS", "DEL", "COMPLEX"]:
     if len(ref) == len(alt):
         return "SNV" if len(ref) == 1 else "MNV"
@@ -176,14 +192,12 @@ def extract_candidates(
                 if normal_sample_id
                 else None
             )
+            allele_filters = _allele_filter_statuses(info.get("AS_FilterStatus"), len(alts))
             record_digest = hashlib.sha256(line.encode()).hexdigest()
             for allele_index, alt in enumerate(alts, 1):
                 if len(records) >= max_records:
                     raise VcfContractError("Candidate limit exceeded; no truncation is permitted")
                 identity = [run_id, sample_id, source_digest, line_number, allele_index]
-                allele_filters = info.get("AS_FilterStatus")
-                if allele_filters is True:
-                    raise VcfContractError("AS_FilterStatus must be a value, not a flag")
                 records.append(
                     SmallVariantCandidate(
                         evidence_id=hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
@@ -203,7 +217,7 @@ def extract_candidates(
                         alt_depth=tumor["ad"][allele_index],
                         depth=tumor["dp"],
                         native_site_filter=filters,
-                        native_allele_filter_status=allele_filters,
+                        native_allele_filter_status=allele_filters[allele_index - 1],
                         native_record_sha256=record_digest,
                         source_vcf_sha256=source_digest,
                         source_line_number=line_number,
