@@ -171,10 +171,7 @@ class VerdictTests(unittest.TestCase):
         outcomes = {stage: StageOutcome.COMPLETED for stage in planned_stages(InputKindName.POD5)}
         verdict = summarize(InputKindName.POD5, outcomes)
         self.assertTrue(verdict.passed)
-        self.assertEqual(
-            {StageId.BASECALL, StageId.CNV},
-            set(verdict.unverified_stages),
-        )
+        self.assertEqual({StageId.BASECALL}, set(verdict.unverified_stages))
 
     def test_aligned_run_does_not_report_basecalling_as_incomplete(self) -> None:
         verdict = summarize(InputKindName.ALIGNED_BAM, self._complete_aligned_run())
@@ -207,13 +204,13 @@ class VerificationTests(unittest.TestCase):
     def test_an_unaligned_bam_run_flags_only_the_unwired_stages(self) -> None:
         """Below POD5, only adapters CI has never executed against the real tool remain.
 
-        Target coverage left this set when its adapter was wired into the runner, and
-        methylation left it when the real modkit 0.6.4 lane entered CI. CNV is still the
-        stage whose implementation arrives by registration rather than by being part of
-        the graph.
+        Target coverage left this set when its adapter was wired into the runner,
+        methylation left it when the real modkit 0.6.4 lane entered CI, and CNV left it when
+        the QDNAseq/ACE lane became part of the declared graph instead of arriving by
+        process-global registration.
         """
         specs = unverified_specs(planned_stages(InputKindName.UNALIGNED_BAM))
-        self.assertEqual({spec.stage for spec in specs}, {StageId.CNV})
+        self.assertEqual({spec.stage for spec in specs}, set())
 
 
 if __name__ == "__main__":

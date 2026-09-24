@@ -1,5 +1,30 @@
 # Analytical and clinical validation plan
 
+## Copy-number evidence bound to the current run, 2026-09-24
+
+The QDNAseq/ACE lane previously arrived by process-global registration and replaced the
+assembly and report stages with its own copies. Its assembler read
+`evidence/cnv/<sample>.qdnaseq.json` whenever the file existed. A synthetic reproduction
+showed a report left by an earlier attempt entering the current result as the CNV module
+outcome although the manifest no longer requested CNV; the same path would have fed stale
+events into the ISCN proposal after a failed re-run or a deselection. This contradicted the
+rule already enforced for SV, methylation and MARLIN evidence.
+
+The lane is now configured per run (`RunConfiguration.cnv_lane`) and its report reaches
+assembly and the reviewer report only as an artifact that the current CNV stage recorded and
+that still verifies byte for byte. A failed or unconfigured lane is represented by the
+reason the stage recorded, never by earlier output; a re-execution deletes its previous
+normalized report first. Assembly and reporting are single implementations; the lane
+contributes events, the recomputed ISCN proposal, sidecar tables, plots and workbook sheets.
+
+This is an execution and provenance correction. QDNAseq/ACE parameters, bin sizes, ACE
+penalty, whole-chromosome and cytoband thresholds, ISCN rules and release gates are
+unchanged. Synthetic regressions cover a leftover report with CNV not requested, a failed
+re-run after a successful attempt, per-run lane scoping inside one process, checksum
+refusal of a changed current artifact and the recorded lane in plan signatures. The real
+QDNAseq/ACE workflows remain the qualification of the tool path; archived runs are not
+reclassified.
+
 ## One target-coverage stage and a current-run coverage handoff, 2026-09-24
 
 The execution commands `run`, `serve` (the Desktop service) and `watch` installed a

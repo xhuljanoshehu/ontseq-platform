@@ -14,10 +14,7 @@ import subprocess
 from pathlib import Path
 
 from ontseq_platform import __version__
-from ontseq_platform.cnv.extension import (
-    QDNAseqExtensionSettings,
-    register_qdnaseq_extension,
-)
+from ontseq_platform.cnv.lane import CnvLaneSettings
 from ontseq_platform.cnv.qdnaseq import QDNAseqCallReport, QDNAseqPolicy
 from ontseq_platform.io import load_model
 from ontseq_platform.models import (
@@ -167,9 +164,6 @@ def main() -> int:
         print(json.dumps({"fixture": str(bam), "patient_data": False}))
         return 0
     policy = load_model(ROOT / "configs/cnv/qdnaseq_ace.technical.yaml", QDNAseqPolicy)
-    register_qdnaseq_extension(
-        QDNAseqExtensionSettings(policy=policy, script=ROOT / "scripts/run_qdnaseq_ace.R")
-    )
     settings = AnalyzeSettings(
         bam=bam,
         profile_id=args.profile,
@@ -180,6 +174,7 @@ def main() -> int:
         pipeline_version=__version__,
         git_commit="LOCAL_WORKTREE",
         threads=2,
+        cnv_lane=CnvLaneSettings(policy=policy, script=ROOT / "scripts/run_qdnaseq_ace.R"),
     )
     config = build_profile_run_configuration(settings)
     # The launcher normally obtains this at intake. Explicitly bind this fixture too.

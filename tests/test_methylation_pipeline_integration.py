@@ -9,7 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from ontseq_platform import __version__
-from ontseq_platform.cnv.extension import _assemble_execute as assemble_with_cnv
+from ontseq_platform.cnv.lane import CnvLaneSettings
+from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy
 from ontseq_platform.demo import build_demo_result
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.methylation import MethylationPolicy, normalize_methylation
@@ -49,6 +50,24 @@ from ontseq_platform.pipeline.runner import (
     run_pipeline,
 )
 from ontseq_platform.pipeline.stages import StageId
+
+#: A configured copy-number lane whose stage the fixtures never execute.
+SYNTHETIC_CNV_LANE = CnvLaneSettings(
+    policy=QDNAseqPolicy(
+        profile_id="synthetic-integration",
+        cytoband_affected_fraction=0.66,
+        note="Synthetic integration fixture, not a QDNAseq/ACE validation",
+    )
+)
+
+
+def assemble_with_cnv_lane(ctx: RunContext, plan: StagePlan) -> StageResult:
+    """The single assembler, run with a configured CNV lane that produced no evidence."""
+    from ontseq_platform.pipeline import runner as pipeline_runner
+
+    ctx.config.cnv_lane = SYNTHETIC_CNV_LANE
+    # Resolved through the module: tests patch this file's ``_assemble_execute`` alias.
+    return pipeline_runner._assemble_execute(ctx, plan)
 
 
 class _ModkitVersionOnly:
@@ -305,8 +324,7 @@ def test_cnv_assembler_keeps_current_methylation_and_rejects_stale_artifacts(
         manifest=fixture.config.manifest,
         artifacts={StageId.METHYLATION: [envelope.fingerprint(relative)]},
     )
-    with patch("ontseq_platform.cnv.extension._load_cnv", return_value=None):
-        assemble_with_cnv(context, StagePlan(parameters={}, tool_versions={}))
+    assemble_with_cnv_lane(context, StagePlan(parameters={}, tool_versions={}))
     result = fixture.result()
     assert result.schema_version == "0.3.0"
     assert result.reference_context == fixture.config.resource_context

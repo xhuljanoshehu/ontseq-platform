@@ -25,15 +25,14 @@ from __future__ import annotations
 
 import shutil
 import traceback
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..align import AlignmentInputs, AlignmentPolicy, run_alignment
+from ..align import AlignmentInputs, run_alignment
 from ..aml_rearrangements import prioritize_aml_rearrangements
 from ..bam_intake import AlignedBamInspector
-from ..basecall import BasecallInputs, BasecallPolicy, run_basecalling
+from ..basecall import BasecallInputs, run_basecalling
 from ..breakpoint_annotation import (
     ContextInterval,
     ContextIntervalIndex,
@@ -41,6 +40,7 @@ from ..breakpoint_annotation import (
     PathBackedContextIntervalIndex,
     annotate_events_from_cache,
 )
+from ..cnv import lane as cnv_lane
 from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT
 from ..cutesv import run_cutesv
 from ..cutesv_build import executable_identity as cutesv_executable_identity
@@ -48,20 +48,17 @@ from ..execution import StreamingCommandRunner, SubprocessRunner
 from ..iscn import ISCN_RULE_PROFILE
 from ..methylation import (
     REGION_ASSIGNMENT_METHOD,
-    MethylationPolicy,
     MethylationRegionSource,
     MethylationReport,
     run_methylation,
 )
 from ..models import (
     AlignedBamIntakeReport,
-    AmlKnowledgeLock,
     AnalysisModule,
     AssayMode,
     CheckStatus,
     CraminoQCReport,
     CuteSvCallReport,
-    CuteSvPolicy,
     GenomicEvent,
     InputKind,
     InputSpec,
@@ -69,15 +66,10 @@ from ..models import (
     ISCNSelectionPolicy,
     ModuleOutcome,
     ModuleRunStatus,
-    QCPolicy,
-    ReferenceLock,
-    ResolvedResourceContext,
-    SampleManifest,
+    PipelineResult,
     SnifflesCallReport,
-    SnifflesPolicy,
     SvConsensusPolicy,
     SvConsensusReport,
-    SvEvidencePolicy,
     TargetBedRole,
     ToolRecord,
     ValidationCheck,
@@ -95,11 +87,17 @@ from ..sv_annotation import annotate_sv_events, load_interval_resource
 from ..sv_consensus import build_consensus_report
 from ..sv_evidence import prioritize_sv_events
 from ..sv_observability import apply_sv_observability
-from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
+from ..target_coverage import TargetCoverageReport, run_target_coverage
 from ..workbook import render_workbook
-from .components import ComponentVersionMismatch, RunComponents
+from .components import ComponentVersionMismatch
+from .context import RunConfiguration as RunConfiguration
+from .context import RunContext as RunContext
+from .context import StageFailure as StageFailure
+from .context import StageImplementation as StageImplementation
+from .context import StagePlan as StagePlan
+from .context import StageResult as StageResult
+from .context import current_artifact
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
-from .input_digest import RunInputDigestCache
 from .lock import run_lock
 from .marlin import (
     current_marlin_outcome,
@@ -161,175 +159,6 @@ STANDING_LIMITATIONS = (
     "Tool versions are locked for reproducibility; none of the thresholds involved is a "
     "validated clinical limit.",
 )
-
-
-class StageFailure(RuntimeError):
-    """Raised inside a stage to fail it with a specific, readable reason."""
-
-
-@dataclass
-class RunConfiguration:
-    """Everything one run needs, resolved before execution starts."""
-
-    manifest: SampleManifest
-    reference_lock: ReferenceLock
-    output_base: Path
-    run_id: str
-    pipeline_version: str
-    git_commit: str
-    qc_policy: QCPolicy
-    sniffles_policy: SnifflesPolicy | None = None
-    cutesv_policy: CuteSvPolicy | None = None
-    sv_consensus_policy: SvConsensusPolicy | None = None
-    sv_evidence_policy: SvEvidencePolicy | None = None
-    gene_annotation: tuple[Path, IntervalResourceLock] | None = None
-    cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
-    sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
-    aml_knowledge: tuple[Path, AmlKnowledgeLock] | None = None
-    sv_minimum_mean_depth: float = 10.0
-    target_coverage_policy: TargetCoveragePolicy | None = None
-    methylation_policy: MethylationPolicy | None = None
-    marlin_installation: Path | None = None
-    #: Which component runs each stage, and at which version. ``None`` keeps the built-in
-    #: defaults and pins nothing, which is what every run did before selection existed.
-    components: RunComponents | None = None
-    alignment_policy: AlignmentPolicy | None = None
-    basecall_policy: BasecallPolicy | None = None
-    reference_fasta: Path | None = None
-    pod5_directory: Path | None = None
-    threads: int = 4
-    # cuteSV rebuilds genome-wide signature lists in each worker. Keep its memory
-    # concurrency independent of the other callers and record it in the SV plan.
-    cutesv_threads: int = 1
-    executables: Mapping[str, str] = field(
-        default_factory=lambda: {
-            "samtools": "samtools",
-            "cramino": "cramino",
-            "sniffles": "sniffles",
-            "cutesv": "cuteSV",
-            "minimap2": "minimap2",
-            "mosdepth": "mosdepth",
-            "modkit": "modkit",
-            "dorado": "dorado",
-        }
-    )
-    #: Ignore any previous run state and execute every stage again.
-    force: bool = False
-    resource_context: ResolvedResourceContext | None = None
-    annotation_cache: Path | None = None
-    selection_target_bed: Path | None = None
-    context_resource_paths: Mapping[str, Path] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        modules = self.manifest.analysis.modules
-        if AnalysisModule.METHYLATION in modules and AnalysisModule.MARLIN not in modules:
-            self.manifest = self.manifest.model_copy(
-                update={
-                    "analysis": self.manifest.analysis.model_copy(
-                        update={
-                            "modules": [*modules, AnalysisModule.MARLIN],
-                        }
-                    ),
-                }
-            )
-        if (
-            isinstance(self.cutesv_threads, bool)
-            or not isinstance(self.cutesv_threads, int)
-            or self.cutesv_threads < 1
-        ):
-            raise ValueError("cutesv_threads must be a positive integer")
-
-    def executable(self, name: str) -> str:
-        return self.executables.get(name, name)
-
-
-@dataclass
-class RunContext:
-    """Mutable state threaded through the stages of one run."""
-
-    config: RunConfiguration
-    envelope: RunEnvelope
-    runner: StreamingCommandRunner
-    #: The manifest as it currently stands. Alignment rewrites its input to the BAM the
-    #: pipeline just produced, so downstream adapters need no special casing.
-    manifest: SampleManifest
-    artifacts: dict[StageId, list[Artifact]] = field(default_factory=dict)
-    stage_records: dict[StageId, StageRecord] = field(default_factory=dict)
-    input_digests: RunInputDigestCache = field(default_factory=RunInputDigestCache, repr=False)
-
-    def fingerprint_external_input(
-        self, path: Path, *, label: str | None = None
-    ) -> tuple[str, str]:
-        if not path.is_file():
-            raise StageFailure("required external input is missing")
-        try:
-            digest, stable = self.input_digests.digest(path)
-        except OSError as exc:
-            raise StageFailure("required external input could not be fingerprinted") from exc
-        if not stable:
-            raise StageFailure(
-                f"{label or 'required external input'} changed while it was being fingerprinted"
-            )
-        return (label or path.name, digest)
-
-    @property
-    def sample_id(self) -> str:
-        return self.config.manifest.sample_id
-
-    def path(self, template: str) -> str:
-        return template.format(sample=self.sample_id)
-
-    def upstream(self, stage: StageId, input_kind: InputKindName) -> list[Artifact]:
-        collected: list[Artifact] = []
-        dependencies = list(SPEC_BY_STAGE[stage].depends_on)
-        if (
-            stage in {StageId.SV, StageId.REPORT}
-            and self.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING
-        ):
-            dependencies.append(StageId.TARGET_COVERAGE)
-        if stage is StageId.ASSEMBLE:
-            # Optional evidence affects the assembled result even though a missing lane
-            # must not block assembly. Track current outputs in the resume signature;
-            # checking old files on disk would retain an earlier opt-in after deselection.
-            dependencies.extend((StageId.CNV, StageId.SV, StageId.METHYLATION, StageId.MARLIN))
-        for dependency in dependencies:
-            collected.extend(self.artifacts.get(dependency, []))
-        return collected
-
-
-@dataclass(frozen=True)
-class StagePlan:
-    """What a stage will do, resolved before the resume decision."""
-
-    parameters: dict[str, object]
-    tool_versions: dict[str, str]
-    external_inputs: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True)
-class StageResult:
-    """What a stage did."""
-
-    status: ModuleRunStatus
-    reason: str
-    outputs: list[Artifact] = field(default_factory=list)
-    tools: list[ToolRecord] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    limitations: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class StageImplementation:
-    plan: Callable[[RunContext], StagePlan]
-    execute: Callable[[RunContext, StagePlan], StageResult]
-    #: Re-point the context at what the stage produced. Runs after a stage completes *and*
-    #: after it resumes, because a resumed stage produced its artifacts just as surely as
-    #: one that just ran. Putting this inside ``execute`` would mean a resumed alignment
-    #: left the manifest pointing at the unaligned input, and every downstream stage would
-    #: then either re-run against the wrong file or fail outright. It receives the recorded
-    #: artifacts rather than re-reading the envelope, so adopting a multi-gigabyte BAM does
-    #: not cost a second checksum pass over it.
-    settle: Callable[[RunContext, Sequence[Artifact]], None] | None = None
 
 
 def _probe(
@@ -831,18 +660,8 @@ def load_current_coverage(
     remains the reader for archived envelopes outside a run.
     """
     relative_path = SELECTION_COVERAGE_REPORT if selection else TARGET_COVERAGE_REPORT
-    current = next(
-        (
-            artifact
-            for artifact in ctx.artifacts.get(StageId.TARGET_COVERAGE, [])
-            if artifact.relative_path == relative_path
-        ),
-        None,
-    )
-    if current is None:
+    if current_artifact(ctx, StageId.TARGET_COVERAGE, relative_path) is None:
         return None
-    if ctx.envelope.verify([current]):
-        raise StageFailure("The current coverage artifact failed its checksum verification")
     report = TargetCoverageReport.model_validate_json(
         ctx.envelope.path(relative_path).read_text(encoding="utf-8")
     )
@@ -1227,29 +1046,74 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
 def load_methylation_report(ctx: RunContext) -> MethylationReport | None:
     """Read the methylation artifact of this run, if the stage produced one.
 
-    Public because the CNV extension replaces the assemble stage wholesale. Two copies of
-    this lookup would be two places for the lane to fall out of a result, and a missing
-    module outcome is indistinguishable from a module that was never requested.
+    Assembly and both reviewer renderers read the lane through this one lookup, so the lane
+    cannot fall out of one of them: a missing module outcome is indistinguishable from a
+    module that was never requested.
     """
     if not _module_requested(ctx, AnalysisModule.METHYLATION):
         return None
     relative_path = ctx.path(METHYLATION_REPORT)
-    current = next(
-        (
-            artifact
-            for artifact in ctx.artifacts.get(StageId.METHYLATION, [])
-            if artifact.relative_path == relative_path
-        ),
-        None,
-    )
-    if current is None:
+    if current_artifact(ctx, StageId.METHYLATION, relative_path) is None:
         # A failed, skipped or deselected stage has no current output. Its previous
         # file can still exist in a resumed envelope but cannot become fresh evidence.
         return None
-    if ctx.envelope.verify([current]):
-        raise StageFailure("The current methylation artifact failed its checksum verification")
     path = ctx.envelope.path(relative_path)
     return MethylationReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _cnv_plan(ctx: RunContext) -> StagePlan:
+    """Plan the configured copy-number lane, or record that this run has none."""
+    settings = ctx.config.cnv_lane
+    if settings is None:
+        # Probing R here would make every run depend on a runtime it was never given.
+        return StagePlan(
+            parameters={
+                "configured": False,
+                "requested": _module_requested(ctx, AnalysisModule.CNV),
+            },
+            tool_versions={},
+        )
+    return cnv_lane.plan(ctx, settings)
+
+
+def _cnv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
+    settings = ctx.config.cnv_lane
+    if settings is None:
+        requested = "requests" if plan.parameters.get("requested") else "does not request"
+        return StageResult(
+            status=ModuleRunStatus.NOT_RUN,
+            reason=(
+                f"No copy-number lane is configured for this run, and the manifest {requested} "
+                "copy-number analysis. This is a scope statement, not a copy-number finding."
+            ),
+        )
+    return cnv_lane.execute(ctx, plan, settings)
+
+
+def _stage_outcome(ctx: RunContext, stage: StageId, module: AnalysisModule) -> ModuleOutcome | None:
+    """The stage's own verdict for a module, as the result should state it."""
+    record = ctx.stage_records.get(stage)
+    if record is None:
+        return None
+    reason = record.reason.splitlines()[0]
+    prefix = "Resumed unchanged from a previous run. "
+    while reason.startswith(prefix):
+        reason = reason.removeprefix(prefix)
+    return ModuleOutcome(
+        module=module,
+        status=record.status,
+        reason=reason,
+        tools=record.tools,
+    )
+
+
+def current_cnv_outcome(ctx: RunContext) -> ModuleOutcome | None:
+    """Carry the actual CNV stage verdict into the result.
+
+    Without it a failed or unconfigured copy-number lane would appear in the result as a
+    generic placeholder instead of the reason the stage recorded.
+    """
+    return _stage_outcome(ctx, StageId.CNV, AnalysisModule.CNV)
 
 
 def current_sv_outcome(ctx: RunContext) -> ModuleOutcome | None:
@@ -1258,23 +1122,12 @@ def current_sv_outcome(ctx: RunContext) -> ModuleOutcome | None:
     Caller files may survive a later caller's failure. Their existence does not
     establish successful completion of the configured SV analysis.
     """
-    record = ctx.stage_records.get(StageId.SV)
-    if record is None:
-        return None
-    reason = record.reason.splitlines()[0]
-    prefix = "Resumed unchanged from a previous run. "
-    while reason.startswith(prefix):
-        reason = reason.removeprefix(prefix)
-    return ModuleOutcome(
-        module=AnalysisModule.SV,
-        status=record.status,
-        reason=reason,
-        tools=record.tools,
-    )
+    return _stage_outcome(ctx, StageId.SV, AnalysisModule.SV)
 
 
 def _assemble_plan(ctx: RunContext) -> StagePlan:
     sv_outcome = current_sv_outcome(ctx)
+    cnv_outcome = current_cnv_outcome(ctx)
     marlin_outcome = current_marlin_outcome(ctx)
     resource_context = ctx.config.resource_context
     reference_lock_sha256 = (
@@ -1309,6 +1162,7 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
             "pipeline_version": ctx.config.pipeline_version,
             "git_commit": ctx.config.git_commit,
             "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
+            "cnv_stage_outcome": cnv_outcome.model_dump(mode="json") if cnv_outcome else None,
             "marlin_stage_outcome": marlin_outcome.model_dump(mode="json")
             if marlin_outcome
             else None,
@@ -1318,6 +1172,11 @@ def _assemble_plan(ctx: RunContext) -> StagePlan:
             "iscn_reference_lock_sha256": reference_lock_sha256,
             "iscn_cytoband_sha256": cytoband_sha256,
             "iscn_annotation_cache_sha256": annotation_cache_sha256,
+            **(
+                cnv_lane.assemble_parameters(ctx.config.cnv_lane)
+                if ctx.config.cnv_lane is not None
+                else {"cnv_lane": None}
+            ),
         },
         tool_versions={},
         external_inputs=tuple(external_inputs),
@@ -1381,12 +1240,39 @@ def _assemble_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         sidecars=sidecars,
     )
     result = with_marlin_result(ctx, result)
+    cnv = cnv_lane.load_current_cnv(ctx)
+    if cnv is not None:
+        settings = ctx.config.cnv_lane
+        if settings is None:
+            raise StageFailure(
+                "the run recorded copy-number evidence but no copy-number lane is configured"
+            )
+        result = cnv_lane.merge_into_result(ctx, result, qc=qc, cnv=cnv, settings=settings)
+    else:
+        cnv_outcome = current_cnv_outcome(ctx)
+        if cnv_outcome is not None:
+            result = result.model_copy(
+                update={
+                    "modules": sorted(
+                        [item for item in result.modules if item.module != AnalysisModule.CNV]
+                        + [cnv_outcome],
+                        key=lambda item: item.module.value,
+                    )
+                }
+            )
+    # Re-validate the merged contract as a whole rather than trusting incremental copies.
+    result = PipelineResult.model_validate(result.model_dump(mode="python"))
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(RESULT_JSON), result.model_dump_json(indent=2) + "\n"
     )
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Module outcomes assembled into the validated result contract.",
+        reason=(
+            "QC, copy-number and available SV evidence assembled into the validated result "
+            "contract."
+            if cnv is not None
+            else "Module outcomes assembled into the validated result contract."
+        ),
         outputs=[artifact],
         # "Omitted" must follow every SV artifact, not the Sniffles one: a cuteSV-only
         # run produced consolidated events and must not be told they never happened.
@@ -1404,14 +1290,13 @@ def _report_plan(ctx: RunContext) -> StagePlan:
             "formats": ["json", "html", "xlsx"],
             "report_presentation": REPORT_PRESENTATION_VERSION,
             "coverage_artifact_contract": COVERAGE_ARTIFACT_CONTRACT,
+            "cnv_visualization": cnv_lane.LANE_ID if ctx.config.cnv_lane is not None else None,
         },
         tool_versions={},
     )
 
 
 def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
-    from ..models import PipelineResult
-
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
@@ -1428,6 +1313,8 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         if histogram_path.is_file()
         else None
     )
+    cnv = cnv_lane.load_current_cnv(ctx)
+    marlin_report = load_marlin_report(ctx)
     render_html(
         result,
         ctx.envelope.path(ctx.path(REPORT_HTML)),
@@ -1435,18 +1322,26 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         selection_coverage=selection_coverage,
         qc_histogram=qc_histogram,
         methylation_report=load_methylation_report(ctx),
-        marlin_report=load_marlin_report(ctx),
+        marlin_report=marlin_report,
+        **(cnv_lane.report_arguments(ctx, cnv) if cnv is not None else {}),
     )
+    xlsx_path = ctx.envelope.path(ctx.path(REPORT_XLSX))
     render_workbook(
         result,
-        ctx.envelope.path(ctx.path(REPORT_XLSX)),
-        marlin_report=load_marlin_report(ctx),
+        xlsx_path,
+        marlin_report=marlin_report,
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
     )
+    if cnv is not None:
+        cnv_lane.enrich_workbook(xlsx_path, ctx, cnv)
     return StageResult(
         status=ModuleRunStatus.COMPLETED,
-        reason="Reviewer artifacts rendered as HTML and Excel.",
+        reason=(
+            "Reviewer HTML and Excel rendered with integrated QDNAseq/ACE CNV summaries."
+            if cnv is not None
+            else "Reviewer artifacts rendered as HTML and Excel."
+        ),
         outputs=[
             ctx.envelope.fingerprint(ctx.path(REPORT_HTML)),
             ctx.envelope.fingerprint(ctx.path(REPORT_XLSX)),
@@ -1473,6 +1368,7 @@ IMPLEMENTATIONS: dict[StageId, StageImplementation] = {
     StageId.INTAKE: StageImplementation(_intake_plan, _intake_execute),
     StageId.QC: StageImplementation(_qc_plan, _qc_execute),
     StageId.TARGET_COVERAGE: StageImplementation(_target_coverage_plan, _target_coverage_execute),
+    StageId.CNV: StageImplementation(_cnv_plan, _cnv_execute),
     StageId.SV: StageImplementation(_sv_plan, _sv_execute),
     StageId.METHYLATION: StageImplementation(_methylation_plan, _methylation_execute),
     StageId.MARLIN: StageImplementation(marlin_plan, marlin_execute),

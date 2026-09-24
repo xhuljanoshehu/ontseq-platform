@@ -5,6 +5,34 @@ validated release.
 
 ## Unreleased
 
+- Make the QDNAseq/ACE copy-number lane a first-class member of the declared stage graph.
+  `run`, `analyze`, `serve`, `watch`, `preflight`, the system smoke and the GRCh37 profile
+  smoke now pass the lane as `RunConfiguration.cnv_lane`; nothing mutates `SPEC_BY_STAGE`,
+  the stage implementations or module-global settings any more, so one service process can
+  run differently configured analyses without one inheriting the other's lane. The
+  duplicated assemble/report stages of the former extension are gone: assembly and
+  reporting are single implementations to which the lane contributes CNV events, the
+  recomputed ISCN proposal, sidecar tables, plots and workbook sheets.
+- Copy-number evidence reaches a result only as an artifact the current run's CNV stage
+  recorded and that still verifies byte for byte. Previously the assembler merged whatever
+  `evidence/cnv/<sample>.qdnaseq.json` existed in the envelope, so a report left by an
+  earlier attempt entered the result after a failed re-run, a deselection or a manifest that
+  no longer requested CNV — including as ISCN input. A failed or unconfigured lane now
+  appears in the result with the reason its stage recorded, and a re-execution removes its
+  previous normalized report before running.
+- Introduce `pipeline/context.py` for the stage contract (`RunConfiguration`, `RunContext`,
+  `StagePlan`, `StageResult`, `StageImplementation`, `StageFailure`, `current_artifact`).
+  Lanes depend on the contract instead of on the orchestrator; the names remain importable
+  from `pipeline.runner`. The report stage's resume signature now also tracks the CNV,
+  methylation and MARLIN artifacts the renderers read directly. Preflight gains a `cnv.lane`
+  check.
+- Validation impact: execution/provenance correction. No QDNAseq/ACE parameter, copy-number
+  or cytoband threshold, ISCN rule or release gate changes; the CNV stage specification is
+  now declared `verified_with_real_tool`, which the dedicated QDNAseq workflows already
+  establish. Results can differ where a stale CNV report was previously merged (it is now
+  excluded) and where a failed CNV stage was previously shown as a generic placeholder (the
+  recorded reason is now shown). Assembly and report resume signatures change once.
+
 - Remove the process-global built-in target-coverage extension that `ontseq run`, `serve`
   (Desktop) and `watch` installed at start-up. It replaced the core Adaptive Sampling
   coverage stage for the whole process and thereby ignored the configured or
