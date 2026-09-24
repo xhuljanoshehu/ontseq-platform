@@ -616,6 +616,8 @@ def run_native_marlin(
             raise ValueError("MARLIN modkit pileup produced no output")
         fingerprints["bedmethyl"] = _fingerprint(pileup)
         fractions = combined_probe_fractions(pileup, probes)
+        if _fingerprint(pileup) != fingerprints["bedmethyl"]:
+            raise ValueError("MARLIN bedMethyl changed during parsing")
         values = encode_native_features(features, fractions)
         observed = sum(f in fractions for f in features)
         summary = MarlinFeatureSummary(

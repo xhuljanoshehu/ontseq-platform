@@ -5,6 +5,12 @@ validated release.
 
 ## Unreleased
 
+- Bind the native MARLIN result to the exact combined bedMethyl bytes it parsed by
+  re-fingerprinting the pileup immediately after probe-fraction extraction and failing closed if
+  the file changed during parsing. Add a synthetic mutation-during-parse regression. This is an
+  evidence-integrity fix only: modkit arguments, methylation thresholds, feature encoding, model
+  scores, reportability and analytical/clinical validation status are unchanged.
+
 - Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
   workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
   Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
