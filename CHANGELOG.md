@@ -5,6 +5,13 @@ validated release.
 
 ## Unreleased
 
+- Bind POD5 basecalling resume to the complete sorted input file set and SHA-256 of each
+  source file instead of only the directory name. Relative paths are included in the signature,
+  and a changing file set during fingerprinting now fails closed.
+- Validation impact: this prevents reuse of a prior basecall after source POD5 bytes or membership
+  changed under the same directory. Dorado arguments, models, thresholds and downstream biological
+  interpretation are unchanged.
+
 - Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
   workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
   Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
