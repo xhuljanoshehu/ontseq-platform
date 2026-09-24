@@ -47,6 +47,7 @@ from ..cutesv_build import executable_identity as cutesv_executable_identity
 from ..execution import StreamingCommandRunner, SubprocessRunner
 from ..iscn import ISCN_RULE_PROFILE
 from ..methylation import (
+    BEDMETHYL_NAME,
     REGION_ASSIGNMENT_METHOD,
     MethylationRegionSource,
     MethylationReport,
@@ -1021,6 +1022,14 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     artifact = ctx.envelope.atomic_write_text(
         ctx.path(METHYLATION_REPORT), report.model_dump_json(indent=2) + "\n"
     )
+    # The per-site counts every fraction derives from. Recorded as a stage artifact so a
+    # resume verifies them byte for byte and the release bundle lists them as withheld
+    # (`.bedmethyl` is never exportable) instead of leaving them unaccounted for.
+    bedmethyl = ctx.envelope.fingerprint(
+        f"{METHYLATION_DIR}/{BEDMETHYL_NAME.format(sample=ctx.sample_id)}"
+    )
+    if bedmethyl.sha256 != report.bedmethyl_fingerprint.sha256:
+        raise StageFailure("the bedMethyl pileup changed after it was normalized")
     measured = sum(item.sites_at_minimum_coverage for item in report.regions)
     if report.status == ModuleRunStatus.COMPLETED:
         reason = (
@@ -1036,7 +1045,7 @@ def _methylation_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     return StageResult(
         status=report.status,
         reason=reason,
-        outputs=[artifact],
+        outputs=[artifact, bedmethyl],
         tools=[report.tool],
         warnings=report.warnings,
         limitations=report.limitations,

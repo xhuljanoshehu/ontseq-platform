@@ -5,6 +5,13 @@ validated release.
 
 ## Unreleased
 
+- Record the modkit bedMethyl pileup as a methylation stage artifact. A resume now verifies
+  the per-site counts byte for byte (a changed or deleted pileup re-runs the stage instead of
+  resuming a report whose bedMethyl fingerprint no longer describes the envelope), the stage
+  fails if the pileup differs from the checksum its normalized report carries, and the
+  release bundle lists the file as withheld. Validation impact: provenance only; no value,
+  threshold or export rule changes (`.bedmethyl` stays non-exportable).
+
 - Complete the reviewer presentation of the methylation lane. The HTML report adds the full
   region table below the heatmap, and `results.xlsx` gains `13_Methylation` (status,
   meaning, policy, pinned threshold, coverage floor, tag probe, checksums, warnings,

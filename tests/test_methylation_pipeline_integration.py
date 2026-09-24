@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +14,11 @@ from ontseq_platform.cnv.lane import CnvLaneSettings
 from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy
 from ontseq_platform.demo import build_demo_result
 from ontseq_platform.execution import CommandResult
-from ontseq_platform.methylation import MethylationPolicy, normalize_methylation
+from ontseq_platform.methylation import (
+    BEDMETHYL_NAME,
+    MethylationPolicy,
+    normalize_methylation,
+)
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     AnalysisModule,
@@ -163,6 +168,14 @@ class _Fixture:
             tool=ToolRecord(name="modkit", version="0.6.4"),
         )
 
+    def _pileup(self, manifest, intake, policy, *, output_dir: Path, **_kwargs):  # noqa: ANN001, ANN202
+        """Write the bedMethyl where the real adapter would, then normalize it."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(
+            self.bedmethyl, output_dir / BEDMETHYL_NAME.format(sample=manifest.sample_id)
+        )
+        return self.methylation_report()
+
     def stage(self, relative: str, model) -> StageImplementation:
         def execute(ctx: RunContext, plan: StagePlan) -> StageResult:
             artifact = ctx.envelope.atomic_write_text(relative, model.model_dump_json())
@@ -185,7 +198,7 @@ class _Fixture:
             ),
             patch(
                 "ontseq_platform.pipeline.runner.run_methylation",
-                return_value=self.methylation_report(),
+                side_effect=self._pileup,
             ) as adapter,
         ):
             report, release = run_pipeline(config or self.config, runner=_ModkitVersionOnly())
@@ -354,3 +367,43 @@ def test_the_report_stage_renders_methylation_into_html_and_workbook(tmp_path: P
     assert rows and rows[0][0] == "chr1"
     html = envelope.path(REPORT_HTML.format(sample=sample)).read_text(encoding="utf-8")
     assert "Region table (1 row(s))" in html
+
+
+def test_the_bedmethyl_pileup_is_a_withheld_verified_stage_artifact(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    report, release, _ = fixture.run()
+    sample = fixture.config.manifest.sample_id
+    relative = f"evidence/methylation/{BEDMETHYL_NAME.format(sample=sample)}"
+    outputs = {item.relative_path: item for item in report.record_for(StageId.METHYLATION).outputs}
+    assert relative in outputs
+    assert outputs[relative].exportable is False
+    assert outputs[relative].sha256 == fixture.methylation_report().bedmethyl_fingerprint.sha256
+    assert release is not None
+    assert relative in release.withheld_artifact_paths
+    assert all(item.relative_path != relative for item in release.artifacts)
+
+    resumed, _, calls = fixture.run()
+    assert resumed.record_for(StageId.METHYLATION).resumed
+    assert calls == 0
+
+    fixture.envelope().path(relative).write_text("tampered\n", encoding="utf-8")
+    rerun, _, calls = fixture.run()
+    assert not rerun.record_for(StageId.METHYLATION).resumed
+    assert calls == 1
+
+
+def test_a_pileup_that_differs_from_its_normalized_report_fails(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    original = fixture._pileup
+
+    def drifting(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        report = original(*args, **kwargs)
+        target = kwargs["output_dir"] / BEDMETHYL_NAME.format(sample=args[0].sample_id)
+        target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        return report
+
+    fixture._pileup = drifting  # type: ignore[method-assign]
+    report, _, _ = fixture.run()
+    record = report.record_for(StageId.METHYLATION)
+    assert record.status is ModuleRunStatus.FAILED
+    assert "changed after it was normalized" in record.reason

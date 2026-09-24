@@ -27,7 +27,10 @@ about whether a caller interprets them correctly there.
 
 `modkit pileup` over the aligned BAM, normalized into `MethylationReport`
 (`schemas/methylation-report.schema.json`) at `evidence/methylation/<sample>.methylation.json`
-inside the run envelope. The report holds one row per region and modification code:
+inside the run envelope. The raw pileup, `evidence/methylation/<sample>.modkit.bedmethyl`, is
+recorded as a second stage artifact: a resume verifies it byte for byte, the stage fails if it
+differs from the checksum the normalized report carries, and the release bundle lists it as
+withheld (`.bedmethyl` is never exportable). The report holds one row per region and modification code:
 
 - `sites_total` and `sites_at_minimum_coverage` — how much of the region the pileup saw,
   and how much of it was deep enough to use;
