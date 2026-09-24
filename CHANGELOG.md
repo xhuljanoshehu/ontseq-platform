@@ -6,8 +6,9 @@ validated release.
 ## Unreleased
 
 - Bind the native MARLIN result to the exact combined bedMethyl bytes it parsed by
-  re-fingerprinting the pileup immediately after probe-fraction extraction and failing closed if
-  the file changed during parsing. Add a synthetic mutation-during-parse regression. This is an
+  re-fingerprinting the pileup immediately after probe-fraction extraction and again before final
+  reporting, failing closed if the file changes during parsing or later model execution. Add
+  synthetic mutation-during-parse and mutation-during-worker regressions. This is an
   evidence-integrity fix only: modkit arguments, methylation thresholds, feature encoding, model
   scores, reportability and analytical/clinical validation status are unchanged.
 

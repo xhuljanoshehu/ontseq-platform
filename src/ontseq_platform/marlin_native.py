@@ -724,8 +724,9 @@ def run_native_marlin(
         if (
             _fingerprint(bam) != fingerprints["bam"]
             or _fingerprint(reference_fasta) != fingerprints["reference"]
+            or _fingerprint(pileup) != fingerprints["bedmethyl"]
         ):
-            raise ValueError("MARLIN input changed during execution")
+            raise ValueError("MARLIN input or parsed bedMethyl changed during execution")
         if native_marlin_signature(installation_path, manifest.assay.genome_build) != signature:
             raise ValueError("MARLIN installation changed during execution")
         _verify_selected_index(manifest, index, fingerprints["bam_index"])

@@ -315,6 +315,7 @@ def test_probe_map_cannot_be_relabelled_to_other_build(tmp_path, monkeypatch):
         "reference-fai-during-empty",
         "compressed-reference",
         "bedmethyl-during-parse",
+        "bedmethyl-during-worker",
     ],
 )
 def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
@@ -415,6 +416,8 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
                 "score_vector_sha256": hashlib.sha256(struct.pack("<42f", *values)).hexdigest(),
             }
             Path(worker_config["output_path"]).write_text(json.dumps(payload))
+            if mode == "bedmethyl-during-worker":
+                (output / "combined.bedmethyl").write_text(row(10, 0, 2))
             if mode in {"index-during-worker", "reference-fai-during-worker"}:
                 mutate_index()
             return CommandResult(
@@ -457,6 +460,7 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
         "stock-independent",
         "compressed-reference",
         "bedmethyl-during-parse",
+        "bedmethyl-during-worker",
     }:
         assert report.status == ModuleRunStatus.FAILED, report.reason
         assert report.feature_summary is None
