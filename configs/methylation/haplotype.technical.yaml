@@ -1,0 +1,25 @@
+schema_version: 0.1.0
+profile_id: modkit-phased-cpg-technical-v1
+status: technical_defaults_only
+expected_version: 0.6.4
+modification_codes:
+  - m
+cpg_only: true
+combine_strands: true
+filter_threshold: 0.8
+minimum_valid_coverage: 5
+minimum_informative_reads_per_haplotype: 5
+minimum_sites_at_floor_per_haplotype: 3
+accepted_phasing_programs:
+  - whatshap
+  - longphase
+note: >-
+  Technical descriptive defaults only (research use). Haplotype-resolved fractions come from
+  modkit 0.6.4 pileup --phased over a BAM that an accepted phasing program haplotagged; the
+  lane never phases on its own. The 0.8 confidence threshold, the 5x per-haplotype valid-coverage
+  floor and the assessability rule (at least 5 informative reads and 3 CpG sites at the floor per
+  haplotype, one phase block per region) are engineering starting points, not validated
+  analytical or clinical limits. A NOT_ASSESSABLE haplotype is not a statement about its
+  methylation, and a haplotype difference is descriptive: no imprinting, allele-specific
+  silencing, clonality or parent-of-origin statement is made. The pinned --phased mode ignores
+  phase sets, so a region whose haplotagged reads span several phase blocks is not compared.

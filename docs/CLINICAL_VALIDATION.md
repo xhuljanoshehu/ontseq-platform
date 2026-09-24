@@ -1,5 +1,25 @@
 # Analytical and clinical validation plan
 
+## Haplotype-resolved methylation research lane, 2026-09-24
+
+`call-haplotype-methylation` (issue #97) adds a new, standalone research output: per-region
+HP1/HP2/unphased methylation counts and fractions from a BAM that an accepted phasing
+program haplotagged, and an HP1 − HP2 difference where both haplotypes are assessable inside
+one phase block. It can therefore produce new biological numbers and is recorded here as
+validation-impacting research output. It is not part of the run graph, the reviewer report,
+the release bundle or any gate, and makes no imprinting, silencing, clonality or
+parent-of-origin statement.
+
+What is established: the pinned modkit 0.6.4 `--phased` output layout and its semantics
+(absent rows, pooled phase blocks, HP=0 counted as unphased, HP=3 aborting) on synthetic
+haplotagged MM/ML fixtures covering both strands and soft clips, and the lane's refusals of
+unsupported tags and missing provenance. That is tool interoperability. Not established:
+phasing accuracy, switch-error impact, per-haplotype recovery or any biological agreement.
+Before any biological statement the lane needs reference material with known allele-specific
+methylation (for example imprinted DMRs in a public, access-checked sample handled under
+AGENTS.md rule 8), a registered study design and orthogonal comparison. The assessability
+thresholds in `configs/methylation/haplotype.technical.yaml` are technical defaults.
+
 ## Copy-number evidence bound to the current run, 2026-09-24
 
 The QDNAseq/ACE lane previously arrived by process-global registration and replaced the

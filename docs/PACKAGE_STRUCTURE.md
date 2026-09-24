@@ -21,7 +21,7 @@ where code lives and what may import what.
 | Lanes | Stage implementations that own a whole analysis branch and contribute to assembly/report | `pipeline/marlin.py` (MARLIN), `cnv/lane.py` (QDNAseq/ACE copy number) |
 | Reporting | Render validated contracts; never drive or query a run | `report.py`, `report_*.py`, `reporting.py`, `workbook.py`, `report_bundle.html`, `web/` (live workspace and Befund view sources) |
 | Surfaces and operations | Turn configuration into runs and show their state | `entrypoint.py`, `runtime_cli.py`, `cli.py`, `marlin_cli.py`, `methylation_*_cli.py`, `profile_analysis.py`, `service/`, `watchfolder.py`, `preflight.py`, `status.py`, `review.py`, `system_smoke.py`, `smoke.py`, `demo.py`, `desktop/` (Windows WPF, no bioinformatics) |
-| Research and validation programs | Separately executable studies with their own locks and contracts | `benchmark.py`, `dilution.py`, `cnv_validation_*.py`, `methylation_mixture.py`, `modbam.py`, `methylation_holdout*.py`, `methylation_validation*.py`, `marlin_*.py` (legacy R bridge, runtime freeze/compare, validation), `multicaller_*.py`, `tumor_inputs.py` |
+| Research and validation programs | Separately executable studies with their own locks and contracts | `benchmark.py`, `dilution.py`, `cnv_validation_*.py`, `methylation_mixture.py`, `methylation_lanes/` (haplotype-resolved lane), `modbam.py`, `methylation_holdout*.py`, `methylation_validation*.py`, `marlin_*.py` (legacy R bridge, runtime freeze/compare, validation), `multicaller_*.py`, `tumor_inputs.py` |
 
 ## Dependency rules
 
@@ -69,8 +69,12 @@ where code lives and what may import what.
 - `models.py` holds most contracts in one module (about 2,000 lines). Splitting it is
   worthwhile but touches nearly every import; do it in its own change.
 - Methylation code is flat at the package root (`methylation*.py`, `modbam.py`,
-  `marlin_*.py`). New methylation research lanes should go into a `methylation_lanes/`
-  subpackage rather than extend the root; moving the existing modules needs compatibility
-  re-exports and should not collide with open work on the MARLIN files.
+  `marlin_*.py`). New methylation research lanes go into the `methylation_lanes/`
+  subpackage (the haplotype lane is the first) rather than extend the root; moving the
+  existing modules needs compatibility re-exports and should not collide with open work on
+  the MARLIN files.
+- `methylation_lanes/haplotype.py` reuses underscore helpers of `methylation.py` (bedMethyl
+  sites, region assignment and summaries) so both lanes count identically. When a second
+  lane needs them, promote them to a public module instead of widening the private use.
 - `pipeline/runner.py` still implements the core stages inline; further lanes can move out
   the same way `cnv/lane.py` did.

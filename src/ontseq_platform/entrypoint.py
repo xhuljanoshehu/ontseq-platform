@@ -20,6 +20,10 @@ _SCIENTIFIC_COMMANDS = (
     ("qc-target-coverage", "Run Mosdepth over a target design"),
     ("call-sniffles", "Run Sniffles2 and normalize candidate SV evidence"),
     ("call-methylation", "Run modkit pileup and normalize modified-base fractions"),
+    (
+        "call-haplotype-methylation",
+        "Research only: haplotype-resolved methylation from a haplotagged BAM",
+    ),
     ("marlin-lock", "Lock local MARLIN v1 artifacts"),
     ("marlin-runtime-probe", "Probe the live MARLIN R/Keras/TensorFlow runtime"),
     ("marlin-freeze-runtime", "Freeze the non-biological MARLIN runtime fixture"),

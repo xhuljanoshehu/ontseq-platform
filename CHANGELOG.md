@@ -5,6 +5,22 @@ validated release.
 
 ## Unreleased
 
+- Add the first methylation research lane, `methylation_lanes/haplotype.py`, with the
+  standalone command `ontseq call-haplotype-methylation` (issue #97). From a BAM that
+  WhatsHap or LongPhase haplotagged, it runs `modkit pileup --phased` and reports per region
+  and modification code the HP1, HP2 and unphased counts and fractions, the phase sets, a
+  per-haplotype assessability verdict and, only when both haplotypes are assessable inside
+  one phase block, the HP1 − HP2 difference. The `--phased` layout, the absent-row
+  semantics, the pooling of phase blocks and the HP=0/HP=3 behaviour of modkit 0.6.4 were
+  qualified on synthetic haplotagged BAMs (both strands, soft clips) and are now a CI step.
+  Missing haplotagging provenance, missing MM or HP tags, HP values other than 1/2 and HP
+  without PS are refused before the pileup. New versioned policy
+  `configs/methylation/haplotype.technical.yaml` (technical defaults only) and schemas
+  `haplotype-methylation-{policy,report}.schema.json`.
+- Validation impact: new research output only. The aggregate methylation lane, the run
+  graph, reviewer reports, thresholds and release gates are unchanged; the lane is not
+  wired into `run`/`analyze` and makes no biological or clinical claim.
+
 - Record the modkit bedMethyl pileup as a methylation stage artifact. A resume now verifies
   the per-site counts byte for byte (a changed or deleted pileup re-runs the stage instead of
   resuming a report whose bedMethyl fingerprint no longer describes the envelope), the stage
