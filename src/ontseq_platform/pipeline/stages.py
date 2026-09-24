@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 
 
 class StageId(StrEnum):
@@ -269,7 +270,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
 )
 
-SPEC_BY_STAGE: Mapping[StageId, StageSpec] = {spec.stage: spec for spec in STAGE_SPECS}
+#: Read-only on purpose. A run-specific difference belongs in the run configuration; a
+#: process-wide replacement of a specification once made every later run in a service
+#: inherit whatever the first command installed.
+SPEC_BY_STAGE: Mapping[StageId, StageSpec] = MappingProxyType(
+    {spec.stage: spec for spec in STAGE_SPECS}
+)
 
 
 def _validate_graph() -> tuple[StageId, ...]:
