@@ -1315,13 +1315,14 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     )
     cnv = cnv_lane.load_current_cnv(ctx)
     marlin_report = load_marlin_report(ctx)
+    methylation_report = load_methylation_report(ctx)
     render_html(
         result,
         ctx.envelope.path(ctx.path(REPORT_HTML)),
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
         qc_histogram=qc_histogram,
-        methylation_report=load_methylation_report(ctx),
+        methylation_report=methylation_report,
         marlin_report=marlin_report,
         **(cnv_lane.report_arguments(ctx, cnv) if cnv is not None else {}),
     )
@@ -1330,6 +1331,7 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         result,
         xlsx_path,
         marlin_report=marlin_report,
+        methylation_report=methylation_report,
         target_coverage=target_coverage,
         selection_coverage=selection_coverage,
     )

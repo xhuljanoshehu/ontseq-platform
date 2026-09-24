@@ -5,6 +5,18 @@ validated release.
 
 ## Unreleased
 
+- Complete the reviewer presentation of the methylation lane. The HTML report adds the full
+  region table below the heatmap, and `results.xlsx` gains `13_Methylation` (status,
+  meaning, policy, pinned threshold, coverage floor, tag probe, checksums, warnings,
+  limitations) and `14_Methylation_Regions` (every count class of every region row)
+  whenever methylation was requested. Regions below the coverage floor read "not
+  measurable" and keep empty fraction cells; region labels stay text, never formulas.
+- `report_methylation.validate_methylation_identity` refuses to present a report for
+  another sample/build, another pileup or a contradicting module outcome; the Befund view
+  uses the same check.
+- Validation impact: presentation only. The methylation report, its fractions, thresholds
+  and module outcome are unchanged; lcWGS/AS workbooks without methylation are unchanged.
+
 - Make the QDNAseq/ACE copy-number lane a first-class member of the declared stage graph.
   `run`, `analyze`, `serve`, `watch`, `preflight`, the system smoke and the GRCh37 profile
   smoke now pass the lane as `RunConfiguration.cnv_lane`; nothing mutates `SPEC_BY_STAGE`,

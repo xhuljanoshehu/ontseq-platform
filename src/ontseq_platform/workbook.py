@@ -11,8 +11,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from .marlin_contracts import MarlinGroupedScore, MarlinModelUnitScore
 from .marlin_native_contracts import NativeMarlinReport
+from .methylation import MethylationReport
 from .models import GenomicEvent, ISCNProposalStatus, PipelineResult, ResolvedResourceContext
 from .report_marlin import marlin_facts, validate_marlin_identity
+from .report_methylation import REGION_HEADERS as METHYLATION_REGION_HEADERS
+from .report_methylation import methylation_facts, validate_methylation_identity
+from .report_methylation import region_rows as methylation_region_rows
 from .reporting import (
     caller_count,
     fusion_assessment,
@@ -768,9 +772,11 @@ def render_workbook(
     target_coverage: TargetCoverageReport | None = None,
     selection_coverage: TargetCoverageReport | None = None,
     marlin_report: NativeMarlinReport | None = None,
+    methylation_report: MethylationReport | None = None,
 ) -> Path:
     validate_report_coverage(result, target_coverage, selection_coverage)
     validate_marlin_identity(result, marlin_report)
+    validate_methylation_identity(result, methylation_report)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     active_sheet = workbook.active
@@ -788,8 +794,35 @@ def render_workbook(
     _write_supporting_sheets(workbook, result)
 
     _write_marlin(workbook, marlin_report)
+    if methylation_report is not None or any(
+        module.value == "methylation" for module in result.manifest.analysis.modules
+    ):
+        _write_methylation(workbook, methylation_report)
     workbook.save(output_path)
     return output_path
+
+
+def _as_text_cells(sheet: Worksheet) -> None:
+    """Keep labels as text: a region name such as ``=HYPERLINK(...)`` must not become a formula."""
+    from .report_formatting import redact_paths
+
+    for cells in sheet.iter_rows():
+        for value in cells:
+            if isinstance(value.value, str):
+                value.value = redact_paths(value.value)
+                value.data_type = "s"
+
+
+def _write_methylation(workbook: Workbook, report: MethylationReport | None) -> None:
+    """Facts and the complete region table; below-floor fractions stay empty, never 0."""
+    facts = workbook.create_sheet("13_Methylation")
+    _write_table(facts, ["Field", "Value"], methylation_facts(report))
+    _as_text_cells(facts)
+    if report is None:
+        return
+    regions = workbook.create_sheet("14_Methylation_Regions")
+    _write_table(regions, list(METHYLATION_REGION_HEADERS), methylation_region_rows(report))
+    _as_text_cells(regions)
 
 
 def _write_marlin(workbook: Workbook, report: NativeMarlinReport | None) -> None:

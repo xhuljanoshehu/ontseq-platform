@@ -46,7 +46,27 @@ inside the run envelope. The report holds one row per region and modification co
 - `mean_valid_coverage`.
 
 Rows aggregate either over canonical chromosomes (`region_source: chromosome`) or over the
-locked target design (`region_source: target_bed`). Adaptive Sampling leaves the off-target
+locked target design (`region_source: target_bed`).
+
+### Reviewer presentation
+
+The report stage renders the same report three ways and adds nothing to it:
+
+- HTML: the region × modification heatmap and, below it, the complete region table
+  (sites at floor / sites, valid and modified calls, call-weighted and median fractions,
+  mean coverage, failed-threshold and no-call calls) with the policy, pinned threshold,
+  coverage floor and tag-probe answer;
+- Excel, whenever the run requested methylation: `13_Methylation` (status, meaning, policy,
+  tool, checksums, warnings, limitations) and `14_Methylation_Regions` (every count column
+  of the report);
+- a region below the coverage floor reads `not measurable (below the coverage floor)` in
+  HTML and has empty fraction cells in Excel — never `0`.
+
+A report is presented only next to the result it belongs to: sample and build must match,
+its bedMethyl checksum must be the one the result recorded, and the result's methylation
+module outcome must agree (`report_methylation.validate_methylation_identity`, shared with
+the Befund view). Region labels are escaped in HTML and stored as text in Excel, so a label
+such as `=SUM(1,2)` can never become a formula. Adaptive Sampling leaves the off-target
 genome at a depth where a chromosome-wide fraction mixes measured targets with barely
 observed background, so an enriched run should aggregate over the design.
 

@@ -17,6 +17,7 @@ from ..pipeline.state import RunReport
 from ..qc import read_length_histogram_from_tsv
 from ..report import render_html
 from ..report_marlin import validate_marlin_identity
+from ..report_methylation import validate_methylation_identity
 from ..report_plots import ReadLengthBin
 from .guard import resolve_within
 
@@ -184,19 +185,10 @@ def current_befund(envelope: Path, result: PipelineResult) -> bytes:
         if methyl_path.is_file()
         else None
     )
-    if methylation is not None and (
-        (methylation.sample_id, methylation.genome_build)
-        != (sample, result.manifest.assay.genome_build)
-        or result.provenance.reference_checksums.get("bedmethyl")
-        != methylation.bedmethyl_fingerprint.sha256
-        or not any(
-            item.module.value == "methylation"
-            and item.status == methylation.status
-            and methylation.tool in item.tools
-            for item in result.modules
-        )
-    ):
-        raise ValueError("methylation evidence does not match the result")
+    try:
+        validate_methylation_identity(result, methylation)
+    except ValueError as exc:
+        raise ValueError("methylation evidence does not match the result") from exc
     marlin = load_archived_marlin(envelope, result, evidence=evidence)
     for name in (
         "target-coverage.json",

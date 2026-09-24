@@ -336,3 +336,21 @@ def test_cnv_assembler_keeps_current_methylation_and_rejects_stale_artifacts(
     envelope.path(relative).write_text("changed stale report", encoding="utf-8")
     with pytest.raises(StageFailure, match="checksum"):
         load_methylation_report(context)
+
+
+def test_the_report_stage_renders_methylation_into_html_and_workbook(tmp_path: Path) -> None:
+    from openpyxl import load_workbook
+
+    from ontseq_platform.pipeline.runner import REPORT_HTML, REPORT_XLSX
+
+    fixture = _Fixture(tmp_path)
+    report, _, _ = fixture.run()
+    assert report.record_for(StageId.REPORT).status is ModuleRunStatus.COMPLETED
+    envelope = fixture.envelope()
+    sample = fixture.config.manifest.sample_id
+    workbook = load_workbook(envelope.path(REPORT_XLSX.format(sample=sample)))
+    assert {"13_Methylation", "14_Methylation_Regions"} <= set(workbook.sheetnames)
+    rows = list(workbook["14_Methylation_Regions"].iter_rows(min_row=2, values_only=True))
+    assert rows and rows[0][0] == "chr1"
+    html = envelope.path(REPORT_HTML.format(sample=sample)).read_text(encoding="utf-8")
+    assert "Region table (1 row(s))" in html
