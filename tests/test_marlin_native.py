@@ -367,6 +367,7 @@ def test_adapter_states_and_full_grouping(tmp_path, monkeypatch, mode):
 
     original_combined_probe_fractions = native.combined_probe_fractions
     if mode == "bedmethyl-during-parse":
+
         def mutate_bedmethyl_after_parse(path, probe_map):
             fractions = original_combined_probe_fractions(path, probe_map)
             Path(path).write_text(row(10, 0, 2))
