@@ -376,9 +376,7 @@ def _external_fingerprint(
 # --------------------------------------------------------------------------------------
 
 
-def _pod5_external_inputs(
-    ctx: RunContext, directory: Path
-) -> tuple[tuple[str, str], ...]:
+def _pod5_external_inputs(ctx: RunContext, directory: Path) -> tuple[tuple[str, str], ...]:
     """Fingerprint the complete POD5 file set for content-addressed basecall resume."""
 
     if not directory.is_dir():
