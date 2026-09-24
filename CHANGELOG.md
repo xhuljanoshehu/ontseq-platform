@@ -5,6 +5,26 @@ validated release.
 
 ## Unreleased
 
+- Remove the process-global built-in target-coverage extension that `ontseq run`, `serve`
+  (Desktop) and `watch` installed at start-up. It replaced the core Adaptive Sampling
+  coverage stage for the whole process and thereby ignored the configured or
+  component-selected target-coverage policy, never measured the buffered selection panel and
+  probed a bare `mosdepth` instead of the configured executable. Every command now runs the
+  one core stage of the declared graph; a re-execution removes coverage files written under
+  earlier names before it writes.
+- SV observability and the HTML/XLSX reviewer reports consume only the coverage artifacts the
+  target-coverage stage recorded for the current run, checksum-verified
+  (`current-stage-coverage-v2`). A coverage file left on disk by an earlier attempt or by the
+  retired extension is no longer evidence for the run. Archived envelopes outside a run are
+  still read by name (`core-or-sample-coverage-v1`, both historical file names).
+- Validation impact: execution/provenance correction. Adaptive Sampling runs started through
+  `run`, `serve` or `watch` now measure coverage with the policy and executable they record
+  and add selection-panel coverage where a profile supplies it; SV observability annotations
+  can change where the previously applied built-in policy differed from the configured one.
+  No depth threshold, caller, reportability flag or release gate changes. Synthetic
+  regressions reproduce the override (custom policy, selection BED, executable), leftover
+  and tampered coverage files, identity refusal and resume dependencies.
+
 - Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
   workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
   Bind the original model, ordered features, class annotations and official hg19/hg38 maps by

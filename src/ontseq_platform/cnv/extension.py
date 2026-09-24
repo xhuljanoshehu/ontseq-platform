@@ -11,7 +11,7 @@ from typing import cast
 from openpyxl import load_workbook
 
 from ..annotation_cache import require_annotation_cache_build, validate_annotation_cache
-from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT, load_run_coverage
+from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT
 from ..iscn import (
     ISCN_RULE_PROFILE,
     build_iscn_proposal,
@@ -747,8 +747,8 @@ def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageRe
     )
     html_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_HTML))
     xlsx_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_XLSX))
-    target_coverage = load_run_coverage(ctx.envelope.root, result.manifest)
-    selection_coverage = load_run_coverage(ctx.envelope.root, result.manifest, selection=True)
+    target_coverage = pipeline_runner.load_current_coverage(ctx)
+    selection_coverage = pipeline_runner.load_current_coverage(ctx, selection=True)
     histogram_path = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
     qc_histogram = (
         [

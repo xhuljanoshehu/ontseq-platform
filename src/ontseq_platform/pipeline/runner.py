@@ -41,7 +41,7 @@ from ..breakpoint_annotation import (
     PathBackedContextIntervalIndex,
     annotate_events_from_cache,
 )
-from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT, load_run_coverage
+from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT
 from ..cutesv import run_cutesv
 from ..cutesv_build import executable_identity as cutesv_executable_identity
 from ..execution import StreamingCommandRunner, SubprocessRunner
@@ -95,7 +95,7 @@ from ..sv_annotation import annotate_sv_events, load_interval_resource
 from ..sv_consensus import build_consensus_report
 from ..sv_evidence import prioritize_sv_events
 from ..sv_observability import apply_sv_observability
-from ..target_coverage import TargetCoveragePolicy, run_target_coverage
+from ..target_coverage import TargetCoveragePolicy, TargetCoverageReport, run_target_coverage
 from ..workbook import render_workbook
 from .components import ComponentVersionMismatch, RunComponents
 from .envelope import Artifact, RunEnvelope, sha256_file, stage_signature
@@ -135,6 +135,11 @@ TARGET_COVERAGE_REPORT = "qc/target-coverage.json"
 TARGET_COVERAGE_DIR = "qc/target-coverage"
 SELECTION_COVERAGE_REPORT = "qc/selection-coverage.json"
 SELECTION_COVERAGE_DIR = "qc/selection-coverage"
+#: Where the retired process-global runtime extension (ONTSeq <= 0.8.2) wrote the same
+#: report. Archived envelopes may still carry these paths; the stage removes them before it
+#: writes, so one envelope can never hold two competing coverage reports.
+LEGACY_TARGET_COVERAGE_REPORT = "qc/{sample}.target-coverage.json"
+LEGACY_TARGET_COVERAGE_WORK = "work/{sample}.target-coverage"
 COMPONENTS_REPORT = "provenance/components.json"
 SV_VCF = "evidence/sv/{sample}.sniffles.vcf"
 SV_REPORT = "evidence/sv/{sample}.sniffles.json"
@@ -728,6 +733,19 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
+    # A re-execution owns every coverage path, including the names an earlier producer
+    # used. Leaving them would let an archived report from another attempt sit next to
+    # this one, and file-name readers of the envelope would then have two answers.
+    for stale in (
+        TARGET_COVERAGE_REPORT,
+        SELECTION_COVERAGE_REPORT,
+        ctx.path(LEGACY_TARGET_COVERAGE_REPORT),
+    ):
+        ctx.envelope.path(stale).unlink(missing_ok=True)
+    for stale_dir in (SELECTION_COVERAGE_DIR, ctx.path(LEGACY_TARGET_COVERAGE_WORK)):
+        stale_path = ctx.envelope.path(stale_dir)
+        if stale_path.exists():
+            shutil.rmtree(stale_path)
     output_dir = ctx.envelope.path(TARGET_COVERAGE_DIR)
     if output_dir.exists():
         # The adapter refuses to overwrite its own outputs, which is right for a bare
@@ -799,6 +817,40 @@ def _target_coverage_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
         warnings=warnings,
         limitations=limitations,
     )
+
+
+def load_current_coverage(
+    ctx: RunContext, *, selection: bool = False
+) -> TargetCoverageReport | None:
+    """Read this run's analysis-ROI (or buffered selection-panel) coverage, if any.
+
+    Only the artifacts the target-coverage stage recorded for this run count, and they must
+    still verify byte for byte. A report left on disk by an earlier attempt, by a stage that
+    was since deselected, or by the retired runtime extension is not evidence about this
+    run, so it is never read here — :func:`~ontseq_platform.coverage_artifacts.load_run_coverage`
+    remains the reader for archived envelopes outside a run.
+    """
+    relative_path = SELECTION_COVERAGE_REPORT if selection else TARGET_COVERAGE_REPORT
+    current = next(
+        (
+            artifact
+            for artifact in ctx.artifacts.get(StageId.TARGET_COVERAGE, [])
+            if artifact.relative_path == relative_path
+        ),
+        None,
+    )
+    if current is None:
+        return None
+    if ctx.envelope.verify([current]):
+        raise StageFailure("The current coverage artifact failed its checksum verification")
+    report = TargetCoverageReport.model_validate_json(
+        ctx.envelope.path(relative_path).read_text(encoding="utf-8")
+    )
+    if report.sample_id != ctx.manifest.sample_id:
+        raise StageFailure("The current coverage artifact belongs to a different sample")
+    if report.genome_build != ctx.manifest.assay.genome_build:
+        raise StageFailure("The current coverage artifact uses a different genome build")
+    return report
 
 
 def _breakpoint_context_resources(
@@ -942,7 +994,7 @@ def _sv_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     intake = AlignedBamIntakeReport.model_validate_json(
         ctx.envelope.path(INTAKE_REPORT).read_text(encoding="utf-8")
     )
-    coverage_report = load_run_coverage(ctx.envelope.root, ctx.manifest)
+    coverage_report = load_current_coverage(ctx)
     if ctx.manifest.assay.mode == AssayMode.ADAPTIVE_SAMPLING and coverage_report is None:
         raise StageFailure("Adaptive Sampling SV observability requires a coverage report")
     all_events: list[GenomicEvent] = []
@@ -1363,8 +1415,8 @@ def _report_execute(ctx: RunContext, plan: StagePlan) -> StageResult:
     result = PipelineResult.model_validate_json(
         ctx.envelope.path(ctx.path(RESULT_JSON)).read_text(encoding="utf-8")
     )
-    target_coverage = load_run_coverage(ctx.envelope.root, result.manifest)
-    selection_coverage = load_run_coverage(ctx.envelope.root, result.manifest, selection=True)
+    target_coverage = load_current_coverage(ctx)
+    selection_coverage = load_current_coverage(ctx, selection=True)
     histogram_path = ctx.envelope.path(QC_READ_LENGTH_HISTOGRAM)
     qc_histogram = (
         [

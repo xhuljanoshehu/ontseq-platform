@@ -1,5 +1,32 @@
 # Analytical and clinical validation plan
 
+## One target-coverage stage and a current-run coverage handoff, 2026-09-24
+
+The execution commands `run`, `serve` (the Desktop service) and `watch` installed a
+process-global "built-in runtime extension" before dispatch. It replaced the core
+target-coverage stage implementation for the lifetime of the process. The replacement read a
+fixed repository policy instead of the configured or component-selected one, skipped the
+buffered selection-panel measurement and probed an unqualified `mosdepth` on `PATH` rather than
+the configured executable. `analyze` did not install it, so two commands could measure the
+same Adaptive Sampling BAM differently. The registration is removed: every command executes
+the single stage declared in the graph, with the policy, executable and selection panel that
+its plan records.
+
+Consumers inside a run (SV breakpoint observability, HTML and XLSX coverage sections) now read
+only the coverage artifacts that the target-coverage stage recorded for the current run and
+that still verify byte for byte (`current-stage-coverage-v2`). A report left by an earlier
+attempt, by a since-deselected stage or by the retired extension is ignored. A re-execution
+of the stage removes coverage outputs under both historical names before writing. The
+file-name reader for archived envelopes (`core-or-sample-coverage-v1`) is unchanged.
+
+This is an execution and provenance correction. It can change SV observability annotations
+for Adaptive Sampling runs whose configured coverage policy differed from the repository
+default, and adds selection-panel coverage to runs started through `serve`/`run` where a
+profile supplies the panel. No depth threshold, caller parameter, reportability rule or
+release gate changes, and no coverage value becomes an adequacy claim. Synthetic regressions
+reproduce the override, leftover and tampered artifacts, sample/build refusal and resume
+dependencies; archived runs are not reclassified.
+
 ## Native MARLIN research integration, 2026-09-23
 
 `marlin-native-research-v1` adds an explicitly unvalidated classifier outcome when methylation is
@@ -546,8 +573,9 @@ are unchanged.
 
 ### Local coverage artifact handoff correction (2026-09-21)
 
-The installed target-coverage extension writes a sample-named normalized JSON file,
-whereas the core SV and report stages previously looked only for the unprefixed name.
+The installed target-coverage extension (retired on 2026-09-24, see above) wrote a
+sample-named normalized JSON file, whereas the core SV and report stages previously looked
+only for the unprefixed name.
 The `core-or-sample-coverage-v1` contract accepts either exact producer name, validates
 sample/build identity and refuses contradictory duplicate reports. Selection coverage
 is not substituted for analysis coverage. SV and report resume fingerprints now include
