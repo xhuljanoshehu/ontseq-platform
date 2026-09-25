@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -46,32 +47,110 @@ def _normalize(argv: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+_PROC = Path("/proc")
+#: Rounds of "find the tool's descendants, stop them" before the frozen tree is killed.
+#: A stopped process cannot fork, so the tree stops growing after a few rounds.
+_FREEZE_ROUNDS = 8
+
+
+def _linux_parent_pid(pid: int) -> int | None:
+    """Return the parent of a live Linux process, or None if it is gone or a zombie."""
+    try:
+        stat = (_PROC / str(pid) / "stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:  # ENOENT, or ESRCH when the process exits mid-read
+        return None
+    # The command name is parenthesised and may itself contain spaces or parentheses.
+    fields = stat.rpartition(")")[2].split()
+    if len(fields) < 2 or fields[0] == "Z":
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _linux_descendants(root: int) -> list[int]:
+    """Live descendants of ``root`` found through ``/proc``, parents before children."""
+    try:
+        entries = [int(entry.name) for entry in _PROC.iterdir() if entry.name.isdigit()]
+    except OSError:
+        return []
+    children: dict[int, list[int]] = {}
+    for pid in entries:
+        parent = _linux_parent_pid(pid)
+        if parent is not None:
+            children.setdefault(parent, []).append(pid)
+    ordered: list[int] = []
+    pending = [root]
+    while pending:
+        for child in children.get(pending.pop(0), ()):
+            ordered.append(child)
+            pending.append(child)
+    return ordered
+
+
+def _signal(pid: int, signum: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, signum)
+
+
+def _kill_descendants(root: int) -> None:
+    """Freeze and kill the processes the tool started, without touching anything else.
+
+    The tool stays in the pipeline's process group, so a signal to that group (a service
+    manager, ``kill -- -PGID``, the WSL session teardown behind the Desktop app, a terminal
+    hangup) still reaches the tool and its descendants, as it did with ``subprocess.run``.
+    Its descendants are therefore found through ``/proc`` instead of a dedicated process
+    group. The root is stopped first so it cannot fork more children, each descendant is
+    stopped as it is found, and one whose parent is no longer in the frozen tree (a reused
+    PID) is resumed and left alone. Only the frozen tree is killed. A descendant that
+    outlived its own parent has already been re-parented away and is not found. Where
+    ``/proc`` is unavailable this finds nothing and only the direct child is killed, as
+    before.
+    """
+    _signal(root, signal.SIGSTOP)
+    frozen: list[int] = []
+    members = {root}
+    try:
+        for _ in range(_FREEZE_ROUNDS):
+            found = [pid for pid in _linux_descendants(root) if pid not in members]
+            if not found:
+                break
+            for pid in found:
+                _signal(pid, signal.SIGSTOP)
+                if _linux_parent_pid(pid) in members:
+                    members.add(pid)
+                    frozen.append(pid)
+                else:
+                    _signal(pid, signal.SIGCONT)
+    finally:
+        # Also on a second Ctrl+C mid-scan: never leave a stopped descendant behind.
+        for pid in reversed(frozen):
+            _signal(pid, signal.SIGKILL)
+
+
 def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
-    """Terminate the owned process tree and reap the direct child.
+    """Kill the tool and every process it started, then reap it and release its pipes.
 
     Called on a timeout and on any other abort while waiting (``KeyboardInterrupt``,
-    ``SystemExit``). POSIX tools run in a dedicated session, so the terminal's SIGINT no
-    longer reaches them; signalling that process group here is what stops the tool and its
-    multiprocessing descendants instead of leaving them orphaned. Native Windows keeps the
-    previous direct-child termination semantics until a separately tested
-    job-object/process-tree contract is introduced.
+    ``SystemExit``). ``subprocess.run`` killed only the direct child, so a timed-out
+    multiprocessing tool could leave CPU/RAM-consuming workers behind. Native Windows keeps
+    direct-child termination until a separately tested job-object contract exists.
     """
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except OSError:
-            process.kill()
-    else:
+    try:
+        if os.name == "posix":
+            _kill_descendants(process.pid)
+    finally:
+        # On POSIX the tool is already stopped here, so it must be killed even if the
+        # descendant scan was itself interrupted.
         process.kill()
-    process.wait()
-    # The Popen object can outlive this call inside a retained traceback, so release its
-    # pipes now rather than at garbage collection. Closing (not draining) cannot block on
-    # a descendant that still holds the write end.
-    for stream in (process.stdin, process.stdout, process.stderr):
-        if stream is not None:
-            stream.close()
+        process.wait()
+        # The Popen object can outlive this call inside a retained traceback, so release
+        # its pipes now rather than at garbage collection. Closing (not draining) cannot
+        # block on a descendant that still holds the write end.
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
 
 
 class SubprocessRunner:
@@ -99,7 +178,6 @@ class SubprocessRunner:
                     stdout=handle,
                     stderr=subprocess.PIPE,
                     stdin=subprocess.DEVNULL,
-                    start_new_session=os.name == "posix",
                 )
                 try:
                     _stdout, stderr_bytes = process.communicate(timeout=timeout_seconds)
@@ -156,7 +234,6 @@ class SubprocessRunner:
                 stdin=subprocess.DEVNULL,
                 encoding="utf-8",
                 errors="replace",
-                start_new_session=os.name == "posix",
             )
             try:
                 stdout, stderr = process.communicate(timeout=timeout_seconds)
