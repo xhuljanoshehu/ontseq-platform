@@ -1,5 +1,77 @@
 # Analytical and clinical validation plan
 
+## Haplotype-resolved methylation research lane, 2026-09-24
+
+`call-haplotype-methylation` (issue #97) adds a new, standalone research output: per-region
+HP1/HP2/unphased methylation counts and fractions from a BAM that an accepted phasing
+program haplotagged, and an HP1 − HP2 difference where both haplotypes are assessable inside
+one phase block. It can therefore produce new biological numbers and is recorded here as
+validation-impacting research output. It is not part of the run graph, the reviewer report,
+the release bundle or any gate, and makes no imprinting, silencing, clonality or
+parent-of-origin statement.
+
+What is established: the pinned modkit 0.6.4 `--phased` output layout and its semantics
+(absent rows, pooled phase blocks, HP=0 counted as unphased, HP=3 aborting) on synthetic
+haplotagged MM/ML fixtures covering both strands and soft clips, and the lane's refusals of
+unsupported tags and missing provenance. That is tool interoperability. Not established:
+phasing accuracy, switch-error impact, per-haplotype recovery or any biological agreement.
+Before any biological statement the lane needs reference material with known allele-specific
+methylation (for example imprinted DMRs in a public, access-checked sample handled under
+AGENTS.md rule 8), a registered study design and orthogonal comparison. The assessability
+thresholds in `configs/methylation/haplotype.technical.yaml` are technical defaults.
+
+## Copy-number evidence bound to the current run, 2026-09-24
+
+The QDNAseq/ACE lane previously arrived by process-global registration and replaced the
+assembly and report stages with its own copies. Its assembler read
+`evidence/cnv/<sample>.qdnaseq.json` whenever the file existed. A synthetic reproduction
+showed a report left by an earlier attempt entering the current result as the CNV module
+outcome although the manifest no longer requested CNV; the same path would have fed stale
+events into the ISCN proposal after a failed re-run or a deselection. This contradicted the
+rule already enforced for SV, methylation and MARLIN evidence.
+
+The lane is now configured per run (`RunConfiguration.cnv_lane`) and its report reaches
+assembly and the reviewer report only as an artifact that the current CNV stage recorded and
+that still verifies byte for byte. A failed or unconfigured lane is represented by the
+reason the stage recorded, never by earlier output; a re-execution deletes its previous
+normalized report first. Assembly and reporting are single implementations; the lane
+contributes events, the recomputed ISCN proposal, sidecar tables, plots and workbook sheets.
+
+This is an execution and provenance correction. QDNAseq/ACE parameters, bin sizes, ACE
+penalty, whole-chromosome and cytoband thresholds, ISCN rules and release gates are
+unchanged. Synthetic regressions cover a leftover report with CNV not requested, a failed
+re-run after a successful attempt, per-run lane scoping inside one process, checksum
+refusal of a changed current artifact and the recorded lane in plan signatures. The real
+QDNAseq/ACE workflows remain the qualification of the tool path; archived runs are not
+reclassified.
+
+## One target-coverage stage and a current-run coverage handoff, 2026-09-24
+
+The execution commands `run`, `serve` (the Desktop service) and `watch` installed a
+process-global "built-in runtime extension" before dispatch. It replaced the core
+target-coverage stage implementation for the lifetime of the process. The replacement read a
+fixed repository policy instead of the configured or component-selected one, skipped the
+buffered selection-panel measurement and probed an unqualified `mosdepth` on `PATH` rather than
+the configured executable. `analyze` did not install it, so two commands could measure the
+same Adaptive Sampling BAM differently. The registration is removed: every command executes
+the single stage declared in the graph, with the policy, executable and selection panel that
+its plan records.
+
+Consumers inside a run (SV breakpoint observability, HTML and XLSX coverage sections) now read
+only the coverage artifacts that the target-coverage stage recorded for the current run and
+that still verify byte for byte (`current-stage-coverage-v2`). A report left by an earlier
+attempt, by a since-deselected stage or by the retired extension is ignored. A re-execution
+of the stage removes coverage outputs under both historical names before writing. The
+file-name reader for archived envelopes (`core-or-sample-coverage-v1`) is unchanged.
+
+This is an execution and provenance correction. It can change SV observability annotations
+for Adaptive Sampling runs whose configured coverage policy differed from the repository
+default, and adds selection-panel coverage to runs started through `serve`/`run` where a
+profile supplies the panel. No depth threshold, caller parameter, reportability rule or
+release gate changes, and no coverage value becomes an adequacy claim. Synthetic regressions
+reproduce the override, leftover and tampered artifacts, sample/build refusal and resume
+dependencies; archived runs are not reclassified.
+
 ## Native MARLIN research integration, 2026-09-23
 
 `marlin-native-research-v1` adds an explicitly unvalidated classifier outcome when methylation is
@@ -546,8 +618,9 @@ are unchanged.
 
 ### Local coverage artifact handoff correction (2026-09-21)
 
-The installed target-coverage extension writes a sample-named normalized JSON file,
-whereas the core SV and report stages previously looked only for the unprefixed name.
+The installed target-coverage extension (retired on 2026-09-24, see above) wrote a
+sample-named normalized JSON file, whereas the core SV and report stages previously looked
+only for the unprefixed name.
 The `core-or-sample-coverage-v1` contract accepts either exact producer name, validates
 sample/build identity and refuses contradictory duplicate reports. Selection coverage
 is not substituted for analysis coverage. SV and report resume fingerprints now include

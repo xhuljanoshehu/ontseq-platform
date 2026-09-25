@@ -26,6 +26,7 @@ from .methylation import MethylationPolicy, run_methylation
 from .methylation_holdout_cli import COMMANDS as HOLDOUT_COMMANDS
 from .methylation_holdout_cli import add_subparsers as add_holdout_subparsers
 from .methylation_holdout_cli import run_command as run_holdout_command
+from .methylation_lanes.haplotype import HaplotypeMethylationPolicy, run_haplotype_methylation
 from .methylation_mixture import (
     MethylationMixturePolicy,
     NanopolishSourceMetadata,
@@ -244,6 +245,29 @@ def _parser() -> argparse.ArgumentParser:
     call_methylation.add_argument("--threads", type=int, default=4)
     call_methylation.add_argument("--output-dir", type=Path, required=True)
     call_methylation.add_argument("--output", type=Path, required=True)
+
+    call_haplotype_methylation = subparsers.add_parser(
+        "call-haplotype-methylation",
+        help=(
+            "Research only: split modified-base fractions by haplotype from a haplotagged BAM "
+            "(modkit pileup --phased), bounded by phase-block identity"
+        ),
+    )
+    call_haplotype_methylation.add_argument("manifest", type=Path)
+    call_haplotype_methylation.add_argument("--intake", type=Path, required=True)
+    call_haplotype_methylation.add_argument("--policy", type=Path, required=True)
+    call_haplotype_methylation.add_argument(
+        "--regions",
+        type=Path,
+        required=True,
+        help="BED of the regions to compare; haplotypes are only compared region by region",
+    )
+    call_haplotype_methylation.add_argument("--reference-fasta", type=Path, required=True)
+    call_haplotype_methylation.add_argument("--modkit", default="modkit")
+    call_haplotype_methylation.add_argument("--samtools", default="samtools")
+    call_haplotype_methylation.add_argument("--threads", type=int, default=4)
+    call_haplotype_methylation.add_argument("--output-dir", type=Path, required=True)
+    call_haplotype_methylation.add_argument("--output", type=Path, required=True)
 
     call_sniffles = subparsers.add_parser(
         "call-sniffles", help="Run Sniffles2 and normalize conservative candidate SV evidence"
@@ -506,6 +530,22 @@ def main() -> None:
                 threads=args.threads,
             )
             print(write_json(methylation_report, args.output))
+        elif args.command == "call-haplotype-methylation":
+            manifest = load_model(args.manifest, SampleManifest)
+            intake = load_model(args.intake, AlignedBamIntakeReport)
+            haplotype_policy = load_model(args.policy, HaplotypeMethylationPolicy)
+            haplotype_report = run_haplotype_methylation(
+                manifest,
+                intake,
+                haplotype_policy,
+                region_bed=args.regions,
+                output_dir=args.output_dir,
+                reference_fasta=args.reference_fasta,
+                modkit=args.modkit,
+                samtools=args.samtools,
+                threads=args.threads,
+            )
+            print(write_json(haplotype_report, args.output))
         elif args.command == "call-sniffles":
             manifest = load_model(args.manifest, SampleManifest)
             intake = load_model(args.intake, AlignedBamIntakeReport)

@@ -20,6 +20,10 @@ _SCIENTIFIC_COMMANDS = (
     ("qc-target-coverage", "Run Mosdepth over a target design"),
     ("call-sniffles", "Run Sniffles2 and normalize candidate SV evidence"),
     ("call-methylation", "Run modkit pileup and normalize modified-base fractions"),
+    (
+        "call-haplotype-methylation",
+        "Research only: haplotype-resolved methylation from a haplotagged BAM",
+    ),
     ("marlin-lock", "Lock local MARLIN v1 artifacts"),
     ("marlin-runtime-probe", "Probe the live MARLIN R/Keras/TensorFlow runtime"),
     ("marlin-freeze-runtime", "Freeze the non-biological MARLIN runtime fixture"),
@@ -87,9 +91,6 @@ def _overview() -> str:
     return "\n".join(lines)
 
 
-_EXECUTION_COMMANDS = frozenset({"run", "serve", "watch"})
-
-
 def main() -> None:
     """Dispatch execution, MARLIN, or legacy scientific commands."""
     command = sys.argv[1] if len(sys.argv) > 1 else None
@@ -105,10 +106,9 @@ def main() -> None:
         marlin_main()
         return
     if command in RUNTIME_COMMANDS:
-        if command in _EXECUTION_COMMANDS:
-            from .runtime_extensions import register_builtin_runtime_extensions
-
-            register_builtin_runtime_extensions()
+        # Every stage implementation is part of the one declared graph. Nothing is swapped
+        # in per command: a process-wide replacement made `run`, `serve` and `watch`
+        # silently ignore the configured target-coverage policy and selection panel.
         from .runtime_cli import main as runtime_main
 
         runtime_main()

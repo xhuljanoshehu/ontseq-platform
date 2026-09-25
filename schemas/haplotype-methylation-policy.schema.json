@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "ModificationCode": {
+      "description": "The modified-base codes this adapter is prepared to normalize.\n\nDeliberately a closed set. modkit reports whatever the basecalling model emitted, and\na code nobody planned for must surface as a refusal rather than be dropped on the\nfloor: silently discarding ``h`` rows from a 5mC+5hmC model would understate total\nmodification without anything in the report saying so.",
+      "enum": [
+        "m",
+        "h",
+        "a"
+      ],
+      "title": "ModificationCode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned technical settings of the haplotype lane. None is a validated threshold.",
+  "properties": {
+    "accepted_phasing_programs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Accepted Phasing Programs",
+      "type": "array"
+    },
+    "combine_strands": {
+      "default": true,
+      "title": "Combine Strands",
+      "type": "boolean"
+    },
+    "cpg_only": {
+      "default": true,
+      "title": "Cpg Only",
+      "type": "boolean"
+    },
+    "expected_version": {
+      "default": "0.6.4",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Expected Version",
+      "type": "string"
+    },
+    "filter_threshold": {
+      "default": 0.8,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Filter Threshold",
+      "type": "number"
+    },
+    "minimum_informative_reads_per_haplotype": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Minimum Informative Reads Per Haplotype",
+      "type": "integer"
+    },
+    "minimum_sites_at_floor_per_haplotype": {
+      "default": 3,
+      "minimum": 1,
+      "title": "Minimum Sites At Floor Per Haplotype",
+      "type": "integer"
+    },
+    "minimum_valid_coverage": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Minimum Valid Coverage",
+      "type": "integer"
+    },
+    "modification_codes": {
+      "items": {
+        "$ref": "#/$defs/ModificationCode"
+      },
+      "minItems": 1,
+      "title": "Modification Codes",
+      "type": "array"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "technical_defaults_only",
+        "validated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile_id",
+    "status",
+    "note"
+  ],
+  "title": "HaplotypeMethylationPolicy",
+  "type": "object"
+}

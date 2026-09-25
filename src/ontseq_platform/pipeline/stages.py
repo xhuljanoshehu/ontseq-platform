@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 
 
 class StageId(StrEnum):
@@ -174,14 +175,19 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         stage=StageId.CNV,
-        title="Copy-number evidence",
+        title="QDNAseq + ACE copy-number analysis",
         depends_on=(StageId.QC,),
         applicable_for=_ALL_KINDS,
-        verification=VerificationStatus.NOT_IMPLEMENTED,
+        # The dedicated QDNAseq workflows execute this lane against the real R packages on
+        # synthetic data for both builds. Engineering verification only; no copy-number
+        # threshold here is analytically validated.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose=(
-            "Copy-number calling. No production caller is selected; the benchmark "
-            "subsystem exists to make that choice on evidence."
+            "Run multi-resolution QDNAseq read-depth correction and CBS segmentation, "
+            "estimate purity/ploidy with ACE, and retain consensus plus plots. Runs only when "
+            "the run configures the copy-number lane and the manifest requests CNV; otherwise "
+            "the stage records that scope statement, not a copy-number result."
         ),
     ),
     StageSpec(
@@ -264,7 +270,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
 )
 
-SPEC_BY_STAGE: Mapping[StageId, StageSpec] = {spec.stage: spec for spec in STAGE_SPECS}
+#: Read-only on purpose. A run-specific difference belongs in the run configuration; a
+#: process-wide replacement of a specification once made every later run in a service
+#: inherit whatever the first command installed.
+SPEC_BY_STAGE: Mapping[StageId, StageSpec] = MappingProxyType(
+    {spec.stage: spec for spec in STAGE_SPECS}
+)
 
 
 def _validate_graph() -> tuple[StageId, ...]:
