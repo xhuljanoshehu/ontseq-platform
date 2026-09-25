@@ -16,10 +16,15 @@ from ontseq_platform.execution import SubprocessRunner, ToolExecutionError
 
 
 def _linux_pid_is_live(pid: int) -> bool:
-    """Return False for absent or zombie Linux processes."""
+    """Return False for absent or zombie Linux processes.
+
+    A process that exits between opening and reading ``/proc/<pid>/stat`` makes the read
+    fail with ESRCH (``ProcessLookupError``) rather than ``FileNotFoundError``; both mean
+    the process is gone.
+    """
     try:
         fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").split()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
     return len(fields) > 2 and fields[2] != "Z"
 
