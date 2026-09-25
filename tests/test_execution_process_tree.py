@@ -154,3 +154,36 @@ def test_interrupt_kills_descendant_process_tree(
         _kill_if_still_live(pid)
     assert not output.exists()
     assert list(tmp_path.glob(f".{output.name}.*.tmp")) == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-group cleanup contract")
+@pytest.mark.parametrize("streaming", [False, True])
+def test_aborted_runs_close_their_pipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, streaming: bool
+) -> None:
+    """A retained traceback must not keep the aborted process's pipe descriptors open."""
+    started: list[subprocess.Popen[str]] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args: object, **kwargs: object) -> subprocess.Popen[str]:
+        process = real_popen(*args, **kwargs)  # type: ignore[call-overload]
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", recording_popen)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "pipes-descendant.pid"
+    argv = [shell, "-c", _descendant_script(pid_path, emit_stdout=streaming)]
+
+    with pytest.raises(ToolExecutionError, match="timed out"):
+        if streaming:
+            SubprocessRunner().run_to_file(argv, tmp_path / "pipes.bin", timeout_seconds=1)
+        else:
+            SubprocessRunner().run(argv, timeout_seconds=1)
+
+    _kill_if_still_live(int(pid_path.read_text(encoding="utf-8")))
+    (process,) = started
+    pipes = [stream for stream in (process.stdout, process.stderr) if stream is not None]
+    assert pipes
+    assert all(stream.closed for stream in pipes)

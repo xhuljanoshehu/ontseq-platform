@@ -66,6 +66,12 @@ def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[
     else:
         process.kill()
     process.wait()
+    # The Popen object can outlive this call inside a retained traceback, so release its
+    # pipes now rather than at garbage collection. Closing (not draining) cannot block on
+    # a descendant that still holds the write end.
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
 
 
 class SubprocessRunner:
