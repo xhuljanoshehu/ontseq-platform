@@ -154,7 +154,7 @@ def test_cutesv_invalid_parallelism_is_rejected(tmp_path: Path, threads: int) ->
 
 
 def test_cutesv_worker_setting_reaches_command_and_provenance(tmp_path: Path) -> None:
-    from test_cutesv_atomic import CuteSvRunner
+    from test_cutesv_atomic import CuteSvRunner, qualified_cutesv_mock
 
     from ontseq_platform.models import CuteSvPolicy, SvConsensusPolicy
     from ontseq_platform.pipeline.runner import INTAKE_REPORT, RunContext, _sv_execute, _sv_plan
@@ -181,7 +181,8 @@ def test_cutesv_worker_setting_reaches_command_and_provenance(tmp_path: Path) ->
     runner = CuteSvRunner()
     ctx = RunContext(config, fixture.envelope(), runner, manifest)
     ctx.envelope.atomic_write_text(INTAKE_REPORT, fixture.intake.model_dump_json())
-    outcome = _sv_execute(ctx, _sv_plan(ctx))
+    with qualified_cutesv_mock():
+        outcome = _sv_execute(ctx, _sv_plan(ctx))
     assert outcome.status is ModuleRunStatus.COMPLETED
     assert outcome.tools[0].parameters["threads"] == 1
     assert runner.call_argv[runner.call_argv.index("--threads") + 1] == "1"

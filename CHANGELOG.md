@@ -5,6 +5,15 @@ validated release.
 
 ## Unreleased
 
+- Refuse unqualified cuteSV executables in the standard SV lane before any invocation (#102).
+  The lane requires the reviewed script body and a portable Python launch form
+  (`python-shebang-v1`: a direct `python`/`python3`/`python3.N` interpreter, or `/usr/bin/env`
+  with exactly one such token) before `--version` or analysis, and checks it again when the
+  executable is staged. Executable provenance records `cutesv_source_shebang_sha256`,
+  `cutesv_launch_contract` and the interpreter token. Validation impact: provenance and
+  fail-closed qualification only; the launch form and source drift are qualified, the Python
+  interpreter binary is not. No caller threshold, assay rule, reference or reportability change.
+
 - Fail closed before the Desktop stale-drive recovery remounts a DrvFs mount whose semantics it
   cannot reconstruct (#109). The repair remounted with `uid`/`gid` only and silently dropped
   `metadata`, non-default `umask`/`fmask`/`dmask`, a non-default `case` or an explicit uid/gid of

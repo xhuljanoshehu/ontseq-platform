@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import patch
 
+from test_cutesv_atomic import qualified_cutesv_mock
+
 from ontseq_platform.cutesv import run_cutesv
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import (
@@ -82,6 +84,11 @@ def _policy() -> CuteSvPolicy:
 
 
 class CuteSvLocalErrorGuardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        qualification = qualified_cutesv_mock()
+        qualification.__enter__()
+        self.addCleanup(qualification.__exit__, None, None, None)
+
     def test_zero_exit_with_upstream_localerror_marker_fails_closed(self) -> None:
         """A swallowed clustering-worker error must not promote a partial VCF."""
         with tempfile.TemporaryDirectory() as temporary:
