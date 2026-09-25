@@ -80,9 +80,9 @@ class CommandSetTests(unittest.TestCase):
     def test_preflight_accepts_the_cnv_options_the_run_accepts(self) -> None:
         """A preflight configured differently from the run describes a different run.
 
-        Preflight registers the CNV lane the way the run does, and ``_register_cnv``
-        reads the options straight off the namespace — a parser that never declared them
-        dies with AttributeError before doing any work.
+        Preflight resolves the CNV lane the way the run does, and ``_cnv_lane`` reads the
+        options straight off the namespace — a parser that never declared them dies with
+        AttributeError before doing any work.
         """
         args = runtime_cli._parser().parse_args(
             [

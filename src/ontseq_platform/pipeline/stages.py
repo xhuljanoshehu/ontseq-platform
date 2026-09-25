@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 
 
 class StageId(StrEnum):
@@ -36,6 +37,7 @@ class StageId(StrEnum):
     CNV = "cnv"
     SV = "sv"
     METHYLATION = "methylation"
+    MARLIN = "marlin"
     ASSEMBLE = "assemble"
     REPORT = "report"
     RELEASE = "release"
@@ -61,7 +63,7 @@ class VerificationStatus(StrEnum):
     the real tool.
     """
 
-    #: Continuous integration runs the real binary against synthetic input.
+    #: Recorded automated acceptance runs the real binary against synthetic input.
     VERIFIED_WITH_REAL_TOOL = "verified_with_real_tool"
     #: Pure-Python stage with no external tool, covered by unit tests.
     VERIFIED_PURE_PYTHON = "verified_pure_python"
@@ -105,6 +107,8 @@ class StageSpec:
     purpose: str
     #: Recorded when the stage is skipped because it does not apply.
     not_applicable_reason: str = ""
+    #: Independent research add-ons can fail visibly without invalidating genome analysis.
+    failure_blocks_run: bool = True
 
 
 _ALL_KINDS: frozenset[InputKindName] = frozenset(InputKindName)
@@ -171,14 +175,19 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         stage=StageId.CNV,
-        title="Copy-number evidence",
+        title="QDNAseq + ACE copy-number analysis",
         depends_on=(StageId.QC,),
         applicable_for=_ALL_KINDS,
-        verification=VerificationStatus.NOT_IMPLEMENTED,
+        # The dedicated QDNAseq workflows execute this lane against the real R packages on
+        # synthetic data for both builds. Engineering verification only; no copy-number
+        # threshold here is analytically validated.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
         required=False,
         purpose=(
-            "Copy-number calling. No production caller is selected; the benchmark "
-            "subsystem exists to make that choice on evidence."
+            "Run multi-resolution QDNAseq read-depth correction and CBS segmentation, "
+            "estimate purity/ploidy with ACE, and retain consensus plus plots. Runs only when "
+            "the run configures the copy-number lane and the manifest requests CNV; otherwise "
+            "the stage records that scope statement, not a copy-number result."
         ),
     ),
     StageSpec(
@@ -214,6 +223,22 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         ),
     ),
     StageSpec(
+        stage=StageId.MARLIN,
+        title="MARLIN methylation classification (research)",
+        failure_blocks_run=False,
+        depends_on=(StageId.INTAKE,),
+        applicable_for=_ALL_KINDS,
+        # Qualified locally with synthetic BAM, PR709 and the pinned original model;
+        # this is adapter verification, not analytical or clinical validation.
+        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
+        required=False,
+        purpose=(
+            "Build-bound original-model classification with a separate combined-modification "
+            "pileup. Automatically requested with methylation; analytical validation remains "
+            "unestablished. Failure never becomes a negative classification."
+        ),
+    ),
+    StageSpec(
         stage=StageId.ASSEMBLE,
         title="Normalized result assembly",
         depends_on=(StageId.QC,),
@@ -245,7 +270,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
 )
 
-SPEC_BY_STAGE: Mapping[StageId, StageSpec] = {spec.stage: spec for spec in STAGE_SPECS}
+#: Read-only on purpose. A run-specific difference belongs in the run configuration; a
+#: process-wide replacement of a specification once made every later run in a service
+#: inherit whatever the first command installed.
+SPEC_BY_STAGE: Mapping[StageId, StageSpec] = MappingProxyType(
+    {spec.stage: spec for spec in STAGE_SPECS}
+)
 
 
 def _validate_graph() -> tuple[StageId, ...]:
@@ -360,14 +390,22 @@ class RunVerdict:
     incomplete_required_stages: tuple[StageId, ...]
     skipped_optional_stages: tuple[StageId, ...]
     unverified_stages: tuple[StageId, ...] = field(default=())
+    nonfatal_failed_stages: tuple[StageId, ...] = field(default=())
 
     def describe(self) -> str:
-        if self.failed_stages:
-            names = ", ".join(item.value for item in self.failed_stages)
+        blocking = [item for item in self.failed_stages if item not in self.nonfatal_failed_stages]
+        if blocking:
+            names = ", ".join(item.value for item in blocking)
             return f"Run failed: {names} reported FAILED."
         if self.incomplete_required_stages:
             names = ", ".join(item.value for item in self.incomplete_required_stages)
             return f"Run incomplete: required stage(s) {names} did not complete."
+        if self.nonfatal_failed_stages:
+            names = ", ".join(item.value for item in self.nonfatal_failed_stages)
+            return (
+                f"Genome analysis completed; optional research stage(s) {names} FAILED. "
+                "No classification may be inferred from that failure."
+            )
         if self.skipped_optional_stages:
             names = ", ".join(item.value for item in self.skipped_optional_stages)
             return (
@@ -409,7 +447,11 @@ def summarize(
             skipped.append(stage)
 
     return RunVerdict(
-        passed=not failed and not incomplete,
+        passed=not any(SPEC_BY_STAGE[stage].failure_blocks_run for stage in failed)
+        and not incomplete,
+        nonfatal_failed_stages=tuple(
+            stage for stage in failed if not SPEC_BY_STAGE[stage].failure_blocks_run
+        ),
         failed_stages=tuple(failed),
         incomplete_required_stages=tuple(incomplete),
         skipped_optional_stages=tuple(skipped),

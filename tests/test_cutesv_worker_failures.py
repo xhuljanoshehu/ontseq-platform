@@ -9,7 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ontseq_platform.cutesv import run_cutesv
-from ontseq_platform.cutesv_build import BUILD_ID, executable_identity, prepare_executable
+from ontseq_platform.cutesv_build import (
+    BUILD_ID,
+    LAUNCH_CONTRACT,
+    executable_identity,
+    prepare_executable,
+)
 from ontseq_platform.execution import SubprocessRunner
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
@@ -113,6 +118,7 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
         self.assertIsNotNone(self.tool)
         self.identity = executable_identity(self.tool)
         self.assertEqual(self.identity["cutesv_build_id"], BUILD_ID)
+        self.assertEqual(self.identity["cutesv_launch_contract"], LAUNCH_CONTRACT)
         self.policy = CuteSvPolicy(
             profile_id="synthetic",
             status="technical_defaults_only",
@@ -123,6 +129,34 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
+
+    def test_non_python_shebang_is_refused_before_tool_execution(self):
+        source = Path(self.tool).read_bytes()
+        _first_line, separator, body = source.partition(b"\n")
+        self.assertEqual(separator, b"\n")
+        altered = self.root / "cuteSV-non-python-shebang"
+        altered.write_bytes(b"#!/bin/sh\n" + body)
+        altered.chmod(0o700)
+        altered_identity = executable_identity(str(altered))
+        self.assertEqual(
+            altered_identity["cutesv_source_body_sha256"],
+            self.identity["cutesv_source_body_sha256"],
+        )
+        self.assertEqual(altered_identity["cutesv_build_id"], BUILD_ID)
+        self.assertEqual(altered_identity["cutesv_launch_contract"], "unqualified")
+        output = self.root / "non-python-shebang.vcf"
+        with self.assertRaisesRegex(ValueError, "launch chain"):
+            run_cutesv(
+                self.manifest,
+                self.intake,
+                self.policy,
+                reference_fasta=self.fasta,
+                output_vcf=output,
+                cutesv=str(altered),
+                threads=1,
+            )
+        self.assertFalse(output.exists())
+        self.assertFalse((self.root / "scratch").exists())
 
     def test_successful_workers_preserve_both_known_deletions(self):
         report = run_cutesv(
@@ -206,6 +240,10 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
                     recording_runner = RecordingRunner()
                     recording_runner.commands = commands
                     with (
+                        patch(
+                            "ontseq_platform.cutesv.prepare_executable",
+                            return_value=str(injected),
+                        ),
                         patch.dict(
                             os.environ,
                             {"ONTSEQ_TEST_FAULT": stage, "ONTSEQ_TEST_SUCCESS": str(success)},
@@ -218,7 +256,7 @@ class CuteSvWorkerFailureTests(unittest.TestCase):
                             self.policy,
                             reference_fasta=self.fasta,
                             output_vcf=output,
-                            cutesv=str(injected),
+                            cutesv=self.tool,
                             threads=workers,
                             runner=recording_runner,
                         )

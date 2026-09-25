@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
+from ..cnv.lane import CnvLaneSettings
 from ..execution import SubprocessRunner, ToolExecutionError
 from ..io import load_model
 from ..methylation import MethylationPolicy, MethylationReport, modkit_version
@@ -90,7 +92,7 @@ from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
 from ..target_coverage import TargetCoveragePolicy
-from .befund import current_befund
+from .befund import ArchivedEvidence, current_befund, load_archived_marlin
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -192,6 +194,8 @@ class ServiceConfig:
     sniffles_policy: Path
     target_coverage_policy: Path
     components: RunComponents | None = None
+    #: The copy-number lane every run of this service uses; ``None`` leaves CNV unconfigured.
+    cnv_lane: CnvLaneSettings | None = None
     cutesv_policy: Path | None = None
     sv_consensus_policy: Path | None = None
     sv_evidence_policy: Path | None = None
@@ -203,6 +207,7 @@ class ServiceConfig:
     sv_minimum_mean_depth: float = 10.0
     cutesv_executable: str = "cuteSV"
     methylation_policy: Path | None = None
+    marlin_installation: Path | None = None
     modkit_executable: str = "modkit"
     samtools_executable: str = "samtools"
     resource_root: Path | None = None
@@ -253,6 +258,7 @@ class Jobs:
     def __init__(self) -> None:
         self._jobs: dict[str, RunJob] = {}
         self._lock = threading.Lock()
+        self._stopping = False
 
     def claim(self, job: RunJob) -> None:
         """Register *job* only if nothing else is running, atomically.
@@ -269,6 +275,8 @@ class Jobs:
         Both cases are refused here, where the decision is made under the lock.
         """
         with self._lock:
+            if self._stopping:
+                raise JobRejected("Der Dienst wird neu gestartet. Arbeitsplatz erneut öffnen.")
             for existing in self._jobs.values():
                 if existing.state == "running":
                     raise JobRejected(
@@ -281,6 +289,13 @@ class Jobs:
                     "choose a different run id"
                 )
             self._jobs[job.run_id] = job
+
+    def begin_shutdown(self) -> None:
+        """Freeze admission atomically with the idle check, including browser starts."""
+        with self._lock:
+            if any(job.state == "running" for job in self._jobs.values()):
+                raise JobRejected("Eine Analyse läuft noch. Neustart erst nach ihrem Abschluss.")
+            self._stopping = True
 
     def get(self, run_id: str) -> RunJob | None:
         with self._lock:
@@ -328,6 +343,41 @@ def _runtime_git_commit() -> str:
     except OSError:
         return "UNKNOWN"
     return value if re.fullmatch(r"[0-9a-f]{40}", value) else "UNKNOWN"
+
+
+def _marlin_installation(config: ServiceConfig) -> Path:
+    from ..resource_registry import resource_root_from_environment
+
+    return (
+        config.marlin_installation
+        or resource_root_from_environment(config.resource_root) / "marlin" / "installation.json"
+    )
+
+
+def _marlin_readiness(config: ServiceConfig, build: GenomeBuild) -> dict[str, object]:
+    from ..marlin_native import check_native_marlin_readiness
+    from ..modkit_build import identify_modkit_binary
+
+    readiness = check_native_marlin_readiness(_marlin_installation(config), build)
+    ready, reason = readiness.ready, readiness.reason
+    if ready:
+        try:
+            binary = identify_modkit_binary(config.modkit_executable)
+            version = SubprocessRunner().run([binary.executable, "--version"], timeout_seconds=10)
+            if (
+                version.returncode
+                or modkit_version(version.stdout + "\n" + version.stderr) != "0.6.4"
+            ):
+                raise ValueError("MARLIN requires configured modkit 0.6.4")
+        except (OSError, ValueError, ToolExecutionError) as error:
+            ready, reason = False, str(error)
+    return {
+        "ready": ready,
+        "reason": reason,
+        "genome_build": build.value,
+        "readiness_level": "CONFIGURED_NOT_VERIFIED" if ready else "UNAVAILABLE",
+        "validation_status": "UNVALIDATED_RESEARCH",
+    }
 
 
 def _include_methylation(payload: dict[str, Any]) -> bool:
@@ -455,6 +505,7 @@ def _build_manifest(
     ]
     if _include_methylation(payload):
         modules.insert(-1, AnalysisModule.METHYLATION)
+        modules.insert(-1, AnalysisModule.MARLIN)
 
     return SampleManifest(
         sample_id=str(payload.get("sample_id", "")).strip(),
@@ -506,6 +557,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
                 else None
             ),
             reference_fasta=config.reference_fasta,
+            marlin_installation=_marlin_installation(config),
             gene_annotation=config.gene_annotation,
             cytoband_annotation=config.cytoband_annotation,
             sv_context_resources=config.sv_context_resources,
@@ -518,6 +570,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
                 else None
             ),
             components=config.components,
+            cnv_lane=config.cnv_lane,
             threads=config.threads,
             cutesv_threads=config.cutesv_threads,
             executables={
@@ -598,6 +651,8 @@ def _build_profile_configuration(
             threads=config.threads,
             cutesv_threads=config.cutesv_threads,
             include_methylation=include_methylation,
+            marlin_installation=_marlin_installation(config),
+            cnv_lane=config.cnv_lane,
             executables={
                 "cutesv": config.cutesv_executable,
                 "samtools": config.samtools_executable,
@@ -770,6 +825,18 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._methylation_scan_status(route.path[len("/api/methylation/scans/") :])
             elif route.path == "/api/browse":
                 self._browse(query.get("path", [""])[0])
+            elif route.path == "/api/marlin/readiness":
+                try:
+                    if set(query) != {"genome_build"} or len(query["genome_build"]) != 1:
+                        raise ValueError(
+                            "MARLIN readiness requires one genome_build and no other parameters"
+                        )
+                    build = GenomeBuild(query["genome_build"][0])
+                    if build not in {GenomeBuild.GRCH37, GenomeBuild.GRCH38}:
+                        raise ValueError("MARLIN supports GRCh37 and GRCh38")
+                    self._json(HTTPStatus.OK, _marlin_readiness(config, build))
+                except (ValueError, OSError) as error:
+                    self._refuse(HTTPStatus.BAD_REQUEST, str(error))
             elif route.path == "/api/findings":
                 self._findings()
             elif route.path == "/api/locate":
@@ -785,6 +852,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 "/api/runs",
                 "/api/methylation/probe",
                 "/api/methylation/scans",
+                "/api/session/stop",
             } and not (
                 path.startswith("/api/review/") or path.startswith("/api/methylation/scans/")
             ):
@@ -802,6 +870,9 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 return
             if not isinstance(payload, dict):
                 self._refuse(HTTPStatus.BAD_REQUEST, "request body was not a JSON object")
+                return
+            if path == "/api/session/stop":
+                self._stop_session(payload)
                 return
             if path == "/api/runs":
                 self._start_run(payload)
@@ -827,6 +898,35 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._refuse(HTTPStatus.BAD_REQUEST, "expected /api/review/<run>/<sample>")
                 return
             self._review(parts[0], parts[1], payload)
+
+        def _stop_session(self, payload: dict[str, Any]) -> None:
+            if not config.instance_id or payload != {"instance_id": config.instance_id}:
+                self._refuse(HTTPStatus.CONFLICT, "Die Dienstinstanz stimmt nicht überein.")
+                return
+            try:
+                jobs.begin_shutdown()
+            except JobRejected as error:
+                self._refuse(HTTPStatus.CONFLICT, str(error))
+                return
+            scans.close()
+            # Quick previews run in their HTTP thread, rather than a retained scan
+            # thread. Let their cancellation release the BAM handles before replying.
+            deadline = time.monotonic() + 5.0
+            while scans.discovery_active() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if scans.discovery_active():
+                self._refuse(
+                    HTTPStatus.CONFLICT,
+                    "Die Vorprüfung beendet sich noch. Bitte den Neustart erneut versuchen.",
+                )
+                return
+            self.close_connection = True
+            try:
+                self._json(HTTPStatus.OK, {"instance_id": config.instance_id, "stopping": True})
+            finally:
+                # shutdown must run outside serve_forever; an interrupted HTTP response
+                # must not leave an idle service permanently frozen on its old port.
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
 
         def _serve_page(self, *, workspace: bool = False) -> None:
             page = WORKSPACE_PAGE if workspace else PAGE
@@ -903,6 +1003,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 "json": (RESULT_JSON, "application/json"),
                 "html": (REPORT_HTML, "text/html; charset=utf-8"),
                 "befund": (RESULT_JSON, "text/html; charset=utf-8"),
+                "marlin": (RESULT_JSON, "application/json"),
                 "xlsx": (
                     REPORT_XLSX,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -944,6 +1045,22 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 if path.stat().st_size > MAX_RESULT_BYTES:
                     raise ValueError("artifact is too large for the interactive workspace")
                 body = path.read_bytes() if download else result.model_dump_json().encode("utf-8")
+                if kind == "marlin":
+                    if (envelope / LOCK_FILENAME).exists():
+                        self._refuse(HTTPStatus.CONFLICT, "the run envelope is still locked")
+                        return
+                    marlin_evidence = ArchivedEvidence(envelope, result)
+                    marlin_report = load_archived_marlin(envelope, result, evidence=marlin_evidence)
+                    if marlin_report is None:
+                        self._refuse(HTTPStatus.NOT_FOUND, "no MARLIN execution evidence recorded")
+                        return
+                    if marlin_report.status.value in {"COMPLETED", "NO_CALL"}:
+                        body = marlin_evidence.verified_bytes[
+                            f"evidence/marlin/{sample_id}.marlin.json"
+                        ]
+                    else:
+                        body = marlin_report.model_dump_json().encode("utf-8")
+                    path = Path(f"{sample_id}.marlin.json")
                 if kind == "befund":
                     body = current_befund(envelope, result)
                     path = Path(f"{sample_id}.befund.html")

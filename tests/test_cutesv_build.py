@@ -6,7 +6,7 @@ import pytest
 from ontseq_platform import cutesv_build
 
 
-def test_unknown_script_is_identified_but_never_rewritten(tmp_path: Path) -> None:
+def test_unknown_script_is_identified_and_refused_without_rewrite(tmp_path: Path) -> None:
     script = tmp_path / "cuteSV"
     data = b"#!/bin/sh\nexit 0\n"
     script.write_bytes(data)
@@ -14,7 +14,8 @@ def test_unknown_script_is_identified_but_never_rewritten(tmp_path: Path) -> Non
     identity = cutesv_build.executable_identity(str(script))
     assert identity["cutesv_source_sha256"] == hashlib.sha256(data).hexdigest()
     assert identity["cutesv_build_id"] == "unqualified"
-    assert cutesv_build.prepare_executable(str(script), tmp_path, identity) == str(script)
+    with pytest.raises(ValueError, match="not qualified for the standard SV lane"):
+        cutesv_build.prepare_executable(str(script), tmp_path, identity)
     assert script.read_bytes() == data
 
 

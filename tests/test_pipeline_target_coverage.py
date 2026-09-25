@@ -20,6 +20,7 @@ from ontseq_platform.models import (
     AnalysisSpec,
     AssayMode,
     AssaySpec,
+    FileFingerprint,
     GenomeBuild,
     InputKind,
     InputSpec,
@@ -29,11 +30,17 @@ from ontseq_platform.models import (
     ReferenceLock,
     SampleManifest,
     TargetBedRole,
+    ToolRecord,
 )
 from ontseq_platform.pipeline.components import RunComponents
 from ontseq_platform.pipeline.envelope import RunEnvelope
 from ontseq_platform.pipeline.runner import (
     COMPONENTS_REPORT,
+    IMPLEMENTATIONS,
+    LEGACY_TARGET_COVERAGE_REPORT,
+    LEGACY_TARGET_COVERAGE_WORK,
+    SELECTION_COVERAGE_REPORT,
+    TARGET_COVERAGE_REPORT,
     RunConfiguration,
     RunContext,
     StageFailure,
@@ -44,8 +51,12 @@ from ontseq_platform.pipeline.runner import (
     _target_coverage_plan,
     run_pipeline,
 )
-from ontseq_platform.pipeline.stages import StageId
-from ontseq_platform.target_coverage import TargetCoveragePolicy
+from ontseq_platform.pipeline.stages import SPEC_BY_STAGE, StageId
+from ontseq_platform.target_coverage import (
+    TargetCoveragePolicy,
+    TargetCoverageRegion,
+    TargetCoverageReport,
+)
 
 
 class _VersionRunner:
@@ -195,6 +206,107 @@ class StageBehaviourTests(unittest.TestCase):
         fingerprinted = {name for name, _checksum in plan.external_inputs}
         self.assertIn("panel.bed", fingerprinted)
         self.assertIn("selection_panel_buffered", fingerprinted)
+
+    def test_the_configured_policy_selection_panel_and_executable_are_what_runs(self) -> None:
+        """Regression: `run`, `serve` and `watch` used to swap in a built-in stage.
+
+        That replacement ignored the configured policy, never measured the selection panel
+        and probed a bare ``mosdepth`` instead of the configured executable.
+        """
+        custom = _policy().model_copy(
+            update={"profile_id": "operator-selected-policy", "thresholds": [5, 15]}
+        )
+        context = self._context(self._manifest(AssayMode.ADAPTIVE_SAMPLING), policy=custom)
+        selection = self.base / "selection-buffered.bed"
+        selection.write_text("chr1\t50\t250\tTARGET_A\n", encoding="utf-8")
+        context.config.selection_target_bed = selection
+        context.config.executables = {
+            **context.config.executables,
+            "mosdepth": "/opt/pinned/mosdepth",
+        }
+
+        plan = IMPLEMENTATIONS[StageId.TARGET_COVERAGE].plan(context)
+
+        self.assertEqual(plan.parameters["profile"], "operator-selected-policy")
+        self.assertEqual(plan.parameters["thresholds"], [5, 15])
+        self.assertIn(
+            "selection_panel_buffered", {name for name, _checksum in plan.external_inputs}
+        )
+        runner = context.runner
+        assert isinstance(runner, _VersionRunner)
+        self.assertEqual(runner.calls, [["/opt/pinned/mosdepth", "--version"]])
+
+    def test_a_rerun_removes_every_earlier_coverage_output_before_writing(self) -> None:
+        context = self._context(self._manifest(AssayMode.ADAPTIVE_SAMPLING), policy=_policy())
+        stale = [
+            context.path(LEGACY_TARGET_COVERAGE_REPORT),
+            SELECTION_COVERAGE_REPORT,
+            f"{context.path(LEGACY_TARGET_COVERAGE_WORK)}/old.regions.bed.gz",
+        ]
+        for relative in stale:
+            context.envelope.atomic_write_text(relative, "left by an earlier attempt")
+        report = TargetCoverageReport(
+            sample_id="TC_001",
+            genome_build=GenomeBuild.GRCH38,
+            target_bed_version="TEST_PANEL_V1",
+            status=ModuleRunStatus.COMPLETED,
+            policy=_policy(),
+            summary_metrics={
+                "region_count": 1,
+                "interval_bases": 100,
+                "interval_weighted_mean_depth": 12.0,
+            },
+            regions=[
+                TargetCoverageRegion(
+                    chromosome="chr1",
+                    start=100,
+                    end=200,
+                    region_id="TARGET_A",
+                    mean_depth=12.0,
+                    bases_at_threshold={"1x": 100, "10x": 80, "20x": 0, "30x": 0},
+                    fraction_at_threshold={"1x": 1.0, "10x": 0.8, "20x": 0.0, "30x": 0.0},
+                )
+            ],
+            target_bed_fingerprint=FileFingerprint(size_bytes=1, sha256="c" * 64),
+            tool=ToolRecord(name="mosdepth", version="0.3.14"),
+        )
+        plan = _target_coverage_plan(context)
+        with (
+            mock.patch(
+                "ontseq_platform.pipeline.runner.AlignedBamIntakeReport.model_validate_json",
+                return_value=mock.sentinel.intake,
+            ),
+            mock.patch("ontseq_platform.pipeline.runner.run_target_coverage", return_value=report),
+        ):
+            context.envelope.atomic_write_text("manifest/intake.json", "{}")
+            result = _target_coverage_execute(context, plan)
+
+        self.assertEqual([item.relative_path for item in result.outputs], [TARGET_COVERAGE_REPORT])
+        for relative in stale:
+            with self.subTest(stale=relative):
+                self.assertFalse(context.envelope.path(relative).exists())
+        self.assertFalse(context.envelope.path(context.path(LEGACY_TARGET_COVERAGE_WORK)).exists())
+
+
+class OneStageGraphTests(unittest.TestCase):
+    def test_no_execution_command_swaps_a_stage_implementation(self) -> None:
+        """The entrypoint must dispatch, never re-wire the declared stage graph."""
+        from ontseq_platform import entrypoint
+
+        before = dict(IMPLEMENTATIONS)
+        specs_before = dict(SPEC_BY_STAGE)
+        for command in ("run", "serve", "watch", "analyze", "preflight"):
+            with (
+                self.subTest(command=command),
+                mock.patch("sys.argv", ["ontseq", command]),
+                mock.patch("ontseq_platform.runtime_cli.main") as runtime_main,
+            ):
+                entrypoint.main()
+                runtime_main.assert_called_once_with()
+                self.assertEqual(dict(IMPLEMENTATIONS), before)
+                self.assertEqual(dict(SPEC_BY_STAGE), specs_before)
+        self.assertIs(IMPLEMENTATIONS[StageId.TARGET_COVERAGE].plan, _target_coverage_plan)
+        self.assertIs(IMPLEMENTATIONS[StageId.TARGET_COVERAGE].execute, _target_coverage_execute)
 
 
 class _FakeStage:

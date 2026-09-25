@@ -61,7 +61,6 @@ class MethylationCommandIntegrationTests(unittest.TestCase):
             with (
                 self.subTest(include=include),
                 patch("sys.argv", argv),
-                patch("ontseq_platform.runtime_cli._register_cnv"),
                 patch(
                     "ontseq_platform.runtime_cli.build_profile_run_configuration",
                     return_value=config,
@@ -73,6 +72,8 @@ class MethylationCommandIntegrationTests(unittest.TestCase):
             settings = build.call_args.args[0]
             self.assertIs(settings.include_methylation, include)
             self.assertEqual(settings.executables["modkit"], "pinned-modkit")
+            # The CNV lane travels in the configuration, not in process-global state.
+            self.assertEqual(settings.cnv_lane.policy.profile_id, "qdnaseq-ace-multibin-v1")
 
     def test_service_keeps_assay_default_and_explicit_tool_paths(self) -> None:
         argv = [
@@ -90,7 +91,6 @@ class MethylationCommandIntegrationTests(unittest.TestCase):
         ]
         with (
             patch("sys.argv", argv),
-            patch("ontseq_platform.runtime_cli._register_cnv"),
             patch("ontseq_platform.runtime_cli.serve") as serve,
         ):
             main()
@@ -98,6 +98,7 @@ class MethylationCommandIntegrationTests(unittest.TestCase):
         self.assertIsNone(config.methylation_policy)
         self.assertEqual(config.modkit_executable, "pinned-modkit")
         self.assertEqual(config.samtools_executable, "pinned-samtools")
+        self.assertIsNotNone(config.cnv_lane)
         self.assertFalse(serve.call_args.kwargs["open_browser"])
 
     def test_doctor_uses_the_installed_configuration_root(self) -> None:

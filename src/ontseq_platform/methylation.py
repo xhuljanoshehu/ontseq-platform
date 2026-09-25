@@ -70,6 +70,10 @@ _BEDMETHYL_COLUMNS = 18
 
 # Shared by normalization provenance and the pipeline's resume signature.
 REGION_ASSIGNMENT_METHOD = "interval-identity-v1"
+#: File names the pileup writes into its output directory. The pipeline records the
+#: bedMethyl as a (non-exportable) stage artifact, so it must name the same file.
+BEDMETHYL_NAME = "{sample}.modkit.bedmethyl"
+MODKIT_LOG_NAME = "{sample}.modkit.log"
 
 
 class ModificationCode(StrEnum):
@@ -870,8 +874,8 @@ def run_methylation(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    bedmethyl_path = output_dir / f"{manifest.sample_id}.modkit.bedmethyl"
-    log_path = output_dir / f"{manifest.sample_id}.modkit.log"
+    bedmethyl_path = output_dir / BEDMETHYL_NAME.format(sample=manifest.sample_id)
+    log_path = output_dir / MODKIT_LOG_NAME.format(sample=manifest.sample_id)
     if bedmethyl_path.exists() or log_path.exists():
         raise ValueError("Refusing to overwrite existing modkit methylation outputs")
 

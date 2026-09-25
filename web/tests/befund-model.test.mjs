@@ -34,3 +34,15 @@ test('unavailable and partial chromosome models cannot imply absence of deviatio
   assert.match(modelSummary([{chromosome:'chr1',copies:null}], 2), /Keine auswertbaren/);
   assert.match(modelSummary([{chromosome:'chr1',copies:2},{chromosome:'chr2',copies:null}], 2), /1.*nicht bestimmbar/);
 });
+
+test('MARLIN separates a crossed model threshold from unestablished assay assessability', async () => {
+  const {marlinAssessmentFacts}=await import('../src/befund/model.js');
+  const facts=Object.fromEntries(marlinAssessmentFacts({model_score_threshold:.8,model_score_threshold_met:true,assay_assessability:'NOT_ESTABLISHED',feature_summary:{observed_fraction:1/357340}}));
+  assert.equal(facts['Modellscore-Schwelle erreicht'],'ja · nur Modellscore');
+  assert.equal(facts['Assay-Beurteilbarkeit'],'NOT_ESTABLISHED · Bewertung nicht validiert');
+  assert.equal(facts['Anteil beobachteter Modell-CpGs'],'0,00028 %');
+  const absent=Object.fromEntries(marlinAssessmentFacts({model_score_threshold:.8,model_score_threshold_met:null,assay_assessability:'NOT_ESTABLISHED'}));
+  assert.equal(absent['Modellscore-Schwelle erreicht'],'nicht verfügbar');
+  const zero=Object.fromEntries(marlinAssessmentFacts({model_score_threshold:.8,model_score_threshold_met:null,assay_assessability:'NOT_ESTABLISHED',feature_summary:{observed_fraction:0}}));
+  assert.equal(zero['Anteil beobachteter Modell-CpGs'],'0 %');
+});

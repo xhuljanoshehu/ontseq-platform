@@ -104,8 +104,8 @@ def assemble_aligned_bam_mvp(
             ISCNAssessmentBlocker(
                 reason_code="CNV_EVIDENCE_UNAVAILABLE",
                 detail=(
-                    "the base aligned-BAM assembler has no completed CNV artifact; the CNV "
-                    "extension must recompute ISCN after merging copy-number evidence"
+                    "the base aligned-BAM assembler has no completed CNV artifact; the "
+                    "copy-number lane recomputes ISCN only from this run's current CNV evidence"
                 ),
             ),
             *(

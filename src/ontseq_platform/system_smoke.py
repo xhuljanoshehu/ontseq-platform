@@ -7,7 +7,7 @@ from typing import Literal
 from openpyxl import load_workbook
 from pydantic import Field
 
-from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
+from .cnv.lane import CnvLaneSettings
 from .cnv.qdnaseq import QDNAseqCallReport, QDNAseqPolicy
 from .execution import StreamingCommandRunner, SubprocessRunner
 from .io import write_json
@@ -428,14 +428,6 @@ def run_system_smoke(
         samtools=samtools,
         threads=threads,
     )
-    register_qdnaseq_extension(
-        QDNAseqExtensionSettings(
-            policy=cnv_policy,
-            rscript=rscript,
-            script=qdnaseq_script.resolve(),
-        )
-    )
-
     output_base = output_dir / "runs"
     config = RunConfiguration(
         manifest=manifest,
@@ -446,6 +438,11 @@ def run_system_smoke(
         git_commit=git_commit,
         qc_policy=qc_policy,
         sniffles_policy=sniffles_policy,
+        cnv_lane=CnvLaneSettings(
+            policy=cnv_policy,
+            rscript=rscript,
+            script=qdnaseq_script.resolve(),
+        ),
         threads=threads,
         executables={
             "samtools": samtools,

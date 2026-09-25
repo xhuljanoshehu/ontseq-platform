@@ -1,5 +1,129 @@
 # Analytical and clinical validation plan
 
+## Haplotype-resolved methylation research lane, 2026-09-24
+
+`call-haplotype-methylation` (issue #97) adds a new, standalone research output: per-region
+HP1/HP2/unphased methylation counts and fractions from a BAM that an accepted phasing
+program haplotagged, and an HP1 − HP2 difference where both haplotypes are assessable inside
+one phase block. It can therefore produce new biological numbers and is recorded here as
+validation-impacting research output. It is not part of the run graph, the reviewer report,
+the release bundle or any gate, and makes no imprinting, silencing, clonality or
+parent-of-origin statement.
+
+What is established: the pinned modkit 0.6.4 `--phased` output layout and its semantics
+(absent rows, pooled phase blocks, HP=0 counted as unphased, HP=3 aborting) on synthetic
+haplotagged MM/ML fixtures covering both strands and soft clips, and the lane's refusals of
+unsupported tags and missing provenance. That is tool interoperability. Not established:
+phasing accuracy, switch-error impact, per-haplotype recovery or any biological agreement.
+Before any biological statement the lane needs reference material with known allele-specific
+methylation (for example imprinted DMRs in a public, access-checked sample handled under
+AGENTS.md rule 8), a registered study design and orthogonal comparison. The assessability
+thresholds in `configs/methylation/haplotype.technical.yaml` are technical defaults.
+
+## Copy-number evidence bound to the current run, 2026-09-24
+
+The QDNAseq/ACE lane previously arrived by process-global registration and replaced the
+assembly and report stages with its own copies. Its assembler read
+`evidence/cnv/<sample>.qdnaseq.json` whenever the file existed. A synthetic reproduction
+showed a report left by an earlier attempt entering the current result as the CNV module
+outcome although the manifest no longer requested CNV; the same path would have fed stale
+events into the ISCN proposal after a failed re-run or a deselection. This contradicted the
+rule already enforced for SV, methylation and MARLIN evidence.
+
+The lane is now configured per run (`RunConfiguration.cnv_lane`) and its report reaches
+assembly and the reviewer report only as an artifact that the current CNV stage recorded and
+that still verifies byte for byte. A failed or unconfigured lane is represented by the
+reason the stage recorded, never by earlier output; a re-execution deletes its previous
+normalized report first. Assembly and reporting are single implementations; the lane
+contributes events, the recomputed ISCN proposal, sidecar tables, plots and workbook sheets.
+
+This is an execution and provenance correction. QDNAseq/ACE parameters, bin sizes, ACE
+penalty, whole-chromosome and cytoband thresholds, ISCN rules and release gates are
+unchanged. Synthetic regressions cover a leftover report with CNV not requested, a failed
+re-run after a successful attempt, per-run lane scoping inside one process, checksum
+refusal of a changed current artifact and the recorded lane in plan signatures. The real
+QDNAseq/ACE workflows remain the qualification of the tool path; archived runs are not
+reclassified.
+
+## One target-coverage stage and a current-run coverage handoff, 2026-09-24
+
+The execution commands `run`, `serve` (the Desktop service) and `watch` installed a
+process-global "built-in runtime extension" before dispatch. It replaced the core
+target-coverage stage implementation for the lifetime of the process. The replacement read a
+fixed repository policy instead of the configured or component-selected one, skipped the
+buffered selection-panel measurement and probed an unqualified `mosdepth` on `PATH` rather than
+the configured executable. `analyze` did not install it, so two commands could measure the
+same Adaptive Sampling BAM differently. The registration is removed: every command executes
+the single stage declared in the graph, with the policy, executable and selection panel that
+its plan records.
+
+Consumers inside a run (SV breakpoint observability, HTML and XLSX coverage sections) now read
+only the coverage artifacts that the target-coverage stage recorded for the current run and
+that still verify byte for byte (`current-stage-coverage-v2`). A report left by an earlier
+attempt, by a since-deselected stage or by the retired extension is ignored. A re-execution
+of the stage removes coverage outputs under both historical names before writing. The
+file-name reader for archived envelopes (`core-or-sample-coverage-v1`) is unchanged.
+
+This is an execution and provenance correction. It can change SV observability annotations
+for Adaptive Sampling runs whose configured coverage policy differed from the repository
+default, and adds selection-panel coverage to runs started through `serve`/`run` where a
+profile supplies the panel. No depth threshold, caller parameter, reportability rule or
+release gate changes, and no coverage value becomes an adequacy claim. Synthetic regressions
+reproduce the override, leftover and tampered artifacts, sample/build refusal and resume
+dependencies; archived runs are not reclassified.
+
+## Native MARLIN research integration, 2026-09-23
+
+`marlin-native-research-v1` adds an explicitly unvalidated classifier outcome when methylation is
+selected in the normal desktop/pipeline workflow. This can add biological model scores to the
+research report and is therefore a validation-impacting change. It does not change regional 5mC,
+CNV, SV, fusion or ISCN thresholds. No clinical release is enabled.
+
+The original model, features, annotations and official hg19/hg38 probe maps are fixed by checksum.
+The adapter selects the map matching the aligned BAM/reference build without liftover. It runs a
+separate combined 5mC+5hmC pileup, pools modified/valid counts by depth, and encodes observed
+beta `>=0.5` as `+1`, observed beta `<0.5` as `-1`, and missing features as `0`. No observed
+features means `NO_CALL` without inference. Forty-two finite model scores are grouped by the
+original annotations. Native decisions remain `UNKNOWN` for every completed inference because
+`assay_assessability` is `NOT_ESTABLISHED`: no independently validated ONTSeq assessability policy
+exists. The separate `model_score_threshold_met` field compares the leading class score with
+`model_score_threshold: 0.8`; this is not specimen confidence. More observed CpGs alone do not
+establish validity. Tests retain the same high score at 1, 10,720 and all 357,340 features and
+require `UNKNOWN` throughout; none of those counts is a clinical cutoff. The
+[MARLIN study benchmarks](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513838/) do not establish
+an ONTSeq specimen-assessability policy. All outcomes remain `UNVALIDATED_RESEARCH`, and raw
+scores remain available without a confidence claim. `NO_CALL` stays distinct and has no threshold
+result because inference did not run. The older strict R/v1 contracts retain their own semantics.
+
+Technical controls bind sample/run/build, input and output bytes, exact tool identity, the complete
+relocated runtime inventory, source code, thread plan and network confinement. The runtime archive
+and independently qualified installed-manifest identities are pinned outside the editable
+installation configuration; an updated self-supplied manifest cannot qualify altered code or
+an arbitrary relocation. Desktop readiness executes no unverified runtime. The selected BAM
+index must match the intake SHA-256, has no competing distinct adjacent index, and is rechecked
+before/after pileup and before completed or NO_CALL outcomes. The reference `.fai` has the same
+fingerprint/stability checks; compressed references requiring `.gzi` are outside this qualified
+adapter. Approved runtime directory links are checked alongside file bytes. Stock modkit
+0.6.4 remains blocked for independent cytosine MM groups; only the separately qualified exact
+PR #709 binary may process them. Errors and partial/stale output produce unavailable predictions,
+not a biological negative. Other available modules remain reportable under their existing rules.
+
+Local synthetic acceptance used an actual BAM with independent 5mC/5hmC tags, forward/reverse
+orientations and unequal 10/90 depths at original hg38 probes. Real modkit output reproduced the
+independent `0.49/0.50/0/1` count oracle; the full ordered tensor matched, and the original model's
+42 scores matched a separate direct call exactly. The largest difference from TensorFlow
+`predict` was `3.3527612686157227e-08` (engineering tolerance `1e-7`). The no-feature BAM produced
+`NO_CALL` without a model worker. Unit and integration checks additionally cover missing versus
+zero, duplicate strands, wrong build/checksum, finite scores, threshold decisions, failures and
+current-run artifact identity.
+
+This is synthetic technical interoperability and numerical execution evidence. It does not
+establish accuracy on intended specimens, diagnostic sensitivity, biological concordance,
+assay-depth suitability, or equivalence to the historical R binding. Independent specimen-based
+and intended-use analytical validation remains open. The existing GRCh37-only R commands and
+`MarlinBridgeLock.status=validated_same_specimen_bridge` are unchanged; the native installation
+creates no such lock and cannot be presented as that evidence. See `MARLIN_CLASSIFICATION.md`.
+
 ## cuteSV memory concurrency and partial-stage status
 
 The real-tool comparison exposed a second issue: with 80 synthetic reads (40
@@ -494,8 +618,9 @@ are unchanged.
 
 ### Local coverage artifact handoff correction (2026-09-21)
 
-The installed target-coverage extension writes a sample-named normalized JSON file,
-whereas the core SV and report stages previously looked only for the unprefixed name.
+The installed target-coverage extension (retired on 2026-09-24, see above) wrote a
+sample-named normalized JSON file, whereas the core SV and report stages previously looked
+only for the unprefixed name.
 The `core-or-sample-coverage-v1` contract accepts either exact producer name, validates
 sample/build identity and refuses contradictory duplicate reports. Selection coverage
 is not substituted for analysis coverage. SV and report resume fingerprints now include

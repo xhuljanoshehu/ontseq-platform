@@ -129,7 +129,7 @@ export function useMethylationProbe(api, bamPath, selectionId, profile) {
 
 export function MethylationOptions({ bam, probe, probing, decision, choose, retry, disabled, scan, scanning, scanError, startThorough, cancelThorough }) {
   return <fieldset className="live-methylation" disabled={disabled}>
-    <legend><span className="live-step-number">3</span>Methylierung mitbeurteilen?</legend>
+    <legend><span className="live-step-number">3</span>Methylierung und MARLIN mitbeurteilen?</legend>
     {!bam ? <p className="live-subtle">Nach der Dateiauswahl wird geprüft, ob die BAM auswertbare Methylierungsinformationen enthält.</p>
       : scanning ? <div className="live-detection" role="status"><strong>Gründliche BAM-Prüfung läuft</strong><span>{scan.checked_reads.toLocaleString("de-DE")} Reads geprüft · {Math.floor(scan.elapsed_seconds)} Sekunden. Die Prüfung kann mehrere Minuten dauern und endet bei einem passenden Fund vorzeitig.</span><button type="button" onClick={cancelThorough}>Prüfung abbrechen</button></div>
       : probing ? <p className="live-detection" role="status">Methylierungsinformationen werden geprüft…</p>
@@ -140,8 +140,8 @@ export function MethylationOptions({ bam, probe, probing, decision, choose, retr
           </div>
           <p className="live-subtle">{methylationExplanation(probe)}</p>
           {probe?.status === "detected" ? <>
-            <p className="live-option-question">Regionale Methylierung zusätzlich auswerten?</p>
-            <div className="live-choice-row">{[[true, "Ja, Methylierung ergänzen"], [false, "Nein, nur Genomanalyse"]].map(([value, label]) => <label key={String(value)}><input type="radio" name="methylation" disabled={value && probe.methylation_available !== true} checked={decision === value} onChange={() => choose(value)} />{label}</label>)}</div>
+            <p className="live-option-question">Methylierung und MARLIN zusätzlich auswerten?</p>
+            <div className="live-choice-row">{[[true, "Ja, Methylierung und MARLIN"], [false, "Nein, nur Genomanalyse"]].map(([value, label]) => <label key={String(value)}><input type="radio" name="methylation" disabled={value && probe.methylation_available !== true} checked={decision === value} onChange={() => choose(value)} />{label}</label>)}</div>
             {probe.methylation_available !== true ? <p className="live-notice">Für die zusätzliche Auswertung muss modkit{probe.expected_modkit_version ? ` ${probe.expected_modkit_version}` : ""} mit der passenden Auswertungspolicy eingerichtet sein. Die Genomanalyse bleibt nach Auswahl von „Nein“ verfügbar.</p> : null}
             <p className="live-subtle">Experimentelle Auswertung. Erkannte Tags belegen weder ausreichende Qualität noch klinische Validierung.</p>
           </> : probe?.status === "unknown" ? <div className="live-choice-row"><button type="button" onClick={retry}>Schnellprüfung wiederholen</button><button type="button" onClick={startThorough}>Gründlicher prüfen</button><label><input type="checkbox" checked={decision === false} onChange={(event) => choose(event.target.checked ? false : null)} />Ohne Methylierung fortfahren</label></div> : null}

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .bam_resolution import default_run_id, resolve_bam_header, resolve_bam_input
+from .cnv.lane import CnvLaneSettings
 from .io import load_model
 from .methylation import MethylationPolicy
 from .models import (
@@ -90,6 +91,9 @@ class AnalyzeSettings:
     verify_resource_checksums: bool = True
     runtime_settings: ProfileRuntimeSettings | None = None
     include_methylation: bool = False
+    marlin_installation: Path | None = None
+    #: The copy-number lane of the run; ``None`` records CNV as not configured.
+    cnv_lane: CnvLaneSettings | None = None
     executables: Mapping[str, str] = field(
         default_factory=lambda: {
             "samtools": "samtools",
@@ -190,7 +194,11 @@ def _manifest(
                 AnalysisModule.SV,
                 AnalysisModule.FUSION,
                 AnalysisModule.ISCN,
-                *([AnalysisModule.METHYLATION] if include_methylation else []),
+                *(
+                    [AnalysisModule.METHYLATION, AnalysisModule.MARLIN]
+                    if include_methylation
+                    else []
+                ),
                 AnalysisModule.REPORT,
             ],
             intent=AnalysisIntent.SOMATIC,
@@ -374,6 +382,9 @@ def build_profile_run_configuration(
         sv_minimum_mean_depth=sv_minimum_mean_depth,
         target_coverage_policy=target_policy,
         methylation_policy=methylation_policy,
+        marlin_installation=settings.marlin_installation
+        or Path(context.resource_root) / "marlin" / "installation.json",
+        cnv_lane=settings.cnv_lane,
         reference_fasta=reference_fasta,
         annotation_cache=_required_path(paths, "reference.annotation_cache"),
         selection_target_bed=selection_bed,

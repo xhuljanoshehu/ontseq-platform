@@ -298,6 +298,25 @@ public sealed record MethylationProbeRequest(
 public sealed record MethylationScanRequest(
     [property: JsonPropertyName("bam_path")] string BamPath);
 
+public sealed record MarlinReadinessResponse(
+    [property: JsonPropertyName("ready")] bool Ready,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("genome_build")] string GenomeBuild,
+    [property: JsonPropertyName("validation_status")] string ValidationStatus)
+{
+    public MarlinReadinessResponse RequireBuild(string build)
+    {
+        if (build is not ("GRCh37" or "GRCh38") || GenomeBuild != build ||
+            string.IsNullOrWhiteSpace(Reason) || ValidationStatus != "UNVALIDATED_RESEARCH")
+            throw new InvalidDataException("Die MARLIN-Vorprüfung passt nicht zum ausgewählten Referenzgenom.");
+        return this;
+    }
+
+    public string Summary => Ready
+        ? "MARLIN konfiguriert: wird mit der Methylierung automatisch angefordert. Die vollständige Prüfung von Modell und Ressourcen steht noch aus und erfolgt beim Start."
+        : "MARLIN nicht bereit: " + Reason;
+}
+
 public sealed record MethylationProbeResponse(
     [property: JsonPropertyName("bam_path")] string BamPath,
     [property: JsonPropertyName("status")] string Status,

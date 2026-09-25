@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from .models import AssayMode, GenomicEvent, Locus, SvObservability, TargetBedRole
+from .models import AssayMode, EventType, GenomicEvent, Locus, SvObservability, TargetBedRole
 from .target_coverage import TargetCoverageRegion, TargetCoverageReport
+
+_SPAN_BREAKPOINT_TYPES = {
+    EventType.DELETION,
+    EventType.DUPLICATION,
+    EventType.INVERSION,
+}
 
 
 def _matching_regions(
@@ -15,6 +21,31 @@ def _matching_regions(
         and region.start < event_locus.end
         and event_locus.start < region.end
     ]
+
+
+def _point_locus(locus: Locus, position: int) -> Locus:
+    return Locus(chromosome=locus.chromosome, start=position, end=position + 1)
+
+
+def _observability_loci(event: GenomicEvent) -> list[Locus]:
+    """Return the reference loci whose coverage can support this event's breakpoints.
+
+    Normalized DEL/DUP/INV events store one 0-based half-open affected span.  The rest of
+    the pipeline already annotates its two breakpoints at ``start`` and ``end - 1``; using
+    the whole span here would let an interior target masquerade as breakpoint coverage.
+    Insertions have one reference-side anchor.  Explicit paired loci (BND/TRA/fusion) retain
+    their existing representation.
+    """
+    if event.secondary is not None:
+        return [event.primary, event.secondary]
+    if event.event_type in _SPAN_BREAKPOINT_TYPES:
+        return [
+            _point_locus(event.primary, event.primary.start),
+            _point_locus(event.primary, event.primary.end - 1),
+        ]
+    if event.event_type == EventType.INSERTION:
+        return [_point_locus(event.primary, event.primary.start)]
+    return [event.primary]
 
 
 def apply_sv_observability(
@@ -37,7 +68,7 @@ def apply_sv_observability(
 
     result: list[GenomicEvent] = []
     for event in events:
-        loci = [event.primary, *([event.secondary] if event.secondary is not None else [])]
+        loci = _observability_loci(event)
         hits = [_matching_regions(locus, coverage_report.regions) for locus in loci]
         inside = [bool(items) for items in hits]
         mean_depths: list[float | None] = [

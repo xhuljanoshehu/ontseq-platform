@@ -5,11 +5,18 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from ontseq_platform import __version__, entrypoint, methylation_validation_runner
+from clock_support import SYNTHETIC_REGISTERED_AT, install_experiment_clock
+
+from ontseq_platform import (
+    __version__,
+    entrypoint,
+    methylation_validation_cli,
+    methylation_validation_runner,
+)
 from ontseq_platform.methylation_mixture import MethylationMixturePolicy, NanopolishSourceMetadata
 from ontseq_platform.methylation_validation import (
     SAMPLE_ROLES,
@@ -59,6 +66,7 @@ def _write_synthetic_table(path: Path, role: str, *, reads: int = 30, ratio: flo
 
 class MethylationValidationRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
+        install_experiment_clock(self, methylation_validation_runner, methylation_validation_cli)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -154,7 +162,7 @@ class MethylationValidationRunnerTests(unittest.TestCase):
             self.matrix,
             self.cohort,
             registration_id="SYNTHETIC_RUNNER_VALIDATION",
-            registered_at=datetime.now(UTC) - timedelta(minutes=1),
+            registered_at=SYNTHETIC_REGISTERED_AT,
             test_outcomes_unseen=True,
             code_sha256=validation_software_sha256(),
             software_version=__version__,
@@ -169,6 +177,20 @@ class MethylationValidationRunnerTests(unittest.TestCase):
         with patch("sys.argv", ["ontseq", *arguments]), contextlib.redirect_stdout(output):
             entrypoint.main()
         return output.getvalue()
+
+    def test_backwards_experiment_clock_is_rejected(self) -> None:
+        with (
+            patch.object(
+                methylation_validation_runner.datetime,
+                "now",
+                side_effect=[
+                    SYNTHETIC_REGISTERED_AT + timedelta(seconds=10),
+                    SYNTHETIC_REGISTERED_AT + timedelta(seconds=1),
+                ],
+            ),
+            self.assertRaisesRegex(ValueError, "completion precedes its start"),
+        ):
+            execute_registered_validation(self.registration, self.inputs)
 
     def test_ideal_synthetic_execution_is_deterministic_and_bound(self) -> None:
         first = execute_registered_validation(self.registration, self.inputs)

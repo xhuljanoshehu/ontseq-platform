@@ -96,6 +96,30 @@ public sealed class OntSeqServiceClient : IDisposable
                ?? throw new InvalidDataException("Leere Antwort beim Start der Analyse.");
     }
 
+    public async Task StopSessionAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        using var response = await _http.PostAsJsonAsync("api/session/stop",
+            new { instance_id = instanceId }, JsonDefaults.Options, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException("Neustart wurde nicht freigegeben: " + ReadError(body));
+        using var json = JsonDocument.Parse(body);
+        var root = json.RootElement;
+        if (!root.TryGetProperty("instance_id", out var identity) || identity.GetString() != instanceId ||
+            !root.TryGetProperty("stopping", out var stopping) || stopping.ValueKind != JsonValueKind.True)
+            throw new InvalidDataException("Das Beenden der eigenen Dienstinstanz wurde nicht bestätigt.");
+    }
+
+    public async Task<MarlinReadinessResponse> GetMarlinReadinessAsync(
+        string genomeBuild, CancellationToken cancellationToken)
+    {
+        EnsureBootstrapped();
+        return (await GetJsonAsync<MarlinReadinessResponse>(
+            "api/marlin/readiness?genome_build=" + Uri.EscapeDataString(genomeBuild),
+            cancellationToken)).RequireBuild(genomeBuild);
+    }
+
     public async Task<MethylationProbeResponse> ProbeMethylationAsync(
         string bamPath, CancellationToken cancellationToken, bool forceRefresh = false)
     {
