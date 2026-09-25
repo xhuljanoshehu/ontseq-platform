@@ -5,6 +5,17 @@ validated release.
 
 ## Unreleased
 
+- Stop the whole tool process tree when a local tool run ends abnormally (#104). The shared
+  `SubprocessRunner` used `subprocess.run(..., timeout=...)`, which kills only the direct child,
+  so a timed-out multiprocessing tool such as cuteSV could leave CPU/RAM-consuming workers
+  behind. On POSIX/WSL each tool now runs in its own session, and a timeout or any other abort
+  while waiting (for example Ctrl+C) kills that process group, reaps the child and removes
+  staged `run_to_file` output. Native Windows keeps direct-child termination. Known limit: a
+  terminal hangup or a signal sent to the parent's process group no longer reaches the tool
+  session directly.
+- Validation impact: none on analysis output; process lifetime and cleanup only. Timeout
+  messages, captured output decoding and return-code semantics are unchanged.
+
 - Decode GATK 4.6.2.0 `INFO/AS_FilterStatus` per ALT allele in the opt-in research GATK adapter
   (#114). The raw value was copied unchanged onto every allele record of a multi-allelic site,
   so each ALT carried the filter status of all ALTs (for example `SITE|weak_evidence` on both).
