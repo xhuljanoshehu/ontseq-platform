@@ -12,6 +12,16 @@ validated release.
   changed under the same directory. Dorado arguments, models, thresholds and downstream biological
   interpretation are unchanged.
 
+- Fix a Desktop CI test-harness race (#110): `FakeOntSeqService.DisposeAsync()`
+  cancels then stops its `TcpListener` while `ServeAsync()` can still be awaiting
+  `AcceptTcpClientAsync()`; `TcpListener.Stop()` can dispose the underlying socket
+  before the pending accept observes cancellation, surfacing as an unhandled
+  `ObjectDisposedException` in the Windows Desktop test job. `ServeAsync()` now
+  also catches `ObjectDisposedException` when shutdown was requested; an
+  `ObjectDisposedException` without a requested shutdown still propagates. Adds a
+  deterministic, event-synchronized regression that races disposal against a
+  genuinely pending accept instead of relying on a sleep duration. Test-harness
+  only; no production service, analysis, or biological-output change.
 - Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
   workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
   Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
