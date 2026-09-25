@@ -16,6 +16,7 @@ from . import __version__
 from .align import AlignmentPolicy
 from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
+from .cnv.lane import CnvLaneSettings
 from .execution import ToolExecutionError
 from .io import load_model
 from .methylation import MethylationPolicy
@@ -275,36 +276,32 @@ def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
-    """Install the QDNAseq/ACE lane unless this run deselected it.
+def _cnv_lane(args: argparse.Namespace, selection: RunComponents | None) -> CnvLaneSettings | None:
+    """Resolve this command's QDNAseq/ACE lane, or ``None`` when the run switched CNV off.
 
-    The lane still arrives by registration rather than as a first-class member of the
-    graph, which remains the outstanding architectural debt. Gating it on the selection at
-    least means a run that switched CNV off does not silently get it anyway.
+    The lane is part of the run configuration. Earlier releases registered it into the
+    process-wide stage graph instead, which the runtime called its outstanding architectural
+    debt: every later run in the same process inherited it, including service runs.
     """
-    from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
 
     choice = selection.choice_for(StageId.CNV) if selection is not None else None
     if choice is not None and not choice.enabled:
-        return
-    if choice is not None and choice.policy:
-        args.cnv_policy = Path(choice.policy)
+        return None
+    policy_path = Path(choice.policy) if choice is not None and choice.policy else args.cnv_policy
 
-    if args.cnv_policy.is_file():
-        policy = load_model(args.cnv_policy, QDNAseqPolicy)
+    if policy_path.is_file():
+        policy = load_model(policy_path, QDNAseqPolicy)
     else:
         policy = QDNAseqPolicy(
             profile_id="qdnaseq-ace-multibin-v1",
             cytoband_affected_fraction=0.66,
             note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
         )
-    register_qdnaseq_extension(
-        QDNAseqExtensionSettings(
-            policy=policy,
-            rscript=args.qdnaseq_rscript,
-            script=args.qdnaseq_script,
-        )
+    return CnvLaneSettings(
+        policy=policy,
+        rscript=args.qdnaseq_rscript,
+        script=args.qdnaseq_script,
     )
 
 
@@ -841,8 +838,11 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:
-        _register_cnv(args, selection)
+    cnv_lane = (
+        _cnv_lane(args, selection)
+        if args.command in {"run", "analyze", "serve", "watch", "preflight"}
+        else None
+    )
     try:
         if handle_references_command(args):
             return
@@ -864,6 +864,7 @@ def main() -> None:
                     force=args.force,
                     include_methylation=args.include_methylation,
                     marlin_installation=args.marlin_installation,
+                    cnv_lane=cnv_lane,
                     executables=_executables(args),
                 )
             )
@@ -925,6 +926,7 @@ def main() -> None:
                     _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
                 ),
                 components=selection,
+                cnv_lane=cnv_lane,
                 reference_fasta=args.reference_fasta,
                 marlin_installation=args.marlin_installation,
                 pod5_directory=args.pod5_dir,
@@ -1002,6 +1004,7 @@ def main() -> None:
                 methylation_policy=_methylation_policy(
                     _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
+                cnv_lane=cnv_lane,
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)
@@ -1049,6 +1052,7 @@ def main() -> None:
                         selection, StageId.METHYLATION, args.methylation_policy
                     ),
                     components=selection,
+                    cnv_lane=cnv_lane,
                     cutesv_policy=args.cutesv_policy,
                     sv_consensus_policy=args.sv_consensus_policy,
                     sv_evidence_policy=args.sv_evidence_policy,
@@ -1129,6 +1133,7 @@ def main() -> None:
                 sv_consensus_policy=args.sv_consensus_policy,
                 sv_evidence_policy=args.sv_evidence_policy,
                 target_coverage_policy=args.target_coverage_policy,
+                cnv_lane=cnv_lane,
                 gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
                 cytoband_annotation=_interval_resource(
                     args.cytoband_annotation, args.cytoband_annotation_lock

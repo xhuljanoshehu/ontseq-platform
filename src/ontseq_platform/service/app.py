@@ -40,6 +40,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
+from ..cnv.lane import CnvLaneSettings
 from ..execution import SubprocessRunner, ToolExecutionError
 from ..io import load_model
 from ..methylation import MethylationPolicy, MethylationReport, modkit_version
@@ -193,6 +194,8 @@ class ServiceConfig:
     sniffles_policy: Path
     target_coverage_policy: Path
     components: RunComponents | None = None
+    #: The copy-number lane every run of this service uses; ``None`` leaves CNV unconfigured.
+    cnv_lane: CnvLaneSettings | None = None
     cutesv_policy: Path | None = None
     sv_consensus_policy: Path | None = None
     sv_evidence_policy: Path | None = None
@@ -567,6 +570,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
                 else None
             ),
             components=config.components,
+            cnv_lane=config.cnv_lane,
             threads=config.threads,
             cutesv_threads=config.cutesv_threads,
             executables={
@@ -648,6 +652,7 @@ def _build_profile_configuration(
             cutesv_threads=config.cutesv_threads,
             include_methylation=include_methylation,
             marlin_installation=_marlin_installation(config),
+            cnv_lane=config.cnv_lane,
             executables={
                 "cutesv": config.cutesv_executable,
                 "samtools": config.samtools_executable,

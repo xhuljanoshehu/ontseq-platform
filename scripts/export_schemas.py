@@ -30,6 +30,10 @@ from ontseq_platform.methylation_holdout import (
 )
 from ontseq_platform.methylation_holdout_cli import PairedHoldoutReadiness
 from ontseq_platform.methylation_holdout_runner import PairedHoldoutLocalInputs
+from ontseq_platform.methylation_lanes.haplotype import (
+    HaplotypeMethylationPolicy,
+    HaplotypeMethylationReport,
+)
 from ontseq_platform.methylation_mixture import (
     MethylationMixturePolicy,
     MethylationMixtureReport,
@@ -189,6 +193,14 @@ def _render() -> dict[Path, str]:
         + "\n",
         Path("schemas/methylation-report.schema.json"): json.dumps(
             MethylationReport.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/haplotype-methylation-policy.schema.json"): json.dumps(
+            HaplotypeMethylationPolicy.model_json_schema(), indent=2, sort_keys=True
+        )
+        + "\n",
+        Path("schemas/haplotype-methylation-report.schema.json"): json.dumps(
+            HaplotypeMethylationReport.model_json_schema(), indent=2, sort_keys=True
         )
         + "\n",
         Path("schemas/methylation-mixture-policy.schema.json"): json.dumps(

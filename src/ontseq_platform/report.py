@@ -12,6 +12,9 @@ from .report_formatting import cell as _cell
 from .report_formatting import tool_parameters
 from .report_interactive import attach_interactive_report
 from .report_marlin import marlin_html_section, validate_marlin_identity
+from .report_methylation import html_rows as methylation_html_rows
+from .report_methylation import ordered_regions as ordered_methylation_regions
+from .report_methylation import validate_methylation_identity
 from .report_plots import (
     MethylationCell,
     ReadLengthBin,
@@ -265,8 +268,33 @@ def _qc_histogram_figure(bins: Sequence[ReadLengthBin] | None, view: ReportView)
     )
 
 
+def _methylation_table(report: MethylationReport) -> str:
+    """Every region row with its counts; below-floor rows say so instead of showing 0%."""
+    rows = "".join(
+        "<tr>" + "".join(f"<td>{_cell(value)}</td>" for value in row) + "</tr>"
+        for row in methylation_html_rows(ordered_methylation_regions(report))
+    )
+    policy = report.policy
+    tagged = report.reads_with_modified_base_tags
+    return (
+        f"<p class='muted'>Policy {_cell(policy.profile_id)} ({_cell(policy.status)}) · "
+        f"{_cell(report.tool.name)} {_cell(report.tool.version)} · pinned call threshold "
+        f"{_cell(policy.filter_threshold)} · coverage floor "
+        f"{_cell(policy.minimum_valid_coverage)} valid calls per site · region source "
+        f"{_cell(report.region_source.value)} · reads with MM tags "
+        f"{_cell(tagged if tagged is not None else 'not established')}.</p>"
+        f"<details><summary>Region table ({len(report.regions)} row(s))</summary>"
+        "<div class='table-wrap'><table><caption>Modified-base fractions by region</caption>"
+        "<thead><tr><th>Region</th><th>Locus</th><th>Modification</th>"
+        "<th>Sites at floor / sites</th><th>Valid calls</th><th>Modified calls</th>"
+        "<th>Mean fraction (call-weighted)</th><th>Median site fraction</th>"
+        "<th>Mean valid coverage</th><th>Failed / no-call calls</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div></details>"
+    )
+
+
 def _methylation_section(report: MethylationReport | None) -> str:
-    """Region × modification heatmap from the normalized methylation report."""
+    """Region × modification heatmap and region table from the normalized report."""
     if report is None:
         return ""
     cells = [
@@ -303,7 +331,7 @@ def _methylation_section(report: MethylationReport | None) -> str:
         "Rows are modification codes; columns are regions in genome order. "
         "The colour scale is the already-normalized mean modified fraction. "
         "A measured 0% is a pale filled cell; an unmeasurable region is hatched."
-        "</figcaption></figure></section>"
+        "</figcaption></figure>" + _methylation_table(report) + "</section>"
     )
 
 
@@ -321,6 +349,7 @@ def render_html(
 ) -> Path:
     validate_report_coverage(result, target_coverage, selection_coverage)
     validate_marlin_identity(result, marlin_report)
+    validate_methylation_identity(result, methylation_report)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     view = build_report_view(result)
     target_design = view.target_bed_version or "not applicable / not recorded"

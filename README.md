@@ -487,6 +487,10 @@ gibt es kein Liftover, keine Referenzsubstitution und keinen Rückfall auf das G
 
 ## 10. Repository-Struktur
 
+Die Paketlandkarte mit den durch Tests erzwungenen Abhängigkeitsregeln steht in
+[`docs/PACKAGE_STRUCTURE.md`](docs/PACKAGE_STRUCTURE.md); alle Dokumente sind in
+[`docs/README.md`](docs/README.md) nach Thema geordnet.
+
 | Pfad | Zweck |
 | --- | --- |
 | `src/ontseq_platform/` | Python-Core, Datenmodelle, Adapter, Runner, Reporting |
@@ -506,7 +510,8 @@ lesen:
 
 1. **diese README** — Zweck, aktueller Stand, Grenzen;
 2. [`desktop/README.md`](desktop/README.md) — aktueller Nutzer-/Windows-Pfad;
-3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Designprinzipien und Run-Envelope;
+3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Designprinzipien und Run-Envelope,
+   ergänzt um [`docs/PACKAGE_STRUCTURE.md`](docs/PACKAGE_STRUCTURE.md) für die Codestruktur;
 4. [`docs/PIPELINE_EXECUTION.md`](docs/PIPELINE_EXECUTION.md) — Runner, Resume, Preflight,
    Watchfolder und Ausführungslogik;
 5. [`docs/EVIDENCE_BASE.md`](docs/EVIDENCE_BASE.md) — wissenschaftliche und technische
