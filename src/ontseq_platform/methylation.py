@@ -623,8 +623,25 @@ def normalize_methylation(
             summary_metrics[f"mean_valid_coverage_{code.value}"] = valid_calls / len(qualifying)
     # Calls that failed their threshold or carried no call are not measured zeros; the
     # totals make that visible at the report level, not only per region.
-    summary_metrics["fail_call_count"] = sum(site.fail_calls for site in sites)
-    summary_metrics["nocall_call_count"] = sum(site.nocall_calls for site in sites)
+    #
+    # N_fail and N_nocall describe the reads at a *position*, not a modification code:
+    # modkit repeats them on every code's row there (the PR709 real-binary oracle checks
+    # exactly that). With more than one code declared, summing rows counted each position
+    # once per code and overstated the very totals that keep "not measured" apart from
+    # "not modified". Count each position once, and refuse rows that disagree, since that
+    # would contradict the format rather than describe the sample.
+    per_position: dict[tuple[str, int], tuple[int, int]] = {}
+    for site in sites:
+        counts = (site.fail_calls, site.nocall_calls)
+        recorded = per_position.setdefault((site.chromosome, site.start), counts)
+        if recorded != counts:
+            raise ValueError(
+                f"bedMethyl rows at {site.chromosome}:{site.start} disagree on the "
+                "position-level failed/no-call counts; modkit reports them identically "
+                "for every modification code at one position"
+            )
+    summary_metrics["fail_call_count"] = sum(fail for fail, _ in per_position.values())
+    summary_metrics["nocall_call_count"] = sum(nocall for _, nocall in per_position.values())
     if skipped_non_canonical:
         collected.append(
             f"{skipped_non_canonical} pileup row(s) on non-canonical contigs were excluded; "
@@ -931,9 +948,12 @@ def run_methylation(
         if independent_cytosine_groups > 0:
             raise ValueError(
                 f"The aligned BAM contains {independent_cytosine_groups} read(s) with "
-                "independent cytosine MM groups. modkit 0.6.4 can silently lose or "
-                "misassign calls for this valid representation; refusing the pileup until "
-                "a corrected pinned modkit release is validated"
+                "independent cytosine MM groups, the usual encoding of 5mC+5hmC calls. "
+                "Stock modkit 0.6.4 can silently lose or misassign calls for this valid "
+                "representation, so the pileup is refused. The exact qualified modkit "
+                "PR709 binary handles it: build and select it as described in "
+                "docs/MODKIT_PR709_BUILD.md (pass it with --modkit). The conda "
+                "environment alone installs stock 0.6.4"
             )
 
     if identify_modkit_binary(modkit).sha256 != binary.sha256:

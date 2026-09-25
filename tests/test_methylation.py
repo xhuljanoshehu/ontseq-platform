@@ -227,6 +227,34 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(report.summary_metrics["fail_call_count"], 3)
         self.assertEqual(report.summary_metrics["nocall_call_count"], 2)
 
+    def test_position_level_counts_are_not_multiplied_by_the_declared_codes(self) -> None:
+        """With 5mC and 5hmC declared, one position yields one row per code.
+
+        modkit repeats N_fail and N_nocall on every code's row at a position (the PR709
+        real-binary oracle asserts exactly that). Summing the rows reported each position's
+        failed and no-call reads once per code — double the true total with the shipped
+        two-code policies, in the one metric meant to keep "not measured" apart from
+        "not modified".
+        """
+        rows = [
+            _row("chr1", 100, "m", 20, 12, other_mod=3, fail=4, nocall=1),
+            _row("chr1", 100, "h", 20, 3, other_mod=12, fail=4, nocall=1),
+            _row("chr1", 200, "m", 10, 5, other_mod=1, fail=2, nocall=0),
+            _row("chr1", 200, "h", 10, 1, other_mod=5, fail=2, nocall=0),
+        ]
+        report = self._report(rows, modification_codes=["m", "h"])
+        self.assertEqual(report.summary_metrics["fail_call_count"], 6)
+        self.assertEqual(report.summary_metrics["nocall_call_count"], 1)
+
+    def test_rows_that_disagree_on_position_level_counts_are_refused(self) -> None:
+        rows = [
+            _row("chr1", 100, "m", 20, 12, other_mod=3, fail=4),
+            _row("chr1", 100, "h", 20, 3, other_mod=12, fail=5),
+        ]
+        with self.assertRaises(ValueError) as raised:
+            self._report(rows, modification_codes=["m", "h"])
+        self.assertIn("disagree on the position-level", str(raised.exception))
+
     def test_a_site_of_only_failed_calls_is_not_a_measured_zero(self) -> None:
         report = self._report([_row("chr1", 100, "m", 0, 0, fail=4)])
         self.assertEqual(report.status, ModuleRunStatus.NO_CALL)
@@ -497,6 +525,11 @@ class AdapterTests(unittest.TestCase):
                     runner=runner,
                 )
         self.assertIn("independent cytosine MM groups", str(raised.exception))
+        # This is the usual encoding of 5mC+5hmC calls, and the shipped policies ask for
+        # both, so an operator hits this refusal on ordinary input. It has to name the
+        # qualified build that handles it rather than imply no remedy exists.
+        self.assertIn("docs/MODKIT_PR709_BUILD.md", str(raised.exception))
+        self.assertIn("--modkit", str(raised.exception))
 
     def test_success_exit_with_failed_processing_is_refused_and_output_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
