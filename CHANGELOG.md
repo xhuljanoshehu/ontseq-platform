@@ -5,6 +5,18 @@ validated release.
 
 ## Unreleased
 
+- Correct Adaptive Sampling SV breakpoint observability to the breakpoints themselves (#106).
+  Deletions, duplications and inversions were matched against the target design by their whole
+  normalized span, so a target inside the event made a simple SV look breakpoint-observable
+  although neither breakpoint lay in target space. Observability now uses the two breakpoint
+  loci (`start` and `end - 1`, the repository's 0-based half-open convention), insertions use one
+  reference-side anchor, and events with an explicit second locus keep their paired loci.
+- Validation impact: SV observability annotations of Adaptive Sampling runs can change; an event
+  previously shown as observed can become `PARTIALLY_OBSERVED` or `OUTSIDE_TARGET`. The
+  breakpoint depth is still the Mosdepth mean of the overlapping target region, not an
+  endpoint-local depth, and this is not an endpoint-depth validation (#26, M-010). No caller
+  threshold, depth floor, target-role or reportability rule changes.
+
 - Refuse unqualified cuteSV executables in the standard SV lane before any invocation (#102).
   The lane requires the reviewed script body and a portable Python launch form
   (`python-shebang-v1`: a direct `python`/`python3`/`python3.N` interpreter, or `/usr/bin/env`
