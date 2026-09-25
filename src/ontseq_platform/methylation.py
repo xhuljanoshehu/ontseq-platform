@@ -811,11 +811,12 @@ def _build_argv(
     ]
     # modkit 0.6.x: --modified-bases declares exactly the modifications to tabulate and
     # requires the reference FASTA. It replaced --ignore, which 0.6.0 removed; the old
-    # At the probability-transformation stage, --ignore h redistributed half of p_h to
-    # canonical C and half to 5mC. Its effect on final hard-call counts and fractions
-    # depended on competing probabilities and thresholds; it was not a universal fixed
-    # increase. Nothing is folded here: each declared code gets its own rows and the
-    # shared valid-call denominator carries the other-modification counts.
+    # 0.4.1 adapter passed --ignore h. At the probability-transformation stage, that
+    # redistributed half of p_h to canonical C and half to 5mC. Its effect on final
+    # hard-call counts and fractions depended on competing probabilities and thresholds;
+    # it was not a universal fixed increase. Nothing is folded here: each declared code
+    # gets its own rows and the shared valid-call denominator carries the
+    # other-modification counts.
     argv.extend(
         [
             "--modified-bases",
