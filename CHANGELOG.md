@@ -5,6 +5,16 @@ validated release.
 
 ## Unreleased
 
+- Decode GATK 4.6.2.0 `INFO/AS_FilterStatus` per ALT allele in the opt-in research GATK adapter
+  (#114). The raw value was copied unchanged onto every allele record of a multi-allelic site,
+  so each ALT carried the filter status of all ALTs (for example `SITE|weak_evidence` on both).
+  The value is now split at the allele delimiter `|`; comma-separated filters within one allele
+  stay together, and a flag form, an empty component or an allele-count mismatch fails closed.
+- Validation impact: per-allele native filter annotations of multi-allelic Mutect2 records
+  change to the allele they belong to. Site-level FILTER, AF/AD/DP, evidence IDs, caller
+  thresholds and reportability are unchanged; this does not establish analytical or clinical
+  validity of the adapter.
+
 - Correct Adaptive Sampling SV breakpoint observability to the breakpoints themselves (#106).
   Deletions, duplications and inversions were matched against the target design by their whole
   normalized span, so a target inside the event made a simple SV look breakpoint-observable
