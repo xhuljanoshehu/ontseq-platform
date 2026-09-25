@@ -138,10 +138,14 @@ class FakeSavanaRunner:
         version: str = "1.3.8",
         empty_sv: bool = False,
         malformed_cna: bool = False,
+        ranked_solutions_text: str | None = None,
+        fitted_purity_ploidy_text: str | None = None,
     ) -> None:
         self.version = version
         self.empty_sv = empty_sv
         self.malformed_cna = malformed_cna
+        self.ranked_solutions_text = ranked_solutions_text
+        self.fitted_purity_ploidy_text = fitted_purity_ploidy_text
         self.calls: list[tuple[str, ...]] = []
 
     def run(self, argv, *, timeout_seconds: int = 300):  # noqa: ANN001, ANN201
@@ -178,11 +182,15 @@ class FakeSavanaRunner:
             encoding="utf-8",
         )
         (outdir / f"{sample}_ranked_solutions.tsv").write_text(
-            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n0.35\t2.6\t0.14\t2\n",
+            self.ranked_solutions_text
+            if self.ranked_solutions_text is not None
+            else "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n0.35\t2.6\t0.14\t2\n",
             encoding="utf-8",
         )
         (outdir / f"{sample}_fitted_purity_ploidy.tsv").write_text(
-            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n",
+            self.fitted_purity_ploidy_text
+            if self.fitted_purity_ploidy_text is not None
+            else "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n",
             encoding="utf-8",
         )
         copy_number = "not-a-number" if self.malformed_cna else "1.2"
@@ -339,6 +347,126 @@ class SavanaRuntimeTests(unittest.TestCase):
                     ),
                     policy=_paired_policy(ref_sha),
                     runner=FakeSavanaRunner(malformed_cna=True),
+                )
+
+    def test_selected_fit_disagreeing_with_rank_one_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            normal = root / "normal.bam"
+            snps = root / "snps.vcf"
+            ref = root / "ref.fa"
+            _write_bam(tumor, b"tumor")
+            _write_bam(normal, b"normal")
+            _write_snp_vcf(snps)
+            ref_sha = _write_reference(ref)
+
+            with self.assertRaisesRegex(ValueError, "rank-1"):
+                run_savana_paired(
+                    tumor_bam=tumor,
+                    normal_bam=normal,
+                    snp_vcf=snps,
+                    reference_fasta=ref,
+                    sample_id="TUMOR_001",
+                    normal_sample_id="NORMAL_001",
+                    output_dir=root / "paired",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        normal_bam=normal,
+                        snp_vcf=snps,
+                        reference_sha256=ref_sha,
+                    ),
+                    policy=_paired_policy(ref_sha),
+                    runner=FakeSavanaRunner(
+                        ranked_solutions_text=(
+                            "purity\tploidy\tdistance\trank\n"
+                            "0.45\t2.1\t0.12\t1\n"
+                            "0.35\t2.6\t0.14\t2\n"
+                        ),
+                        fitted_purity_ploidy_text=(
+                            "purity\tploidy\tdistance\trank\n0.35\t2.6\t0.14\t2\n"
+                        ),
+                    ),
+                )
+
+    def test_duplicate_rank_one_solutions_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            normal = root / "normal.bam"
+            snps = root / "snps.vcf"
+            ref = root / "ref.fa"
+            _write_bam(tumor, b"tumor")
+            _write_bam(normal, b"normal")
+            _write_snp_vcf(snps)
+            ref_sha = _write_reference(ref)
+
+            with self.assertRaisesRegex(ValueError, "duplicate ranks"):
+                run_savana_paired(
+                    tumor_bam=tumor,
+                    normal_bam=normal,
+                    snp_vcf=snps,
+                    reference_fasta=ref,
+                    sample_id="TUMOR_001",
+                    normal_sample_id="NORMAL_001",
+                    output_dir=root / "paired",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        normal_bam=normal,
+                        snp_vcf=snps,
+                        reference_sha256=ref_sha,
+                    ),
+                    policy=_paired_policy(ref_sha),
+                    runner=FakeSavanaRunner(
+                        ranked_solutions_text=(
+                            "purity\tploidy\tdistance\trank\n"
+                            "0.45\t2.1\t0.12\t1\n"
+                            "0.35\t2.6\t0.14\t1\n"
+                        ),
+                        fitted_purity_ploidy_text=(
+                            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t1\n"
+                        ),
+                    ),
+                )
+
+    def test_ranked_solutions_missing_rank_one_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tumor = root / "tumor.bam"
+            normal = root / "normal.bam"
+            snps = root / "snps.vcf"
+            ref = root / "ref.fa"
+            _write_bam(tumor, b"tumor")
+            _write_bam(normal, b"normal")
+            _write_snp_vcf(snps)
+            ref_sha = _write_reference(ref)
+
+            with self.assertRaisesRegex(ValueError, "missing rank 1"):
+                run_savana_paired(
+                    tumor_bam=tumor,
+                    normal_bam=normal,
+                    snp_vcf=snps,
+                    reference_fasta=ref,
+                    sample_id="TUMOR_001",
+                    normal_sample_id="NORMAL_001",
+                    output_dir=root / "paired",
+                    inputs=_bundle(
+                        tumor_bam=tumor,
+                        normal_bam=normal,
+                        snp_vcf=snps,
+                        reference_sha256=ref_sha,
+                    ),
+                    policy=_paired_policy(ref_sha),
+                    runner=FakeSavanaRunner(
+                        ranked_solutions_text=(
+                            "purity\tploidy\tdistance\trank\n"
+                            "0.45\t2.1\t0.12\t2\n"
+                            "0.35\t2.6\t0.14\t3\n"
+                        ),
+                        fitted_purity_ploidy_text=(
+                            "purity\tploidy\tdistance\trank\n0.45\t2.1\t0.12\t2\n"
+                        ),
+                    ),
                 )
 
     def test_tumor_only_runtime_stays_distinct_and_does_not_use_normal(self) -> None:

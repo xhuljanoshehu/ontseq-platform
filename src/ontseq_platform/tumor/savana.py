@@ -781,7 +781,23 @@ def _fit_outputs(output_dir: Path, sample_id: str) -> tuple[SavanaFit, list[Sava
     if len(fitted_rows) != 1:
         raise ValueError("SAVANA selected purity/ploidy table must contain exactly one row")
     ranked = sorted((_parse_fit(row) for row in ranked_rows), key=lambda item: item.rank)
-    return _parse_fit(fitted_rows[0]), ranked
+    ranks = [item.rank for item in ranked]
+    if len(set(ranks)) != len(ranks):
+        raise ValueError("SAVANA ranked purity/ploidy solutions table has duplicate ranks")
+    if ranked[0].rank != 1:
+        raise ValueError("SAVANA ranked purity/ploidy solutions table is missing rank 1")
+    selected = _parse_fit(fitted_rows[0])
+    top = ranked[0]
+    if (selected.purity, selected.ploidy, selected.distance, selected.rank) != (
+        top.purity,
+        top.ploidy,
+        top.distance,
+        top.rank,
+    ):
+        raise ValueError(
+            "SAVANA selected purity/ploidy fit does not match the rank-1 ranked solution"
+        )
+    return selected, ranked
 
 
 def _copy_number_segments(output_dir: Path, sample_id: str) -> list[SavanaCopyNumberSegment]:
