@@ -46,12 +46,14 @@ def _normalize(argv: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
-def _terminate_timed_out_process(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
-    """Terminate the owned process tree after a timeout and reap the direct child.
+def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
+    """Terminate the owned process tree and reap the direct child.
 
-    POSIX tools run in a dedicated session, so signalling that process group also reaches
-    multiprocessing descendants that would otherwise outlive the timed-out parent. Native
-    Windows keeps the previous direct-child termination semantics until a separately tested
+    Called on a timeout and on any other abort while waiting (``KeyboardInterrupt``,
+    ``SystemExit``). POSIX tools run in a dedicated session, so the terminal's SIGINT no
+    longer reaches them; signalling that process group here is what stops the tool and its
+    multiprocessing descendants instead of leaving them orphaned. Native Windows keeps the
+    previous direct-child termination semantics until a separately tested
     job-object/process-tree contract is introduced.
     """
     if os.name == "posix":
@@ -96,10 +98,13 @@ class SubprocessRunner:
                 try:
                     _stdout, stderr_bytes = process.communicate(timeout=timeout_seconds)
                 except subprocess.TimeoutExpired as exc:
-                    _terminate_timed_out_process(process)
+                    _terminate_process_tree(process)
                     raise ToolExecutionError(
                         f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
                     ) from exc
+                except BaseException:
+                    _terminate_process_tree(process)
+                    raise
                 handle.flush()
                 os.fsync(handle.fileno())
         except FileNotFoundError as exc:
@@ -111,6 +116,9 @@ class SubprocessRunner:
         except OSError as exc:
             staged.unlink(missing_ok=True)
             raise ToolExecutionError(f"Could not execute {normalized[0]}: {exc}") from exc
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
 
         stderr = stderr_bytes.decode("utf-8", "replace") if stderr_bytes else ""
         if process.returncode != 0:
@@ -147,10 +155,13 @@ class SubprocessRunner:
             try:
                 stdout, stderr = process.communicate(timeout=timeout_seconds)
             except subprocess.TimeoutExpired as exc:
-                _terminate_timed_out_process(process)
+                _terminate_process_tree(process)
                 raise ToolExecutionError(
                     f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
                 ) from exc
+            except BaseException:
+                _terminate_process_tree(process)
+                raise
         except FileNotFoundError as exc:
             raise ToolExecutionError(f"Required executable not found: {normalized[0]}") from exc
         except ToolExecutionError:

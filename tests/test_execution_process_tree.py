@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -103,3 +104,48 @@ def test_captured_command_result_semantics_are_preserved() -> None:
     assert result.returncode == 7
     assert result.stdout == "ok\n"
     assert result.stderr == "diagnostic\n"
+
+
+def _interrupt_once_descendant_starts(monkeypatch: pytest.MonkeyPatch, pid_path: Path) -> None:
+    """Make the wait raise ``KeyboardInterrupt`` once the tool's descendant is running.
+
+    This is what Ctrl+C does to the parent: the tool runs in its own session and no longer
+    receives the terminal's SIGINT, so the runner itself must stop the tree.
+    """
+
+    def interrupted(self: subprocess.Popen[str], *args: object, **kwargs: object) -> None:
+        deadline = time.monotonic() + 10
+        while not (pid_path.is_file() and pid_path.read_text(encoding="utf-8")):
+            if time.monotonic() > deadline:
+                raise AssertionError("the synthetic tool never started its descendant")
+            time.sleep(0.02)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-group cleanup contract")
+@pytest.mark.parametrize("streaming", [False, True])
+def test_interrupt_kills_descendant_process_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, streaming: bool
+) -> None:
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "interrupted-descendant.pid"
+    output = tmp_path / "interrupted.bin"
+    _interrupt_once_descendant_starts(monkeypatch, pid_path)
+    argv = [shell, "-c", _descendant_script(pid_path, emit_stdout=streaming)]
+
+    with pytest.raises(KeyboardInterrupt):
+        if streaming:
+            SubprocessRunner().run_to_file(argv, output, timeout_seconds=60)
+        else:
+            SubprocessRunner().run(argv, timeout_seconds=60)
+
+    pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert _wait_until_not_live(pid), "an interrupted run left a live descendant process"
+    finally:
+        _kill_if_still_live(pid)
+    assert not output.exists()
+    assert list(tmp_path.glob(f".{output.name}.*.tmp")) == []
