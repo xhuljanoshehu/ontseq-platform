@@ -5,6 +5,13 @@ validated release.
 
 ## Unreleased
 
+- Fail closed before the Desktop stale-drive recovery remounts a DrvFs mount whose semantics it
+  cannot reconstruct (#109). The repair remounted with `uid`/`gid` only and silently dropped
+  `metadata`, non-default `umask`/`fmask`/`dmask`, a non-default `case` or an explicit uid/gid of
+  another user. Such mounts are now refused before `umount`; the documented defaults and a
+  matching uid/gid remain repairable. Validation impact: none on analysis output; Desktop
+  filesystem handling only.
+
 - Add the first methylation research lane, `methylation_lanes/haplotype.py`, with the
   standalone command `ontseq call-haplotype-methylation` (issue #97). From a BAM that
   WhatsHap or LongPhase haplotagged, it runs `modkit pileup --phased` and reports per region
