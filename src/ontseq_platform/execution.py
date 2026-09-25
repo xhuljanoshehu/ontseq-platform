@@ -154,23 +154,35 @@ def _ctrl_c_deferred() -> Iterator[None]:
     """
     received: list[FrameType | None] = []
     previous = signal.getsignal(signal.SIGINT)
-    deferring = False
-    if threading.current_thread() is threading.main_thread() and previous is not None:
-        with contextlib.suppress(ValueError):  # raised outside the main interpreter
-            signal.signal(signal.SIGINT, lambda _signum, frame: received.append(frame))
-            deferring = True
-    if not deferring:
-        yield
-        return
+    swapped = False
     try:
+        if threading.current_thread() is threading.main_thread() and previous is not None:
+            with contextlib.suppress(ValueError):  # raised outside the main interpreter
+                signal.signal(signal.SIGINT, lambda _signum, frame: received.append(frame))
+                swapped = True
         yield
     finally:
-        signal.signal(signal.SIGINT, previous)
-        if received:
-            if callable(previous):
-                previous(signal.SIGINT, received[0])  # default: raises KeyboardInterrupt
-            elif previous == signal.SIG_DFL:
-                signal.raise_signal(signal.SIGINT)
+        if swapped:
+            signal.signal(signal.SIGINT, previous)
+            if received:
+                if callable(previous):
+                    previous(signal.SIGINT, received[0])  # default: raises KeyboardInterrupt
+                elif previous == signal.SIG_DFL:
+                    signal.raise_signal(signal.SIGINT)
+
+
+def _kill_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
+    """Kill the tool's descendants and then the tool, with Ctrl+C deferred meanwhile."""
+    with _ctrl_c_deferred():
+        try:
+            # ``poll()`` also keeps a PID that was already reaped, and may have been reused
+            # by an unrelated process since, from ever being signalled.
+            if os.name == "posix" and process.poll() is None:
+                _kill_descendants(process.pid)
+        finally:
+            # On POSIX the tool is already stopped here, so it must be killed even if the
+            # descendant scan was itself interrupted.
+            process.kill()
 
 
 def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
@@ -182,19 +194,19 @@ def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[
     direct-child termination until a separately tested job-object contract exists.
     """
     try:
-        with _ctrl_c_deferred():
-            try:
-                if os.name == "posix":
-                    _kill_descendants(process.pid)
-            finally:
-                # On POSIX the tool is already stopped here, so it must be killed even if
-                # the descendant scan was itself interrupted.
-                process.kill()
+        try:
+            _kill_process_tree(process)
+        except KeyboardInterrupt:
+            # Either a further Ctrl+C that struck before the deferral took effect, or the
+            # deferred one being handed on. Make sure the tree is dead, now with the
+            # deferral in place (a no-op if it already is), then let the interrupt through.
+            _kill_process_tree(process)
+            raise
     finally:
         try:
-            # Kill again in case Ctrl+C struck before the deferral took effect. Only the
-            # signalling defers Ctrl+C: reaping stays interruptible in case the killed
-            # tool is stuck in uninterruptible I/O.
+            # Kill again in case Ctrl+C struck before either deferral took effect. Reaping
+            # is deliberately not deferred: it stays interruptible in case the killed tool
+            # is stuck in uninterruptible I/O.
             process.kill()
             process.wait()
         finally:

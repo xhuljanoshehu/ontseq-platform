@@ -319,7 +319,7 @@ def test_interrupted_cleanup_still_kills_what_it_stopped(
     (process,) = started
     pid = int(pid_path.read_text(encoding="utf-8"))
     try:
-        assert scans == 2
+        assert scans >= 2
         assert _wait_until_not_live(pid), "an interrupted cleanup left a stopped descendant"
         assert process.returncode == -signal.SIGKILL, "the stopped tool was not killed and reaped"
     finally:
@@ -501,3 +501,60 @@ def test_timeout_cleanup_works_off_the_main_thread(tmp_path: Path) -> None:
         assert _wait_until_not_live(pid), "a worker-thread timeout left a descendant alive"
     finally:
         _kill_if_still_live(pid)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_ctrl_c_before_the_deferral_takes_effect_still_kills_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Ctrl+C that lands before the deferring handler is installed must not leak the tree."""
+    real_getsignal = signal.getsignal
+    lookups = 0
+
+    def getsignal_interrupted_once(signalnum: int) -> object:
+        nonlocal lookups
+        lookups += 1
+        if lookups == 1:
+            raise KeyboardInterrupt
+        return real_getsignal(signalnum)
+
+    monkeypatch.setattr(signal, "getsignal", getsignal_interrupted_once)
+    started = _record_started_processes(monkeypatch)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "early-ctrl-c-descendant.pid"
+
+    with pytest.raises(KeyboardInterrupt):
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+
+    (process,) = started
+    pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert lookups >= 2, "the cleanup was not retried under the deferral"
+        assert _wait_until_not_live(pid), "an early Ctrl+C left a descendant behind"
+        assert process.returncode == -signal.SIGKILL
+    finally:
+        _kill_if_still_live(pid)
+        if process.returncode is None:
+            process.kill()
+            process.wait()
+
+
+def test_cleanup_never_signals_an_already_reaped_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once reaped, the tool's PID may belong to another process; it must not be frozen."""
+    frozen_roots: list[int] = []
+    monkeypatch.setattr(execution, "_kill_descendants", frozen_roots.append)
+    real_communicate = subprocess.Popen.communicate
+
+    def finish_then_interrupt(
+        self: subprocess.Popen[str], input: str | None = None, timeout: float | None = None
+    ) -> tuple[str, str]:
+        real_communicate(self, input, timeout)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", finish_then_interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        SubprocessRunner().run([sys.executable, "-S", "-c", "pass"], timeout_seconds=30)
+
+    assert frozen_roots == []
