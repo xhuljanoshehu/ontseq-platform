@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
 import tempfile
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
 from typing import Protocol
 
 
@@ -45,6 +49,176 @@ def _normalize(argv: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+_PROC = Path("/proc")
+#: Rounds of "find the tool's descendants, stop them" before the frozen tree is killed.
+#: A stopped process cannot fork, so the tree stops growing after a few rounds.
+_FREEZE_ROUNDS = 8
+
+
+def _linux_parent_pid(pid: int) -> int | None:
+    """Return the parent of a live Linux process, or None if it is gone or a zombie."""
+    try:
+        stat = (_PROC / str(pid) / "stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:  # ENOENT, or ESRCH when the process exits mid-read
+        return None
+    # The command name is parenthesised and may itself contain spaces or parentheses.
+    fields = stat.rpartition(")")[2].split()
+    if len(fields) < 2 or fields[0] == "Z":
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _linux_descendants(root: int) -> list[int]:
+    """Live descendants of ``root`` found through ``/proc``, parents before children."""
+    try:
+        entries = [int(entry.name) for entry in _PROC.iterdir() if entry.name.isdigit()]
+    except OSError:
+        return []
+    children: dict[int, list[int]] = {}
+    for pid in entries:
+        parent = _linux_parent_pid(pid)
+        if parent is not None:
+            children.setdefault(parent, []).append(pid)
+    ordered: list[int] = []
+    pending = [root]
+    while pending:
+        for child in children.get(pending.pop(0), ()):
+            ordered.append(child)
+            pending.append(child)
+    return ordered
+
+
+def _signal(pid: int, signum: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, signum)
+
+
+def _kill_descendants(root: int) -> None:
+    """Freeze and kill the processes the tool started, without touching anything else.
+
+    The tool stays in the pipeline's process group, so a signal to that group (a service
+    manager, ``kill -- -PGID``, the WSL session teardown behind the Desktop app, a terminal
+    hangup) still reaches the tool and its descendants, as it did with ``subprocess.run``.
+    Its descendants are therefore found through ``/proc`` instead of a dedicated process
+    group. The root is stopped first so it cannot fork more children, each descendant is
+    stopped as it is found, and one whose parent is no longer in the frozen tree (a reused
+    PID) is resumed and left alone. Only the frozen tree is killed. A descendant that
+    outlived its own parent has already been re-parented away and is not found. Where
+    ``/proc`` is unavailable this finds nothing and only the direct child is killed, as
+    before.
+    """
+    _signal(root, signal.SIGSTOP)
+    members = {root}
+    # Every candidate is recorded before it is stopped (``None``: not checked yet), so an
+    # exception at any point still leaves no stopped process behind: the ``finally`` block
+    # checks what is unchecked, then kills the members children first.
+    candidates: dict[int, bool | None] = {}
+    try:
+        for _ in range(_FREEZE_ROUNDS):
+            found = [pid for pid in _linux_descendants(root) if pid not in members]
+            if not found:
+                break
+            for pid in found:
+                candidates[pid] = None
+                candidates[pid] = _freeze_if_member(pid, members)
+    finally:
+        for pid, member in reversed(candidates.items()):
+            if member is None:
+                member = _freeze_if_member(pid, members)
+            if member:
+                _signal(pid, signal.SIGKILL)
+
+
+def _freeze_if_member(pid: int, members: set[int]) -> bool:
+    """Stop ``pid``; keep it stopped only if its parent belongs to the frozen tree."""
+    _signal(pid, signal.SIGSTOP)
+    if _linux_parent_pid(pid) in members:
+        members.add(pid)
+        return True
+    _signal(pid, signal.SIGCONT)
+    return False
+
+
+@contextlib.contextmanager
+def _ctrl_c_deferred() -> Iterator[None]:
+    """Defer Ctrl+C until the block is done, then hand it to the previous handler once.
+
+    A cleanup that a further Ctrl+C cuts short could leave stopped or not yet found
+    processes behind. Python raises ``KeyboardInterrupt`` only in the main thread, whichever
+    thread the kernel delivered SIGINT to, so there the handler is briefly swapped for one
+    that only records the signal. Other threads never see ``KeyboardInterrupt`` and need
+    nothing. A handler installed outside Python cannot be restored and is left alone.
+    """
+    received: list[FrameType | None] = []
+    previous = signal.getsignal(signal.SIGINT)
+    swapped = False
+    try:
+        if threading.current_thread() is threading.main_thread() and previous is not None:
+            with contextlib.suppress(ValueError):  # raised outside the main interpreter
+                signal.signal(signal.SIGINT, lambda _signum, frame: received.append(frame))
+                swapped = True
+        yield
+    finally:
+        if swapped:
+            signal.signal(signal.SIGINT, previous)
+            if received:
+                if callable(previous):
+                    previous(signal.SIGINT, received[0])  # default: raises KeyboardInterrupt
+                elif previous == signal.SIG_DFL:
+                    signal.raise_signal(signal.SIGINT)
+
+
+def _kill_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
+    """Kill the tool's descendants and then the tool, with Ctrl+C deferred meanwhile."""
+    with _ctrl_c_deferred():
+        try:
+            # ``poll()`` also keeps a PID that was already reaped, and may have been reused
+            # by an unrelated process since, from ever being signalled.
+            if os.name == "posix" and process.poll() is None:
+                _kill_descendants(process.pid)
+        finally:
+            # On POSIX the tool is already stopped here, so it must be killed even if the
+            # descendant scan was itself interrupted.
+            process.kill()
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
+    """Kill the tool and every process it started, then reap it and release its pipes.
+
+    Called on a timeout and on any other abort while waiting (``KeyboardInterrupt``,
+    ``SystemExit``). ``subprocess.run`` killed only the direct child, so a timed-out
+    multiprocessing tool could leave CPU/RAM-consuming workers behind. Native Windows keeps
+    direct-child termination until a separately tested job-object contract exists.
+    """
+    try:
+        try:
+            _kill_process_tree(process)
+        except KeyboardInterrupt:
+            # Either a further Ctrl+C that struck before the deferral took effect, or the
+            # deferred one being handed on. Make sure the tree is dead, now with the
+            # deferral in place (a no-op if it already is), then let the interrupt through.
+            _kill_process_tree(process)
+            raise
+    finally:
+        try:
+            # Kill again in case Ctrl+C struck before either deferral took effect. Reaping
+            # is deliberately not deferred: it stays interruptible in case the killed tool
+            # is stuck in uninterruptible I/O.
+            process.kill()
+            process.wait()
+        finally:
+            # The Popen object can outlive this call inside a retained traceback, so
+            # release its pipes now rather than at garbage collection, also when the wait
+            # was interrupted. Closing (not draining) cannot block on a descendant that
+            # still holds the write end.
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
+
 class SubprocessRunner:
     """Execute an argument vector locally without a shell."""
 
@@ -65,35 +239,44 @@ class SubprocessRunner:
         staged = Path(staged_name)
         try:
             with os.fdopen(descriptor, "wb") as handle:
-                completed = subprocess.run(
+                process = subprocess.Popen(
                     normalized,
-                    check=False,
                     stdout=handle,
                     stderr=subprocess.PIPE,
                     stdin=subprocess.DEVNULL,
-                    timeout=timeout_seconds,
                 )
+                try:
+                    _stdout, stderr_bytes = process.communicate(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired as exc:
+                    _terminate_process_tree(process)
+                    raise ToolExecutionError(
+                        f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
+                    ) from exc
+                except BaseException:
+                    _terminate_process_tree(process)
+                    raise
                 handle.flush()
                 os.fsync(handle.fileno())
         except FileNotFoundError as exc:
             staged.unlink(missing_ok=True)
             raise ToolExecutionError(f"Required executable not found: {normalized[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
+        except ToolExecutionError:
             staged.unlink(missing_ok=True)
-            raise ToolExecutionError(
-                f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
-            ) from exc
+            raise
         except OSError as exc:
             staged.unlink(missing_ok=True)
             raise ToolExecutionError(f"Could not execute {normalized[0]}: {exc}") from exc
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
 
-        stderr = completed.stderr.decode("utf-8", "replace") if completed.stderr else ""
-        if completed.returncode != 0:
+        stderr = stderr_bytes.decode("utf-8", "replace") if stderr_bytes else ""
+        if process.returncode != 0:
             staged.unlink(missing_ok=True)
         else:
             os.replace(staged, output_path)
         return CommandResult(
-            argv=normalized, returncode=completed.returncode, stdout="", stderr=stderr
+            argv=normalized, returncode=process.returncode, stdout="", stderr=stderr
         )
 
     def run(self, argv: Sequence[str], *, timeout_seconds: int = 300) -> CommandResult:
@@ -110,26 +293,33 @@ class SubprocessRunner:
         """
         normalized = _normalize(argv)
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 normalized,
-                check=False,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout_seconds,
             )
+            try:
+                stdout, stderr = process.communicate(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                _terminate_process_tree(process)
+                raise ToolExecutionError(
+                    f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
+                ) from exc
+            except BaseException:
+                _terminate_process_tree(process)
+                raise
         except FileNotFoundError as exc:
             raise ToolExecutionError(f"Required executable not found: {normalized[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise ToolExecutionError(
-                f"Command timed out after {timeout_seconds} seconds: {normalized[0]}"
-            ) from exc
+        except ToolExecutionError:
+            raise
         except OSError as exc:
             raise ToolExecutionError(f"Could not execute {normalized[0]}: {exc}") from exc
         return CommandResult(
             argv=normalized,
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
