@@ -28,7 +28,7 @@ jobs:
       - name: Install engineering tools only
         run: python -m pip install -e '.[dev]'
       - name: Synthetic adapter tests, not a real GATK run
-        run: python -m pytest tests/test_gatk_mutect2.py tests/test_gatk_adapter.py
+        run: python -m pytest tests/test_gatk_mutect2.py tests/test_gatk_adapter.py tests/test_gatk_as_filter_status.py
       - name: Lint both adapter implementations
         if: ${{ !cancelled() }}
         run: ruff check src/ontseq_platform/gatk*.py src/ontseq_platform/gatk_adapter tests/test_gatk*.py
