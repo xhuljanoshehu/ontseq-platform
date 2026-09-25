@@ -5,6 +5,13 @@ validated release.
 
 ## Unreleased
 
+- Bind the native MARLIN result to the exact combined bedMethyl bytes it parsed by
+  re-fingerprinting the pileup immediately after probe-fraction extraction and again before final
+  reporting, failing closed if the file changes during parsing or later model execution. Add
+  synthetic mutation-during-parse and mutation-during-worker regressions. This is an
+  evidence-integrity fix only: modkit arguments, methylation thresholds, feature encoding, model
+  scores, reportability and analytical/clinical validation status are unchanged.
+
 - Bind POD5 basecalling resume to the complete sorted input file set and SHA-256 of each
   source file instead of only the directory name. Relative paths are included in the signature,
   and a changing file set during fingerprinting now fails closed.
