@@ -201,3 +201,20 @@ The **Abbrechen** control remains disabled. A backend cancellation contract must
 - analytical validation on controlled real/reference samples before any diagnostic use.
 
 See also `README-FIRST-RUN.md` and `ONTSeq.Desktop/CHANGELOG.md`.
+
+## Restart connections
+
+Use **Verbindungen neu starten** in Desktop after a completed run or a stale connection.
+The action invalidates previous preview responses, cancels discovery, and asks the owned
+backend to atomically block new runs and stop only when idle. Active browser analyses
+block it too. It never force-kills an unresponsive/unidentified backend: resolve that
+status first. An older backend without this endpoint requires the matching Core update.
+
+After confirmed shutdown, local data drives D:–Z: used by the selected BAM/output are
+checked. Only an ENODEV failure on the matching DrvFs mount can trigger a targeted repair
+using the selected distribution's root account. A busy mount refuses ordinary unmount;
+no lazy/forced unmount, network-drive remapping or global WSL shutdown is used. Other
+filesystem errors require manual correction. Inputs, result envelopes and settings are
+preserved. A new service identity/token is established and the selected BAM receives a
+fresh quick preview; this does not start an analysis. Reopen browser workspaces with
+**Analyse-Arbeitsplatz öffnen**, since old tabs belong to the old session.

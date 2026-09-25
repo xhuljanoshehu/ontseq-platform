@@ -16,6 +16,7 @@ from . import __version__
 from .align import AlignmentPolicy
 from .align_fixture import build_alignment_fixture
 from .basecall import BasecallPolicy
+from .cnv.lane import CnvLaneSettings
 from .execution import ToolExecutionError
 from .io import load_model
 from .methylation import MethylationPolicy
@@ -85,6 +86,7 @@ SELECTABLE_STAGES = (
     StageId.CNV,
     StageId.SV,
     StageId.METHYLATION,
+    StageId.MARLIN,
 )
 
 
@@ -274,36 +276,32 @@ def _add_cnv_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _register_cnv(args: argparse.Namespace, selection: RunComponents | None) -> None:
-    """Install the QDNAseq/ACE lane unless this run deselected it.
+def _cnv_lane(args: argparse.Namespace, selection: RunComponents | None) -> CnvLaneSettings | None:
+    """Resolve this command's QDNAseq/ACE lane, or ``None`` when the run switched CNV off.
 
-    The lane still arrives by registration rather than as a first-class member of the
-    graph, which remains the outstanding architectural debt. Gating it on the selection at
-    least means a run that switched CNV off does not silently get it anyway.
+    The lane is part of the run configuration. Earlier releases registered it into the
+    process-wide stage graph instead, which the runtime called its outstanding architectural
+    debt: every later run in the same process inherited it, including service runs.
     """
-    from .cnv.extension import QDNAseqExtensionSettings, register_qdnaseq_extension
     from .cnv.qdnaseq import QDNAseqPolicy
 
     choice = selection.choice_for(StageId.CNV) if selection is not None else None
     if choice is not None and not choice.enabled:
-        return
-    if choice is not None and choice.policy:
-        args.cnv_policy = Path(choice.policy)
+        return None
+    policy_path = Path(choice.policy) if choice is not None and choice.policy else args.cnv_policy
 
-    if args.cnv_policy.is_file():
-        policy = load_model(args.cnv_policy, QDNAseqPolicy)
+    if policy_path.is_file():
+        policy = load_model(policy_path, QDNAseqPolicy)
     else:
         policy = QDNAseqPolicy(
             profile_id="qdnaseq-ace-multibin-v1",
             cytoband_affected_fraction=0.66,
             note="Built-in fallback matching configs/cnv/qdnaseq_ace.technical.yaml",
         )
-    register_qdnaseq_extension(
-        QDNAseqExtensionSettings(
-            policy=policy,
-            rscript=args.qdnaseq_rscript,
-            script=args.qdnaseq_script,
-        )
+    return CnvLaneSettings(
+        policy=policy,
+        rscript=args.qdnaseq_rscript,
+        script=args.qdnaseq_script,
     )
 
 
@@ -369,6 +367,9 @@ def _add_execution_options(parser: argparse.ArgumentParser, *, include_qc: bool)
         "--basecall-policy",
         type=Path,
         default=_shipped_config("basecalling/dorado.technical.yaml"),
+    )
+    parser.add_argument(
+        "--marlin-installation", type=Path, help="Locked native MARLIN research installation"
     )
     parser.add_argument("--reference-fasta", type=Path)
     parser.add_argument("--pod5-dir", type=Path)
@@ -437,6 +438,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         choices=(*PROFILE_IDS, *GRCH37_PROFILE_IDS),
     )
+    analyze.add_argument("--marlin-installation", type=Path)
     analyze.add_argument("--resource-root", type=Path)
     analyze.add_argument("--config-root", type=Path)
     analyze.add_argument("--output-dir", type=Path, default=Path("results/runs"))
@@ -454,7 +456,10 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument(
         "--include-methylation",
         action="store_true",
-        help="Explicitly include the optional research methylation assessment from BAM MM/ML tags",
+        help=(
+            "Include regional methylation and native MARLIN research classification "
+            "from BAM MM/ML tags"
+        ),
     )
     analyze.add_argument("--samtools", default="samtools")
     analyze.add_argument("--cramino", default="cramino")
@@ -536,6 +541,7 @@ def _parser() -> argparse.ArgumentParser:
     srv.add_argument("--sv-minimum-mean-depth", type=float, default=10.0)
     srv.add_argument("--cutesv", default="cuteSV")
     srv.add_argument("--modkit", default="modkit")
+    srv.add_argument("--marlin-installation", type=Path)
     srv.add_argument("--samtools", default="samtools")
     srv.add_argument(
         "--methylation-policy",
@@ -649,6 +655,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_cnv_options(watcher)
     watcher.add_argument("--reference-fasta", type=Path)
+    watcher.add_argument("--marlin-installation", type=Path)
+    watcher.add_argument("--modkit", default="modkit")
     watcher.add_argument("--cutesv", default="cuteSV")
     watcher.add_argument("--ready-marker")
     watcher.add_argument("--pod5-subdir")
@@ -830,8 +838,11 @@ def main() -> None:
     # run: checking the default policies while `ontseq run` would use the ones a component
     # selection names is how a preflight clears a run that then fails on what it checked.
     selection = _components(args) if args.command in {"run", "serve", "preflight"} else None
-    if args.command in {"run", "analyze", "serve", "watch", "preflight"}:
-        _register_cnv(args, selection)
+    cnv_lane = (
+        _cnv_lane(args, selection)
+        if args.command in {"run", "analyze", "serve", "watch", "preflight"}
+        else None
+    )
     try:
         if handle_references_command(args):
             return
@@ -852,6 +863,8 @@ def main() -> None:
                     cutesv_threads=args.cutesv_threads,
                     force=args.force,
                     include_methylation=args.include_methylation,
+                    marlin_installation=args.marlin_installation,
+                    cnv_lane=cnv_lane,
                     executables=_executables(args),
                 )
             )
@@ -913,7 +926,9 @@ def main() -> None:
                     _selected_policy(selection, StageId.BASECALL, args.basecall_policy)
                 ),
                 components=selection,
+                cnv_lane=cnv_lane,
                 reference_fasta=args.reference_fasta,
+                marlin_installation=args.marlin_installation,
                 pod5_directory=args.pod5_dir,
                 threads=args.threads,
                 cutesv_threads=args.cutesv_threads,
@@ -989,6 +1004,7 @@ def main() -> None:
                 methylation_policy=_methylation_policy(
                     _selected_policy(selection, StageId.METHYLATION, args.methylation_policy)
                 ),
+                cnv_lane=cnv_lane,
                 require_free_gb=args.require_free_gb,
             )
             checks = preflight(request)
@@ -1036,6 +1052,7 @@ def main() -> None:
                         selection, StageId.METHYLATION, args.methylation_policy
                     ),
                     components=selection,
+                    cnv_lane=cnv_lane,
                     cutesv_policy=args.cutesv_policy,
                     sv_consensus_policy=args.sv_consensus_policy,
                     sv_evidence_policy=args.sv_evidence_policy,
@@ -1055,6 +1072,7 @@ def main() -> None:
                     sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                     cutesv_executable=args.cutesv,
                     modkit_executable=args.modkit,
+                    marlin_installation=args.marlin_installation,
                     samtools_executable=args.samtools,
                     port=args.port,
                     threads=args.threads,
@@ -1115,6 +1133,7 @@ def main() -> None:
                 sv_consensus_policy=args.sv_consensus_policy,
                 sv_evidence_policy=args.sv_evidence_policy,
                 target_coverage_policy=args.target_coverage_policy,
+                cnv_lane=cnv_lane,
                 gene_annotation=_interval_resource(args.gene_annotation, args.gene_annotation_lock),
                 cytoband_annotation=_interval_resource(
                     args.cytoband_annotation, args.cytoband_annotation_lock
@@ -1124,6 +1143,7 @@ def main() -> None:
                 sv_minimum_mean_depth=args.sv_minimum_mean_depth,
                 alignment_policy=args.alignment_policy,
                 reference_fasta=args.reference_fasta,
+                marlin_installation=args.marlin_installation,
                 run_id_prefix=args.run_id_prefix,
                 ready_marker=args.ready_marker,
                 pod5_subdirectory=args.pod5_subdir,
@@ -1132,7 +1152,7 @@ def main() -> None:
                 cutesv_threads=args.cutesv_threads,
                 git_commit=args.git_commit,
                 retry_failed=args.retry_failed,
-                executables={"cutesv": args.cutesv},
+                executables={"cutesv": args.cutesv, "modkit": args.modkit},
             )
             passes = watch(
                 settings,

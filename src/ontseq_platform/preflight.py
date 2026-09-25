@@ -37,6 +37,7 @@ from pathlib import Path
 
 from .align import AlignmentPolicy, parse_version
 from .basecall import BasecallPolicy, dorado_version, model_signature
+from .cnv.lane import CnvLaneSettings
 from .cutesv import cutesv_version
 from .execution import CommandRunner, SubprocessRunner
 from .methylation import MethylationPolicy, MethylationRegionSource, modkit_version
@@ -84,6 +85,8 @@ class PreflightRequest:
     cutesv_policy: CuteSvPolicy | None = None
     target_coverage_policy: TargetCoveragePolicy | None = None
     methylation_policy: MethylationPolicy | None = None
+    #: The copy-number lane the run would use, resolved exactly as ``ontseq run`` does.
+    cnv_lane: CnvLaneSettings | None = None
     #: Free space the caller knows this run needs. Without it, space is reported, not judged.
     require_free_gb: float | None = None
 
@@ -285,6 +288,39 @@ def _fatal_stages(request: PreflightRequest) -> frozenset[StageId]:
         # the methylation stage fails if modkit cannot execute, so preflight must block too.
         fatal.add(StageId.METHYLATION)
     return frozenset(fatal)
+
+
+def _check_cnv_lane(request: PreflightRequest, checks: CheckList) -> None:
+    """The copy-number lane a CNV run needs is configured and its R runner exists.
+
+    Without a lane the stage records ``NOT_RUN``; with a missing runner script it fails
+    after the envelope exists. Both are knowable here, and neither is a copy-number result.
+    """
+    if AnalysisModule.CNV not in request.manifest.analysis.modules:
+        checks.skipped("cnv.lane", "the manifest does not request copy-number analysis")
+        return
+    lane = request.cnv_lane
+    if lane is None:
+        checks.warning(
+            "cnv.lane",
+            "the manifest requests CNV but no copy-number lane is configured; the stage will "
+            "record NOT_RUN, which is not a negative copy-number finding",
+            remedy="remove the CNV deselection or pass --cnv-policy",
+            stage=StageId.CNV,
+        )
+    elif not lane.script.is_file():
+        checks.failed(
+            "cnv.lane",
+            f"the QDNAseq/ACE runner script is missing: {lane.script.name}",
+            remedy="pass --qdnaseq-script with the pinned runner shipped with this release",
+            stage=StageId.CNV,
+        )
+    else:
+        checks.ok(
+            "cnv.lane",
+            f"{lane.policy.profile_id} via {lane.script.name}",
+            stage=StageId.CNV,
+        )
 
 
 def _check_target_coverage(request: PreflightRequest, checks: CheckList) -> None:
@@ -845,6 +881,7 @@ def preflight(request: PreflightRequest, *, runner: CommandRunner | None = None)
     _check_tools(request, command_runner, checks)
     _check_basecalling(request, checks)
     _check_target_coverage(request, checks)
+    _check_cnv_lane(request, checks)
     _check_methylation(request, checks)
     _check_envelope(request, checks)
     _check_disk(request, checks)

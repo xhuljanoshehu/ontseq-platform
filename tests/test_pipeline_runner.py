@@ -12,8 +12,12 @@ import hashlib
 import tempfile
 import unittest
 from collections.abc import Sequence
+from datetime import timedelta
+from itertools import chain, repeat
 from pathlib import Path
 from unittest import mock
+
+from clock_support import SYNTHETIC_REGISTERED_AT, install_experiment_clock
 
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import (
@@ -30,6 +34,7 @@ from ontseq_platform.models import (
     ReferenceLock,
     SampleManifest,
 )
+from ontseq_platform.pipeline import runner as pipeline_runner
 from ontseq_platform.pipeline.envelope import RunEnvelope
 from ontseq_platform.pipeline.lock import LOCK_FILENAME, RunAlreadyRunning, run_lock
 from ontseq_platform.pipeline.runner import (
@@ -148,6 +153,7 @@ def _reference_lock() -> ReferenceLock:
 
 class RunnerCase(unittest.TestCase):
     def setUp(self) -> None:
+        install_experiment_clock(self, pipeline_runner)
         self._temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self._temporary.cleanup)
         self.base = Path(self._temporary.name)
@@ -180,12 +186,27 @@ class RunnerCase(unittest.TestCase):
 
 
 class HappyPathTests(RunnerCase):
+    def test_backwards_run_clock_is_rejected(self) -> None:
+        with (
+            mock.patch.object(
+                pipeline_runner.datetime,
+                "now",
+                side_effect=chain(
+                    [SYNTHETIC_REGISTERED_AT + timedelta(seconds=10)],
+                    repeat(SYNTHETIC_REGISTERED_AT + timedelta(seconds=1)),
+                ),
+            ),
+            self.assertRaisesRegex(ValueError, "run finished before it started"),
+        ):
+            self._run()
+
     def test_every_planned_stage_is_recorded(self) -> None:
         report, bundle = self._run()
         recorded = {record.stage for record in report.stages}
         self.assertEqual(
             recorded,
-            set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION},
+            set(STAGE_ARTIFACTS)
+            | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION, StageId.MARLIN},
         )
         self.assertTrue(report.passed)
         self.assertIsNotNone(bundle)

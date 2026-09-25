@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from .cnv.qdnaseq import QDNAseqCallReport
+from .marlin_native_contracts import NativeMarlinReport
 from .models import PipelineResult
 from .report_formatting import redact_paths
+from .report_marlin import validate_marlin_identity
 from .report_view import build_report_view
 
 REPORT_PRESENTATION_VERSION = "befund-interactive-v1"
@@ -47,12 +49,15 @@ def interactive_payload(
     result: PipelineResult,
     cnv: QDNAseqCallReport | None = None,
     evidence_root: Path | None = None,
+    *,
+    marlin_report: NativeMarlinReport | None = None,
 ) -> dict[str, Any]:
     if cnv is not None and (
         cnv.sample_id != result.manifest.sample_id
         or cnv.genome_build != result.manifest.assay.genome_build
     ):
         raise ValueError("CNV report sample/build identity differs from the report")
+    validate_marlin_identity(result, marlin_report)
     cnv_data = None
     plots: dict[str, dict[str, str | None]] = {}
     if cnv is not None:
@@ -85,6 +90,7 @@ def interactive_payload(
             "requested_modules": [module.value for module in result.manifest.analysis.modules],
             "iscn": result.iscn.model_dump(mode="json"),
             "cnv": cnv_data,
+            "marlin": marlin_report.model_dump(mode="json") if marlin_report else None,
         }
     )
     # Data URIs are created here, never read from uncontrolled report text.
@@ -98,8 +104,9 @@ def attach_interactive_report(
     *,
     cnv: QDNAseqCallReport | None = None,
     evidence_root: Path | None = None,
+    marlin_report: NativeMarlinReport | None = None,
 ) -> str:
-    payload = interactive_payload(result, cnv, evidence_root)
+    payload = interactive_payload(result, cnv, evidence_root, marlin_report=marlin_report)
     serialized = json.dumps(payload, ensure_ascii=True, allow_nan=False)
     serialized = serialized.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     bundle = Path(__file__).with_name("report_bundle.html").read_text(encoding="utf-8")

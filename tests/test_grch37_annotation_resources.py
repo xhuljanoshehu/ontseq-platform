@@ -25,7 +25,7 @@ from ontseq_platform.breakpoint_annotation import (
     annotate_breakpoint_pair,
     annotate_events_from_cache,
 )
-from ontseq_platform.cnv.extension import (
+from ontseq_platform.cnv.lane import (
     _annotate_cnv_cytobands,
     _load_cytobands,
     _verified_iscn_resource_provenance,
@@ -275,8 +275,7 @@ class NativeGrch37AnnotationTests(unittest.TestCase):
                     profile_id="synthetic-only",
                 )
             )
-            with patch("ontseq_platform.cnv.extension._settings", return_value=settings):
-                _annotate_cnv_cytobands(ctx, report)
+            _annotate_cnv_cytobands(ctx, report, settings)
             payload = json.loads(envelope.atomic_write_text.call_args.args[1])
             self.assertEqual(payload["genome_build"], "GRCh37")
 
@@ -318,8 +317,7 @@ class NativeGrch37AnnotationTests(unittest.TestCase):
                 )
             )
 
-            with patch("ontseq_platform.cnv.extension._settings", return_value=settings):
-                annotated, _artifact = _annotate_cnv_cytobands(ctx, report)
+            annotated, _artifact = _annotate_cnv_cytobands(ctx, report, settings)
 
             projected = annotated.events[0]
             self.assertIsNone(projected.primary.cytoband_start)
@@ -369,8 +367,7 @@ class NativeGrch37AnnotationTests(unittest.TestCase):
                 )
             )
 
-            with patch("ontseq_platform.cnv.extension._settings", return_value=settings):
-                annotated, _artifact = _annotate_cnv_cytobands(ctx, report)
+            annotated, _artifact = _annotate_cnv_cytobands(ctx, report, settings)
 
             for projected in annotated.events:
                 self.assertIsNone(projected.primary.cytoband_start)

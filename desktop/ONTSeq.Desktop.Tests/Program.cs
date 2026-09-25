@@ -64,6 +64,40 @@ Directory.CreateDirectory(root);
 
 try
 {
+    var marlinReady = JsonSerializer.Deserialize<MarlinReadinessResponse>(
+        "{\"ready\":true,\"reason\":\"Configured\",\"genome_build\":\"GRCh38\",\"validation_status\":\"UNVALIDATED_RESEARCH\"}", JsonDefaults.Options)!;
+    AssertEqual("True", marlinReady.RequireBuild("GRCh38").Ready.ToString(), "MARLIN matching build readiness");
+    AssertThrows<InvalidDataException>(() => marlinReady.RequireBuild("GRCh37"), "MARLIN foreign-build readiness rejected");
+    AssertThrows<InvalidDataException>(() => (marlinReady with { ValidationStatus = "VALIDATED" }).RequireBuild("GRCh38"),
+        "MARLIN runtime readiness cannot grant analytical validation");
+    foreach (var reply in new[] {
+        new FakeServiceReply(409, "{\"error\":\"Analyse läuft\"}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"foreign\",\"stopping\":true}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"" + new string('a', 32) + "\",\"stopping\":false}"),
+        new FakeServiceReply(200, "{\"instance_id\":\"" + new string('a', 32) + "\",\"stopping\":true}") })
+    {
+        FakeServiceRequest? stopRequest = null;
+        var identity = new string('a', 32);
+        await using var service = new FakeOntSeqService(identity, "/resources", "/output", "/input",
+            request => { if (request.Path != "/api/session/stop") return null;
+                stopRequest = request; return reply; });
+        using var restartClient = new OntSeqServiceClient(service.Port);
+        await restartClient.BootstrapAsync(TimeSpan.FromSeconds(5), null, null,
+            new ServiceLaunchExpectation(identity, "/resources", "/output", "/input"), CancellationToken.None);
+        if (reply.StatusCode == 409)
+            await AssertThrowsAsync<InvalidOperationException>(() => restartClient.StopSessionAsync(identity, CancellationToken.None),
+                "active analyses refuse restart");
+        else if (reply.Body.Contains("foreign") || reply.Body.Contains("false"))
+            await AssertThrowsAsync<InvalidDataException>(() => restartClient.StopSessionAsync(identity, CancellationToken.None),
+                "an unconfirmed or foreign stop acknowledgement is rejected");
+        else await restartClient.StopSessionAsync(identity, CancellationToken.None);
+        AssertEqual("POST", stopRequest?.Method, "stop is an authenticated mutation");
+        using var body = JsonDocument.Parse(stopRequest!.Body);
+        AssertEqual(identity, body.RootElement.GetProperty("instance_id").GetString(), "stop names the owned service");
+        AssertEqual("True", stopRequest.Headers.Contains("X-ONTSeq-Token: synthetic-service-token").ToString(),
+            "stop carries the bootstrapped token");
+    }
+
     var utf8StartInfo = WslServiceLauncher.WslProcessStartInfo("synthetic", ["printf", "unused"]);
     AssertEqual("utf-8", utf8StartInfo.StandardOutputEncoding?.WebName,
         "Linux stdout uses explicit UTF-8 independently of Windows code page");
@@ -320,6 +354,7 @@ try
         .RequireScan(scan.BamPath).State, "cancelled worker remains unknown rather than becoming a negative result");
 
     await VerifyMethylationHttpContractAsync();
+    await VerifyServiceDisposalDuringPendingAcceptAsync();
     VerifyMethylationLayout();
     var methylationRequest = new RunStartRequest("/approved/sample.bam", "sample-001", null,
         "AML_LCWGS_GRCh38", "GRCh38", "lcwgs");
@@ -1365,6 +1400,25 @@ static async Task VerifyMethylationHttpContractAsync()
         "probing and cancellation do not start an analysis");
 }
 
+static async Task VerifyServiceDisposalDuringPendingAcceptAsync()
+{
+    // Issue #110: DisposeAsync() cancels, then stops the listener, while ServeAsync()
+    // is awaiting AcceptTcpClientAsync(). TcpListener.Stop() can dispose the underlying
+    // socket before the pending accept observes cancellation, surfacing as an unhandled
+    // ObjectDisposedException instead of the expected shutdown path. Signal on the
+    // server side immediately before the await so disposal is deterministically raced
+    // against a genuinely pending accept, rather than relying on a sleep duration.
+    for (var attempt = 0; attempt < 5; attempt++)
+    {
+        var readyToAccept = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new FakeOntSeqService(new string('c', 32), "/synthetic/resources", "/synthetic/output",
+            "/synthetic", handler: null, readyToAccept: readyToAccept);
+        await readyToAccept.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.DisposeAsync();
+    }
+    Console.WriteLine("Service disposal during a pending accept does not surface an unhandled ObjectDisposedException.");
+}
+
 static void VerifyMethylationLayout()
 {
     Exception? failure = null;
@@ -1413,15 +1467,18 @@ sealed class FakeOntSeqService : IAsyncDisposable
     private readonly Task _serverTask;
     private readonly string _configJson;
     private readonly Func<FakeServiceRequest, FakeServiceReply?>? _handler;
+    private readonly TaskCompletionSource? _readyToAccept;
 
     public FakeOntSeqService(
         string instanceId,
         string resourceRoot,
         string outputDir,
         string allowedRoot,
-        Func<FakeServiceRequest, FakeServiceReply?>? handler = null)
+        Func<FakeServiceRequest, FakeServiceReply?>? handler = null,
+        TaskCompletionSource? readyToAccept = null)
     {
         _handler = handler;
+        _readyToAccept = readyToAccept;
         _configJson = JsonSerializer.Serialize(new
         {
             version = "0.7.1",
@@ -1447,6 +1504,7 @@ sealed class FakeOntSeqService : IAsyncDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
+                _readyToAccept?.TrySetResult();
                 using var client = await _listener.AcceptTcpClientAsync(cancellationToken);
                 await RespondAsync(client, cancellationToken);
             }
@@ -1456,6 +1514,12 @@ sealed class FakeOntSeqService : IAsyncDisposable
         }
         catch (SocketException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
+            // TcpListener.Stop() can dispose the underlying socket while AcceptTcpClientAsync()
+            // is still pending on it. This is the expected shutdown race, not a real failure:
+            // an ObjectDisposedException raised without a requested shutdown still propagates.
         }
     }
 

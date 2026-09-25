@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 from pathlib import Path
@@ -150,3 +151,90 @@ def test_workspace_is_not_embeddable_and_is_not_cached(tmp_path: Path) -> None:
             response.read()
         finally:
             connection.close()
+
+
+@pytest.mark.parametrize("state", ["COMPLETED", "NO_CALL", "FAILED", "NOT_RUN"])
+def test_marlin_json_download_is_typed_and_current(tmp_path, state):
+    from test_marlin_report_presentation import archived_run
+
+    result = build_demo_result()
+    output = tmp_path / "results"
+    envelope = output / result.manifest.run_id / result.manifest.sample_id
+    result, report, run = archived_run(envelope, state)
+    if state in {"COMPLETED", "NO_CALL"}:
+        from ontseq_platform.pipeline.runner import RUN_REPORT
+
+        # Preserve a valid artifact's original whitespace, not a new serialization.
+        report_record = run.stages[0].outputs[0]
+        report_path = envelope / report_record.relative_path
+        report_path.write_text(report.model_dump_json(indent=2) + "\n")
+        report_record.size_bytes = report_path.stat().st_size
+        report_record.sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        result.provenance.reference_checksums["marlin_report"] = report_record.sha256
+        result_record = run.stages[1].outputs[0]
+        result_path = envelope / result_record.relative_path
+        result_path.write_text(result.model_dump_json())
+        result_record.size_bytes = result_path.stat().st_size
+        result_record.sha256 = hashlib.sha256(result_path.read_bytes()).hexdigest()
+        (envelope / RUN_REPORT).write_text(run.model_dump_json())
+    if state in {"FAILED", "NOT_RUN"}:
+        stale = envelope / f"evidence/marlin/{result.manifest.sample_id}.marlin.json"
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text("STALE INVALID CONTENT")
+    with _service(tmp_path, output) as (config, port):
+        route = (
+            f"/api/artifacts?run_id={result.manifest.run_id}"
+            f"&sample_id={result.manifest.sample_id}&kind=marlin"
+        )
+        assert _request(port, "GET", route)[0] == 401
+        status, body = _request(port, "GET", route, token=config.token)
+        assert status == 200, body
+        data = json.loads(body)
+        assert data["status"] == state
+        assert data["top_class_score"] == (0.6 if state == "COMPLETED" else None)
+        assert data["validation_status"] == "UNVALIDATED_RESEARCH"
+        if state in {"COMPLETED", "NO_CALL"}:
+            assert (
+                hashlib.sha256(body).hexdigest()
+                == (result.provenance.reference_checksums["marlin_report"])
+            )
+
+
+@pytest.mark.parametrize("tamper", ["artifact", "assembly", "duplicate_record", "lock"])
+def test_marlin_json_download_rejects_tampering(tmp_path, tamper):
+    from test_marlin_report_presentation import archived_run
+
+    from ontseq_platform.pipeline.lock import LOCK_FILENAME
+    from ontseq_platform.pipeline.runner import RUN_REPORT
+
+    result = build_demo_result()
+    output = tmp_path / "results"
+    envelope = output / result.manifest.run_id / result.manifest.sample_id
+    result, report, run = archived_run(envelope)
+    if tamper == "artifact":
+        (envelope / run.stages[0].outputs[0].relative_path).write_text(
+            report.model_dump_json() + " "
+        )
+    elif tamper == "assembly":
+        path = envelope / RESULT_JSON.format(sample=result.manifest.sample_id)
+        path.write_text(path.read_text() + " ")
+    elif tamper == "duplicate_record":
+        run.stages[1].outputs.append(run.stages[0].outputs[0])
+        (envelope / RUN_REPORT).write_text(run.model_dump_json())
+    else:
+        (envelope / LOCK_FILENAME).write_text("synthetic lock")
+    with _service(tmp_path, output) as (config, port):
+        route = (
+            f"/api/artifacts?run_id={result.manifest.run_id}"
+            f"&sample_id={result.manifest.sample_id}&kind=marlin"
+        )
+        status, body = _request(port, "GET", route, token=config.token)
+        assert status == (409 if tamper == "lock" else 400), body
+
+
+def test_legacy_marlin_json_download_is_not_found(tmp_path):
+    output = tmp_path / "results"
+    run_id, sample_id, envelope = _result(output)
+    with _service(tmp_path, output) as (config, port):
+        route = f"/api/artifacts?run_id={run_id}&sample_id={sample_id}&kind=marlin"
+        assert _request(port, "GET", route, token=config.token)[0] == 404

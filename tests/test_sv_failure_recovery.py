@@ -5,9 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from test_methylation_pipeline_integration import _Fixture
+from test_methylation_pipeline_integration import _Fixture, assemble_with_cnv_lane
 
-from ontseq_platform.cnv.extension import _assemble_execute as assemble_cnv
 from ontseq_platform.models import (
     AnalysisModule,
     EventType,
@@ -32,7 +31,7 @@ from ontseq_platform.pipeline.runner import (
 from ontseq_platform.pipeline.stages import StageId
 
 
-@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_cnv])
+@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_with_cnv_lane])
 def test_partial_sv_failure_is_failed_in_result_and_resume(tmp_path: Path, assemble) -> None:
     fixture = _Fixture(tmp_path)
     partial = SnifflesCallReport(
@@ -155,7 +154,7 @@ def test_cutesv_invalid_parallelism_is_rejected(tmp_path: Path, threads: int) ->
 
 
 def test_cutesv_worker_setting_reaches_command_and_provenance(tmp_path: Path) -> None:
-    from test_cutesv_atomic import CuteSvRunner
+    from test_cutesv_atomic import CuteSvRunner, qualified_cutesv_mock
 
     from ontseq_platform.models import CuteSvPolicy, SvConsensusPolicy
     from ontseq_platform.pipeline.runner import INTAKE_REPORT, RunContext, _sv_execute, _sv_plan
@@ -182,14 +181,15 @@ def test_cutesv_worker_setting_reaches_command_and_provenance(tmp_path: Path) ->
     runner = CuteSvRunner()
     ctx = RunContext(config, fixture.envelope(), runner, manifest)
     ctx.envelope.atomic_write_text(INTAKE_REPORT, fixture.intake.model_dump_json())
-    outcome = _sv_execute(ctx, _sv_plan(ctx))
+    with qualified_cutesv_mock():
+        outcome = _sv_execute(ctx, _sv_plan(ctx))
     assert outcome.status is ModuleRunStatus.COMPLETED
     assert outcome.tools[0].parameters["threads"] == 1
     assert runner.call_argv[runner.call_argv.index("--threads") + 1] == "1"
     assert config.threads == 4
 
 
-@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_cnv])
+@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_with_cnv_lane])
 @pytest.mark.parametrize("status", [ModuleRunStatus.FAILED, ModuleRunStatus.NOT_RUN])
 def test_failed_sv_does_not_parse_corrupt_partial_json(tmp_path: Path, assemble, status) -> None:
     fixture = _Fixture(tmp_path)

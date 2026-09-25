@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from ontseq_platform.cutesv import run_cutesv
+from ontseq_platform.cutesv_build import BUILD_ID, FIXED_BODY_SHA256, LAUNCH_CONTRACT
 from ontseq_platform.execution import CommandResult
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
@@ -26,6 +28,36 @@ VALID_VCF = """##fileformat=VCFv4.2
 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSYNTHETIC
 chr1\t1000\tcute-1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;END=1200;SVLEN=-201;RE=8\tGT:DR:DV\t0/1:8:8
 """
+
+QUALIFIED_CUTESV_IDENTITY = {
+    "cutesv_source_sha256": "1" * 64,
+    "cutesv_source_body_sha256": FIXED_BODY_SHA256,
+    "cutesv_source_shebang_sha256": "2" * 64,
+    "cutesv_launch_contract": LAUNCH_CONTRACT,
+    "cutesv_launch_interpreter": "python3",
+    "cutesv_build_id": BUILD_ID,
+    "cutesv_execution_body_sha256": FIXED_BODY_SHA256,
+}
+
+
+@contextmanager
+def qualified_cutesv_mock() -> Iterator[None]:
+    """Isolate mocked-runner tests from the separately tested executable qualification layer."""
+    with (
+        patch(
+            "ontseq_platform.cutesv.executable_identity",
+            return_value=QUALIFIED_CUTESV_IDENTITY.copy(),
+        ),
+        patch(
+            "ontseq_platform.cutesv.prepare_executable",
+            side_effect=lambda executable, _directory, _expected: executable,
+        ),
+        patch(
+            "ontseq_platform.pipeline.runner.cutesv_executable_identity",
+            return_value=QUALIFIED_CUTESV_IDENTITY.copy(),
+        ),
+    ):
+        yield
 
 
 class CuteSvRunner:
@@ -91,6 +123,11 @@ def _policy() -> CuteSvPolicy:
 
 
 class CuteSvAtomicTests(unittest.TestCase):
+    def setUp(self) -> None:
+        qualification = qualified_cutesv_mock()
+        qualification.__enter__()
+        self.addCleanup(qualification.__exit__, None, None, None)
+
     def test_productive_call_uses_locked_parameters_and_promotes_valid_vcf(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -184,7 +221,6 @@ class CuteSvAtomicTests(unittest.TestCase):
                         self.assertFalse(output.exists())
                 self.assertEqual(list(scratch_root.iterdir()), [])
                 self.assertEqual(list(output_root.glob(".cutesv-*")), [])
-                self.assertIsNotNone(runner.staged_vcf)
                 self.assertIsNotNone(runner.staged_vcf)
                 if runner.staged_vcf is not None:
                     self.assertEqual(runner.staged_vcf.parent.parent, output_root)

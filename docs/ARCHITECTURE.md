@@ -63,6 +63,24 @@ results/<run_id>/<sample_id>/
     └── signed-release.json
 ```
 
+## One declared stage graph
+
+Every stage the pipeline can execute is declared once in `pipeline/stages.py` and implemented
+once in `pipeline/runner.py`'s implementation table. Nothing is installed into that graph at
+run time: no command, service or extension replaces a stage specification or implementation
+for the lifetime of a process. Whatever differs between runs is part of the run's
+`RunConfiguration` (`pipeline/context.py`), including optional lanes such as the QDNAseq/ACE
+copy-number lane (`cnv_lane`). A long-running service therefore executes each run exactly as
+its own configuration says.
+
+Analysis lanes (`pipeline/marlin.py`, `cnv/lane.py`) depend on the stage contract in
+`pipeline/context.py`, not on the orchestrator. They implement their own stage and
+contribute to the single assembly and report stages; they never replace those. A lane's
+output becomes evidence for a later stage only through `current_artifact()`: an artifact the
+producing stage recorded in the current run that still verifies byte for byte. A file that
+merely exists in the envelope — left by an earlier attempt, a failed re-run or a
+since-deselected stage — is never read as current evidence.
+
 ## Adapter boundary
 
 ### Unified 0.7 analysis selection
