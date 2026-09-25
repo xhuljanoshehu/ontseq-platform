@@ -376,6 +376,35 @@ def _external_fingerprint(
 # --------------------------------------------------------------------------------------
 
 
+def _pod5_external_inputs(ctx: RunContext, directory: Path) -> tuple[tuple[str, str], ...]:
+    """Fingerprint the complete POD5 file set for content-addressed basecall resume."""
+
+    if not directory.is_dir():
+        raise StageFailure("POD5 input directory is missing or unreadable")
+
+    def inventory() -> tuple[str, ...]:
+        try:
+            return tuple(
+                path.relative_to(directory).as_posix()
+                for path in sorted(directory.rglob("*.pod5"))
+                if path.is_file()
+            )
+        except OSError as exc:
+            raise StageFailure("POD5 input directory could not be inventoried") from exc
+
+    before = inventory()
+    if not before:
+        raise StageFailure("POD5 input directory contains no .pod5 files")
+
+    fingerprints = tuple(
+        ctx.fingerprint_external_input(directory / relative, label=f"pod5:{relative}")
+        for relative in before
+    )
+    if inventory() != before:
+        raise StageFailure("POD5 input set changed while it was being fingerprinted")
+    return fingerprints
+
+
 def _basecall_plan(ctx: RunContext) -> StagePlan:
     policy = ctx.config.basecall_policy
     if policy is None:
@@ -396,7 +425,7 @@ def _basecall_plan(ctx: RunContext) -> StagePlan:
             "minimum_qscore": policy.minimum_qscore,
         },
         tool_versions={"dorado": version},
-        external_inputs=(("pod5_directory", str(ctx.config.pod5_directory.name)),),
+        external_inputs=_pod5_external_inputs(ctx, ctx.config.pod5_directory),
     )
 
 
