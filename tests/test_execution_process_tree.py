@@ -216,14 +216,17 @@ _PIPELINE = (
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-group contract")
-@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
+# Names, not ``signal`` attributes: native Windows has no SIGHUP, and parameters are
+# evaluated at collection, before ``skipif`` applies.
+@pytest.mark.parametrize("signal_name", ["SIGTERM", "SIGHUP"])
 def test_signal_to_the_pipeline_process_group_reaches_the_tool(
-    tmp_path: Path, signum: signal.Signals
+    tmp_path: Path, signal_name: str
 ) -> None:
     """A service manager or WSL teardown signals the pipeline's group; the tool must go too.
 
     The pipeline runs in its own session here only to isolate the test runner.
     """
+    signum = getattr(signal, signal_name)
     pid_path = tmp_path / "group-descendant.pid"
     pipeline = subprocess.Popen(
         [sys.executable, "-c", _PIPELINE, str(_SRC), _descendant_script(pid_path)],
