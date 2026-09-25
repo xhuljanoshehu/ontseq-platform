@@ -5,6 +5,17 @@ validated release.
 
 ## Unreleased
 
+- Fail closed when the research SAVANA CNA adapter's selected purity/ploidy fit disagrees with
+  its own ranked solutions table (#116). SAVANA 1.3.8 always sets the selected fit to the rank-1
+  ranked solution, so `_fit_outputs()` now requires ranked-solution ranks to be unique and to
+  contain rank 1, and requires the selected fit to match that rank-1 row exactly on purity,
+  ploidy, distance and rank. A disagreeing, duplicated or missing rank-1 output is rejected
+  instead of silently accepted.
+- Validation impact: adapter output-integrity hardening only. No SAVANA calling parameter,
+  threshold or reportability rule changes, and no real inconsistent SAVANA output has been
+  observed; this only rejects a caller-output bundle that contradicts SAVANA's own documented
+  contract.
+
 - Stop the whole tool process tree when a local tool run ends abnormally (#104). The shared
   `SubprocessRunner` used `subprocess.run(..., timeout=...)`, which kills only the direct child,
   so a timed-out multiprocessing tool such as cuteSV could leave CPU/RAM-consuming workers
