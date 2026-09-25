@@ -990,9 +990,12 @@ def _methylation_plan(ctx: RunContext) -> StagePlan:
         )
     modkit = ctx.config.executable("modkit")
     binary = identify_modkit_binary(modkit)
-    external_inputs = [_external_fingerprint(ctx, Path(ctx.manifest.input.path))]
-    if ctx.config.reference_fasta is not None:
-        external_inputs.append(_external_fingerprint(ctx, ctx.config.reference_fasta))
+    external_inputs = [
+        _external_fingerprint(ctx, Path(ctx.manifest.input.path)),
+        # Always present: the plan refuses above without a reference FASTA, because
+        # --modified-bases needs one for every methylation run, not only CpG-restricted ones.
+        _external_fingerprint(ctx, ctx.config.reference_fasta),
+    ]
     if policy.region_source == MethylationRegionSource.TARGET_BED:
         if not ctx.manifest.assay.target_bed:
             raise StageFailure(

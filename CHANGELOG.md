@@ -30,6 +30,27 @@ validated release.
   thresholds and reportability are unchanged; this does not establish analytical or clinical
   validity of the adapter.
 
+- Count each position's failed and no-call reads once in the methylation report totals.
+  modkit repeats `N_fail` and `N_nocall` on every modification code's row at one position — the
+  PR709 real-binary oracle asserts exactly that — and `summary_metrics["fail_call_count"]` and
+  `["nocall_call_count"]` summed the rows. With the shipped policies declaring `[m, h]`, each
+  position was counted twice, overstating the totals whose purpose is to keep "not measured"
+  apart from "not modified". They are now summed per position, and rows that disagree on those
+  counts at one position are refused as a format contradiction.
+- Validation impact: the two report-level totals of any run with more than one modification code
+  change, to half their previous value for the shipped two-code policies; single-code runs are
+  unaffected. Per-region counts, modified fractions, coverage floors and every other metric are
+  unchanged. No threshold, caller parameter or reportability rule changes.
+
+- Name the remedy when the modkit 0.6.4 guard refuses independent cytosine MM groups. The
+  refusal said the pileup was blocked "until a corrected pinned modkit release is validated",
+  which read as though no fix existed; the qualified PR709 build has since been registered and
+  documented. The message now says this is the usual 5mC+5hmC encoding, that stock 0.6.4 from the
+  conda environment is what refuses it, and points to `docs/MODKIT_PR709_BUILD.md` and
+  `--modkit` — matching the wording the Marlin lane already uses for the same guard.
+  Validation impact: message text only; the guard, its build-identity check and every refusal
+  condition are unchanged.
+
 - Correct Adaptive Sampling SV breakpoint observability to the breakpoints themselves (#106).
   Deletions, duplications and inversions were matched against the target design by their whole
   normalized span, so a target inside the event made a simple SV look breakpoint-observable
