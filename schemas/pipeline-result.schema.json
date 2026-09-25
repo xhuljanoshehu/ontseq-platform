@@ -19,7 +19,8 @@
         "iscn",
         "report",
         "small_variants",
-        "methylation"
+        "methylation",
+        "marlin"
       ],
       "title": "AnalysisModule",
       "type": "string"

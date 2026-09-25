@@ -40,6 +40,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
+from ..cnv.lane import CnvLaneSettings
 from ..execution import SubprocessRunner, ToolExecutionError
 from ..io import load_model
 from ..methylation import MethylationPolicy, MethylationReport, modkit_version
@@ -91,7 +92,7 @@ from ..review import inspect as inspect_review
 from ..review import record as record_review
 from ..status import scan as scan_envelopes
 from ..target_coverage import TargetCoveragePolicy
-from .befund import current_befund
+from .befund import ArchivedEvidence, current_befund, load_archived_marlin
 from .guard import (
     TOKEN_HEADER,
     GuardError,
@@ -193,6 +194,8 @@ class ServiceConfig:
     sniffles_policy: Path
     target_coverage_policy: Path
     components: RunComponents | None = None
+    #: The copy-number lane every run of this service uses; ``None`` leaves CNV unconfigured.
+    cnv_lane: CnvLaneSettings | None = None
     cutesv_policy: Path | None = None
     sv_consensus_policy: Path | None = None
     sv_evidence_policy: Path | None = None
@@ -204,6 +207,7 @@ class ServiceConfig:
     sv_minimum_mean_depth: float = 10.0
     cutesv_executable: str = "cuteSV"
     methylation_policy: Path | None = None
+    marlin_installation: Path | None = None
     modkit_executable: str = "modkit"
     samtools_executable: str = "samtools"
     resource_root: Path | None = None
@@ -341,6 +345,41 @@ def _runtime_git_commit() -> str:
     return value if re.fullmatch(r"[0-9a-f]{40}", value) else "UNKNOWN"
 
 
+def _marlin_installation(config: ServiceConfig) -> Path:
+    from ..resource_registry import resource_root_from_environment
+
+    return (
+        config.marlin_installation
+        or resource_root_from_environment(config.resource_root) / "marlin" / "installation.json"
+    )
+
+
+def _marlin_readiness(config: ServiceConfig, build: GenomeBuild) -> dict[str, object]:
+    from ..marlin_native import check_native_marlin_readiness
+    from ..modkit_build import identify_modkit_binary
+
+    readiness = check_native_marlin_readiness(_marlin_installation(config), build)
+    ready, reason = readiness.ready, readiness.reason
+    if ready:
+        try:
+            binary = identify_modkit_binary(config.modkit_executable)
+            version = SubprocessRunner().run([binary.executable, "--version"], timeout_seconds=10)
+            if (
+                version.returncode
+                or modkit_version(version.stdout + "\n" + version.stderr) != "0.6.4"
+            ):
+                raise ValueError("MARLIN requires configured modkit 0.6.4")
+        except (OSError, ValueError, ToolExecutionError) as error:
+            ready, reason = False, str(error)
+    return {
+        "ready": ready,
+        "reason": reason,
+        "genome_build": build.value,
+        "readiness_level": "CONFIGURED_NOT_VERIFIED" if ready else "UNAVAILABLE",
+        "validation_status": "UNVALIDATED_RESEARCH",
+    }
+
+
 def _include_methylation(payload: dict[str, Any]) -> bool:
     value = payload.get("include_methylation", False)
     if not isinstance(value, bool):
@@ -466,6 +505,7 @@ def _build_manifest(
     ]
     if _include_methylation(payload):
         modules.insert(-1, AnalysisModule.METHYLATION)
+        modules.insert(-1, AnalysisModule.MARLIN)
 
     return SampleManifest(
         sample_id=str(payload.get("sample_id", "")).strip(),
@@ -517,6 +557,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
                 else None
             ),
             reference_fasta=config.reference_fasta,
+            marlin_installation=_marlin_installation(config),
             gene_annotation=config.gene_annotation,
             cytoband_annotation=config.cytoband_annotation,
             sv_context_resources=config.sv_context_resources,
@@ -529,6 +570,7 @@ def _execute(config: ServiceConfig, manifest: SampleManifest, job: RunJob) -> No
                 else None
             ),
             components=config.components,
+            cnv_lane=config.cnv_lane,
             threads=config.threads,
             cutesv_threads=config.cutesv_threads,
             executables={
@@ -609,6 +651,8 @@ def _build_profile_configuration(
             threads=config.threads,
             cutesv_threads=config.cutesv_threads,
             include_methylation=include_methylation,
+            marlin_installation=_marlin_installation(config),
+            cnv_lane=config.cnv_lane,
             executables={
                 "cutesv": config.cutesv_executable,
                 "samtools": config.samtools_executable,
@@ -781,6 +825,18 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 self._methylation_scan_status(route.path[len("/api/methylation/scans/") :])
             elif route.path == "/api/browse":
                 self._browse(query.get("path", [""])[0])
+            elif route.path == "/api/marlin/readiness":
+                try:
+                    if set(query) != {"genome_build"} or len(query["genome_build"]) != 1:
+                        raise ValueError(
+                            "MARLIN readiness requires one genome_build and no other parameters"
+                        )
+                    build = GenomeBuild(query["genome_build"][0])
+                    if build not in {GenomeBuild.GRCH37, GenomeBuild.GRCH38}:
+                        raise ValueError("MARLIN supports GRCh37 and GRCh38")
+                    self._json(HTTPStatus.OK, _marlin_readiness(config, build))
+                except (ValueError, OSError) as error:
+                    self._refuse(HTTPStatus.BAD_REQUEST, str(error))
             elif route.path == "/api/findings":
                 self._findings()
             elif route.path == "/api/locate":
@@ -947,6 +1003,7 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 "json": (RESULT_JSON, "application/json"),
                 "html": (REPORT_HTML, "text/html; charset=utf-8"),
                 "befund": (RESULT_JSON, "text/html; charset=utf-8"),
+                "marlin": (RESULT_JSON, "application/json"),
                 "xlsx": (
                     REPORT_XLSX,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -988,6 +1045,22 @@ def make_handler(config: ServiceConfig, jobs: Jobs) -> type[BaseHTTPRequestHandl
                 if path.stat().st_size > MAX_RESULT_BYTES:
                     raise ValueError("artifact is too large for the interactive workspace")
                 body = path.read_bytes() if download else result.model_dump_json().encode("utf-8")
+                if kind == "marlin":
+                    if (envelope / LOCK_FILENAME).exists():
+                        self._refuse(HTTPStatus.CONFLICT, "the run envelope is still locked")
+                        return
+                    marlin_evidence = ArchivedEvidence(envelope, result)
+                    marlin_report = load_archived_marlin(envelope, result, evidence=marlin_evidence)
+                    if marlin_report is None:
+                        self._refuse(HTTPStatus.NOT_FOUND, "no MARLIN execution evidence recorded")
+                        return
+                    if marlin_report.status.value in {"COMPLETED", "NO_CALL"}:
+                        body = marlin_evidence.verified_bytes[
+                            f"evidence/marlin/{sample_id}.marlin.json"
+                        ]
+                    else:
+                        body = marlin_report.model_dump_json().encode("utf-8")
+                    path = Path(f"{sample_id}.marlin.json")
                 if kind == "befund":
                     body = current_befund(envelope, result)
                     path = Path(f"{sample_id}.befund.html")

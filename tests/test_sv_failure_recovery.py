@@ -5,9 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from test_methylation_pipeline_integration import _Fixture
+from test_methylation_pipeline_integration import _Fixture, assemble_with_cnv_lane
 
-from ontseq_platform.cnv.extension import _assemble_execute as assemble_cnv
 from ontseq_platform.models import (
     AnalysisModule,
     EventType,
@@ -32,7 +31,7 @@ from ontseq_platform.pipeline.runner import (
 from ontseq_platform.pipeline.stages import StageId
 
 
-@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_cnv])
+@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_with_cnv_lane])
 def test_partial_sv_failure_is_failed_in_result_and_resume(tmp_path: Path, assemble) -> None:
     fixture = _Fixture(tmp_path)
     partial = SnifflesCallReport(
@@ -190,7 +189,7 @@ def test_cutesv_worker_setting_reaches_command_and_provenance(tmp_path: Path) ->
     assert config.threads == 4
 
 
-@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_cnv])
+@pytest.mark.parametrize("assemble", [_assemble_execute, assemble_with_cnv_lane])
 @pytest.mark.parametrize("status", [ModuleRunStatus.FAILED, ModuleRunStatus.NOT_RUN])
 def test_failed_sv_does_not_parse_corrupt_partial_json(tmp_path: Path, assemble, status) -> None:
     fixture = _Fixture(tmp_path)

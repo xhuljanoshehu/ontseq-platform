@@ -60,6 +60,7 @@ class OutputTests(unittest.TestCase):
                     "08_Methods_Versions",
                     "09_Run_Log",
                     "10_Module_Status",
+                    "11_MARLIN",
                 ],
             )
             iscn_rows = list(workbook["06_ISCN"].iter_rows(values_only=True))

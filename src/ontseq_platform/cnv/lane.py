@@ -1,28 +1,42 @@
+"""The QDNAseq/ACE copy-number lane as a first-class member of the stage graph.
+
+The lane contributes three things to a run and replaces nothing:
+
+* the ``cnv`` stage itself (:func:`plan`, :func:`execute`), configured by the run's
+  :class:`CnvLaneSettings` rather than by process-global registration;
+* the copy-number part of result assembly (:func:`merge_into_result`): CNV events, the
+  recomputed ISCN proposal and the CNV module outcome;
+* the copy-number part of the reviewer report (plots through ``render_html`` and the
+  workbook sheets added by :func:`enrich_workbook`).
+
+Assembly and reporting themselves stay single implementations in
+:mod:`ontseq_platform.pipeline.runner`. Copy-number evidence enters them only through
+:func:`load_current_cnv`, i.e. as an artifact this run's CNV stage recorded and that still
+verifies byte for byte. A report left in the envelope by an earlier attempt, a failed
+re-run or a run that did not request CNV is never merged into a result.
+"""
+
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import MutableMapping, Sequence
+from collections.abc import Sequence
 from contextlib import closing
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, Any
 
 from openpyxl import load_workbook
 
 from ..annotation_cache import require_annotation_cache_build, validate_annotation_cache
-from ..coverage_artifacts import COVERAGE_ARTIFACT_CONTRACT, load_run_coverage
 from ..iscn import (
-    ISCN_RULE_PROFILE,
     build_iscn_proposal,
     iscn_module_outcome,
     resource_provenance_for_iscn,
 )
 from ..models import (
-    AlignedBamIntakeReport,
     AnalysisModule,
     CraminoQCReport,
-    CuteSvCallReport,
     EventType,
     ISCNAssessmentBlocker,
     ISCNResourceProvenance,
@@ -32,22 +46,12 @@ from ..models import (
     PipelineResult,
     Provenance,
     SidecarArtifact,
-    SnifflesCallReport,
-    SvConsensusReport,
     Verdict,
 )
-from ..mvp import assemble_aligned_bam_mvp
-from ..pipeline import runner as pipeline_runner
+from ..pipeline.context import StagePlan, StageResult, current_artifact
 from ..pipeline.envelope import Artifact, sha256_file
-from ..pipeline.runner import StageImplementation, StagePlan, StageResult
-from ..pipeline.stages import SPEC_BY_STAGE, StageId, StageSpec, VerificationStatus
-from ..qc import read_length_histogram_from_tsv
-from ..report import render_html
-from ..report_cnv import cnv_html_section
-from ..report_interactive import REPORT_PRESENTATION_VERSION
-from ..report_plots import ReadLengthBin
+from ..pipeline.stages import StageId
 from ..sidecars import tabular_sidecar
-from ..workbook import render_workbook
 from .cytoband import AffectedBandGroup, CnvDirection, CnvSegment, Cytoband, annotate_cnv_cytobands
 from .qdnaseq import (
     WHOLE_CHROMOSOME_CONFIRMATION,
@@ -56,33 +60,30 @@ from .qdnaseq import (
     run_qdnaseq_ace,
 )
 
+if TYPE_CHECKING:
+    from ..pipeline.context import RunContext
+
 CNV_DIR = "evidence/cnv/qdnaseq"
 CNV_REPORT = "evidence/cnv/{sample}.qdnaseq.json"
 CNV_CYTOBAND_REPORT = "evidence/cnv/{sample}.cytobands.json"
+#: Identifies this lane in assembly and report plans, and therefore in their resume signatures.
+LANE_ID = "qdnaseq-ace-v1"
 
 
 @dataclass(frozen=True)
-class QDNAseqExtensionSettings:
+class CnvLaneSettings:
+    """How this run calls copy number: the versioned policy and the pinned R runner."""
+
     policy: QDNAseqPolicy
     rscript: str = "Rscript"
     script: Path = Path("scripts/run_qdnaseq_ace.R")
 
 
-_SETTINGS: QDNAseqExtensionSettings | None = None
-
-
-def _settings() -> QDNAseqExtensionSettings:
-    if _SETTINGS is None:
-        raise RuntimeError("QDNAseq extension has not been registered")
-    return _SETTINGS
-
-
-def _requested(ctx: pipeline_runner.RunContext) -> bool:
+def _requested(ctx: RunContext) -> bool:
     return AnalysisModule.CNV in set(ctx.manifest.analysis.modules)
 
 
-def _probe_r_packages(ctx: pipeline_runner.RunContext) -> dict[str, str]:
-    settings = _settings()
+def _probe_r_packages(ctx: RunContext, settings: CnvLaneSettings) -> dict[str, str]:
     r_version = ctx.runner.run([settings.rscript, "--version"], timeout_seconds=60)
     if r_version.returncode != 0:
         raise ValueError(f"Rscript version probe failed: {r_version.stderr.strip()}")
@@ -107,13 +108,13 @@ def _probe_r_packages(ctx: pipeline_runner.RunContext) -> dict[str, str]:
     }
 
 
-def _cnv_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
+def plan(ctx: RunContext, settings: CnvLaneSettings) -> StagePlan:
+    """Plan the QDNAseq/ACE run, or record that the manifest did not ask for copy number."""
     if not _requested(ctx):
         return StagePlan(parameters={"requested": False}, tool_versions={})
-    settings = _settings()
     if not settings.script.is_file():
         raise ValueError(f"QDNAseq R runner not found: {settings.script}")
-    versions = _probe_r_packages(ctx)
+    versions = _probe_r_packages(ctx, settings)
     bam = Path(ctx.manifest.input.path)
     external_inputs = [
         ctx.fingerprint_external_input(bam),
@@ -168,8 +169,9 @@ def _load_cytobands(annotation_cache: Path, *, expected_build: str = "GRCh38") -
 
 
 def _annotate_cnv_cytobands(
-    ctx: pipeline_runner.RunContext,
+    ctx: RunContext,
     report: QDNAseqCallReport,
+    settings: CnvLaneSettings,
 ) -> tuple[QDNAseqCallReport, Artifact | None]:
     cache = ctx.config.annotation_cache
     if cache is None or not report.events:
@@ -197,7 +199,7 @@ def _annotate_cnv_cytobands(
     annotation = annotate_cnv_cytobands(
         segments,
         _load_cytobands(cache, expected_build=ctx.config.manifest.assay.genome_build.value),
-        affected_fraction=_settings().policy.cytoband_affected_fraction,
+        affected_fraction=settings.policy.cytoband_affected_fraction,
         chromosome_sizes=chromosome_sizes,
     )
     affected_groups: dict[str, list[AffectedBandGroup]] = {}
@@ -255,9 +257,9 @@ def _annotate_cnv_cytobands(
         "schema_version": "1.0.0",
         "genome_build": ctx.config.manifest.assay.genome_build.value,
         "policy": {
-            "schema_version": _settings().policy.schema_version,
-            "profile_id": _settings().policy.profile_id,
-            "cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
+            "schema_version": settings.policy.schema_version,
+            "profile_id": settings.policy.profile_id,
+            "cytoband_affected_fraction": settings.policy.cytoband_affected_fraction,
         },
         "threshold": annotation.threshold,
         "raw_overlaps": [asdict(item) for item in annotation.raw_overlaps],
@@ -273,10 +275,7 @@ def _annotate_cnv_cytobands(
     return annotated_report, artifact
 
 
-def _record_cnv_outputs(
-    ctx: pipeline_runner.RunContext,
-    report: QDNAseqCallReport,
-) -> list[Artifact]:
+def _record_cnv_outputs(ctx: RunContext, report: QDNAseqCallReport) -> list[Artifact]:
     artifacts: list[Artifact] = []
     relative_report = ctx.path(CNV_REPORT)
     artifacts.append(
@@ -289,14 +288,18 @@ def _record_cnv_outputs(
     return artifacts
 
 
-def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
-    del plan
+def execute(ctx: RunContext, stage_plan: StagePlan, settings: CnvLaneSettings) -> StageResult:
+    """Run QDNAseq/ACE and record every normalized output as a checksummed stage artifact."""
+    del stage_plan
     if not _requested(ctx):
         return StageResult(
             status=ModuleRunStatus.NOT_RUN,
             reason="CNV was not requested in the sample manifest.",
         )
-    settings = _settings()
+    # A re-execution owns the normalized report path. Remove it first, so a failed attempt
+    # cannot leave an earlier attempt's report looking like this run's output on disk.
+    for template in (CNV_REPORT, CNV_CYTOBAND_REPORT):
+        ctx.envelope.path(ctx.path(template)).unlink(missing_ok=True)
     report = run_qdnaseq_ace(
         bam=Path(ctx.manifest.input.path),
         sample_id=ctx.sample_id,
@@ -309,7 +312,7 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
         rscript=settings.rscript,
         threads=ctx.config.threads,
     )
-    report, cytoband_artifact = _annotate_cnv_cytobands(ctx, report)
+    report, cytoband_artifact = _annotate_cnv_cytobands(ctx, report, settings)
     artifacts = _record_cnv_outputs(ctx, report)
     if cytoband_artifact is not None:
         artifacts.append(cytoband_artifact)
@@ -330,15 +333,23 @@ def _cnv_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResul
     )
 
 
-def _load_cnv(ctx: pipeline_runner.RunContext) -> QDNAseqCallReport | None:
-    path = ctx.envelope.path(ctx.path(CNV_REPORT))
-    if not path.is_file():
+def load_current_cnv(ctx: RunContext) -> QDNAseqCallReport | None:
+    """Read the copy-number report this run's CNV stage recorded, if it recorded one.
+
+    The only way copy-number evidence reaches assembly or the reviewer report. A report
+    that merely exists in the envelope, from an earlier attempt, a failed re-run or a run
+    that never requested CNV, is not evidence about this run.
+    """
+    relative_path = ctx.path(CNV_REPORT)
+    if current_artifact(ctx, StageId.CNV, relative_path) is None:
         return None
-    return QDNAseqCallReport.model_validate_json(path.read_text(encoding="utf-8"))
+    return QDNAseqCallReport.model_validate_json(
+        ctx.envelope.path(relative_path).read_text(encoding="utf-8")
+    )
 
 
 def _verified_iscn_resource_provenance(
-    ctx: pipeline_runner.RunContext,
+    ctx: RunContext,
 ) -> tuple[ISCNResourceProvenance | None, list[ISCNAssessmentBlocker]]:
     context = ctx.config.resource_context
     provenance = resource_provenance_for_iscn(context)
@@ -419,64 +430,13 @@ def _verified_iscn_resource_provenance(
     return provenance, []
 
 
-def _assemble_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
-    sv_outcome = pipeline_runner.current_sv_outcome(ctx)
-    external: list[tuple[str, str]] = []
-    for relative in (
-        ctx.path(CNV_REPORT),
-        ctx.path(pipeline_runner.SV_REPORT),
-        ctx.path(pipeline_runner.METHYLATION_REPORT),
-        ctx.path(pipeline_runner.SV_CONSENSUS_REPORT),
-    ):
-        path = ctx.envelope.path(relative)
-        if path.is_file():
-            external.append((Path(relative).name, sha256_file(path)))
-    annotation_cache = ctx.config.annotation_cache
-    if annotation_cache is not None and annotation_cache.is_file():
-        external.append(("iscn_annotation_cache", sha256_file(annotation_cache)))
-    resource_context = ctx.config.resource_context
-    if resource_context is not None:
-        for label, key in (
-            ("iscn_reference_lock", "reference.reference_lock"),
-            ("iscn_cytobands", "reference.cytobands"),
-        ):
-            raw_path = resource_context.resource_paths.get(key)
-            resource_path = Path(raw_path) if raw_path is not None else None
-            if resource_path is not None and resource_path.is_file():
-                external.append((label, sha256_file(resource_path)))
-    iscn_reference_lock_sha256 = (
-        resource_context.resource_checksums.get("reference.reference_lock", "UNAVAILABLE")
-        if resource_context is not None
-        else "UNAVAILABLE"
-    )
-    iscn_cytoband_sha256 = (
-        resource_context.resource_checksums.get("reference.cytobands", "UNAVAILABLE")
-        if resource_context is not None
-        else "UNAVAILABLE"
-    )
-    iscn_annotation_cache_sha256 = (
-        resource_context.resource_checksums.get("reference.annotation_cache", "UNAVAILABLE")
-        if resource_context is not None
-        else "UNAVAILABLE"
-    )
-    return StagePlan(
-        parameters={
-            "pipeline_version": ctx.config.pipeline_version,
-            "git_commit": ctx.config.git_commit,
-            "cnv_extension": "qdnaseq-ace-v1",
-            "sv_stage_outcome": sv_outcome.model_dump(mode="json") if sv_outcome else None,
-            "iscn_rule_profile": ISCN_RULE_PROFILE,
-            "iscn_selection_policy": ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1.value,
-            "iscn_exact_full_chromosome_span_required": True,
-            "iscn_whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
-            "iscn_cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
-            "iscn_reference_lock_sha256": iscn_reference_lock_sha256,
-            "iscn_cytoband_sha256": iscn_cytoband_sha256,
-            "iscn_annotation_cache_sha256": iscn_annotation_cache_sha256,
-        },
-        tool_versions={},
-        external_inputs=tuple(external),
-    )
+def assemble_parameters(settings: CnvLaneSettings) -> dict[str, object]:
+    """What this lane adds to the assembly plan, and therefore to its resume signature."""
+    return {
+        "cnv_lane": LANE_ID,
+        "iscn_whole_chromosome_fraction": settings.policy.whole_chromosome_fraction,
+        "iscn_cytoband_affected_fraction": settings.policy.cytoband_affected_fraction,
+    }
 
 
 def _replace_module(
@@ -492,187 +452,110 @@ def _merge_provenance(base: Provenance, cnv: QDNAseqCallReport) -> Provenance:
     return base.model_copy(update={"tools": [*base.tools, *cnv.tools]})
 
 
-def _assemble_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
-    del plan
-    intake = AlignedBamIntakeReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.INTAKE_REPORT).read_text(encoding="utf-8")
+def merge_into_result(
+    ctx: RunContext,
+    result: PipelineResult,
+    *,
+    qc: CraminoQCReport,
+    cnv: QDNAseqCallReport,
+    settings: CnvLaneSettings,
+) -> PipelineResult:
+    """Add current copy-number evidence to an assembled result and recompute ISCN."""
+    if cnv.sample_id != ctx.manifest.sample_id:
+        raise ValueError("Manifest and QDNAseq/ACE artifact must refer to the same sample")
+    if cnv.genome_build != ctx.manifest.assay.genome_build:
+        raise ValueError("Manifest and QDNAseq/ACE artifact use different genome builds")
+    sidecars: list[SidecarArtifact] = list(result.sidecars)
+    primary_tables = (
+        ("cnv_bins", cnv.primary_fit.bins_file),
+        ("cnv_segments", cnv.primary_fit.segment_file),
+        ("ace_models", cnv.primary_fit.model_file),
     )
-    qc = CraminoQCReport.model_validate_json(
-        ctx.envelope.path(pipeline_runner.QC_REPORT).read_text(encoding="utf-8")
-    )
-    sv_outcome = pipeline_runner.current_sv_outcome(ctx)
-    use_sv = sv_outcome is None or sv_outcome.status in {
-        ModuleRunStatus.COMPLETED,
-        ModuleRunStatus.NO_CALL,
-    }
-    sv_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_REPORT))
-    sniffles = (
-        SnifflesCallReport.model_validate_json(sv_path.read_text(encoding="utf-8"))
-        if use_sv and sv_path.is_file()
-        else None
-    )
-    cutesv_path = ctx.envelope.path(ctx.path(pipeline_runner.CUTESV_REPORT))
-    cutesv = (
-        CuteSvCallReport.model_validate_json(cutesv_path.read_text(encoding="utf-8"))
-        if use_sv and cutesv_path.is_file()
-        else None
-    )
-    consensus_path = ctx.envelope.path(ctx.path(pipeline_runner.SV_CONSENSUS_REPORT))
-    consensus = (
-        SvConsensusReport.model_validate_json(consensus_path.read_text(encoding="utf-8"))
-        if use_sv and consensus_path.is_file()
-        else None
-    )
-    sidecars: list[SidecarArtifact] = []
-    histogram = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
-    if histogram.is_file():
+    for artifact_id, filename in primary_tables:
+        if filename is None:
+            continue
         sidecars.append(
             tabular_sidecar(
-                artifact_id="read_length_histogram",
+                artifact_id=artifact_id,
                 envelope_root=ctx.envelope.root,
-                relative_path=pipeline_runner.QC_READ_LENGTH_HISTOGRAM,
+                relative_path=f"{CNV_DIR}/{filename}",
             )
         )
-    result = assemble_aligned_bam_mvp(
-        ctx.manifest,
-        intake,
-        qc,
-        pipeline_version=ctx.config.pipeline_version,
-        git_commit=ctx.config.git_commit,
-        sniffles_report=sniffles,
-        methylation_report=pipeline_runner.load_methylation_report(ctx),
-        cutesv_report=cutesv,
-        sv_consensus_report=consensus,
-        sv_stage_outcome=sv_outcome,
-        reference_context=ctx.config.resource_context,
-        sidecars=sidecars,
+    outcome = ModuleOutcome(
+        module=AnalysisModule.CNV,
+        status=cnv.status,
+        reason=(
+            f"QDNAseq+ACE multi-bin CNV completed; primary "
+            f"{cnv.primary_fit.bin_size_kbp} kbp, cellularity "
+            f"{cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
+        ),
+        tools=cnv.tools,
     )
-    cnv = _load_cnv(ctx)
-    if cnv is not None:
-        if cnv.sample_id != ctx.manifest.sample_id:
-            raise ValueError("Manifest and QDNAseq/ACE artifact must refer to the same sample")
-        if cnv.genome_build != ctx.manifest.assay.genome_build:
-            raise ValueError("Manifest and QDNAseq/ACE artifact use different genome builds")
-        primary_tables = (
-            ("cnv_bins", cnv.primary_fit.bins_file),
-            ("cnv_segments", cnv.primary_fit.segment_file),
-            ("ace_models", cnv.primary_fit.model_file),
-        )
-        for artifact_id, filename in primary_tables:
-            if filename is None:
-                continue
-            relative = f"{CNV_DIR}/{filename}"
-            sidecars.append(
-                tabular_sidecar(
-                    artifact_id=artifact_id,
-                    envelope_root=ctx.envelope.root,
-                    relative_path=relative,
-                )
-            )
-        outcome = ModuleOutcome(
-            module=AnalysisModule.CNV,
-            status=cnv.status,
-            reason=(
-                f"QDNAseq+ACE multi-bin CNV completed; primary "
-                f"{cnv.primary_fit.bin_size_kbp} kbp, cellularity "
-                f"{cnv.primary_fit.cellularity:.3f}, ploidy {cnv.primary_fit.ploidy:.3f}."
-            ),
-            tools=cnv.tools,
-        )
-        combined_events = [*cnv.events, *result.events]
-        iscn_provenance, iscn_blockers = _verified_iscn_resource_provenance(ctx)
-        if qc.qc.verdict == Verdict.FAIL:
-            iscn_blockers.append(
-                ISCNAssessmentBlocker(
-                    reason_code="QC_FAILED",
-                    detail=(
-                        "run QC failed; candidate events remain visible but ISCN assessment "
-                        "is blocked"
-                    ),
-                )
-            )
-        proposal = build_iscn_proposal(
-            combined_events,
-            genome_build=ctx.manifest.assay.genome_build,
-            selection_policy=ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1,
-            requested=AnalysisModule.ISCN in set(ctx.manifest.analysis.modules),
-            upstream_evidence_assessed=cnv.status
-            in {ModuleRunStatus.COMPLETED, ModuleRunStatus.NO_CALL},
-            resource_provenance=iscn_provenance,
-            policy_parameters={
-                "automatic_unvalidated_sv_to_iscn": False,
-                "sex_chromosomes_assessed": False,
-                "exact_full_chromosome_span_required_for_iscn": (
-                    _settings().policy.whole_chromosome_span_basis == "exact_contig"
+    policy = settings.policy
+    combined_events = [*cnv.events, *result.events]
+    iscn_provenance, iscn_blockers = _verified_iscn_resource_provenance(ctx)
+    if qc.qc.verdict == Verdict.FAIL:
+        iscn_blockers.append(
+            ISCNAssessmentBlocker(
+                reason_code="QC_FAILED",
+                detail=(
+                    "run QC failed; candidate events remain visible but ISCN assessment is blocked"
                 ),
-                "whole_chromosome_span_basis": _settings().policy.whole_chromosome_span_basis,
-                "cnv_policy_profile_id": _settings().policy.profile_id,
-                "cnv_policy_schema_version": _settings().policy.schema_version,
-                "whole_chromosome_fraction": _settings().policy.whole_chromosome_fraction,
-                "cytoband_affected_fraction": _settings().policy.cytoband_affected_fraction,
-            },
-            technical_assumptions=[
-                "Whole-chromosome candidate classification uses the versioned QDNAseq "
-                "segment-fraction threshold; +chr/-chr rendering additionally requires a "
-                "confirmed whole-chromosome span under the versioned span basis, either an "
-                "exact zero-to-contig-end segment or full coverage of that chromosome's "
-                "assessable QDNAseq bins.",
-                "Segmental fragments require one contiguous affected cytoband group at the "
-                "versioned affected-fraction threshold.",
-                "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
-            ],
-            assessment_blockers=iscn_blockers,
-            cnv_source_event_ids={event.event_id for event in cnv.events},
+            )
         )
-        iscn_outcome = iscn_module_outcome(proposal)
-        result = result.model_copy(
-            update={
-                "events": combined_events,
-                "iscn": proposal,
-                "modules": _replace_module(_replace_module(result.modules, outcome), iscn_outcome),
-                "provenance": _merge_provenance(result.provenance, cnv),
-                "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
-                "sidecars": sidecars,
-            }
-        )
-    result = PipelineResult.model_validate(result.model_dump(mode="python"))
-    artifact = ctx.envelope.atomic_write_text(
-        ctx.path(pipeline_runner.RESULT_JSON),
-        result.model_dump_json(indent=2) + "\n",
-    )
-    return StageResult(
-        status=ModuleRunStatus.COMPLETED,
-        reason="QC, QDNAseq/ACE CNV and available SV evidence assembled into one result.",
-        outputs=[artifact],
-    )
-
-
-def _report_plan(ctx: pipeline_runner.RunContext) -> StagePlan:
-    external: list[tuple[str, str]] = []
-    cnv_path = ctx.envelope.path(ctx.path(CNV_REPORT))
-    if cnv_path.is_file():
-        external.append((Path(ctx.path(CNV_REPORT)).name, sha256_file(cnv_path)))
-    return StagePlan(
-        parameters={
-            "formats": ["json", "html", "xlsx"],
-            "cnv_visualization": True,
-            "report_presentation": REPORT_PRESENTATION_VERSION,
-            "coverage_artifact_contract": COVERAGE_ARTIFACT_CONTRACT,
+    proposal = build_iscn_proposal(
+        combined_events,
+        genome_build=ctx.manifest.assay.genome_build,
+        selection_policy=ISCNSelectionPolicy.TECHNICAL_CANDIDATES_V1,
+        requested=AnalysisModule.ISCN in set(ctx.manifest.analysis.modules),
+        upstream_evidence_assessed=cnv.status
+        in {ModuleRunStatus.COMPLETED, ModuleRunStatus.NO_CALL},
+        resource_provenance=iscn_provenance,
+        policy_parameters={
+            "automatic_unvalidated_sv_to_iscn": False,
+            "sex_chromosomes_assessed": False,
+            "exact_full_chromosome_span_required_for_iscn": (
+                policy.whole_chromosome_span_basis == "exact_contig"
+            ),
+            "whole_chromosome_span_basis": policy.whole_chromosome_span_basis,
+            "cnv_policy_profile_id": policy.profile_id,
+            "cnv_policy_schema_version": policy.schema_version,
+            "whole_chromosome_fraction": policy.whole_chromosome_fraction,
+            "cytoband_affected_fraction": policy.cytoband_affected_fraction,
         },
-        tool_versions={},
-        external_inputs=tuple(external),
+        technical_assumptions=[
+            "Whole-chromosome candidate classification uses the versioned QDNAseq "
+            "segment-fraction threshold; +chr/-chr rendering additionally requires a "
+            "confirmed whole-chromosome span under the versioned span basis, either an "
+            "exact zero-to-contig-end segment or full coverage of that chromosome's "
+            "assessable QDNAseq bins.",
+            "Segmental fragments require one contiguous affected cytoband group at the "
+            "versioned affected-fraction threshold.",
+            "Unvalidated SV breakpoint pairs remain review evidence outside formal notation.",
+        ],
+        assessment_blockers=iscn_blockers,
+        cnv_source_event_ids={event.event_id for event in cnv.events},
+    )
+    iscn_outcome = iscn_module_outcome(proposal)
+    return result.model_copy(
+        update={
+            "events": combined_events,
+            "iscn": proposal,
+            "modules": _replace_module(_replace_module(result.modules, outcome), iscn_outcome),
+            "provenance": _merge_provenance(result.provenance, cnv),
+            "warnings": [*result.warnings, *cnv.warnings, *cnv.limitations],
+            "sidecars": sidecars,
+        }
     )
 
 
-def _cnv_html_section(ctx: pipeline_runner.RunContext, cnv: QDNAseqCallReport) -> str:
-    return cnv_html_section(ctx.envelope.path(CNV_DIR), cnv)
+def report_arguments(ctx: RunContext, cnv: QDNAseqCallReport) -> dict[str, Any]:
+    """The keyword arguments with which ``render_html`` draws the copy-number section."""
+    return {"cnv_report": cnv, "cnv_evidence_root": ctx.envelope.path(CNV_DIR)}
 
 
-def _enrich_workbook(
-    path: Path,
-    ctx: pipeline_runner.RunContext,
-    cnv: QDNAseqCallReport,
-) -> None:
+def enrich_workbook(path: Path, ctx: RunContext, cnv: QDNAseqCallReport) -> None:
+    """Add the fit, consensus and primary-segment sheets to the rendered workbook."""
     workbook = load_workbook(path)
     for title in ("CNV Fits", "CNV Consensus", "CNV Segments"):
         if title in workbook.sheetnames:
@@ -732,78 +615,3 @@ def _enrich_workbook(
         for line in handle:
             segment_sheet.append(line.rstrip("\n").split("\t"))
     workbook.save(path)
-
-
-def _report_execute(ctx: pipeline_runner.RunContext, plan: StagePlan) -> StageResult:
-    del plan
-    result = PipelineResult.model_validate_json(
-        ctx.envelope.path(ctx.path(pipeline_runner.RESULT_JSON)).read_text(encoding="utf-8")
-    )
-    html_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_HTML))
-    xlsx_path = ctx.envelope.path(ctx.path(pipeline_runner.REPORT_XLSX))
-    target_coverage = load_run_coverage(ctx.envelope.root, result.manifest)
-    selection_coverage = load_run_coverage(ctx.envelope.root, result.manifest, selection=True)
-    histogram_path = ctx.envelope.path(pipeline_runner.QC_READ_LENGTH_HISTOGRAM)
-    qc_histogram = (
-        [
-            ReadLengthBin(start=start, end=end, count=count, bases=bases)
-            for start, end, count, bases in read_length_histogram_from_tsv(
-                histogram_path.read_text(encoding="utf-8")
-            )
-        ]
-        if histogram_path.is_file()
-        else None
-    )
-    cnv = _load_cnv(ctx)
-    render_html(
-        result,
-        html_path,
-        cnv_report=cnv,
-        cnv_evidence_root=ctx.envelope.path(CNV_DIR),
-        target_coverage=target_coverage,
-        selection_coverage=selection_coverage,
-        qc_histogram=qc_histogram,
-        methylation_report=pipeline_runner.load_methylation_report(ctx),
-    )
-    render_workbook(
-        result,
-        xlsx_path,
-        target_coverage=target_coverage,
-        selection_coverage=selection_coverage,
-    )
-    if cnv is not None:
-        _enrich_workbook(xlsx_path, ctx, cnv)
-    return StageResult(
-        status=ModuleRunStatus.COMPLETED,
-        reason="Reviewer HTML and Excel rendered with integrated QDNAseq/ACE CNV summaries.",
-        outputs=[
-            ctx.envelope.fingerprint(ctx.path(pipeline_runner.REPORT_HTML)),
-            ctx.envelope.fingerprint(ctx.path(pipeline_runner.REPORT_XLSX)),
-        ],
-    )
-
-
-def register_qdnaseq_extension(settings: QDNAseqExtensionSettings) -> None:
-    """Install the live CNV stage into the existing execution graph for this process."""
-    global _SETTINGS
-    _SETTINGS = settings
-    specs = cast(MutableMapping[StageId, StageSpec], SPEC_BY_STAGE)
-    current = specs[StageId.CNV]
-    specs[StageId.CNV] = replace(
-        current,
-        title="QDNAseq + ACE copy-number analysis",
-        verification=VerificationStatus.VERIFIED_WITH_REAL_TOOL,
-        purpose=(
-            "Run multi-resolution QDNAseq read-depth correction and CBS segmentation, "
-            "estimate purity/ploidy with ACE, and retain consensus plus plots."
-        ),
-    )
-    pipeline_runner.IMPLEMENTATIONS[StageId.CNV] = StageImplementation(_cnv_plan, _cnv_execute)
-    pipeline_runner.IMPLEMENTATIONS[StageId.ASSEMBLE] = StageImplementation(
-        _assemble_plan,
-        _assemble_execute,
-    )
-    pipeline_runner.IMPLEMENTATIONS[StageId.REPORT] = StageImplementation(
-        _report_plan,
-        _report_execute,
-    )

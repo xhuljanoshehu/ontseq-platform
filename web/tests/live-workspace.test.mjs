@@ -310,3 +310,25 @@ test("live UI is isolated from demo evidence, mutable builds, persisted tokens a
   assert.match(ui, /gemappt bedeutet nicht analytisch validiert/);
   assert.match(ui, /keine negativen Befunde dieser Probe/);
 });
+
+test("MARLIN readiness is authenticated, build-bound and validates research status", async () => {
+  const calls=[];
+  const api=createLiveApi({location,document,fetchImpl:async (...args)=>{
+    calls.push(args); return json({ready:false, reason:'Runtime missing',genome_build:'GRCh38',validation_status:'UNVALIDATED_RESEARCH'});
+  }});
+  assert.equal((await api.marlinReadiness('GRCh38')).ready,false);
+  assert.equal(calls[0][0],'/api/marlin/readiness?genome_build=GRCh38');
+  assert.equal(calls[0][1].headers[TOKEN_HEADER],'unit-test-session-token');
+  await assert.rejects(api.marlinReadiness('GRCh37'), /MARLIN/);
+  await assert.rejects(api.marlinReadiness('bogus'), /Referenzbuild/);
+});
+
+test("MARLIN JSON download keeps explicit kind and a JSON filename", async () => {
+  const calls=[];
+  const api=createLiveApi({location,document,fetchImpl:async (...args)=>{calls.push(args);return new Response('{"status":"NO_CALL"}');}});
+  await api.artifact(job,'marlin');
+  assert.equal(calls[0][0],'/api/artifacts?run_id=run-001&sample_id=sample-001&kind=marlin');
+  const {artifactFilename}=await import('../src/liveApi.js');
+  assert.equal(artifactFilename(job,'marlin'),'ONTSeq-run-001-sample-001.marlin.json');
+  assert.equal(artifactFilename(job,'json'),'ONTSeq-run-001-sample-001.json');
+});

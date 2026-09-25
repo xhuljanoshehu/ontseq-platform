@@ -146,6 +146,10 @@ def test_blocking_reader_is_killed_on_deadline_or_cancel(bam: Path, action: str)
 
     class BlockingStream(io.BytesIO):
         def readline(self, size: int | None = -1) -> bytes:
+            # Cancel only once the worker reader exists. A wall-clock timer can fire
+            # before Popen on busy CI hosts, testing pre-launch cancellation instead.
+            if action == "cancelled":
+                cancelled.set()
             assert stopped.wait(3)
             return b""
 
@@ -156,21 +160,15 @@ def test_blocking_reader_is_killed_on_deadline_or_cancel(bam: Path, action: str)
         original_kill()
         stopped.set()
 
-    timer = threading.Timer(0.02, cancelled.set)
-    if action == "cancelled":
-        timer.start()
-    try:
-        with (
-            patch("ontseq_platform.methylation_probe.subprocess.Popen", return_value=process),
-            patch.object(process, "kill", side_effect=kill),
-        ):
-            result = probe_bam_methylation(
-                bam,
-                timeout_seconds=0.03 if action == "timeout" else 2,
-                cancel_event=cancelled,
-            )
-    finally:
-        timer.cancel()
+    with (
+        patch("ontseq_platform.methylation_probe.subprocess.Popen", return_value=process),
+        patch.object(process, "kill", side_effect=kill),
+    ):
+        result = probe_bam_methylation(
+            bam,
+            timeout_seconds=0.03 if action == "timeout" else 2,
+            cancel_event=cancelled,
+        )
     assert result.reason_code == action and result.elapsed_seconds < 1
     assert process.killed and process.waited and process.stdout.closed
 
