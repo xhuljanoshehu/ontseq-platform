@@ -5,6 +5,16 @@ validated release.
 
 ## Unreleased
 
+- Decode GATK 4.6.2.0 `INFO/AS_FilterStatus` per ALT allele in the opt-in research GATK adapter
+  (#114). The raw value was copied unchanged onto every allele record of a multi-allelic site,
+  so each ALT carried the filter status of all ALTs (for example `SITE|weak_evidence` on both).
+  The value is now split at the allele delimiter `|`; comma-separated filters within one allele
+  stay together, and a flag form, an empty component or an allele-count mismatch fails closed.
+- Validation impact: per-allele native filter annotations of multi-allelic Mutect2 records
+  change to the allele they belong to. Site-level FILTER, AF/AD/DP, evidence IDs, caller
+  thresholds and reportability are unchanged; this does not establish analytical or clinical
+  validity of the adapter.
+
 - Count each position's failed and no-call reads once in the methylation report totals.
   modkit repeats `N_fail` and `N_nocall` on every modification code's row at one position — the
   PR709 real-binary oracle asserts exactly that — and `summary_metrics["fail_call_count"]` and

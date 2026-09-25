@@ -317,7 +317,7 @@ def test_multiallelic_fields_are_allele_specific(tmp_path):
     assert [r.alt_depth for r in records] == [20, 10]
     assert [r.allele_index for r in records] == [1, 2]
     assert len({r.evidence_id for r in records}) == 2
-    assert all(r.native_allele_filter_status == "SITE|weak_evidence" for r in records)
+    assert [r.native_allele_filter_status for r in records] == ["SITE", "weak_evidence"]
 
 
 @pytest.mark.parametrize("af", ["NaN", "Inf", "-0.1", "1.1"])
