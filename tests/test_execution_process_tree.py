@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -326,3 +327,102 @@ def test_interrupted_cleanup_still_kills_what_it_stopped(
         if process.returncode is None:
             process.kill()
             process.wait()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_interrupt_right_after_a_descendant_is_stopped_still_kills_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window between stopping a descendant and classifying it must not leak it."""
+    started = _record_started_processes(monkeypatch)
+    real_signal = execution._signal
+    interrupted = False
+
+    def stop_then_interrupt(pid: int, signum: int) -> None:
+        nonlocal interrupted
+        real_signal(pid, signum)
+        if signum == signal.SIGSTOP and pid != started[0].pid and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(execution, "_signal", stop_then_interrupt)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "stop-window-descendant.pid"
+
+    with pytest.raises(KeyboardInterrupt):
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+
+    (process,) = started
+    pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert interrupted
+        assert _wait_until_not_live(pid), "a descendant stopped just before an interrupt leaked"
+        assert process.returncode == -signal.SIGKILL
+    finally:
+        _kill_if_still_live(pid)
+        if process.returncode is None:
+            process.kill()
+            process.wait()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_ctrl_c_during_cleanup_is_held_until_the_tree_is_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A further Ctrl+C must not cut the cleanup short; it is raised once the tree is dead."""
+    real_scan = execution._linux_descendants
+    scans = 0
+
+    def scan_after_ctrl_c(root: int) -> list[int]:
+        nonlocal scans
+        scans += 1
+        if scans == 1:
+            signal.pthread_kill(threading.get_ident(), signal.SIGINT)
+        return real_scan(root)
+
+    monkeypatch.setattr(execution, "_linux_descendants", scan_after_ctrl_c)
+    started = _record_started_processes(monkeypatch)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "held-ctrl-c-descendant.pid"
+
+    with pytest.raises(KeyboardInterrupt):
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+
+    (process,) = started
+    pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert scans >= 2, "the Ctrl+C cut the descendant scan short"
+        assert _wait_until_not_live(pid), "a Ctrl+C during cleanup left a descendant behind"
+        assert process.returncode == -signal.SIGKILL
+    finally:
+        _kill_if_still_live(pid)
+        if process.returncode is None:
+            process.kill()
+            process.wait()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_reaping_the_killed_tool_stays_interruptible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the signalling holds off Ctrl+C, not the wait for a tool stuck in I/O."""
+    masks: list[set[int | signal.Signals]] = []
+    real_wait = subprocess.Popen.wait
+
+    def recording_wait(self: subprocess.Popen[str], timeout: float | None = None) -> int:
+        masks.append(signal.pthread_sigmask(signal.SIG_BLOCK, ()))
+        return real_wait(self, timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", recording_wait)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "reaped-descendant.pid"
+
+    with pytest.raises(ToolExecutionError, match="timed out"):
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+
+    _kill_if_still_live(int(pid_path.read_text(encoding="utf-8")))
+    assert masks
+    assert all(signal.SIGINT not in mask for mask in masks)

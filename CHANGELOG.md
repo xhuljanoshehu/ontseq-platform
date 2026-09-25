@@ -10,9 +10,10 @@ validated release.
   so a timed-out multiprocessing tool such as cuteSV could leave CPU/RAM-consuming workers
   behind. On a timeout or any other abort while waiting (for example Ctrl+C), the runner now
   freezes the tool and every process it started (found through `/proc` on Linux/WSL), kills
-  that tree, reaps the child, closes its pipes and removes staged `run_to_file` output. The tool
-  deliberately stays in the pipeline's process group, so a signal to that group (a service
-  manager, the WSL teardown behind the Desktop app, a terminal hangup) still stops it as before.
+  that tree, reaps the child, closes its pipes and removes staged `run_to_file` output. A further
+  Ctrl+C during that cleanup is held until the cleanup is complete. The tool deliberately stays
+  in the pipeline's process group, so a signal to that group (a service manager, the WSL
+  teardown behind the Desktop app, a terminal hangup) still stops it as before.
   Known limits: a descendant that outlives its own parent (for example a daemonized helper) is
   re-parented away and not tracked; without `/proc` and on native Windows only the direct child
   is killed, as before.

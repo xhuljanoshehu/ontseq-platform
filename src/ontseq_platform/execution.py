@@ -5,7 +5,7 @@ import os
 import signal
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -109,24 +109,56 @@ def _kill_descendants(root: int) -> None:
     before.
     """
     _signal(root, signal.SIGSTOP)
-    frozen: list[int] = []
     members = {root}
+    # Every candidate is recorded before it is stopped (``None``: not checked yet), so an
+    # exception at any point still leaves no stopped process behind: the ``finally`` block
+    # checks what is unchecked, then kills the members children first.
+    candidates: dict[int, bool | None] = {}
     try:
         for _ in range(_FREEZE_ROUNDS):
             found = [pid for pid in _linux_descendants(root) if pid not in members]
             if not found:
                 break
             for pid in found:
-                _signal(pid, signal.SIGSTOP)
-                if _linux_parent_pid(pid) in members:
-                    members.add(pid)
-                    frozen.append(pid)
-                else:
-                    _signal(pid, signal.SIGCONT)
+                candidates[pid] = None
+                candidates[pid] = _freeze_if_member(pid, members)
     finally:
-        # Also on a second Ctrl+C mid-scan: never leave a stopped descendant behind.
-        for pid in reversed(frozen):
-            _signal(pid, signal.SIGKILL)
+        for pid, member in reversed(candidates.items()):
+            if member is None:
+                member = _freeze_if_member(pid, members)
+            if member:
+                _signal(pid, signal.SIGKILL)
+
+
+def _freeze_if_member(pid: int, members: set[int]) -> bool:
+    """Stop ``pid``; keep it stopped only if its parent belongs to the frozen tree."""
+    _signal(pid, signal.SIGSTOP)
+    if _linux_parent_pid(pid) in members:
+        members.add(pid)
+        return True
+    _signal(pid, signal.SIGCONT)
+    return False
+
+
+@contextlib.contextmanager
+def _sigint_held() -> Iterator[None]:
+    """Hold SIGINT for the calling thread; a Ctrl+C meanwhile is raised afterwards.
+
+    A cleanup that a further Ctrl+C interrupts half-way could leave stopped processes
+    behind, so that Ctrl+C stays pending until every stopped process has been killed or
+    resumed and then raises ``KeyboardInterrupt`` as usual. Only the calling thread is
+    masked: in a multi-threaded process the kernel may deliver the signal to another
+    thread, which is why ``_kill_descendants`` also records every process before stopping
+    it.
+    """
+    if not hasattr(signal, "pthread_sigmask"):  # native Windows
+        yield
+        return
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
@@ -138,12 +170,17 @@ def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[
     direct-child termination until a separately tested job-object contract exists.
     """
     try:
-        if os.name == "posix":
-            _kill_descendants(process.pid)
+        # Only the signalling is held off from Ctrl+C. The wait below stays interruptible
+        # in case the killed tool is stuck in uninterruptible I/O.
+        with _sigint_held():
+            try:
+                if os.name == "posix":
+                    _kill_descendants(process.pid)
+            finally:
+                # On POSIX the tool is already stopped here, so it must be killed even if
+                # the descendant scan was itself interrupted.
+                process.kill()
     finally:
-        # On POSIX the tool is already stopped here, so it must be killed even if the
-        # descendant scan was itself interrupted.
-        process.kill()
         process.wait()
         # The Popen object can outlive this call inside a retained traceback, so release
         # its pipes now rather than at garbage collection. Closing (not draining) cannot
