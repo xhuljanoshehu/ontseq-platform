@@ -274,6 +274,7 @@ public partial class MainWindow : Window
         MethylationExplanationText.Text = "Ein Prüfergebnis wählt keine Methylierungsauswertung automatisch aus.";
         MethylationProgressText.Text = "";
         MethylationDetailsText.Text = "";
+        MarlinStateText.Text = "MARLIN wird bei ausgewählter Methylierung automatisch angefordert; Vorprüfung vor dem Start.";
         RefreshProbeActions();
     }
 
@@ -726,13 +727,29 @@ public partial class MainWindow : Window
             }
             ShowProbe(probe);
             var probeExplanation = MethylationProbePresentation.From(probe).ConfirmationText;
+            var marlinExplanation = "MARLIN-Vorprüfung wurde nicht angefordert.";
+            if (probe.Status == "detected" && probe.MethylationAvailable)
+            {
+                try
+                {
+                    var marlin = await _client!.GetMarlinReadinessAsync(profile.GenomeBuild, cancellationToken);
+                    marlinExplanation = marlin.Summary;
+                }
+                catch (Exception error) when (error is not OperationCanceledException)
+                {
+                    marlinExplanation = "MARLIN-Vorprüfung nicht möglich: " + error.Message +
+                        " MARLIN wird im Lauf separat geprüft; andere Module bleiben nutzbar.";
+                }
+                MarlinStateText.Text = marlinExplanation;
+            }
             var includeMethylation = false;
             if (probe.Status == "detected" && probe.MethylationAvailable)
             {
                 var decision = MessageBox.Show(this,
                     probeExplanation + "\n\n" +
-                    "Soll zusätzlich zur Genomanalyse die regionale Methylierung ausgewertet werden?\n\n" +
-                    "Ja: Methylierung ergänzen.\nNein: nur Genomanalyse.\nAbbrechen: noch keine Analyse starten.\n\n" +
+                    "Soll zusätzlich zur Genomanalyse die Methylierung einschließlich MARLIN ausgewertet werden?\n\n" +
+                    marlinExplanation + "\n\n" +
+                    "Ja: Methylierung und MARLIN anfordern.\nNein: nur Genomanalyse.\nAbbrechen: noch keine Analyse starten.\n\n" +
                     "Die Methylierungsauswertung ist experimentell und nicht klinisch validiert.",
                     "Methylierung mitbeurteilen?", MessageBoxButton.YesNoCancel,
                     MessageBoxImage.Question, MessageBoxResult.Cancel);
@@ -765,7 +782,7 @@ public partial class MainWindow : Window
                 return;
             }
             MethylationStateText.Text = includeMethylation
-                ? "Für diesen Lauf: Genomanalyse + regionale Methylierung."
+                ? "Für diesen Lauf: Genomanalyse + Methylierung + MARLIN (Forschung)."
                 : "Für diesen Lauf: Genomanalyse ohne Methylierung.";
             _currentSampleId = sampleId;
             var request = new RunStartRequest(

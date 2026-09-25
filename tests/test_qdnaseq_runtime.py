@@ -5,9 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
-from ontseq_platform.cnv.extension import CNV_REPORT, _assemble_execute, _assemble_plan
+from ontseq_platform.cnv.lane import CNV_REPORT, LANE_ID, merge_into_result
 from ontseq_platform.cnv.qdnaseq import (
     CnvFit,
     QDNAseqCallReport,
@@ -29,15 +28,15 @@ from ontseq_platform.models import (
     ReferenceLock,
     ToolRecord,
 )
-from ontseq_platform.pipeline.envelope import sha256_file, stage_signature
+from ontseq_platform.pipeline.envelope import Artifact, sha256_file, stage_signature
 from ontseq_platform.pipeline.runner import (
-    INTAKE_REPORT,
-    QC_REPORT,
     SV_CONSENSUS_REPORT,
     SV_REPORT,
-    StagePlan,
+    RunContext,
+    _assemble_plan,
 )
 from ontseq_platform.pipeline.runner import _assemble_plan as _core_assemble_plan
+from ontseq_platform.pipeline.stages import InputKindName, StageId
 
 
 class FakeQDNAseqRunner:
@@ -228,47 +227,16 @@ class QDNAseqRuntimeTests(unittest.TestCase):
         )
 
         for cnv_report, expected_error in mismatches:
-            with (
-                self.subTest(expected_error=expected_error),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                root = Path(directory)
-                for relative in (INTAKE_REPORT, QC_REPORT):
-                    path = root / relative
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text("{}", encoding="utf-8")
-                context = SimpleNamespace(
-                    stage_records={},
-                    manifest=manifest,
-                    config=SimpleNamespace(
-                        pipeline_version=baseline.provenance.pipeline_version,
-                        git_commit=baseline.provenance.git_commit,
-                        resource_context=baseline.reference_context,
-                    ),
-                    envelope=SimpleNamespace(
-                        root=root,
-                        path=lambda relative, root=root: root / relative,
-                    ),
-                    path=lambda template: template.format(sample=manifest.sample_id),
-                )
-
-                with (
-                    patch(
-                        "ontseq_platform.cnv.extension.AlignedBamIntakeReport.model_validate_json",
-                        return_value=object(),
-                    ),
-                    patch(
-                        "ontseq_platform.cnv.extension.CraminoQCReport.model_validate_json",
-                        return_value=object(),
-                    ),
-                    patch(
-                        "ontseq_platform.cnv.extension.assemble_aligned_bam_mvp",
-                        return_value=baseline,
-                    ),
-                    patch("ontseq_platform.cnv.extension._load_cnv", return_value=cnv_report),
-                    self.assertRaisesRegex(ValueError, expected_error),
-                ):
-                    _assemble_execute(context, StagePlan(parameters={}, tool_versions={}))
+            with self.subTest(expected_error=expected_error):
+                context = SimpleNamespace(manifest=manifest)
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    merge_into_result(
+                        context,  # type: ignore[arg-type]
+                        baseline,
+                        qc=SimpleNamespace(),  # type: ignore[arg-type]
+                        cnv=cnv_report,
+                        settings=SimpleNamespace(policy=_policy()),  # type: ignore[arg-type]
+                    )
 
     def test_core_assemble_plan_fingerprints_iscn_resources_and_actual_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -290,6 +258,7 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                     pipeline_version="test",
                     git_commit="0" * 40,
                     annotation_cache=cache,
+                    cnv_lane=None,
                     resource_context=SimpleNamespace(
                         resource_checksums=checksums,
                         resource_paths={
@@ -349,45 +318,45 @@ class QDNAseqRuntimeTests(unittest.TestCase):
             )
             self.assertNotEqual(first_signature, changed_signature)
 
-    def test_assemble_resume_fingerprints_raw_and_consensus_sv_evidence(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            sample_id = "SAMPLE_000"
-            paths = (
-                CNV_REPORT.format(sample=sample_id),
-                SV_REPORT.format(sample=sample_id),
-                SV_CONSENSUS_REPORT.format(sample=sample_id),
-            )
-            for relative in paths:
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(relative, encoding="utf-8")
-            context = SimpleNamespace(
-                stage_records={},
-                config=SimpleNamespace(
-                    pipeline_version="test",
-                    git_commit="0" * 40,
-                    annotation_cache=None,
-                    resource_context=None,
-                ),
-                envelope=SimpleNamespace(path=lambda relative: root / relative),
-                path=lambda template: template.format(sample=sample_id),
-            )
+    def test_assemble_resume_tracks_current_cnv_and_sv_artifacts_not_files(self) -> None:
+        """Assembly re-runs when this run's CNV or SV artifacts change, and only then.
 
-            with patch(
-                "ontseq_platform.cnv.extension._settings",
-                return_value=SimpleNamespace(policy=_policy()),
-            ):
-                plan = _assemble_plan(context)
-
+        A report merely lying in the envelope is not part of the signature: it would keep an
+        earlier opt-in alive after the lane was deselected or failed.
+        """
+        baseline = build_demo_result()
+        context = RunContext.__new__(RunContext)
+        context.manifest = baseline.manifest
+        current = {
+            StageId.CNV: [Artifact(CNV_REPORT.format(sample="S"), 10, "a" * 64, True)],
+            StageId.SV: [
+                Artifact(SV_REPORT.format(sample="S"), 10, "b" * 64, True),
+                Artifact(SV_CONSENSUS_REPORT.format(sample="S"), 10, "c" * 64, True),
+            ],
+        }
+        context.artifacts = dict(current)
+        upstream = context.upstream(StageId.ASSEMBLE, InputKindName.ALIGNED_BAM)
         self.assertEqual(
-            {name for name, _checksum in plan.external_inputs},
-            {
-                Path(CNV_REPORT.format(sample=sample_id)).name,
-                Path(SV_REPORT.format(sample=sample_id)).name,
-                Path(SV_CONSENSUS_REPORT.format(sample=sample_id)).name,
-            },
+            {item.relative_path for item in upstream},
+            {item.relative_path for items in current.values() for item in items},
         )
+        context.artifacts = {}
+        self.assertEqual(context.upstream(StageId.ASSEMBLE, InputKindName.ALIGNED_BAM), [])
+
+        plan_context = SimpleNamespace(
+            stage_records={},
+            config=SimpleNamespace(
+                pipeline_version="test",
+                git_commit="0" * 40,
+                annotation_cache=None,
+                resource_context=None,
+                cnv_lane=SimpleNamespace(policy=_policy()),
+            ),
+        )
+        plan = _assemble_plan(plan_context)
+        self.assertEqual(plan.external_inputs, ())
+        self.assertEqual(plan.parameters["cnv_lane"], LANE_ID)
+        self.assertIsNone(plan.parameters["cnv_stage_outcome"])
         self.assertEqual(plan.parameters["iscn_rule_profile"], ISCN_RULE_PROFILE)
         self.assertEqual(
             plan.parameters["iscn_selection_policy"],
@@ -424,57 +393,51 @@ class QDNAseqRuntimeTests(unittest.TestCase):
                             "reference.cytobands": str(cytobands),
                         },
                     ),
+                    cnv_lane=SimpleNamespace(policy=_policy()),
                 ),
                 envelope=SimpleNamespace(path=lambda relative: root / relative),
                 path=lambda template: template.format(sample="SAMPLE_000"),
             )
 
-            with patch(
-                "ontseq_platform.cnv.extension._settings",
-                return_value=SimpleNamespace(policy=_policy()),
-            ):
-                first = _assemble_plan(context)
+            first = _assemble_plan(context)
 
-                def signature(plan):  # noqa: ANN001, ANN202
-                    return stage_signature(
-                        stage="assemble",
-                        upstream=[],
-                        parameters=plan.parameters,
-                        tool_versions=plan.tool_versions,
-                        external_inputs=plan.external_inputs,
-                    )
-
-                first_signature = signature(first)
-                self.assertEqual(first.parameters["iscn_reference_lock_sha256"], "a" * 64)
-                self.assertEqual(first.parameters["iscn_cytoband_sha256"], "b" * 64)
-                self.assertEqual(first.parameters["iscn_annotation_cache_sha256"], "c" * 64)
-                self.assertEqual(first.parameters["iscn_whole_chromosome_fraction"], 0.90)
-                self.assertEqual(first.parameters["iscn_cytoband_affected_fraction"], 0.66)
-                self.assertEqual(
-                    dict(first.external_inputs),
-                    {
-                        "iscn_annotation_cache": sha256_file(cache),
-                        "iscn_reference_lock": sha256_file(reference_lock),
-                        "iscn_cytobands": sha256_file(cytobands),
-                    },
+            def signature(plan):  # noqa: ANN001, ANN202
+                return stage_signature(
+                    stage="assemble",
+                    upstream=[],
+                    parameters=plan.parameters,
+                    tool_versions=plan.tool_versions,
+                    external_inputs=plan.external_inputs,
                 )
 
-                checksums["reference.cytobands"] = "d" * 64
-                changed_expected_resource = _assemble_plan(context)
-                self.assertNotEqual(first_signature, signature(changed_expected_resource))
+            first_signature = signature(first)
+            self.assertEqual(first.parameters["iscn_reference_lock_sha256"], "a" * 64)
+            self.assertEqual(first.parameters["iscn_cytoband_sha256"], "b" * 64)
+            self.assertEqual(first.parameters["iscn_annotation_cache_sha256"], "c" * 64)
+            self.assertEqual(first.parameters["iscn_whole_chromosome_fraction"], 0.90)
+            self.assertEqual(first.parameters["iscn_cytoband_affected_fraction"], 0.66)
+            self.assertEqual(
+                dict(first.external_inputs),
+                {
+                    "iscn_annotation_cache": sha256_file(cache),
+                    "iscn_reference_lock": sha256_file(reference_lock),
+                    "iscn_cytobands": sha256_file(cytobands),
+                },
+            )
 
-                checksums["reference.cytobands"] = "b" * 64
-                cache.write_bytes(b"synthetic-cache-v2")
-                changed_actual_cache = _assemble_plan(context)
-                self.assertNotEqual(first_signature, signature(changed_actual_cache))
+            checksums["reference.cytobands"] = "d" * 64
+            changed_expected_resource = _assemble_plan(context)
+            self.assertNotEqual(first_signature, signature(changed_expected_resource))
+
+            checksums["reference.cytobands"] = "b" * 64
+            cache.write_bytes(b"synthetic-cache-v2")
+            changed_actual_cache = _assemble_plan(context)
+            self.assertNotEqual(first_signature, signature(changed_actual_cache))
 
             cache.write_bytes(b"synthetic-cache-v1")
             changed_policy = _policy().model_copy(update={"cytoband_affected_fraction": 0.75})
-            with patch(
-                "ontseq_platform.cnv.extension._settings",
-                return_value=SimpleNamespace(policy=changed_policy),
-            ):
-                changed_policy_plan = _assemble_plan(context)
+            context.config.cnv_lane = SimpleNamespace(policy=changed_policy)
+            changed_policy_plan = _assemble_plan(context)
             self.assertNotEqual(first_signature, signature(changed_policy_plan))
 
     def test_promotes_complete_result_and_normalizes_event(self) -> None:

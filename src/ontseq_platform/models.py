@@ -60,6 +60,7 @@ class AnalysisModule(StrEnum):
     REPORT = "report"
     SMALL_VARIANTS = "small_variants"
     METHYLATION = "methylation"
+    MARLIN = "marlin"
 
 
 class Verdict(StrEnum):

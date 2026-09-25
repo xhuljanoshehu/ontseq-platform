@@ -47,6 +47,7 @@ from types import FrameType
 
 from . import __version__
 from .align import AlignmentPolicy
+from .cnv.lane import CnvLaneSettings
 from .io import load_mapping, load_model
 from .models import (
     AmlKnowledgeLock,
@@ -112,6 +113,8 @@ class WatchSettings:
     sv_consensus_policy: Path | None = None
     sv_evidence_policy: Path | None = None
     target_coverage_policy: Path | None = None
+    #: The copy-number lane for every run the watcher starts; ``None`` leaves CNV unconfigured.
+    cnv_lane: CnvLaneSettings | None = None
     gene_annotation: tuple[Path, IntervalResourceLock] | None = None
     cytoband_annotation: tuple[Path, IntervalResourceLock] | None = None
     sv_context_resources: tuple[tuple[Path, IntervalResourceLock], ...] = ()
@@ -119,6 +122,7 @@ class WatchSettings:
     sv_minimum_mean_depth: float = 10.0
     alignment_policy: Path | None = None
     reference_fasta: Path | None = None
+    marlin_installation: Path | None = None
     run_id_prefix: str = ""
     ready_marker: str | None = None
     quiet_seconds: float = 300.0
@@ -419,6 +423,8 @@ def _attempt_one(
         sv_minimum_mean_depth=settings.sv_minimum_mean_depth,
         alignment_policy=resolved.alignment_policy,
         reference_fasta=settings.reference_fasta,
+        marlin_installation=settings.marlin_installation,
+        cnv_lane=settings.cnv_lane,
         threads=settings.threads,
         cutesv_threads=settings.cutesv_threads,
     )

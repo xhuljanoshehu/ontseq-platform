@@ -64,6 +64,12 @@ function assertIdentifier(value) {
   return value;
 }
 
+export function artifactFilename(job, kind) {
+  if (!["befund", "html", "xlsx", "json", "marlin"].includes(kind)) throw new LiveApiError("Unbekannter Exporttyp.");
+  const suffix = kind === "befund" ? "befund.html" : kind === "marlin" ? "marlin.json" : kind;
+  return `ONTSeq-${assertIdentifier(job.run_id)}-${assertIdentifier(job.sample_id)}.${suffix}`;
+}
+
 export function isTerminalJob(job) {
   return TERMINAL_STATES.has(job?.state);
 }
@@ -217,6 +223,15 @@ export function createLiveApi({ location = globalThis.location, document = globa
       return { ...value, profiles: value.profiles.filter((profile) => typeof profile === "string" && profile.length > 0) };
     },
     browse: (path = "", signal) => request(`/api/browse?${new URLSearchParams({ path })}`, { signal }),
+    async marlinReadiness(genome_build, signal) {
+      if (!["GRCh37", "GRCh38"].includes(genome_build)) throw new LiveApiError("Ungültiger MARLIN-Referenzbuild.");
+      const value = await request(`/api/marlin/readiness?${new URLSearchParams({ genome_build })}`, { signal });
+      if (typeof value.ready !== "boolean" || typeof value.reason !== "string" || !value.reason.trim()
+          || value.genome_build !== genome_build || value.validation_status !== "UNVALIDATED_RESEARCH") {
+        throw new LiveApiError("Die MARLIN-Verfügbarkeitsprüfung ist unvollständig oder gehört zu einem anderen Referenzbuild.");
+      }
+      return value;
+    },
     async probeMethylation(bam_path, signal, forceRefresh = false) {
       if (!bam_path) throw new LiveApiError("Bitte zuerst eine BAM-Datei auswählen.");
       return validateMethylationProbe(await request("/api/methylation/probe", {
@@ -260,7 +275,7 @@ export function createLiveApi({ location = globalThis.location, document = globa
       return validateMethylationReport(await request(`/api/methylation?${params}`, { signal }), job);
     },
     artifact(job, kind, signal) {
-      if (!["befund", "html", "xlsx", "json"].includes(kind)) throw new LiveApiError("Unbekannter Exporttyp.");
+      if (!["befund", "html", "xlsx", "json", "marlin"].includes(kind)) throw new LiveApiError("Unbekannter Exporttyp.");
       const params = new URLSearchParams({ run_id: assertIdentifier(job.run_id), sample_id: assertIdentifier(job.sample_id), kind });
       return request(`/api/artifacts?${params}`, { signal, blob: true, timeout: 120000 });
     },

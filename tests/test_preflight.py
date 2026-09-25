@@ -511,17 +511,40 @@ class AdapterTests(PreflightCase):
         self.assertIs(check.status, CheckStatus.WARNING)
         self.assertIn("basecall", check.detail)
 
-    def test_stages_with_no_adapter_are_reported_separately(self) -> None:
-        """A stage with no adapter records NOT_RUN; that is not a claim about code quality.
+    def test_every_planned_stage_has_an_adapter_in_the_declared_graph(self) -> None:
+        """CNV used to arrive by process-global registration and was flagged here.
 
-        Collapsing the two would tell an operator that CNV rests on unexecuted code, when
-        in fact no CNV caller is wired in at all — a materially different claim.
+        It is now part of the declared graph; whether a run configures it is a separate,
+        run-specific question answered by ``cnv.lane``.
         """
         check = self.results()["stages.not_implemented"]
+        self.assertIs(check.status, CheckStatus.OK)
+        self.assertNotIn("cnv", check.detail)
+
+    def test_a_cnv_run_without_a_lane_is_warned_before_it_starts(self) -> None:
+        found = self.results(self.request(manifest=self.manifest(modules=["qc", "cnv"])))
+        check = found["cnv.lane"]
         self.assertIs(check.status, CheckStatus.WARNING)
-        self.assertIn("cnv", check.detail)
-        self.assertNotIn("target_coverage", check.detail)
-        self.assertIn("not a negative biological finding", check.detail)
+        self.assertIn("not a negative copy-number finding", check.detail)
+
+    def test_a_configured_cnv_lane_needs_its_runner_script(self) -> None:
+        from ontseq_platform.cnv.lane import CnvLaneSettings
+        from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy
+
+        policy = QDNAseqPolicy(profile_id="cnv-test", cytoband_affected_fraction=0.66, note="t")
+        script = self.root / "run_qdnaseq_ace.R"
+        request = self.request(
+            manifest=self.manifest(modules=["qc", "cnv"]),
+            cnv_lane=CnvLaneSettings(policy=policy, script=script),
+        )
+        self.assertIs(self.results(request)["cnv.lane"].status, CheckStatus.FAILED)
+        script.write_text("# synthetic runner", encoding="utf-8")
+        check = self.results(request)["cnv.lane"]
+        self.assertIs(check.status, CheckStatus.OK)
+        self.assertIn("cnv-test", check.detail)
+
+    def test_a_run_without_cnv_skips_the_lane_check(self) -> None:
+        self.assertIs(self.results()["cnv.lane"].status, CheckStatus.SKIPPED)
 
     def test_the_two_adapter_claims_never_name_the_same_stage(self) -> None:
         found = self.results(self.pod5_request())

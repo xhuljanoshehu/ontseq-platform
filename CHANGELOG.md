@@ -5,6 +5,141 @@ validated release.
 
 ## Unreleased
 
+- Add the first methylation research lane, `methylation_lanes/haplotype.py`, with the
+  standalone command `ontseq call-haplotype-methylation` (issue #97). From a BAM that
+  WhatsHap or LongPhase haplotagged, it runs `modkit pileup --phased` and reports per region
+  and modification code the HP1, HP2 and unphased counts and fractions, the phase sets, a
+  per-haplotype assessability verdict and, only when both haplotypes are assessable inside
+  one phase block, the HP1 − HP2 difference. The `--phased` layout, the absent-row
+  semantics, the pooling of phase blocks and the HP=0/HP=3 behaviour of modkit 0.6.4 were
+  qualified on synthetic haplotagged BAMs (both strands, soft clips) and are now a CI step.
+  Missing haplotagging provenance, missing MM or HP tags, HP values other than 1/2 and HP
+  without PS are refused before the pileup. New versioned policy
+  `configs/methylation/haplotype.technical.yaml` (technical defaults only) and schemas
+  `haplotype-methylation-{policy,report}.schema.json`.
+- Validation impact: new research output only. The aggregate methylation lane, the run
+  graph, reviewer reports, thresholds and release gates are unchanged; the lane is not
+  wired into `run`/`analyze` and makes no biological or clinical claim.
+
+- Record the modkit bedMethyl pileup as a methylation stage artifact. A resume now verifies
+  the per-site counts byte for byte (a changed or deleted pileup re-runs the stage instead of
+  resuming a report whose bedMethyl fingerprint no longer describes the envelope), the stage
+  fails if the pileup differs from the checksum its normalized report carries, and the
+  release bundle lists the file as withheld. Validation impact: provenance only; no value,
+  threshold or export rule changes (`.bedmethyl` stays non-exportable).
+
+- Complete the reviewer presentation of the methylation lane. The HTML report adds the full
+  region table below the heatmap, and `results.xlsx` gains `13_Methylation` (status,
+  meaning, policy, pinned threshold, coverage floor, tag probe, checksums, warnings,
+  limitations) and `14_Methylation_Regions` (every count class of every region row)
+  whenever methylation was requested. Regions below the coverage floor read "not
+  measurable" and keep empty fraction cells; region labels stay text, never formulas.
+- `report_methylation.validate_methylation_identity` refuses to present a report for
+  another sample/build, another pileup or a contradicting module outcome; the Befund view
+  uses the same check.
+- Validation impact: presentation only. The methylation report, its fractions, thresholds
+  and module outcome are unchanged; lcWGS/AS workbooks without methylation are unchanged.
+
+- Make the QDNAseq/ACE copy-number lane a first-class member of the declared stage graph.
+  `run`, `analyze`, `serve`, `watch`, `preflight`, the system smoke and the GRCh37 profile
+  smoke now pass the lane as `RunConfiguration.cnv_lane`; nothing mutates `SPEC_BY_STAGE`,
+  the stage implementations or module-global settings any more, so one service process can
+  run differently configured analyses without one inheriting the other's lane. The
+  duplicated assemble/report stages of the former extension are gone: assembly and
+  reporting are single implementations to which the lane contributes CNV events, the
+  recomputed ISCN proposal, sidecar tables, plots and workbook sheets.
+- Copy-number evidence reaches a result only as an artifact the current run's CNV stage
+  recorded and that still verifies byte for byte. Previously the assembler merged whatever
+  `evidence/cnv/<sample>.qdnaseq.json` existed in the envelope, so a report left by an
+  earlier attempt entered the result after a failed re-run, a deselection or a manifest that
+  no longer requested CNV — including as ISCN input. A failed or unconfigured lane now
+  appears in the result with the reason its stage recorded, and a re-execution removes its
+  previous normalized report before running.
+- Introduce `pipeline/context.py` for the stage contract (`RunConfiguration`, `RunContext`,
+  `StagePlan`, `StageResult`, `StageImplementation`, `StageFailure`, `current_artifact`).
+  Lanes depend on the contract instead of on the orchestrator; the names remain importable
+  from `pipeline.runner`. The report stage's resume signature now also tracks the CNV,
+  methylation and MARLIN artifacts the renderers read directly. Preflight gains a `cnv.lane`
+  check.
+- Validation impact: execution/provenance correction. No QDNAseq/ACE parameter, copy-number
+  or cytoband threshold, ISCN rule or release gate changes; the CNV stage specification is
+  now declared `verified_with_real_tool`, which the dedicated QDNAseq workflows already
+  establish. Results can differ where a stale CNV report was previously merged (it is now
+  excluded) and where a failed CNV stage was previously shown as a generic placeholder (the
+  recorded reason is now shown). Assembly and report resume signatures change once.
+
+- Remove the process-global built-in target-coverage extension that `ontseq run`, `serve`
+  (Desktop) and `watch` installed at start-up. It replaced the core Adaptive Sampling
+  coverage stage for the whole process and thereby ignored the configured or
+  component-selected target-coverage policy, never measured the buffered selection panel and
+  probed a bare `mosdepth` instead of the configured executable. Every command now runs the
+  one core stage of the declared graph; a re-execution removes coverage files written under
+  earlier names before it writes.
+- SV observability and the HTML/XLSX reviewer reports consume only the coverage artifacts the
+  target-coverage stage recorded for the current run, checksum-verified
+  (`current-stage-coverage-v2`). A coverage file left on disk by an earlier attempt or by the
+  retired extension is no longer evidence for the run. Archived envelopes outside a run are
+  still read by name (`core-or-sample-coverage-v1`, both historical file names).
+- Validation impact: execution/provenance correction. Adaptive Sampling runs started through
+  `run`, `serve` or `watch` now measure coverage with the policy and executable they record
+  and add selection-panel coverage where a profile supplies it; SV observability annotations
+  can change where the previously applied built-in policy differed from the configured one.
+  No depth threshold, caller, reportability flag or release gate changes. Synthetic
+  regressions reproduce the override (custom policy, selection BED, executable), leftover
+  and tampered coverage files, identity refusal and resume dependencies.
+
+- Bind the native MARLIN result to the exact combined bedMethyl bytes it parsed by
+  re-fingerprinting the pileup immediately after probe-fraction extraction and again before final
+  reporting, failing closed if the file changes during parsing or later model execution. Add
+  synthetic mutation-during-parse and mutation-during-worker regressions. This is an
+  evidence-integrity fix only: modkit arguments, methylation thresholds, feature encoding, model
+  scores, reportability and analytical/clinical validation status are unchanged.
+
+- Bind POD5 basecalling resume to the complete sorted input file set and SHA-256 of each
+  source file instead of only the directory name. Relative paths are included in the signature,
+  and a changing file set during fingerprinting now fails closed.
+- Validation impact: this prevents reuse of a prior basecall after source POD5 bytes or membership
+  changed under the same directory. Dorado arguments, models, thresholds and downstream biological
+  interpretation are unchanged.
+
+- Fix a Desktop CI test-harness race (#110): `FakeOntSeqService.DisposeAsync()`
+  cancels then stops its `TcpListener` while `ServeAsync()` can still be awaiting
+  `AcceptTcpClientAsync()`; `TcpListener.Stop()` can dispose the underlying socket
+  before the pending accept observes cancellation, surfacing as an unhandled
+  `ObjectDisposedException` in the Windows Desktop test job. `ServeAsync()` now
+  also catches `ObjectDisposedException` when shutdown was requested; an
+  `ObjectDisposedException` without a requested shutdown still propagates. Adds a
+  deterministic, event-synchronized regression that races disposal against a
+  genuinely pending accept instead of relying on a sleep duration. Test-harness
+  only; no production service, analysis, or biological-output change.
+- Integrate `marlin-native-research-v1` into the normal methylation-selected desktop/pipeline
+  workflow, with explicit readiness, actual stage status and consistent HTML/JSON/XLSX output.
+  Bind the original model, ordered features, class annotations and official hg19/hg38 maps by
+  checksum; use the aligned reference build directly without realignment or liftover.
+- Add a separate combined 5mC+5hmC model-probe pileup, depth-weighted fractions, strict strand/count
+  validation, missing-versus-zero feature encoding, and an isolated TensorFlow CPU 2.13.1 worker
+  with fixed thread limits and Linux kernel network denial. Preserve existing modkit qualification
+  guards and legacy MARLIN R/biological bridge contracts.
+- Record complete installed runtime inventory, source and input/output hashes in native report
+  provenance and resume signatures. Missing setup is `NOT_RUN`; parser/process errors are `FAILED`;
+  zero observed features are `NO_CALL` without inference. All completed native predictions remain
+  `UNKNOWN` with `assay_assessability: NOT_ESTABLISHED`; retain raw scores and separately expose
+  `model_score_threshold: 0.8` and `model_score_threshold_met`. A high model score does not establish
+  specimen confidence. Stale or deselected results are excluded without failing other modules.
+- Bind runtime acceptance to the approved archive and independently qualified full installed
+  inventories; reject self-registered runtime changes and unqualified relocations. Keep readiness
+  non-executing until the stage verifies runtime bytes. Bind the selected BAM index to intake,
+  reject competing adjacent indexes, and recheck its exact bytes around execution and resume.
+  Bind the reference FAI as an input dependency, refuse unqualified compressed references, and
+  verify the approved runtime directory-symlink map alongside the complete file inventory.
+- Validation impact: MARLIN can now add original-model scores to research reports for either
+  supported build. All predictions remain `UNVALIDATED_RESEARCH`. Real synthetic BAM/modkit/model
+  acceptance checks count/tensor transfer and numerical execution; it establishes no analytical
+  or clinical validity and creates no legacy validated same-specimen bridge lock. Coverage-grid
+  tests preserve `UNKNOWN` at 1, 10,720 and all 357,340 observed model features, including high
+  scores: additional CpGs alone cannot establish validity and no clinical count cutoff is imposed.
+  Legacy strict R/v1 decision semantics remain unchanged.
+
 - cuteSV worker-failure hardening (#91/#93): the exact known 2.1.3 entry-script
   copy now retrieves every signature-extraction task result and re-raises
   clustering exceptions. Both stock and the prior integer-only script upgrade

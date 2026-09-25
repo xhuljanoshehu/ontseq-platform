@@ -205,7 +205,8 @@ class HappyPathTests(RunnerCase):
         recorded = {record.stage for record in report.stages}
         self.assertEqual(
             recorded,
-            set(STAGE_ARTIFACTS) | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION},
+            set(STAGE_ARTIFACTS)
+            | {StageId.TARGET_COVERAGE, StageId.CNV, StageId.METHYLATION, StageId.MARLIN},
         )
         self.assertTrue(report.passed)
         self.assertIsNotNone(bundle)

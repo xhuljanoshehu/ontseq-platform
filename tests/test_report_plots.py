@@ -17,9 +17,12 @@ from ontseq_platform.methylation import (
     ModificationCode,
 )
 from ontseq_platform.models import (
+    AnalysisModule,
     FileFingerprint,
     GenomeBuild,
+    ModuleOutcome,
     ModuleRunStatus,
+    PipelineResult,
     ToolRecord,
 )
 from ontseq_platform.qc import read_length_histogram_from_tsv
@@ -492,6 +495,37 @@ class MethylationHeatmapSvgTests(unittest.TestCase):
             )
 
 
+def _presentable(report: MethylationReport) -> tuple[PipelineResult, MethylationReport]:
+    """A demo result the synthetic methylation report belongs to (identity is checked)."""
+    result = build_demo_result()
+    report = report.model_copy(
+        update={
+            "sample_id": result.manifest.sample_id,
+            "genome_build": result.manifest.assay.genome_build,
+        }
+    )
+    modules = [item for item in result.modules if item.module != AnalysisModule.METHYLATION]
+    modules.append(
+        ModuleOutcome(
+            module=AnalysisModule.METHYLATION,
+            status=report.status,
+            reason="synthetic heatmap fixture",
+            tools=[report.tool],
+        )
+    )
+    checksums = {
+        **result.provenance.reference_checksums,
+        "bedmethyl": report.bedmethyl_fingerprint.sha256,
+    }
+    result = result.model_copy(
+        update={
+            "modules": sorted(modules, key=lambda item: item.module.value),
+            "provenance": result.provenance.model_copy(update={"reference_checksums": checksums}),
+        }
+    )
+    return result, report
+
+
 class ReportMethylationIntegrationTests(unittest.TestCase):
     def test_nested_targets_with_shared_label_keep_distinct_heatmap_cells(self) -> None:
         report = _methylation_report()
@@ -515,22 +549,21 @@ class ReportMethylationIntegrationTests(unittest.TestCase):
                 modified_call_count=60,
             ),
         ]
+        result, report = _presentable(report)
         with tempfile.TemporaryDirectory() as temporary:
-            path = render_html(
-                build_demo_result(), Path(temporary) / "report.html", methylation_report=report
-            )
+            path = render_html(result, Path(temporary) / "report.html", methylation_report=report)
             document = path.read_text(encoding="utf-8")
         self.assertIn("ROI_A · 5mC · 75.0%", document)
         self.assertIn("ROI_A · 5mC · 25.0%", document)
         self.assertLess(document.index("75.0%"), document.index("25.0%"))
 
     def test_render_html_includes_the_heatmap_when_supplied(self) -> None:
-        result = build_demo_result()
+        result, report = _presentable(_methylation_report())
         with tempfile.TemporaryDirectory() as temporary:
             path = render_html(
                 result,
                 Path(temporary) / "report.html",
-                methylation_report=_methylation_report(),
+                methylation_report=report,
             )
             document = path.read_text(encoding="utf-8")
         self.assertIn("Modified-base fractions", document)

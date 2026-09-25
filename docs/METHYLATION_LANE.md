@@ -27,7 +27,10 @@ about whether a caller interprets them correctly there.
 
 `modkit pileup` over the aligned BAM, normalized into `MethylationReport`
 (`schemas/methylation-report.schema.json`) at `evidence/methylation/<sample>.methylation.json`
-inside the run envelope. The report holds one row per region and modification code:
+inside the run envelope. The raw pileup, `evidence/methylation/<sample>.modkit.bedmethyl`, is
+recorded as a second stage artifact: a resume verifies it byte for byte, the stage fails if it
+differs from the checksum the normalized report carries, and the release bundle lists it as
+withheld (`.bedmethyl` is never exportable). The report holds one row per region and modification code:
 
 - `sites_total` and `sites_at_minimum_coverage` — how much of the region the pileup saw,
   and how much of it was deep enough to use;
@@ -46,7 +49,27 @@ inside the run envelope. The report holds one row per region and modification co
 - `mean_valid_coverage`.
 
 Rows aggregate either over canonical chromosomes (`region_source: chromosome`) or over the
-locked target design (`region_source: target_bed`). Adaptive Sampling leaves the off-target
+locked target design (`region_source: target_bed`).
+
+### Reviewer presentation
+
+The report stage renders the same report three ways and adds nothing to it:
+
+- HTML: the region × modification heatmap and, below it, the complete region table
+  (sites at floor / sites, valid and modified calls, call-weighted and median fractions,
+  mean coverage, failed-threshold and no-call calls) with the policy, pinned threshold,
+  coverage floor and tag-probe answer;
+- Excel, whenever the run requested methylation: `13_Methylation` (status, meaning, policy,
+  tool, checksums, warnings, limitations) and `14_Methylation_Regions` (every count column
+  of the report);
+- a region below the coverage floor reads `not measurable (below the coverage floor)` in
+  HTML and has empty fraction cells in Excel — never `0`.
+
+A report is presented only next to the result it belongs to: sample and build must match,
+its bedMethyl checksum must be the one the result recorded, and the result's methylation
+module outcome must agree (`report_methylation.validate_methylation_identity`, shared with
+the Befund view). Region labels are escaped in HTML and stored as text in Excel, so a label
+such as `=SUM(1,2)` can never become a formula. Adaptive Sampling leaves the off-target
 genome at a depth where a chromosome-wide fraction mixes measured targets with barely
 observed background, so an enriched run should aggregate over the design.
 
@@ -156,6 +179,85 @@ ontseq call-methylation <manifest.yaml> \
 
 The stage is deselectable like any other component: `--without methylation`, or a
 `configs/components/` selection naming `modkit` and its version.
+
+## Haplotype-resolved methylation (research lane, issue #97)
+
+`ontseq_platform.methylation_lanes.haplotype` splits the same count classes by haplotype
+(HP=1, HP=2, unphased) so that allele-specific methylation becomes *observable*. It is a
+separate, standalone contract with its own policy and report; it does not change the
+aggregate lane, its thresholds, the run graph or the reporting boundary, and it does not
+classify anything (no imprinting, silencing, clonality or parent-of-origin statement).
+
+```bash
+ontseq call-haplotype-methylation <manifest.yaml> \
+  --intake results/intake.json \
+  --policy configs/methylation/haplotype.technical.yaml \
+  --regions <regions.bed> \
+  --reference-fasta <ref.fa> \
+  --output-dir results/haplotype-methylation \
+  --output results/haplotype-methylation.json
+```
+
+### What the pinned tool does
+
+Established with modkit 0.6.4 on synthetic haplotagged MM/ML BAMs
+(`tests/test_haplotype_methylation_real_tool.py`, run by the `local-real-tool-smoke` CI job),
+not inferred from documentation:
+
+- `modkit pileup --phased <dir>` writes exactly `combined.bedmethyl`, `hp1.bedmethyl` and
+  `hp2.bedmethyl`. Any other layout is refused as unqualified.
+- A haplotype without reads at a site has no row. Unphased calls are therefore
+  `combined − hp1 − hp2` per site and count class; a negative remainder or a haplotype site
+  missing from `combined` fails the run. Unphased calls are always reported, never dropped.
+- Phase sets are ignored: `HP=1` reads from two phase blocks are pooled into one "HP1",
+  although nothing makes them the same parental allele.
+- `HP=3` makes the pinned binary panic; `HP=0` is silently counted as unphased.
+- Soft-clipped bases carry no call onto the reference; both strands fold per CpG.
+
+### Refusals before modkit runs
+
+| Condition | Why |
+| --- | --- |
+| No accepted haplotagging step in the BAM header (`@PG` of `whatshap`/`longphase` whose command line contains `haplotag`) | The lane never phases on its own and does not trust HP tags of unknown provenance. Only a SHA-256 of the command line is kept, because it usually names local files |
+| No `MM` tags | An empty pileup would read as unmethylated on both haplotypes |
+| No `HP` tags | Nothing to resolve |
+| Any `HP` other than 1 or 2 | Aborts or silently mis-buckets in the pinned binary |
+| `HP` without `PS` | The read cannot be placed in a phase block |
+| Independent same-base MM groups (0.6.4) | Same guard as the aggregate lane |
+| A samtools that cannot evaluate a tag expression | An unverified haplotype pileup is refused, not assumed clean |
+
+### Phase-block identity and assessability
+
+For each region the lane reads the `PS` values of the haplotagged reads overlapping it
+(pysam; tag values only, no read names). A haplotype is `NOT_ASSESSABLE`, with every
+applicable reason recorded, when
+
+- no haplotagged read overlaps the region (`NO_PHASED_READS`);
+- the haplotagged reads come from more than one phase block (`MULTIPLE_PHASE_BLOCKS`);
+- it has fewer informative reads than `minimum_informative_reads_per_haplotype`
+  (`INSUFFICIENT_READS`; informative = mapped primary alignment, not secondary,
+  supplementary, QC-failed or duplicate);
+- fewer CpG sites reach `minimum_valid_coverage` *within the haplotype* than
+  `minimum_sites_at_floor_per_haplotype` (`INSUFFICIENT_SITES`).
+
+The measured fractions of a `NOT_ASSESSABLE` haplotype stay visible. `haplotype_difference`
+(HP1 − HP2, call-weighted) exists only when both haplotypes are assessable inside one phase
+block; the report model refuses anything else. The status is `COMPLETED` when at least one
+region was comparable and `NO_CALL` otherwise, with a warning that NO_CALL means "not
+assessable at this depth and phasing", not "no allele-specific methylation".
+
+`configs/methylation/haplotype.technical.yaml` (`modkit-phased-cpg-technical-v1`) holds the
+technical defaults: 5mC, CpG, strands combined, threshold 0.8, per-haplotype floor 5×,
+5 informative reads and 3 sites at floor per haplotype. None of them is validated.
+
+The report (`schemas/haplotype-methylation-report.schema.json`) carries the fingerprints of
+all three bedMethyl files and the region BED, the tool record with the qualified layout id
+(`modkit-0.6.4-phased-combined-hp1-hp2-v1`) and every assessability parameter.
+
+Not yet covered: wiring into the run graph and reviewer report, switch-error detection
+inside a phase block, and any biological qualification. Before any biological statement the
+lane needs reference material with known allele-specific methylation (for example imprinted
+DMRs in a public, access-checked sample, per AGENTS.md rule 8).
 
 ## Limits
 

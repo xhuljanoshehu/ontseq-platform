@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -9,10 +10,15 @@ from unittest.mock import patch
 import pytest
 
 from ontseq_platform import __version__
-from ontseq_platform.cnv.extension import _assemble_execute as assemble_with_cnv
+from ontseq_platform.cnv.lane import CnvLaneSettings
+from ontseq_platform.cnv.qdnaseq import QDNAseqPolicy
 from ontseq_platform.demo import build_demo_result
 from ontseq_platform.execution import CommandResult
-from ontseq_platform.methylation import MethylationPolicy, normalize_methylation
+from ontseq_platform.methylation import (
+    BEDMETHYL_NAME,
+    MethylationPolicy,
+    normalize_methylation,
+)
 from ontseq_platform.models import (
     AlignedBamIntakeReport,
     AnalysisModule,
@@ -49,6 +55,24 @@ from ontseq_platform.pipeline.runner import (
     run_pipeline,
 )
 from ontseq_platform.pipeline.stages import StageId
+
+#: A configured copy-number lane whose stage the fixtures never execute.
+SYNTHETIC_CNV_LANE = CnvLaneSettings(
+    policy=QDNAseqPolicy(
+        profile_id="synthetic-integration",
+        cytoband_affected_fraction=0.66,
+        note="Synthetic integration fixture, not a QDNAseq/ACE validation",
+    )
+)
+
+
+def assemble_with_cnv_lane(ctx: RunContext, plan: StagePlan) -> StageResult:
+    """The single assembler, run with a configured CNV lane that produced no evidence."""
+    from ontseq_platform.pipeline import runner as pipeline_runner
+
+    ctx.config.cnv_lane = SYNTHETIC_CNV_LANE
+    # Resolved through the module: tests patch this file's ``_assemble_execute`` alias.
+    return pipeline_runner._assemble_execute(ctx, plan)
 
 
 class _ModkitVersionOnly:
@@ -144,6 +168,14 @@ class _Fixture:
             tool=ToolRecord(name="modkit", version="0.6.4"),
         )
 
+    def _pileup(self, manifest, intake, policy, *, output_dir: Path, **_kwargs):  # noqa: ANN001, ANN202
+        """Write the bedMethyl where the real adapter would, then normalize it."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(
+            self.bedmethyl, output_dir / BEDMETHYL_NAME.format(sample=manifest.sample_id)
+        )
+        return self.methylation_report()
+
     def stage(self, relative: str, model) -> StageImplementation:
         def execute(ctx: RunContext, plan: StagePlan) -> StageResult:
             artifact = ctx.envelope.atomic_write_text(relative, model.model_dump_json())
@@ -166,7 +198,7 @@ class _Fixture:
             ),
             patch(
                 "ontseq_platform.pipeline.runner.run_methylation",
-                return_value=self.methylation_report(),
+                side_effect=self._pileup,
             ) as adapter,
         ):
             report, release = run_pipeline(config or self.config, runner=_ModkitVersionOnly())
@@ -305,8 +337,7 @@ def test_cnv_assembler_keeps_current_methylation_and_rejects_stale_artifacts(
         manifest=fixture.config.manifest,
         artifacts={StageId.METHYLATION: [envelope.fingerprint(relative)]},
     )
-    with patch("ontseq_platform.cnv.extension._load_cnv", return_value=None):
-        assemble_with_cnv(context, StagePlan(parameters={}, tool_versions={}))
+    assemble_with_cnv_lane(context, StagePlan(parameters={}, tool_versions={}))
     result = fixture.result()
     assert result.schema_version == "0.3.0"
     assert result.reference_context == fixture.config.resource_context
@@ -318,3 +349,61 @@ def test_cnv_assembler_keeps_current_methylation_and_rejects_stale_artifacts(
     envelope.path(relative).write_text("changed stale report", encoding="utf-8")
     with pytest.raises(StageFailure, match="checksum"):
         load_methylation_report(context)
+
+
+def test_the_report_stage_renders_methylation_into_html_and_workbook(tmp_path: Path) -> None:
+    from openpyxl import load_workbook
+
+    from ontseq_platform.pipeline.runner import REPORT_HTML, REPORT_XLSX
+
+    fixture = _Fixture(tmp_path)
+    report, _, _ = fixture.run()
+    assert report.record_for(StageId.REPORT).status is ModuleRunStatus.COMPLETED
+    envelope = fixture.envelope()
+    sample = fixture.config.manifest.sample_id
+    workbook = load_workbook(envelope.path(REPORT_XLSX.format(sample=sample)))
+    assert {"13_Methylation", "14_Methylation_Regions"} <= set(workbook.sheetnames)
+    rows = list(workbook["14_Methylation_Regions"].iter_rows(min_row=2, values_only=True))
+    assert rows and rows[0][0] == "chr1"
+    html = envelope.path(REPORT_HTML.format(sample=sample)).read_text(encoding="utf-8")
+    assert "Region table (1 row(s))" in html
+
+
+def test_the_bedmethyl_pileup_is_a_withheld_verified_stage_artifact(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    report, release, _ = fixture.run()
+    sample = fixture.config.manifest.sample_id
+    relative = f"evidence/methylation/{BEDMETHYL_NAME.format(sample=sample)}"
+    outputs = {item.relative_path: item for item in report.record_for(StageId.METHYLATION).outputs}
+    assert relative in outputs
+    assert outputs[relative].exportable is False
+    assert outputs[relative].sha256 == fixture.methylation_report().bedmethyl_fingerprint.sha256
+    assert release is not None
+    assert relative in release.withheld_artifact_paths
+    assert all(item.relative_path != relative for item in release.artifacts)
+
+    resumed, _, calls = fixture.run()
+    assert resumed.record_for(StageId.METHYLATION).resumed
+    assert calls == 0
+
+    fixture.envelope().path(relative).write_text("tampered\n", encoding="utf-8")
+    rerun, _, calls = fixture.run()
+    assert not rerun.record_for(StageId.METHYLATION).resumed
+    assert calls == 1
+
+
+def test_a_pileup_that_differs_from_its_normalized_report_fails(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    original = fixture._pileup
+
+    def drifting(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        report = original(*args, **kwargs)
+        target = kwargs["output_dir"] / BEDMETHYL_NAME.format(sample=args[0].sample_id)
+        target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        return report
+
+    fixture._pileup = drifting  # type: ignore[method-assign]
+    report, _, _ = fixture.run()
+    record = report.record_for(StageId.METHYLATION)
+    assert record.status is ModuleRunStatus.FAILED
+    assert "changed after it was normalized" in record.reason

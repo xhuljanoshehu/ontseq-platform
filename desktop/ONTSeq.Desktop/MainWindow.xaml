@@ -88,6 +88,7 @@
                     <StackPanel>
                         <TextBlock x:Name="MethylationStateText" Text="Nach der BAM-Auswahl wird auf Methylierungsinformationen geprüft." FontWeight="SemiBold" Foreground="#185E63" TextWrapping="Wrap" />
                         <TextBlock x:Name="MethylationExplanationText" Text="Bei erkannten Informationen entscheiden Sie vor dem Start ausdrücklich: ergänzen oder nur Genomanalyse." Foreground="#526B78" FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap" />
+                        <TextBlock x:Name="MarlinStateText" Text="MARLIN wird bei ausgewählter Methylierung automatisch angefordert; Vorprüfung vor dem Start." Foreground="#526B78" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
                         <TextBlock x:Name="MethylationProgressText" Foreground="#42556E" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
                         <ProgressBar x:Name="MethylationProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" Margin="0,6,0,0" />
                         <WrapPanel Margin="0,8,0,0">
