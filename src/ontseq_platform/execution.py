@@ -5,9 +5,11 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
 from typing import Protocol
 
 
@@ -141,24 +143,34 @@ def _freeze_if_member(pid: int, members: set[int]) -> bool:
 
 
 @contextlib.contextmanager
-def _sigint_held() -> Iterator[None]:
-    """Hold SIGINT for the calling thread; a Ctrl+C meanwhile is raised afterwards.
+def _ctrl_c_deferred() -> Iterator[None]:
+    """Defer Ctrl+C until the block is done, then hand it to the previous handler once.
 
-    A cleanup that a further Ctrl+C interrupts half-way could leave stopped processes
-    behind, so that Ctrl+C stays pending until every stopped process has been killed or
-    resumed and then raises ``KeyboardInterrupt`` as usual. Only the calling thread is
-    masked: in a multi-threaded process the kernel may deliver the signal to another
-    thread, which is why ``_kill_descendants`` also records every process before stopping
-    it.
+    A cleanup that a further Ctrl+C cuts short could leave stopped or not yet found
+    processes behind. Python raises ``KeyboardInterrupt`` only in the main thread, whichever
+    thread the kernel delivered SIGINT to, so there the handler is briefly swapped for one
+    that only records the signal. Other threads never see ``KeyboardInterrupt`` and need
+    nothing. A handler installed outside Python cannot be restored and is left alone.
     """
-    if not hasattr(signal, "pthread_sigmask"):  # native Windows
+    received: list[FrameType | None] = []
+    previous = signal.getsignal(signal.SIGINT)
+    deferring = False
+    if threading.current_thread() is threading.main_thread() and previous is not None:
+        with contextlib.suppress(ValueError):  # raised outside the main interpreter
+            signal.signal(signal.SIGINT, lambda _signum, frame: received.append(frame))
+            deferring = True
+    if not deferring:
         yield
         return
-    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
     try:
         yield
     finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        signal.signal(signal.SIGINT, previous)
+        if received:
+            if callable(previous):
+                previous(signal.SIGINT, received[0])  # default: raises KeyboardInterrupt
+            elif previous == signal.SIG_DFL:
+                signal.raise_signal(signal.SIGINT)
 
 
 def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[str]) -> None:
@@ -170,9 +182,7 @@ def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[
     direct-child termination until a separately tested job-object contract exists.
     """
     try:
-        # Only the signalling is held off from Ctrl+C. The wait below stays interruptible
-        # in case the killed tool is stuck in uninterruptible I/O.
-        with _sigint_held():
+        with _ctrl_c_deferred():
             try:
                 if os.name == "posix":
                     _kill_descendants(process.pid)
@@ -181,13 +191,20 @@ def _terminate_process_tree(process: subprocess.Popen[bytes] | subprocess.Popen[
                 # the descendant scan was itself interrupted.
                 process.kill()
     finally:
-        process.wait()
-        # The Popen object can outlive this call inside a retained traceback, so release
-        # its pipes now rather than at garbage collection. Closing (not draining) cannot
-        # block on a descendant that still holds the write end.
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None:
-                stream.close()
+        try:
+            # Kill again in case Ctrl+C struck before the deferral took effect. Only the
+            # signalling defers Ctrl+C: reaping stays interruptible in case the killed
+            # tool is stuck in uninterruptible I/O.
+            process.kill()
+            process.wait()
+        finally:
+            # The Popen object can outlive this call inside a retained traceback, so
+            # release its pipes now rather than at garbage collection, also when the wait
+            # was interrupted. Closing (not draining) cannot block on a descendant that
+            # still holds the write end.
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
 
 
 class SubprocessRunner:

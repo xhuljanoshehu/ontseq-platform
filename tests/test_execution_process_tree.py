@@ -367,10 +367,20 @@ def test_interrupt_right_after_a_descendant_is_stopped_still_kills_it(
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
-def test_ctrl_c_during_cleanup_is_held_until_the_tree_is_dead(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("receiver", ["runner-thread", "other-thread"])
+def test_ctrl_c_during_cleanup_is_deferred_until_the_tree_is_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, receiver: str
 ) -> None:
-    """A further Ctrl+C must not cut the cleanup short; it is raised once the tree is dead."""
+    """A further Ctrl+C must not cut the cleanup short; it is raised once the tree is dead.
+
+    Python raises ``KeyboardInterrupt`` in the main thread even when the kernel delivered
+    SIGINT to another thread, so both deliveries are exercised.
+    """
+    idle = threading.Event()
+    other = threading.Thread(target=idle.wait, daemon=True)
+    other.start()
+    target = threading.get_ident() if receiver == "runner-thread" else other.ident
+    assert target is not None
     real_scan = execution._linux_descendants
     scans = 0
 
@@ -378,17 +388,22 @@ def test_ctrl_c_during_cleanup_is_held_until_the_tree_is_dead(
         nonlocal scans
         scans += 1
         if scans == 1:
-            signal.pthread_kill(threading.get_ident(), signal.SIGINT)
+            signal.pthread_kill(target, signal.SIGINT)
+            time.sleep(0.2)  # let the receiving thread trip Python's signal flag
         return real_scan(root)
 
     monkeypatch.setattr(execution, "_linux_descendants", scan_after_ctrl_c)
     started = _record_started_processes(monkeypatch)
     shell = shutil.which("sh")
     assert shell is not None
-    pid_path = tmp_path / "held-ctrl-c-descendant.pid"
+    pid_path = tmp_path / "deferred-ctrl-c-descendant.pid"
 
-    with pytest.raises(KeyboardInterrupt):
-        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+    finally:
+        idle.set()
+        other.join()
 
     (process,) = started
     pid = int(pid_path.read_text(encoding="utf-8"))
@@ -407,12 +422,13 @@ def test_ctrl_c_during_cleanup_is_held_until_the_tree_is_dead(
 def test_reaping_the_killed_tool_stays_interruptible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the signalling holds off Ctrl+C, not the wait for a tool stuck in I/O."""
-    masks: list[set[int | signal.Signals]] = []
+    """Only the signalling defers Ctrl+C, not the wait for a tool stuck in I/O."""
+    handler_before = signal.getsignal(signal.SIGINT)
+    handlers: list[object] = []
     real_wait = subprocess.Popen.wait
 
     def recording_wait(self: subprocess.Popen[str], timeout: float | None = None) -> int:
-        masks.append(signal.pthread_sigmask(signal.SIG_BLOCK, ()))
+        handlers.append(signal.getsignal(signal.SIGINT))
         return real_wait(self, timeout)
 
     monkeypatch.setattr(subprocess.Popen, "wait", recording_wait)
@@ -424,5 +440,64 @@ def test_reaping_the_killed_tool_stays_interruptible(
         SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
 
     _kill_if_still_live(int(pid_path.read_text(encoding="utf-8")))
-    assert masks
-    assert all(signal.SIGINT not in mask for mask in masks)
+    assert handlers
+    assert all(handler is handler_before for handler in handlers)
+    assert signal.getsignal(signal.SIGINT) is handler_before
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_pipes_are_closed_even_if_reaping_is_interrupted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ctrl+C during the interruptible wait must not leak the aborted process's pipes."""
+    popen = subprocess.Popen
+    real_wait = popen.wait
+
+    def interrupted_wait(self: subprocess.Popen[str], timeout: float | None = None) -> int:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(popen, "wait", interrupted_wait)
+    started = _record_started_processes(monkeypatch)
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "interrupted-reap-descendant.pid"
+
+    with pytest.raises(KeyboardInterrupt):
+        SubprocessRunner().run([shell, "-c", _descendant_script(pid_path)], timeout_seconds=1)
+
+    (process,) = started
+    try:
+        pipes = [stream for stream in (process.stdout, process.stderr) if stream is not None]
+        assert pipes
+        assert all(stream.closed for stream in pipes)
+    finally:
+        _kill_if_still_live(int(pid_path.read_text(encoding="utf-8")))
+        real_wait(process)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux/WSL process-tree cleanup contract")
+def test_timeout_cleanup_works_off_the_main_thread(tmp_path: Path) -> None:
+    """Worker threads cannot swap signal handlers; their cleanup must still kill the tree."""
+    shell = shutil.which("sh")
+    assert shell is not None
+    pid_path = tmp_path / "worker-descendant.pid"
+    argv = [shell, "-c", _descendant_script(pid_path)]
+    errors: list[BaseException] = []
+
+    def run_in_worker() -> None:
+        try:
+            SubprocessRunner().run(argv, timeout_seconds=1)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_in_worker)
+    worker.start()
+    worker.join(timeout=30)
+    assert not worker.is_alive()
+    pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert len(errors) == 1
+        assert isinstance(errors[0], ToolExecutionError), errors[0]
+        assert _wait_until_not_live(pid), "a worker-thread timeout left a descendant alive"
+    finally:
+        _kill_if_still_live(pid)
